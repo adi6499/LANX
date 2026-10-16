@@ -34,6 +34,10 @@ pub const FEATURES_V11: &str = "1.1.0";
 /// ordinary chat file instead).
 pub const FEATURES_V12: &str = "1.2.0";
 
+/// Oldest app version with voice/video calls. (The first 1.2.0 builds that
+/// reached colleagues had update sharing only, so calls start at 1.2.2.)
+pub const FEATURES_CALLS: &str = "1.2.2";
+
 /// A plain "major.minor.patch" version (what LANX installers are named after).
 pub fn valid_version(v: &str) -> bool {
     let parts: Vec<&str> = v.split('.').collect();

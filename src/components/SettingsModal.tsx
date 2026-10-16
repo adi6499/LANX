@@ -372,7 +372,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {navItem("about", "About", Info)}
           </div>
           <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-600 border-t border-slate-200 dark:border-slate-800">
-            LANX v{systemInfo?.app_version || "1.2.0"} · Windows
+            LANX v{systemInfo?.app_version || "1.2.2"} · Windows
           </div>
         </div>
 
@@ -870,7 +870,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <img src="/lanx-logo.png" alt="" className="mx-auto h-16 w-16 rounded-2xl shadow-lg" />
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">LANX</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Version {systemInfo?.app_version || "1.2.0"}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Version {systemInfo?.app_version || "1.2.2"}</p>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
                   Office messenger and file sharing for your local network. No internet, no server, no accounts: computers

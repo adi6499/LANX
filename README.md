@@ -7,7 +7,7 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 ## For users
 
 ### Install
-1. Run **`LANX-Setup-1.2.0.exe`**.
+1. Run **`LANX-Setup-1.2.2.exe`**.
 2. Windows asks *"Do you want to allow this app to make changes?"* → **Yes** (the installer needs
    this once, to install for all users and to allow LANX through Windows Firewall).
 3. LANX opens. Type your name → **Launch LANX**. Done.
@@ -17,7 +17,7 @@ reach you straight away (also on networks Windows marked as "Public", but only f
 
 **Upgrading:** just run the new installer — it replaces the old copy and keeps your chats.
 From 1.2 on, LANX can update itself over the office network (see *Share LANX update* below).
-Newer versions talk normally with colleagues on older ones; new features (calls need 1.2; groups,
+Newer versions talk normally with colleagues on older ones; new features (calls need 1.2.2; groups,
 secret messages, “Seen”, typing and the bell need 1.1) start working with them once they update too.
 (0.1 is not compatible — update every PC from 0.1.)
 

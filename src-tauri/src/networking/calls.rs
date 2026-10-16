@@ -99,11 +99,11 @@ impl NetworkService {
     async fn send_call(&self, peer: &Peer, p: CallPayload) -> Result<(), String> {
         let unreachable = || format!("Could not reach {}.", peer.display_name);
         let mut chan = self.connect_peer(peer).await.map_err(|_| unreachable())?;
-        if !version_at_least(&chan.remote.app_version, FEATURES_V12) {
+        if !version_at_least(&chan.remote.app_version, FEATURES_CALLS) {
             chan.close().await;
             return Err(format!(
-                "{} needs LANX 1.2 or newer for calls. Ask them to update.",
-                peer.display_name
+                "{} needs LANX {} or newer for calls. Ask them to update.",
+                peer.display_name, FEATURES_CALLS
             ));
         }
         let reply = NetworkService::send_acked(&mut chan, PacketPayload::Call(p)).await;
