@@ -16,7 +16,6 @@ interface ContextPanelProps {
 const STATUS_LABEL: Record<string, string> = {
   queued: "Queued",
   pending: "Waiting",
-  transferring: "Sending…",
   completed: "Done",
   declined: "Declined",
   cancelled: "Cancelled",
@@ -202,7 +201,13 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                   <span>
                     {tx.direction === "incoming" ? "Received" : "Sent"} · {formatSize(tx.file_size)}
                   </span>
-                  <span>{STATUS_LABEL[tx.status] || tx.status}</span>
+                  <span>
+                    {tx.status === "transferring"
+                      ? tx.direction === "incoming"
+                        ? "Receiving…"
+                        : "Sending…"
+                      : STATUS_LABEL[tx.status] || tx.status}
+                  </span>
                 </div>
               </button>
             ))}

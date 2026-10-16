@@ -87,8 +87,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   LAN
                 </span>
               </div>
-              <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 online-pulse" />
+              <div
+                className={`flex items-center gap-1 text-[11px] font-medium ${
+                  onlineCount > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${onlineCount > 0 ? "bg-emerald-500 online-pulse" : "bg-slate-400"}`}
+                />
                 <span>
                   {onlineCount === 0
                     ? "Looking for colleagues…"

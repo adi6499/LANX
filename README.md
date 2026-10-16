@@ -15,6 +15,9 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 The installer sets up Windows Firewall for you, so there is **no firewall popup** and colleagues can
 reach you straight away (also on networks Windows marked as "Public", but only from the same subnet).
 
+**Upgrading from LANX 0.1:** just run the 1.0 installer — it removes the old 0.1 copy and keeps your
+chats. Install 1.0 on **every** PC: 1.0 is encrypted and cannot talk to 0.1.
+
 > **About the blue "Windows protected your PC" box** — see [docs/install-without-warnings.md](docs/install-without-warnings.md).
 > In short: it appears only for files downloaded from the internet/email/WhatsApp that are not
 > code-signed. Copy the installer over a USB drive or a shared folder (`\\PC-NAME\share`) and it does

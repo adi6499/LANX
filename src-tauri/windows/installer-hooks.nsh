@@ -8,6 +8,23 @@
 !define LANX_FW_RULE "LANX Messenger"
 !define LANX_FW_RULE_PUBLIC "LANX Messenger (public networks, local subnet only)"
 
+!macro NSIS_HOOK_PREINSTALL
+  ; LANX 0.1 installed per user (in %LOCALAPPDATA%\LANX). Remove it so there
+  ; is only one LANX. Chats in %APPDATA%\LANX are kept and upgraded.
+  ReadRegStr $R0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\LANX" "UninstallString"
+  SetShellVarContext current ; $LOCALAPPDATA = this user's folder, not ProgramData
+  ${If} $R0 != ""
+  ${AndIf} ${FileExists} "$LOCALAPPDATA\LANX\uninstall.exe"
+    nsExec::Exec 'taskkill /F /IM lanx.exe'
+    Pop $0
+    ExecWait '"$LOCALAPPDATA\LANX\uninstall.exe" /S _?=$LOCALAPPDATA\LANX'
+    Delete "$LOCALAPPDATA\LANX\uninstall.exe"
+    RMDir "$LOCALAPPDATA\LANX"
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\LANX"
+  ${EndIf}
+  SetShellVarContext all ; back to the all-users install
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   ; Drop old rules for this program, including any "Block" rule Windows made
   ; if someone pressed Cancel on a firewall popup for an earlier LANX.

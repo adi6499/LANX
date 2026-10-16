@@ -211,11 +211,13 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-0">
               {conversation.peer_status === "online" ? (
                 <span className="text-emerald-600 dark:text-emerald-400 font-medium">Online</span>
               ) : (
-                <span>Offline — messages will be delivered when they're back</span>
+                <span className="truncate" title="Messages and files wait and are delivered when they come back online">
+                  Offline · messages will wait
+                </span>
               )}
               <span>•</span>
               <span className="font-mono text-[11px] text-slate-400">{conversation.peer_ip}</span>
