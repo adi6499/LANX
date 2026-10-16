@@ -177,3 +177,59 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Hidden chats: a faint diagonal pattern so they never look like a normal chat */
+.lanx-hidden-bg {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.045) 0 2px,
+    transparent 2px 14px
+  );
+}
+.dark .lanx-hidden-bg {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(167, 139, 250, 0.06) 0 2px,
+    transparent 2px 14px
+  );
+}
+
+/* Calls: soft rings around the avatar while it rings, a gentle pulse on Accept */
+.lanx-call-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  animation: lanx-call-ring 2s ease-out infinite;
+}
+.lanx-call-ring-2 {
+  animation-delay: 1s;
+}
+@keyframes lanx-call-ring {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+.lanx-call-pulse {
+  animation: lanx-call-pulse 1.4s ease-in-out infinite;
+}
+@keyframes lanx-call-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(16, 185, 129, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lanx-call-ring,
+  .lanx-call-pulse {
+    animation: none;
+  }
+}

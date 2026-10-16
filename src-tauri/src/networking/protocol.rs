@@ -28,9 +28,10 @@ pub struct HandshakePayload {
 /// typing and ring. Older peers are never sent those packets.
 pub const FEATURES_V11: &str = "1.1.0";
 
-/// Oldest app version that understands `UpdateOffer` ("Share LANX update").
-/// Older peers would drop the connection on an unknown packet kind, so they
-/// are offered the installer as an ordinary chat file instead.
+/// Oldest app version that understands voice/video calls and `UpdateOffer`
+/// ("Share LANX update"). Older peers would drop the connection on an unknown
+/// packet kind, so they are never sent those (updates go to them as an
+/// ordinary chat file instead).
 pub const FEATURES_V12: &str = "1.2.0";
 
 /// A plain "major.minor.patch" version (what LANX installers are named after).
@@ -113,6 +114,24 @@ pub struct GroupUpdatePayload {
     pub version: i64,
     pub avatar_color: String,
     pub members: Vec<GroupMemberPayload>,
+}
+
+/// Call set-up (LANX 1.2). The audio/video itself is WebRTC between the two
+/// LANX windows; these packets carry the offer/answer and the call's state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallPayload {
+    pub call_id: String,
+    /// invite | accept | decline | cancel | hangup | media
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<bool>,
+    /// WebRTC session description (offer for invite, answer for accept).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sdp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,6 +247,7 @@ pub enum PacketPayload {
     Ack(AckPayload),
     // LANX 1.2 (only sent to peers reporting app_version >= 1.2.0)
     UpdateOffer(UpdateOfferPayload),
+    Call(CallPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -156,3 +156,18 @@ updates spread from PC to PC even when the first sharer is switched off.
 - The installer keeps a copy of itself in `<LANX folder>\updates`, with its `.sig` if one was next to
   it. On start-up LANX shares a verified copy of the version it runs, so installing a release straight
   from the release folder is enough to start sharing it.
+
+## 7. LANX 1.2: voice and video calls (same protocol v2)
+Sent only to peers whose handshake reports `app_version >= 1.2.0`.
+
+| kind | meaning |
+|---|---|
+| `call { call_id, action: "invite", video, sdp }` → `ack` | Start a call; `sdp` is the caller's WebRTC offer. `ack.ok = false` with a reason when the callee is busy or blocked the caller |
+| `call { action: "accept", sdp, video }` → `ack` | Answer; `sdp` is the WebRTC answer |
+| `call { action: "decline" \| "cancel" \| "hangup" }` → `ack` | Decline a ringing call / give up while ringing / end an active call |
+| `call { action: "media", video?, muted?, screen? }` → `ack` | Camera, mute and screen-sharing state |
+
+Only the two devices in a call may change it (checked by device id). Unanswered calls end after 45 s on
+both sides. The audio and video travel directly between the two LANX windows over WebRTC (DTLS-SRTP),
+using LAN addresses only (no STUN/TURN servers). Both sides write the call into the chat as a
+`message_type: "call"` record (`{"video", "outcome", "secs"}`), which is never sent over the network.

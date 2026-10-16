@@ -176,6 +176,28 @@ impl Events {
         }
     }
 
+    /// Incoming call: bring LANX to the front, flash the taskbar and show a
+    /// notification. (The ringtone itself is played by the call code.)
+    pub fn incoming_call(&self, db: &Database, title: &str) {
+        let Some(app) = &self.app else { return };
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.request_user_attention(Some(tauri::UserAttentionType::Critical));
+        }
+        let notifications = db.get_settings().map(|s| s.notifications_enabled).unwrap_or(true);
+        if notifications && !Self::main_window_focused(app) {
+            use tauri_plugin_notification::NotificationExt;
+            let _ = app
+                .notification()
+                .builder()
+                .title(title)
+                .body("Open LANX to answer")
+                .silent()
+                .show();
+        }
+    }
+
     pub fn update_tray(&self, db: &Database) {
         let Some(app) = &self.app else { return };
         let unread = db.total_unread();

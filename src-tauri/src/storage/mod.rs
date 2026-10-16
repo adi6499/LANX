@@ -1490,7 +1490,29 @@ pub fn message_preview(msg: &Message) -> String {
             }
         }
         "ring" => "🔔 Ring".to_string(),
+        "call" => call_preview(&msg.content, msg.is_outgoing),
         _ => preview_text(&msg.content),
+    }
+}
+
+/// "📞 Video call · 3:12", "📞 Missed voice call", … from a call record.
+pub fn call_preview(content: &str, outgoing: bool) -> String {
+    let v: serde_json::Value = serde_json::from_str(content).unwrap_or_default();
+    let kind = if v["video"].as_bool().unwrap_or(false) { "video" } else { "voice" };
+    let secs = v["secs"].as_i64().unwrap_or(0);
+    match v["outcome"].as_str().unwrap_or("") {
+        "answered" => format!(
+            "📞 {} call · {}:{:02}",
+            if kind == "video" { "Video" } else { "Voice" },
+            secs / 60,
+            secs % 60
+        ),
+        "missed" | "busy" => format!("📞 Missed {} call", kind),
+        "declined" if outgoing => "📞 Call declined".to_string(),
+        "declined" => format!("📞 Declined {} call", kind),
+        "no_answer" => "📞 No answer".to_string(),
+        "cancelled" => "📞 Cancelled call".to_string(),
+        _ => "📞 Call failed".to_string(),
     }
 }
 

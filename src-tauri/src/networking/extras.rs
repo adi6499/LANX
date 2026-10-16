@@ -82,7 +82,7 @@ impl NetworkService {
         }
     }
 
-    fn insert_event_message(&self, conv_id: &str, sender: &str, outgoing: bool, kind: &str, content: &str) -> Option<Message> {
+    pub(super) fn insert_event_message(&self, conv_id: &str, sender: &str, outgoing: bool, kind: &str, content: &str) -> Option<Message> {
         let msg = Message {
             id: uuid::Uuid::new_v4().to_string(),
             conversation_id: conv_id.to_string(),

@@ -22,14 +22,16 @@ import { TransfersView } from "./components/TransfersView";
 import { HistoryView } from "./components/HistoryView";
 import { SettingsModal, SettingsTab } from "./components/SettingsModal";
 import { OnboardingModal } from "./components/OnboardingModal";
-import { LockScreen, PinDialog } from "./components/LockScreen";
+import { LockScreen, PinDialog, NewPinDialog } from "./components/LockScreen";
 import { NewGroupModal } from "./components/NewGroupModal";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { WelcomeTour } from "./components/WelcomeTour";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { CallLayer, CallLayerHandle } from "./components/CallLayer";
 import { AlertCircle, X } from "lucide-react";
 
-const TOUR_KEY = "lanx.tourSeen.v1";
+// v2: shown once more after the 1.2 update, which added calls, backups and the new hidden chats.
+const TOUR_KEY = "lanx.tourSeen.v2";
 
 function readFlag(key: string): boolean {
   try {
@@ -90,12 +92,15 @@ export default function App() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [showHiddenPrompt, setShowHiddenPrompt] = useState(false);
+  /** Hiding a chat before any PIN exists: choose one first. */
+  const [pinSetupFor, setPinSetupFor] = useState<string | null>(null);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
 
   const locked = !!lock?.locked;
+  const callRef = useRef<CallLayerHandle>(null);
   const activeConversationIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<NavTab>("messages");
   const lockedRef = useRef(false);
@@ -118,7 +123,7 @@ export default function App() {
   const showError = useCallback((err: unknown) => {
     const text = errorText(err);
     if (text === "LOCKED") return; // the lock screen is already showing
-    setNotice(text === "HIDDEN" ? "That chat is hidden. Use “Show hidden chats” (👁, bottom-left) and your PIN." : text);
+    setNotice(text === "HIDDEN" ? "That chat is hidden. Open “Hidden chats” at the top of your chat list and enter your PIN." : text);
   }, []);
 
   const applyTheme = useCallback((theme: "system" | "dark" | "light") => {
@@ -185,6 +190,8 @@ export default function App() {
           const c = await reloadAll();
           if (c.length > 0 && !activeConversationIdRef.current) setActiveConversationId(c[0].id);
         }
+        const restored = await api.takeRestoreNotice().catch(() => null);
+        if (restored) setNotice(restored.text);
       } catch (err) {
         console.error("Initialization error:", err);
         setLoadError(errorText(err));
@@ -590,21 +597,29 @@ export default function App() {
     }
   };
 
+  const hideOrUnhide = async (id: string, hidden: boolean, hiddenVisible: boolean) => {
+    await api.setConversationHidden(id, hidden);
+    const c = await reloadAll();
+    if (hidden && !hiddenVisible) {
+      const next = c.find((x) => !x.is_hidden);
+      setActiveConversationId(next ? next.id : null);
+      setNotice("Chat hidden 🔒  To open it again: “Hidden chats” at the top of your chat list → your PIN.");
+    } else if (hidden) {
+      setNotice("Chat moved to Hidden chats. It disappears when you press “Hide again” or LANX locks.");
+    } else {
+      setNotice("Chat is back in your normal chat list.");
+    }
+  };
+
   const handleSetHidden = async (hidden: boolean) => {
     const id = activeConversationId;
     if (!id) return;
     if (hidden && !settings?.pin_enabled) {
-      setNotice("Set a PIN first so hidden chats stay protected. Opening Settings → Privacy…");
-      setSettingsTab("privacy");
+      setPinSetupFor(id); // choose a PIN first, then hide
       return;
     }
     try {
-      await api.setConversationHidden(id, hidden);
-      const c = await reloadAll();
-      if (hidden && !lock?.hidden_unlocked) {
-        setActiveConversationId(c.length > 0 ? c[0].id : null);
-        setNotice("Chat hidden. Show it again with the 👁 button at the bottom-left and your PIN.");
-      }
+      await hideOrUnhide(id, hidden, !!lock?.hidden_unlocked);
     } catch (err) {
       showError(err);
     }
@@ -725,22 +740,42 @@ export default function App() {
     );
   }
 
+  // Always the first child of the same fragment, so a call survives LANX
+  // locking or unlocking in the middle of it.
+  const callLayer = (
+    <CallLayer
+      key="call-layer"
+      ref={callRef}
+      onError={(text) => setNotice(text)}
+      onOpenChat={(id) => {
+        if (lockedRef.current) return;
+        setActiveConversationId(id);
+        setActiveTab("messages");
+      }}
+    />
+  );
+
   if (locked) {
     return (
-      <LockScreen
-        displayName={settings.display_name}
-        avatarColor={settings.avatar_color}
-        onUnlock={async (pin) => {
-          const s = await api.unlock(pin);
-          setLock(s);
-          lockedRef.current = false;
-          await loadAfterUnlock();
-        }}
-      />
+      <>
+        {callLayer}
+        <LockScreen
+          displayName={settings.display_name}
+          avatarColor={settings.avatar_color}
+          onUnlock={async (pin) => {
+            const s = await api.unlock(pin);
+            setLock(s);
+            lockedRef.current = false;
+            await loadAfterUnlock();
+          }}
+        />
+      </>
     );
   }
 
   return (
+    <>
+    {callLayer}
     <div className="h-screen w-screen flex overflow-hidden bg-slate-100 dark:bg-black">
       <Sidebar
         settings={settings}
@@ -806,6 +841,8 @@ export default function App() {
             onTyping={handleTyping}
             onRing={handleRing}
             onSetSecret={handleSetSecret}
+            onSetHidden={handleSetHidden}
+            onCall={(video) => activeConversation && callRef.current?.start(activeConversation, video)}
             onUnblock={() => activePeer && handleUpdateTrust(activePeer.id, "unverified")}
           />
         )}
@@ -931,6 +968,26 @@ export default function App() {
         />
       )}
 
+      {pinSetupFor && (
+        <NewPinDialog
+          title="Choose a PIN for hidden chats"
+          description="Hidden chats only show after this PIN. LANX will also ask for it when it starts. 4 to 12 digits."
+          onClose={() => setPinSetupFor(null)}
+          onDone={async (pin) => {
+            const id = pinSetupFor;
+            await api.setPin(null, pin);
+            const s = await api.getSettings();
+            setSettings(s);
+            setPinSetupFor(null);
+            try {
+              await hideOrUnhide(id, true, false);
+            } catch (err) {
+              showError(err);
+            }
+          }}
+        />
+      )}
+
       {showOnboarding && (
         <OnboardingModal
           settings={settings}
@@ -952,5 +1009,6 @@ export default function App() {
         />
       )}
     </div>
+    </>
   );
 }

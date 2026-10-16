@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod commands;
 pub mod discovery;
 pub mod events;
@@ -34,12 +35,60 @@ pub(crate) fn quit_app(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Some(state) = app.try_state::<AppState>() {
+            if let Some(call) = state.network.current_call() {
+                let _ = state.network.hangup_call(&call.call_id).await;
+            }
             state.discovery.announce_offline().await;
             state.discovery.stop();
             state.network.stop();
         }
         app.exit(0);
     });
+}
+
+/// Restarts LANX (used after a restore is staged). The new copy waits for this
+/// one to exit, so the single-instance guard and WebView2 don't trip over it.
+pub fn relaunch(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        if let Some(state) = app.try_state::<AppState>() {
+            state.discovery.announce_offline().await;
+            state.discovery.stop();
+            state.network.stop();
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe)
+                .arg("--wait-for-exit")
+                .arg(std::process::id().to_string())
+                .spawn();
+        }
+        app.exit(0);
+    });
+}
+
+/// `--wait-for-exit <pid>`: wait (up to 20 s) for the previous LANX to close.
+fn wait_for_previous_instance() {
+    let args: Vec<String> = std::env::args().collect();
+    let Some(i) = args.iter().position(|a| a == "--wait-for-exit") else {
+        return;
+    };
+    let Some(pid) = args.get(i + 1).and_then(|p| p.parse::<u32>().ok()) else {
+        return;
+    };
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject};
+        const SYNCHRONIZE: u32 = 0x0010_0000;
+        let h = OpenProcess(SYNCHRONIZE, 0, pid);
+        if !h.is_null() {
+            WaitForSingleObject(h, 20_000);
+            CloseHandle(h);
+        }
+    }
+    // Give WebView2 a moment to let go of its data folder.
+    std::thread::sleep(std::time::Duration::from_millis(1200));
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -99,6 +148,7 @@ fn fatal_startup_error(app: &tauri::App, message: String) -> ! {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    wait_for_previous_instance();
     let profile = testmode::profile();
     let mut builder = tauri::Builder::default();
 
@@ -110,6 +160,17 @@ pub fn run() {
     }
 
     builder
+        // Calls: LANX's own page may use the microphone, camera and screen
+        // (nothing else is ever loaded in the window).
+        .on_permission_request(|_, kind| {
+            use tauri::webview::{PermissionKind, PermissionResponse};
+            match kind {
+                PermissionKind::Microphone | PermissionKind::Camera | PermissionKind::DisplayCapture => {
+                    PermissionResponse::Allow
+                }
+                _ => PermissionResponse::Default,
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -119,6 +180,15 @@ pub fn run() {
         ))
         .setup(move |app| {
             let data_dir = storage::data_dir(profile.as_deref());
+            let app_version = app.package_info().version.to_string();
+            match backup::apply_pending_restore(&data_dir, &app_version) {
+                Ok(Some(info)) => backup::set_notice(
+                    true,
+                    format!("Chats restored from the backup of {}.", backup::describe_time(info.created_at)),
+                ),
+                Ok(None) => {}
+                Err(e) => backup::set_notice(false, format!("The restore did not happen: {}", e)),
+            }
             let db = match Database::open(&data_dir) {
                 Ok(db) => Arc::new(db),
                 Err(e) => fatal_startup_error(
@@ -177,6 +247,20 @@ pub fn run() {
                 if s.onboarding_completed {
                     commands::apply_autostart(app.handle(), s.launch_at_startup);
                 }
+            }
+
+            // Daily automatic backup (first check a little after start-up).
+            {
+                let db = db.clone();
+                let version = app_version.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(testmode::backup_delay_secs())).await;
+                    loop {
+                        let (db2, v) = (db.clone(), version.clone());
+                        let _ = tauri::async_runtime::spawn_blocking(move || backup::auto_backup_if_due(&db2, &v)).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                    }
+                });
             }
 
             let start_hidden = std::env::args().any(|a| a == "--minimized");
@@ -273,6 +357,21 @@ pub fn run() {
             commands::send_update_as_file,
             commands::snooze_update,
             commands::set_update_auto_chat,
+            commands::backup::get_backups,
+            commands::backup::backup_now,
+            commands::backup::set_auto_backup,
+            commands::backup::restore_backup,
+            commands::backup::export_backup,
+            commands::backup::pick_backup_file,
+            commands::backup::restore_backup_file,
+            commands::backup::reveal_backups_folder,
+            commands::backup::take_restore_notice,
+            commands::calls::call_start,
+            commands::calls::call_answer,
+            commands::calls::call_decline,
+            commands::calls::call_hangup,
+            commands::calls::call_media,
+            commands::calls::get_call,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LANX desktop application");
