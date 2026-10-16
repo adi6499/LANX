@@ -1,119 +1,92 @@
-# LANX — Local Network Desktop Messenger
+# LANX — Local Network Messenger (v1.0)
 
-LANX is a 100% free, premium-quality Windows desktop messaging application inspired by the reliability of IP Messenger, but built with an Apple-inspired minimal interface, modern authenticated encryption, and local SQLite persistence.
+LANX lets computers on the same office network **chat and send files of any size** to each other —
+no internet, no server, no accounts. Computers find each other automatically. Everything is
+**end-to-end encrypted** and stays on your network.
 
-Computers on the same LAN (Wi-Fi, Ethernet, or Office subnet) discover one another, exchange messages, and transfer files without requiring any cloud server, third-party subscription, or active internet connection.
+## For users
 
----
+### Install
+1. Run **`LANX-Setup-1.0.0.exe`**.
+2. Windows asks *"Do you want to allow this app to make changes?"* → **Yes** (the installer needs
+   this once, to install for all users and to allow LANX through Windows Firewall).
+3. LANX opens. Type your name → **Launch LANX**. Done.
 
-## Technology Stack
+The installer sets up Windows Firewall for you, so there is **no firewall popup** and colleagues can
+reach you straight away (also on networks Windows marked as "Public", but only from the same subnet).
 
-- **Desktop Framework:** Tauri 2
-- **Native Networking & Storage Engine:** Rust 1.99.0
-- **Frontend:** React 19, TypeScript (strict mode), Vite 8
-- **Styling & Aesthetics:** Tailwind CSS v4, Lucide icons, Apple-inspired minimal glassmorphism
-- **Storage:** Local SQLite database with transaction-safe WAL journal mode and versioned migrations
-- **Networking Architecture:** UDP broadcast peer discovery (port 52925) + Authenticated TCP direct messaging and streaming file transfer (port 52926)
-- **Integrity Verification:** SHA-256 cryptographic verification for file payloads and transcripts
+> **About the blue "Windows protected your PC" box** — see [docs/install-without-warnings.md](docs/install-without-warnings.md).
+> In short: it appears only for files downloaded from the internet/email/WhatsApp that are not
+> code-signed. Copy the installer over a USB drive or a shared folder (`\\PC-NAME\share`) and it does
+> not appear; for internet distribution you need a code-signing certificate (setup is ready).
 
----
+### Everyday use
+- **Chat:** pick a colleague on the left (or **Peers → Chat**). Enter sends, Shift+Enter = new line.
+- **Send files:** press the 📎 paperclip, or **drag files into the chat**. No size limit.
+  The other person presses **Accept**. Files land in *Downloads* (change in **Settings → Files**).
+- **Offline colleague?** Messages and files wait (shown as *Queued*) and are delivered automatically
+  when they come back online.
+- **Transfer interrupted?** Press **Resume** — it continues where it stopped.
+- **Closing the window** keeps LANX running in the tray (near the clock) so messages still arrive.
+  Right-click the tray icon → **Quit LANX** to exit.
+- **Someone doesn't appear?** They may be on another subnet or Wi-Fi with "client isolation".
+  Use **Peers → Connect by IP** (they can see their IP in **Settings → Network**).
+- **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
+  in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
+- **Search:** the **History** tab searches every message on this PC.
 
-## Milestone 1 — Foundation Status
+## For developers
 
-Milestone 1 is completely implemented, verified, and operational:
+### Stack
+Tauri 2 (Rust) · React 19 + TypeScript · Tailwind 4 · SQLite (WAL) · Windows 10/11.
 
-- [x] **Working Tauri 2 Desktop Project:** Configured with React 19, TypeScript, and Vite.
-- [x] **Prerequisites Resolved:** Installed Rust (rustc 1.99.0, cargo 1.99.0) and portable MinGW-w64 toolchain without requiring administrative elevation.
-- [x] **Production Windows Build:** Native executable compiled at `src-tauri/target/debug/lanx.exe`.
-- [x] **Apple-Inspired Desktop Shell:**
-  - **Left Sidebar:** LANX brand identity, live peer count indicator, instant search, navigation tabs (Chats, Peers, Files, History), and recent conversation list.
-  - **Main Conversation Panel:** Header with online indicator, peer IP, cryptographic trust status badge, message history with delivery checkmarks, and composer.
-  - **Contextual Panel:** Collapsible side drawer with hardware/socket details, trust verification toggle, and shared file transfer history.
-  - **Peers View:** Comprehensive grid of discovered LAN peers, status pulses, and manual "Connect by IP" dialog.
-  - **Files View:** Transfer queue with live progress, direction indicators, and SHA-256 checksums.
-  - **History View:** Audit logs and SQLite database telemetry.
-- [x] **First-Run Onboarding Modal:** Display name customization, avatar palette selector, persistent device identity initialization, and Windows Firewall explanation.
-- [x] **Settings Modal:** Profile details, Appearance (System, Dark, Light theme persistence), LAN Discovery port settings, and Database telemetry.
-- [x] **Local SQLite Database & Migrations:** Rust-managed database (`lanx.db` in `%APPDATA%\LANX\`) with versioned migrations, WAL mode, transaction-safe message writes, and foreign key cascades.
-- [x] **Automated Tests:** 100% passing Rust unit tests for migrations, settings persistence, and message/peer storage.
+### Prerequisites (one time)
+- Node.js 20+
+- Rust (`winget install Rustlang.Rustup`)
+- Visual Studio 2022 Build Tools with "Desktop development with C++"
+  (`winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`)
 
----
+### Commands
+| What | Command |
+|---|---|
+| Install JS packages | `npm install` |
+| Run the app with live reload | `npm run app` |
+| UI only, in a browser (demo data) | `npm run dev` → http://localhost:1420 |
+| Type-check + all Rust tests | `npm test` |
+| Build the installer | `npm run release` → `release/LANX-Setup-<version>.exe` |
+| Small source zip to share | `npm run pack-source` → `release/LANX-source-<version>.zip` (≈1 MB) |
 
-## Project Structure
+> **Never zip the whole folder.** `node_modules` and `src-tauri/target` are rebuilt automatically and
+> are ~11 GB — that is why the old `LANAPPLICATION.zip` was 2.9 GB. Use `npm run pack-source`.
 
+To release a new version, bump `version` in `package.json`, `src-tauri/Cargo.toml` and
+`src-tauri/tauri.conf.json`, then `npm run release`.
+
+### Project layout
 ```
-LANAPPLICATION/
-├── src/                          # React + TypeScript Frontend
-│   ├── components/               # Modular UI Components
-│   │   ├── ContextPanel.tsx      # Peer details, trust toggles, shared transfers
-│   │   ├── ConversationPanel.tsx # Chat transcript, delivery badges, composer
-│   │   ├── HistoryView.tsx       # Searchable transcripts & SQLite stats
-│   │   ├── OnboardingModal.tsx   # First-run welcome & profile setup
-│   │   ├── PeopleView.tsx        # Discovered peers & manual IP connect
-│   │   ├── SettingsModal.tsx     # Profile, theme, network, diagnostics
-│   │   ├── Sidebar.tsx           # Brand header, tabs, search, conversations
-│   │   └── TransfersView.tsx     # File queue, progress, SHA-256 hashes
-│   ├── lib/
-│   │   └── api.ts                # Tauri IPC invoke client with web fallback
-│   ├── types/
-│   │   └── index.ts              # Strict TypeScript definitions
-│   ├── App.css                   # Tailwind tokens & sleek scrollbar styling
-│   ├── App.tsx                   # Main application controller
-│   └── main.tsx                  # React entry point
-├── src-tauri/                    # Native Rust Engine
-│   ├── src/
-│   │   ├── commands/             # Tauri IPC command handlers
-│   │   │   └── mod.rs
-│   │   ├── storage/              # SQLite database & migrations
-│   │   │   ├── models.rs         # Typed Rust structs
-│   │   │   ├── schema.rs         # Versioned schema migrations
-│   │   │   ├── tests.rs          # Automated tests for persistence
-│   │   │   └── mod.rs            # Database connection & CRUD operations
-│   │   ├── lib.rs                # Tauri initialization & state injection
-│   │   └── main.rs               # Windows executable entry point
-│   ├── Cargo.toml                # Rust dependencies
-│   └── tauri.conf.json           # Tauri desktop configuration
-├── index.html                    # Root HTML with Google Fonts
-├── package.json                  # NPM scripts & dependencies
-└── vite.config.ts                # Vite configuration with Tailwind plugin
-```
-
----
-
-## Build & Test Instructions
-
-### 1. Run Automated Rust Tests
-```powershell
-cd src-tauri
-cargo test
-```
-
-### 2. Run TypeScript Type Check & Frontend Build
-```powershell
-npm run build
+src/                         React UI
+  App.tsx                    state, live events, drag-and-drop
+  components/                Sidebar, ConversationPanel, FileCard, TransfersView, PeopleView,
+                             HistoryView, ContextPanel, SettingsModal, OnboardingModal
+  lib/api.ts                 typed bridge to the Rust commands (+ browser demo data)
+src-tauri/
+  src/lib.rs                 app shell: tray, close-to-tray, single instance, autostart, startup
+  src/commands/              Tauri commands called by the UI
+  src/networking/
+    session.rs               encrypted sessions (signed X25519 handshake, ChaCha20-Poly1305)
+    protocol.rs              packet types and signatures
+    mod.rs                   messaging, offline outbox, incoming connections
+    transfer.rs              resumable file transfer with SHA-256 verification
+    tests.rs                 end-to-end tests (two/three nodes over loopback)
+  src/discovery/             signed UDP beacons on every network adapter
+  src/storage/               SQLite schema + migrations, queries
+  src/events.rs              UI events, Windows notifications, tray tooltip
+  src/testmode.rs            switches for side-by-side test copies (LANX_PROFILE=…)
+  windows/installer-hooks.nsh  firewall rules added/removed by the installer
+docs/lan-protocol.md         wire protocol v2
+docs/install-without-warnings.md  SmartScreen, firewall and code signing
 ```
 
-### 3. Run Development Server
-```powershell
-npm run dev
-```
-
-### 4. Build Native Windows Desktop Executable
-```powershell
-cd src-tauri
-cargo build
-```
-The executable is produced at `src-tauri/target/debug/lanx.exe`.
-
----
-
-## Milestone 2 Protocol Design (Next Milestone)
-
-In Milestone 2, real LAN socket communication will be established:
-1. **UDP Broadcast Discovery (Port 52925):**
-   - Packet format: JSON beacon with `device_id`, `display_name`, `hostname`, `tcp_port`, and `avatar_color`.
-   - Interval: Configurable (default 5 seconds). Peers not heard from within 15 seconds transition to `offline`.
-2. **TCP Authenticated Direct Messaging (Port 52926):**
-   - Framing: 4-byte length prefix + JSON payload.
-   - Handshake: Exchange of device ID and public key / shared verification.
-   - Delivery Acknowledgement: Recipient replies with `ACK` containing `message_id`, updating database status from `sending` to `delivered`.
+### Data
+Each PC stores its chats, contacts and its private key in `%APPDATA%\LANX\lanx.db`.
+Nothing is sent anywhere except directly to the colleague you are talking to.

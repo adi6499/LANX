@@ -96,6 +96,13 @@ pub struct TransferRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchHit {
+    pub message: Message,
+    pub peer_name: String,
+    pub peer_avatar_color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemInfo {
     pub device_id: String,
     pub hostname: String,

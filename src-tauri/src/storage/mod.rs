@@ -675,6 +675,35 @@ impl Database {
         tx.commit()
     }
 
+    /// Case-insensitive search through every stored message (newest first).
+    pub fn search_messages(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let escaped = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let pattern = format!("%{}%", escaped);
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT m.id, m.conversation_id, m.sender_id, m.receiver_id, m.content, m.message_type, m.timestamp,
+                    m.status, m.error_reason, m.is_outgoing, m.transfer_id, p.display_name, p.avatar_color
+             FROM messages m
+             JOIN conversations c ON m.conversation_id = c.id
+             JOIN peers p ON c.peer_id = p.id
+             WHERE m.content LIKE ?1 ESCAPE '\\'
+             ORDER BY m.timestamp DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![pattern, limit as i64], |row| {
+            Ok(SearchHit {
+                message: row_to_message(row)?,
+                peer_name: row.get(11)?,
+                peer_avatar_color: row.get(12)?,
+            })
+        })?;
+        Ok(rows.flatten().collect())
+    }
+
     pub fn update_message_status(
         &self,
         message_id: &str,

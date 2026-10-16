@@ -1,13 +1,24 @@
 import React, { useState } from "react";
 import { Peer } from "../types";
+import { errorText } from "../lib/api";
 import {
   Users,
   Plus,
   Shield,
   ShieldAlert,
+  ShieldBan,
   MessageSquare,
   Laptop,
 } from "lucide-react";
+
+function lastSeenText(ts: number): string {
+  if (!ts) return "Not seen yet";
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 90) return "Seen just now";
+  if (diff < 3600) return `Seen ${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `Seen ${Math.floor(diff / 3600)} h ago`;
+  return `Seen ${new Date(ts * 1000).toLocaleDateString()}`;
+}
 
 interface PeopleViewProps {
   peers: Peer[];
@@ -30,6 +41,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
   const [manualPort, setManualPort] = useState(52926);
   const [manualName, setManualName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const filteredPeers = peers.filter((p) => {
     const matchesSearch =
@@ -47,13 +59,14 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
     e.preventDefault();
     if (!manualIp.trim()) return;
     setSubmitting(true);
+    setAddError(null);
     try {
       await onAddManualPeer(manualIp.trim(), manualPort, manualName.trim() || undefined);
       setShowAddModal(false);
       setManualIp("");
       setManualName("");
     } catch (err) {
-      console.error(err);
+      setAddError(errorText(err));
     } finally {
       setSubmitting(false);
     }
@@ -129,7 +142,8 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
               No Peers Found
             </p>
             <p className="mt-1 text-slate-500 max-w-sm">
-              Peers on your LAN broadcast discovery beacons every 5 seconds. If router AP isolation is enabled, use "Connect by IP" to establish direct contact.
+              Colleagues running LANX on the same network appear here within a few seconds. If someone is on a
+              different subnet (or the Wi-Fi blocks discovery), use "Connect by IP".
             </p>
             <button
               type="button"
@@ -144,6 +158,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
             {filteredPeers.map((peer) => {
               const isOnline = peer.status === "online";
               const isTrusted = peer.trust_state === "trusted";
+              const isBlocked = peer.trust_state === "blocked";
 
               return (
                 <div
@@ -172,6 +187,11 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                             <Shield className="h-3 w-3" />
                             <span>Trusted</span>
                           </span>
+                        ) : isBlocked ? (
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 text-[10px] font-semibold border border-red-500/20">
+                            <ShieldBan className="h-3 w-3" />
+                            <span>Blocked</span>
+                          </span>
                         ) : (
                           <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold border border-amber-500/20">
                             <ShieldAlert className="h-3 w-3" />
@@ -188,6 +208,9 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                       <Laptop className="h-3.5 w-3.5" />
                       <span>{peer.hostname || "LAN Workstation"}</span>
                     </p>
+                    {!isOnline && (
+                      <p className="text-[11px] text-slate-400 mt-0.5">{lastSeenText(peer.last_seen)}</p>
+                    )}
 
                     <div className="mt-3 py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 text-[11px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">
                       <span>{peer.last_ip}</span>
@@ -208,9 +231,9 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                     <button
                       type="button"
                       onClick={() =>
-                        onUpdateTrust(peer.id, isTrusted ? "unverified" : "trusted")
+                        onUpdateTrust(peer.id, isTrusted || isBlocked ? "unverified" : "trusted")
                       }
-                      title={isTrusted ? "Mark unverified" : "Trust peer"}
+                      title={isBlocked ? "Unblock" : isTrusted ? "Remove trust" : "Mark as trusted"}
                       className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     >
                       <Shield className="h-4 w-4" />
@@ -231,7 +254,8 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
               Connect to Peer by IP
             </h3>
             <p className="text-xs text-slate-500 mb-4">
-              Enter the local IP address and port of another machine running LANX on your network.
+              Type the IP address of the other computer (they can find it in Settings → Network). If it's
+              switched off right now, it is saved and your messages wait until it comes online.
             </p>
 
             <form onSubmit={handleAddSubmit} className="space-y-4">
@@ -275,10 +299,19 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                 />
               </div>
 
+              {addError && (
+                <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+                  {addError}
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setAddError(null);
+                  }}
                   className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Cancel

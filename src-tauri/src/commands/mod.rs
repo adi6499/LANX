@@ -25,6 +25,9 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 
 /// Turns "start with Windows" on or off to match the setting.
 pub fn apply_autostart(app: &AppHandle, enabled: bool) {
+    if crate::testmode::profile().is_some() {
+        return; // side-by-side test copies never touch the real startup entry
+    }
     let launcher = app.autolaunch();
     let current = launcher.is_enabled().unwrap_or(false);
     if enabled && !current {
@@ -125,6 +128,11 @@ pub fn get_or_create_conversation(
 #[tauri::command]
 pub fn get_messages(state: State<AppState>, conversation_id: String) -> Result<Vec<Message>, String> {
     state.db.get_messages(&conversation_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn search_messages(state: State<AppState>, query: String) -> Result<Vec<SearchHit>, String> {
+    state.db.search_messages(&query, 200).map_err(err)
 }
 
 #[tauri::command]

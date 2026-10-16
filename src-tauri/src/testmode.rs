@@ -1,0 +1,45 @@
+//! Switches for running extra LANX copies side by side on one PC (automated
+//! end-to-end tests). They only take effect together with `LANX_PROFILE`, so a
+//! normal installation never reads them.
+//!
+//! - `LANX_PROFILE=a`        separate data folder, no single-instance lock
+//! - `LANX_TCP_PORT=52941`   messaging port for this copy
+//! - `LANX_UDP_PORT=52951`   discovery port for this copy
+//! - `LANX_BIND=127.0.0.1`   listen on loopback only (no firewall prompt)
+//! - `LANX_BEACON_TO=127.0.0.1:52952,...` extra discovery targets
+//! - `LANX_QUIET=1`          no notifications, no "start with Windows"
+
+use std::net::{Ipv4Addr, SocketAddr};
+
+fn var(name: &str) -> Option<String> {
+    std::env::var("LANX_PROFILE").ok().filter(|p| !p.trim().is_empty())?;
+    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+pub fn profile() -> Option<String> {
+    std::env::var("LANX_PROFILE").ok().filter(|p| !p.trim().is_empty())
+}
+
+pub fn bind_addr() -> Ipv4Addr {
+    var("LANX_BIND")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(Ipv4Addr::UNSPECIFIED)
+}
+
+pub fn tcp_port() -> Option<u16> {
+    var("LANX_TCP_PORT").and_then(|v| v.trim().parse().ok())
+}
+
+pub fn udp_port() -> Option<u16> {
+    var("LANX_UDP_PORT").and_then(|v| v.trim().parse().ok())
+}
+
+pub fn extra_beacon_targets() -> Vec<SocketAddr> {
+    var("LANX_BEACON_TO")
+        .map(|v| v.split(',').filter_map(|s| s.trim().parse().ok()).collect())
+        .unwrap_or_default()
+}
+
+pub fn quiet() -> bool {
+    var("LANX_QUIET").is_some()
+}

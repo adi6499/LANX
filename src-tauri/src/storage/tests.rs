@@ -103,6 +103,21 @@ fn incoming_hindi_message_is_stored_with_preview() {
 }
 
 #[test]
+fn search_finds_text_in_any_message() {
+    let db = Database::new_in_memory().unwrap();
+    let conv = db.get_or_create_conversation("peer-1").unwrap();
+    db.insert_message(&text_message("a", &conv.id, "Quote for RFP 3100851312", true, "delivered")).unwrap();
+    db.insert_message(&text_message("b", &conv.id, "lunch?", false, "delivered")).unwrap();
+    db.insert_message(&text_message("c", &conv.id, "100% done_now", false, "delivered")).unwrap();
+    let hits = db.search_messages("rfp 3100", 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].message.id, "a");
+    assert_eq!(db.search_messages("100%", 10).unwrap().len(), 1, "% is literal");
+    assert_eq!(db.search_messages("e_n", 10).unwrap().len(), 1, "_ is literal");
+    assert!(db.search_messages("  ", 10).unwrap().is_empty());
+}
+
+#[test]
 fn outbox_and_restart_recovery() {
     let db = Database::new_in_memory().unwrap();
     let conv = db.get_or_create_conversation("peer-1").unwrap();

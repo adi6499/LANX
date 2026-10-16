@@ -4,6 +4,7 @@ pub mod events;
 pub mod networking;
 pub mod security;
 pub mod storage;
+pub mod testmode;
 
 use commands::AppState;
 use discovery::DiscoveryService;
@@ -16,12 +17,6 @@ use storage::Database;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent};
-
-/// `LANX_PROFILE=b` runs a second, independent LANX on the same PC (own data
-/// folder, no single-instance lock). Only used for testing.
-fn test_profile() -> Option<String> {
-    std::env::var("LANX_PROFILE").ok().filter(|p| !p.trim().is_empty())
-}
 
 static TRAY_HINT_SHOWN: AtomicBool = AtomicBool::new(false);
 
@@ -89,7 +84,7 @@ fn fatal_startup_error(app: &tauri::App, message: String) -> ! {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let profile = test_profile();
+    let profile = testmode::profile();
     let mut builder = tauri::Builder::default();
 
     if profile.is_none() {
@@ -125,11 +120,21 @@ pub fn run() {
                 Err(e) => fatal_startup_error(app, format!("LANX identity error: {}", e)),
             };
             if let Some(p) = &profile {
-                // Test profile: own TCP port so both copies can listen.
-                if let Ok(port) = std::env::var("LANX_TCP_PORT").unwrap_or_default().parse::<u16>() {
+                // Side-by-side test copy (see testmode.rs).
+                if let Some(port) = testmode::tcp_port() {
                     let _ = db.set_setting("tcp_messaging_port", &port.to_string());
                 }
-                let _ = db.set_setting("hostname", &format!("{}-{}", std::env::var("COMPUTERNAME").unwrap_or_default(), p));
+                if let Some(port) = testmode::udp_port() {
+                    let _ = db.set_setting("udp_discovery_port", &port.to_string());
+                }
+                if testmode::quiet() {
+                    let _ = db.set_setting("notifications_enabled", "false");
+                    let _ = db.set_setting("launch_at_startup", "false");
+                }
+                let _ = db.set_setting(
+                    "hostname",
+                    &format!("{}-{}", std::env::var("COMPUTERNAME").unwrap_or_default(), p),
+                );
             }
             let _ = db.recover_after_restart();
 
@@ -198,6 +203,7 @@ pub fn run() {
             commands::get_conversations,
             commands::get_or_create_conversation,
             commands::get_messages,
+            commands::search_messages,
             commands::send_message,
             commands::retry_message,
             commands::mark_conversation_read,

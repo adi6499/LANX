@@ -2,21 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/public/tauri.svg" />
+    <link rel="icon" type="image/svg+xml" href="/lanx-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LANX — Local Network Messenger</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script>
-      (function() {
-        try {
-          if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            document.documentElement.classList.add('dark');
-          }
-        } catch (e) {}
-      })();
-    </script>
+    <!-- Applies dark mode before first paint (external file so the strict CSP allows it). -->
+    <script src="/theme-init.js"></script>
   </head>
   <body class="bg-slate-50 text-slate-900 dark:bg-[#080c14] dark:text-slate-100 antialiased select-none overflow-hidden">
     <div id="root" class="h-screen w-screen overflow-hidden"></div>

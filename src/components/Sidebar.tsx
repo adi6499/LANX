@@ -25,6 +25,8 @@ interface SidebarProps {
   activeConversationId: string | null;
   activeTab: NavTab;
   searchQuery: string;
+  /** Incoming files waiting for the user to accept. */
+  pendingFiles: number;
   onSelectConversation: (id: string) => void;
   onSelectTab: (tab: NavTab) => void;
   onSearchChange: (q: string) => void;
@@ -40,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeConversationId,
   activeTab,
   searchQuery,
+  pendingFiles,
   onSelectConversation,
   onSelectTab,
   onSearchChange,
@@ -74,9 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500 text-white font-bold text-base shadow-md shadow-sky-500/25">
-              L
-            </div>
+            <img src="/lanx-logo.png" alt="LANX" className="h-9 w-9 rounded-xl shadow-md shadow-sky-500/25" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white">
@@ -88,7 +89,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 online-pulse" />
-                <span>{onlineCount} peers discovered</span>
+                <span>
+                  {onlineCount === 0
+                    ? "Looking for colleagues…"
+                    : `${onlineCount} ${onlineCount === 1 ? "colleague" : "colleagues"} online`}
+                </span>
               </div>
             </div>
           </div>
@@ -155,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={() => onSelectTab("transfers")}
-          className={`flex flex-col items-center py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
+          className={`flex flex-col items-center py-1.5 rounded-lg text-[10px] font-semibold transition-all relative ${
             activeTab === "transfers"
               ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-sm"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
@@ -163,6 +168,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <ArrowUpDown className="h-4 w-4 mb-0.5" />
           <span>Files</span>
+          {pendingFiles > 0 && (
+            <span className="absolute top-1 right-2.5 px-1 rounded-full bg-sky-500 text-[8px] text-white font-bold leading-none py-0.5">
+              {pendingFiles}
+            </span>
+          )}
         </button>
 
         <button
@@ -259,9 +269,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {activeTab !== "messages" && (
-          <div className="p-3 text-xs text-slate-500 dark:text-slate-400">
-            Switch back to Chats to view open conversations or select a peer from the main view.
-          </div>
+          <button
+            type="button"
+            onClick={() => onSelectTab("messages")}
+            className="w-full p-3 text-left text-xs text-slate-500 dark:text-slate-400 hover:text-sky-600"
+          >
+            ← Back to chats
+          </button>
         )}
       </div>
 

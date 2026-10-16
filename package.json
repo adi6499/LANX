@@ -1,18 +1,22 @@
 {
   "name": "lanx",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "tsc --noEmit",
-    "tauri": "tauri"
+    "test": "tsc --noEmit && cd src-tauri && cargo test",
+    "tauri": "tauri",
+    "app": "tauri dev",
+    "release": "tauri build && node scripts/release.mjs",
+    "pack-source": "node scripts/pack-source.mjs"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
     "clsx": "^2.1.1",
     "lucide-react": "^1.57.0",
     "react": "^19.1.0",

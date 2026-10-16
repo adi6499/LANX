@@ -111,7 +111,7 @@ impl NetworkService {
                 .get_settings()
                 .map(|s| s.tcp_messaging_port)
                 .unwrap_or(DEFAULT_TCP_PORT);
-            match TcpListener::bind(("0.0.0.0", port)).await {
+            match TcpListener::bind((crate::testmode::bind_addr(), port)).await {
                 Ok(listener) => this.serve(listener).await,
                 Err(e) => eprintln!("[Network] Cannot listen on TCP port {}: {}", port, e),
             }

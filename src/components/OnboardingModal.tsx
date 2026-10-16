@@ -26,13 +26,14 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   const [step, setStep] = useState<1 | 2>(1);
   const [displayName, setDisplayName] = useState(settings.display_name || "LANX User");
   const [avatarColor, setAvatarColor] = useState(settings.avatar_color || "#0284c7");
+  const [launchAtStartup, setLaunchAtStartup] = useState(settings.launch_at_startup ?? true);
   const [saving, setSaving] = useState(false);
 
   const handleFinish = async () => {
     if (!displayName.trim()) return;
     setSaving(true);
     try {
-      const updated = await api.completeOnboarding(displayName.trim(), avatarColor);
+      const updated = await api.completeOnboarding(displayName.trim(), avatarColor, launchAtStartup);
       onComplete(updated);
     } catch (err) {
       console.error("Failed to complete onboarding:", err);
@@ -41,6 +42,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
         ...settings,
         display_name: displayName.trim(),
         avatar_color: avatarColor,
+        launch_at_startup: launchAtStartup,
         onboarding_completed: true,
       });
     } finally {
@@ -133,13 +135,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 <Sparkles className="h-5 w-5 text-sky-500 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-semibold text-slate-900 dark:text-white">
-                    Persistent Device ID:
-                  </span>{" "}
-                  <code className="font-mono text-sky-600 dark:text-sky-400">
-                    {settings.device_id ? settings.device_id.slice(0, 18) + "..." : "Auto-generated"}
-                  </code>
+                    Private by design
+                  </span>
                   <p className="mt-0.5 text-slate-500 dark:text-slate-400">
-                    Your machine maintains a unique cryptographic identity stored safely in your local SQLite database.
+                    This PC has its own encryption key, created just now and stored only here. Chats and files are
+                    end-to-end encrypted and never leave your office network.
                   </p>
                 </div>
               </div>
@@ -164,7 +164,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <span>Local-Network-First Architecture</span>
                 </div>
                 <p className="text-emerald-900/80 dark:text-emerald-200/80">
-                  LANX works completely offline without the internet. Computers on the same Wi-Fi, Ethernet, or Office subnet automatically discover each other using UDP broadcasts on port 52925.
+                  LANX works without the internet. Computers on the same office Wi-Fi or network find each other
+                  automatically within a few seconds.
                 </p>
               </div>
 
@@ -172,9 +173,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 <div className="flex items-start gap-3 text-xs text-slate-600 dark:text-slate-300">
                   <Shield className="h-4 w-4 text-sky-500 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold text-slate-900 dark:text-white">Windows Firewall Permissions</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">Firewall already set up</span>
                     <p className="text-slate-500 dark:text-slate-400 mt-0.5">
-                      If prompted by Windows Defender Firewall, allow Private Network access so other computers can discover this PC.
+                      The installer allowed LANX through Windows Firewall, so colleagues can reach you straight away.
                     </p>
                   </div>
                 </div>
@@ -184,11 +185,27 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <div>
                     <span className="font-semibold text-slate-900 dark:text-white">Manual Connection Option</span>
                     <p className="text-slate-500 dark:text-slate-400 mt-0.5">
-                      On restrictive corporate networks where broadcasts are blocked, you can connect directly by entering any peer's IP address.
+                      If a colleague doesn't appear (different floor or subnet), open Peers → Connect by IP and type
+                      their IP address.
                     </p>
                   </div>
                 </div>
               </div>
+
+              <label className="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={launchAtStartup}
+                  onChange={(e) => setLaunchAtStartup(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-sky-500"
+                />
+                <span>
+                  <span className="font-semibold text-slate-900 dark:text-white">Start LANX when Windows starts</span>
+                  <span className="block text-slate-500 dark:text-slate-400 mt-0.5">
+                    Runs quietly in the tray so you never miss a message. You can change this in Settings.
+                  </span>
+                </span>
+              </label>
 
               <div className="flex items-center gap-3 pt-2">
                 <button

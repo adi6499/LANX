@@ -90,6 +90,7 @@ fn beacon_targets(port: u16) -> Vec<SocketAddr> {
             targets.push(addr);
         }
     }
+    targets.extend(crate::testmode::extra_beacon_targets());
     targets
 }
 
@@ -119,7 +120,7 @@ fn bind_discovery_socket(port: u16) -> std::io::Result<UdpSocket> {
     socket.set_reuse_address(true)?;
     socket.set_broadcast(true)?;
     socket.set_nonblocking(true)?;
-    socket.bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).into())?;
+    socket.bind(&SocketAddr::V4(SocketAddrV4::new(crate::testmode::bind_addr(), port)).into())?;
     UdpSocket::from_std(socket.into())
 }
 
@@ -296,5 +297,67 @@ impl DiscoveryService {
 
     pub fn stop(&self) {
         self.cancel_token.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::Events;
+    use crate::storage::Database;
+
+    fn service(name: &str) -> Arc<DiscoveryService> {
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let identity = DeviceIdentity::load_or_create(&db.conn.lock()).unwrap();
+        let mut s = db.get_settings().unwrap();
+        s.display_name = name.to_string();
+        db.save_settings(&s).unwrap();
+        Arc::new(DiscoveryService::new(NetworkService::new(db, identity, Events::default())))
+    }
+
+    #[test]
+    fn beacons_are_signed_and_tamper_evident() {
+        let a = service("Alice");
+        let bytes = a.build_beacon("online").unwrap();
+        let beacon: DiscoveryBeacon = serde_json::from_slice(&bytes).unwrap();
+        assert!(beacon.verify());
+        assert_eq!(beacon.display_name, "Alice");
+
+        let mut forged = beacon.clone();
+        forged.tcp_port = 4444; // redirect attempt
+        assert!(!forged.verify());
+        let mut forged = beacon;
+        forged.display_name = "CEO".into();
+        assert!(!forged.verify());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn beacon_registers_peer_and_offline_beacon_removes_it() {
+        let a = service("Alice");
+        let b = service("Bob");
+        let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let src: SocketAddr = "192.168.1.77:52925".parse().unwrap();
+
+        a.handle_beacon(&b.build_beacon("online").unwrap(), src, &sock).await;
+        let bob = a.network.db.get_peer(&b.network.identity.device_id).unwrap().unwrap();
+        assert_eq!(bob.display_name, "Bob");
+        assert_eq!(bob.last_ip, "192.168.1.77");
+        assert_eq!(bob.status, "online");
+
+        // Own beacons are ignored.
+        a.handle_beacon(&a.build_beacon("online").unwrap(), src, &sock).await;
+        assert_eq!(a.network.db.list_peers().unwrap().len(), 1);
+
+        a.handle_beacon(&b.build_beacon("offline").unwrap(), src, &sock).await;
+        let bob = a.network.db.get_peer(&b.network.identity.device_id).unwrap().unwrap();
+        assert_eq!(bob.status, "offline");
+    }
+
+    #[test]
+    fn local_addresses_and_targets_exclude_nothing_essential() {
+        let targets = beacon_targets(52925);
+        assert!(targets.contains(&"255.255.255.255:52925".parse().unwrap()));
+        assert!(targets.contains(&"127.0.0.1:52925".parse().unwrap()));
+        assert!(local_ipv4_addresses().iter().all(|ip| !ip.starts_with("127.")));
     }
 }

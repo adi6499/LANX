@@ -50,6 +50,15 @@
     user-select: none;
     -webkit-font-smoothing: antialiased;
   }
+
+  .font-mono, code {
+    font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  }
+
+  button:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid #0ea5e9;
+    outline-offset: 1px;
+  }
 }
 
 /* Custom sleek scrollbar */
