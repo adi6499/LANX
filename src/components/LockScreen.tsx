@@ -164,6 +164,57 @@ export const LockScreen: React.FC<LockScreenProps> = ({ displayName, avatarColor
   );
 };
 
+interface NewPinDialogProps {
+  title: string;
+  description: string;
+  onDone: (pin: string) => Promise<void>;
+  onClose: () => void;
+}
+
+/** Choose a new PIN (typed twice). */
+export const NewPinDialog: React.FC<NewPinDialogProps> = ({ title, description, onDone, onClose }) => {
+  const [first, setFirst] = useState<string | null>(null);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl p-6 lanx-rise relative">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-500/10 text-violet-600">
+          <KeyRound className="h-5 w-5" />
+        </div>
+        <h3 className="text-center text-base font-bold text-slate-900 dark:text-white">
+          {first ? "Type the same PIN again" : title}
+        </h3>
+        <p className="mt-1 mb-3 text-center text-xs text-slate-500 dark:text-slate-400">
+          {first ? "Just to be sure you remember it. 4 to 12 digits." : description}
+        </p>
+        <PinPad
+          key={first ? "confirm" : "choose"}
+          submitLabel={first ? "Save PIN" : "Next"}
+          onSubmit={async (pin) => {
+            if (!first) {
+              setFirst(pin);
+              return;
+            }
+            if (pin !== first) throw "That's not the same PIN. Try again.";
+            await onDone(pin);
+          }}
+        />
+        {first && (
+          <button type="button" onClick={() => setFirst(null)} className="mt-3 w-full text-center text-[11px] text-slate-500 hover:text-sky-600">
+            Start over
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 interface PinDialogProps {
   title: string;
   description: string;

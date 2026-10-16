@@ -1,3 +1,6 @@
+pub mod backup;
+pub mod calls;
+
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};
 use crate::networking::NetworkService;
 use crate::networking::session::{ExpectedPeer, SecureChannel};
@@ -19,7 +22,7 @@ pub struct AppState {
     pub identity: Arc<DeviceIdentity>,
 }
 
-fn err<E: std::fmt::Display>(e: E) -> String {
+pub(crate) fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 

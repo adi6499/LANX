@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v1.1)
+# LANX — Local Network Messenger (v1.2)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -7,7 +7,7 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 ## For users
 
 ### Install
-1. Run **`LANX-Setup-1.1.0.exe`**.
+1. Run **`LANX-Setup-1.2.0.exe`**.
 2. Windows asks *"Do you want to allow this app to make changes?"* → **Yes** (the installer needs
    this once, to install for all users and to allow LANX through Windows Firewall).
 3. LANX opens. Type your name → **Launch LANX**. Done.
@@ -16,8 +16,9 @@ The installer sets up Windows Firewall for you, so there is **no firewall popup*
 reach you straight away (also on networks Windows marked as "Public", but only from the same subnet).
 
 **Upgrading:** just run the new installer — it replaces the old copy and keeps your chats.
-1.1 talks normally with colleagues still on 1.0; groups, secret messages, “Seen”, typing and the bell
-start working with them once they update too. (0.1 is not compatible — update every PC from 0.1.)
+Newer versions talk normally with colleagues on older ones; new features (calls need 1.2; groups,
+secret messages, “Seen”, typing and the bell need 1.1) start working with them once they update too.
+(0.1 is not compatible — update every PC from 0.1.)
 
 After the first setup an **animated guide** shows how everything works (reopen it in
 **Settings → Help**).
@@ -42,6 +43,19 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.2
+- **📞 Voice and 🎥 video calls** — the phone and camera buttons at the top of a one-to-one chat.
+  Their LANX rings (even from the tray); they answer with one click. During a call: mute, camera on/off,
+  share your screen, make the video bigger. Missed calls show in the chat with **Call back**.
+  Calls go straight between the two computers (WebRTC, encrypted) — no internet or server.
+- **Backups** — Settings → **Backup**. LANX saves a copy of your chats every day (keeps 7), or press
+  **Back up now**. **Restore** goes back to any of them (LANX first keeps a copy of how things are, so a
+  restore can be undone). **Save a backup file…** makes a password-protected file for a USB drive or a
+  new computer; **Restore from a file…** brings it back. Secret messages are never backed up.
+- **Hidden chats, clearer** — the crossed-out eye at the top of a chat hides it (and sets up a PIN on the
+  spot if you have none). Hidden chats live in a purple **Hidden chats** section at the top of the chat
+  list that opens with your PIN, and a hidden chat is clearly marked while it is open.
+
 ### New in 1.1
 - **Groups** — the people icon at the top of the chat list. Everyone sees every message and file;
   you can see who has *seen* each message. The creator (👑 admin) can rename, add and remove people.
@@ -52,7 +66,7 @@ After the first setup an **animated guide** shows how everything works (reopen i
   after they're read, are never searchable, and LANX blocks screenshots while the chat is open.
 - **PIN lock** — Settings → Privacy. LANX asks for the PIN at start-up and after you've been away;
   🔒 bottom-left (or the tray icon) locks it immediately.
-- **Hidden chats** — a chat's details (ⓘ) → *Hide this chat*; 👁 bottom-left shows them with your PIN.
+- **Hidden chats** — see “New in 1.2” above.
 - **“Seen” and typing…** — see when messages were read and when someone is typing (can be turned
   off in Settings → Privacy).
 - **Screenshots & pictures** — paste a screenshot with **Ctrl+V**; pictures under 10 MB download
@@ -105,6 +119,8 @@ src-tauri/
     tests.rs                 end-to-end tests (two/three nodes over loopback)
   src/discovery/             signed UDP beacons on every network adapter
   src/storage/               SQLite schema + migrations, queries
+  src/networking/calls.rs    call set-up, ringing, missed calls (media itself is WebRTC in the window)
+  src/backup.rs              daily/manual backups, encrypted backup files, restore on restart
   src/events.rs              UI events, Windows notifications, tray tooltip
   src/testmode.rs            switches for side-by-side test copies (LANX_PROFILE=…)
   windows/installer-hooks.nsh  firewall rules added/removed by the installer

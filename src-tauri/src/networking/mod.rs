@@ -1,3 +1,4 @@
+pub mod calls;
 pub mod extras;
 pub mod groups;
 pub mod protocol;
@@ -69,6 +70,8 @@ pub struct Inner {
     /// Last "typing…" / ring sent per chat (rate limits).
     pub(crate) typing_sent: Mutex<HashMap<String, Instant>>,
     pub(crate) ring_sent: Mutex<HashMap<String, Instant>>,
+    /// The one call in progress (ringing or active), if any.
+    pub(crate) call: Mutex<Option<calls::CallInfo>>,
     cancel_token: CancellationToken,
     bound_port: AtomicU16,
     /// Running transfers (either direction) by transfer id.
@@ -103,6 +106,7 @@ impl NetworkService {
                 privacy,
                 typing_sent: Mutex::new(HashMap::new()),
                 ring_sent: Mutex::new(HashMap::new()),
+                call: Mutex::new(None),
                 cancel_token: CancellationToken::new(),
                 bound_port: AtomicU16::new(0),
                 active_transfers: Mutex::new(HashMap::new()),
@@ -831,6 +835,7 @@ impl NetworkService {
                     None
                 }
                 PacketPayload::Ring(r) => Some(PacketPayload::Ack(self.handle_ring(&peer, r))),
+                PacketPayload::Call(c) => Some(PacketPayload::Ack(self.handle_call(&peer, c))),
                 PacketPayload::GroupUpdate(g) => {
                     Some(PacketPayload::Ack(self.handle_group_update(&peer, g)))
                 }

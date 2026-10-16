@@ -28,6 +28,9 @@ pub struct HandshakePayload {
 /// typing and ring. Older peers are never sent those packets.
 pub const FEATURES_V11: &str = "1.1.0";
 
+/// Oldest app version that understands voice and video calls.
+pub const FEATURES_V12: &str = "1.2.0";
+
 /// `version` (e.g. "1.0.0") is at least `min`.
 pub fn version_at_least(version: &str, min: &str) -> bool {
     let parse = |v: &str| -> Vec<u32> {
@@ -94,6 +97,24 @@ pub struct GroupUpdatePayload {
     pub version: i64,
     pub avatar_color: String,
     pub members: Vec<GroupMemberPayload>,
+}
+
+/// Call set-up (LANX 1.2). The audio/video itself is WebRTC between the two
+/// LANX windows; these packets carry the offer/answer and the call's state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallPayload {
+    pub call_id: String,
+    /// invite | accept | decline | cancel | hangup | media
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<bool>,
+    /// WebRTC session description (offer for invite, answer for accept).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sdp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +214,8 @@ pub enum PacketPayload {
     GroupUpdate(GroupUpdatePayload),
     GroupLeave(ChatRefPayload),
     Ack(AckPayload),
+    // LANX 1.2 (only sent to peers reporting app_version >= 1.2.0)
+    Call(CallPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

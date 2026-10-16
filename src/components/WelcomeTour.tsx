@@ -9,6 +9,10 @@ import {
   Lock,
   Megaphone,
   Monitor,
+  Phone,
+  PhoneOff,
+  Video,
+  DatabaseBackup,
   Timer,
   Users,
   X,
@@ -185,8 +189,37 @@ const STEPS: Step[] = [
     ),
   },
   {
+    title: "Call with voice or video",
+    text: "Press 📞 or 🎥 at the top of a chat. Their LANX rings — they answer with one click. Mute, turn your camera on, or share your screen during the call.",
+    tip: "Calls go straight across your office network — no internet needed.",
+    art: (
+      <div className="relative mx-auto h-56 w-[340px] flex items-center justify-center">
+        <div className="relative w-56 rounded-3xl bg-slate-900 px-5 pt-5 pb-4 text-white shadow-2xl tour-pop">
+          <div className="relative mx-auto h-16 w-16">
+            <span className="lanx-call-ring" />
+            <span className="lanx-call-ring lanx-call-ring-2" />
+            <Avatar letter="A" color="#6366f1" className="relative h-16 w-16 text-xl" />
+          </div>
+          <div className="mt-3 text-center text-sm font-bold">Asha (Accounts)</div>
+          <div className="text-center text-[11px] text-white/70">Incoming video call…</div>
+          <div className="mt-4 flex justify-center gap-5">
+            <span className="h-10 w-10 rounded-full bg-red-500 flex items-center justify-center">
+              <PhoneOff className="h-4 w-4" />
+            </span>
+            <span className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center lanx-call-pulse">
+              <Video className="h-4 w-4" />
+            </span>
+            <span className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center">
+              <Phone className="h-4 w-4" />
+            </span>
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
     title: "Private when you need it",
-    text: "Set a PIN to lock LANX. Use ⏱ secret chats — messages vanish after they're read and screenshots are blocked. Hide chats you don't want on screen.",
+    text: "Set a PIN to lock LANX. Use ⏱ secret chats — messages vanish after they're read and screenshots are blocked. Hide a chat with the crossed-out eye: it moves to a purple “Hidden chats” section that only opens with your PIN.",
     art: (
       <Screen>
         <div className="flex items-start justify-around pt-2">
@@ -216,6 +249,34 @@ const STEPS: Step[] = [
             <span className="mt-1 text-[10px] text-slate-500">Hidden chats</span>
           </div>
         </div>
+      </Screen>
+    ),
+  },
+  {
+    title: "Your chats are backed up",
+    text: "LANX quietly saves a copy of your chats every day. If something goes wrong, go back to an earlier day in Settings → Backup — and even that can be undone.",
+    tip: "Moving to a new computer? Save a backup file with a password and restore it there.",
+    art: (
+      <Screen>
+        <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-3 text-white shadow-lg tour-pop">
+          <div className="flex items-center gap-2">
+            <DatabaseBackup className="h-6 w-6" />
+            <div>
+              <div className="text-[11px] font-bold">Your chats are backed up</div>
+              <div className="text-[9px] text-emerald-50/90">Last backup: today, 09:00</div>
+            </div>
+          </div>
+        </div>
+        {["Today, 09:00", "Yesterday, 09:00", "Mon, 09:00"].map((d, i) => (
+          <div
+            key={d}
+            className="mt-2 flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 tour-slide-in"
+            style={{ animationDelay: `${0.5 + i * 0.35}s` }}
+          >
+            <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-200">{d}</span>
+            <span className="text-[9px] text-sky-600 font-semibold">Restore</span>
+          </div>
+        ))}
       </Screen>
     ),
   },

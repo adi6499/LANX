@@ -1,4 +1,4 @@
-# LANX network protocol (v2, LANX 1.0)
+# LANX network protocol (v2, LANX 1.0–1.2)
 
 Two layers, both on the local network only:
 
@@ -101,3 +101,18 @@ verify signatures).
 Group messages are sent to each member separately over their own encrypted session; delivery and
 "seen" are tracked per member, and offline members receive group changes first, then messages.
 Secret messages are wiped from disk with SQLite `secure_delete`.
+
+## 6. LANX 1.2 additions (same protocol v2)
+Sent only to peers whose handshake reports `app_version >= 1.2.0`.
+
+| kind | meaning |
+|---|---|
+| `call { call_id, action: "invite", video, sdp }` → `ack` | Start a call; `sdp` is the caller's WebRTC offer. `ack.ok = false` with a reason when the callee is busy or blocked the caller |
+| `call { action: "accept", sdp, video }` → `ack` | Answer; `sdp` is the WebRTC answer |
+| `call { action: "decline" \| "cancel" \| "hangup" }` → `ack` | Decline a ringing call / give up while ringing / end an active call |
+| `call { action: "media", video?, muted?, screen? }` → `ack` | Camera, mute and screen-sharing state |
+
+Only the two devices in a call may change it (checked by device id). Unanswered calls end after 45 s on
+both sides. The audio and video travel directly between the two LANX windows over WebRTC (DTLS-SRTP),
+using LAN addresses only (no STUN/TURN servers). Both sides write the call into the chat as a
+`message_type: "call"` record (`{"video", "outcome", "secs"}`), which is never sent over the network.

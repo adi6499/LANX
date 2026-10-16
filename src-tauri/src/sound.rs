@@ -3,9 +3,13 @@
 //! native (winmm PlaySound) so it works while LANX is hidden in the tray.
 
 use std::f32::consts::PI;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-pub const BUILTIN: [&str; 5] = ["chime", "soft", "ding", "pop", "bell"];
+pub const BUILTIN: [&str; 7] = ["chime", "soft", "ding", "pop", "bell", "ringtone", "ringback"];
+
+/// A ringtone is looping: short alert sounds would cut it off, so they wait.
+static LOOPING: AtomicBool = AtomicBool::new(false);
 const RATE: u32 = 44_100;
 const MAX_CUSTOM_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -36,6 +40,21 @@ fn recipe(name: &str) -> (f32, Vec<Note>) {
                 n(0.66, 1046.5, 0.55, BELL),
             ],
         ),
+        // Incoming call: a bright three-note marimba phrase, twice, then a pause
+        // (the file loops while ringing).
+        "ringtone" => (
+            2.6,
+            vec![
+                n(0.0, 659.25, 0.22, WARM),
+                n(0.14, 830.61, 0.22, WARM),
+                n(0.28, 987.77, 0.35, WARM),
+                n(0.7, 659.25, 0.22, WARM),
+                n(0.84, 830.61, 0.22, WARM),
+                n(0.98, 987.77, 0.45, WARM),
+            ],
+        ),
+        // Caller hears this while the other side rings: a soft double tone.
+        "ringback" => (3.0, vec![n(0.0, 440.0, 0.7, PURE), n(0.0, 480.0, 0.7, PURE)]),
         // "chime" (default)
         _ => (0.75, vec![n(0.0, 880.0, 0.25, WARM), n(0.11, 1318.51, 0.35, WARM)]),
     }
@@ -160,6 +179,38 @@ fn play_bytes(bytes: &'static [u8], volume: u32) {
 fn play_bytes(_bytes: &'static [u8], _volume: u32) {}
 
 #[cfg(windows)]
+fn loop_bytes(bytes: &'static [u8], volume: u32) {
+    use windows_sys::Win32::Media::Audio::{
+        PlaySoundW, SND_ASYNC, SND_LOOP, SND_MEMORY, SND_NODEFAULT, waveOutSetVolume,
+    };
+    let v = (volume.min(100) * 0xFFFF / 100) & 0xFFFF;
+    unsafe {
+        waveOutSetVolume(std::ptr::null_mut(), v | (v << 16));
+        PlaySoundW(
+            bytes.as_ptr() as *const u16,
+            std::ptr::null_mut(),
+            SND_MEMORY | SND_ASYNC | SND_LOOP | SND_NODEFAULT,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn loop_bytes(_bytes: &'static [u8], _volume: u32) {}
+
+/// Starts a ringtone ("ringtone" or "ringback") that repeats until
+/// `stop_loop`.
+pub fn play_loop(name: &str, volume: u32) {
+    LOOPING.store(true, Ordering::SeqCst);
+    loop_bytes(builtin(name), volume.max(30));
+}
+
+pub fn stop_loop() {
+    if LOOPING.swap(false, Ordering::SeqCst) {
+        stop();
+    }
+}
+
+#[cfg(windows)]
 pub fn stop() {
     use windows_sys::Win32::Media::Audio::PlaySoundW;
     unsafe {
@@ -172,6 +223,9 @@ pub fn stop() {}
 
 /// Plays a built-in sound by name, or the custom file when name == "custom".
 pub fn play(name: &str, custom_path: &str, volume: u32) {
+    if LOOPING.load(Ordering::SeqCst) {
+        return;
+    }
     let bytes = if name == "custom" {
         custom_bytes(custom_path).unwrap_or_else(|| builtin("chime"))
     } else {

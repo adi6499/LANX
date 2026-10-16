@@ -8,6 +8,8 @@
 //! - `LANX_BIND=127.0.0.1`   listen on loopback only (no firewall prompt)
 //! - `LANX_BEACON_TO=127.0.0.1:52952,...` extra discovery targets
 //! - `LANX_QUIET=1`          no notifications, no "start with Windows"
+//! - `LANX_BACKUP_DELAY=5`   seconds before the first automatic-backup check
+//! - `LANX_RING_SECS=8`      how long a call rings before it counts as missed
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -42,4 +44,18 @@ pub fn extra_beacon_targets() -> Vec<SocketAddr> {
 
 pub fn quiet() -> bool {
     var("LANX_QUIET").is_some()
+}
+
+/// Seconds before the first automatic-backup check (90 normally).
+pub fn backup_delay_secs() -> u64 {
+    var("LANX_BACKUP_DELAY")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(90)
+}
+
+/// How long an unanswered call rings (45 s normally).
+pub fn ring_timeout_secs() -> u64 {
+    var("LANX_RING_SECS")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(45)
 }

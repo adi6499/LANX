@@ -29,7 +29,13 @@ import {
   Bell,
   Timer,
   Users,
+  Eye,
   EyeOff,
+  Phone,
+  PhoneIncoming,
+  PhoneOutgoing,
+  PhoneMissed,
+  Video,
 } from "lucide-react";
 import { FileCard, GroupFileCard } from "./FileCard";
 
@@ -57,6 +63,8 @@ interface ConversationPanelProps {
   onTyping: () => void;
   onRing: () => void;
   onSetSecret: (ttl: number) => void;
+  onSetHidden: (hidden: boolean) => void;
+  onCall: (video: boolean) => void;
   onUnblock: () => void;
 }
 
@@ -111,6 +119,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onTyping,
   onRing,
   onSetSecret,
+  onSetHidden,
+  onCall,
   onUnblock,
 }) => {
   const [inputText, setInputText] = useState("");
@@ -174,6 +184,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const blocked = !isGroup && peer?.trust_state === "blocked";
   const outOfGroup = isGroup && conversation.membership !== "member";
   const secret = !isGroup && conversation.secret_ttl > 0;
+  const hidden = conversation.is_hidden;
   const nowSecs = Math.floor(Date.now() / 1000);
   const peerName = (id: string) => peers.find((p) => p.id === id)?.display_name ?? "Someone";
 
@@ -275,6 +286,64 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         `${who} turned off secret messages`
       );
     }
+    if (msg.message_type === "call") {
+      let v: { video?: boolean; outcome?: string; secs?: number } = {};
+      try {
+        v = JSON.parse(msg.content);
+      } catch {
+        /* old or damaged record */
+      }
+      const kind = v.video ? "video" : "voice";
+      const secs = v.secs ?? 0;
+      const dur = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+      const name = conversation.peer_name;
+      const out = msg.is_outgoing;
+      let text: string;
+      let missed = false;
+      let callBack = false;
+      switch (v.outcome) {
+        case "answered":
+          text = `${v.video ? "Video" : "Voice"} call · ${dur}`;
+          break;
+        case "missed":
+          text = `Missed ${kind} call from ${name}`;
+          missed = callBack = true;
+          break;
+        case "busy":
+          text = `Missed ${kind} call from ${name} (you were on another call)`;
+          missed = callBack = true;
+          break;
+        case "declined":
+          text = out ? `${name} declined your ${kind} call` : `You declined a ${kind} call`;
+          callBack = out;
+          break;
+        case "no_answer":
+          text = `${name} didn't answer`;
+          callBack = true;
+          break;
+        case "cancelled":
+          text = `You cancelled a ${kind} call`;
+          break;
+        default:
+          text = "Call failed";
+          callBack = true;
+      }
+      const Icon = missed ? PhoneMissed : v.video ? Video : out ? PhoneOutgoing : PhoneIncoming;
+      return (
+        <span className={`inline-flex items-center gap-1.5 ${missed ? "text-red-600 dark:text-red-400 font-medium" : ""}`}>
+          <Icon className="h-3.5 w-3.5" /> {text}
+          {callBack && !blocked && (
+            <button
+              type="button"
+              onClick={() => onCall(!!v.video)}
+              className="ml-1 rounded-full bg-sky-500/10 px-2 py-0.5 font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-500/20"
+            >
+              Call back
+            </button>
+          )}
+        </span>
+      );
+    }
     if (msg.message_type === "ring") {
       const text = msg.is_outgoing
         ? `You rang ${isGroup ? "the group" : conversation.peer_name}`
@@ -292,27 +361,48 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   let lastSender = "";
 
   return (
-    <div className={`flex-1 h-full flex flex-col bg-[#fcfcfd] dark:bg-[#080c14] overflow-hidden select-none relative ${shaking ? "lanx-shake" : ""}`}>
+    <div
+      data-hidden-chat={hidden ? "true" : undefined}
+      className={`flex-1 h-full flex flex-col overflow-hidden select-none relative ${
+        hidden ? "bg-violet-50/70 dark:bg-[#0f0b1d] lanx-hidden-bg" : "bg-[#fcfcfd] dark:bg-[#080c14]"
+      } ${shaking ? "lanx-shake" : ""}`}
+    >
       {/* Header */}
-      <header className="h-16 px-6 border-b border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0c111c] flex items-center justify-between shrink-0">
+      <header
+        className={`h-16 px-6 border-b flex items-center justify-between shrink-0 ${
+          hidden
+            ? "border-violet-200 dark:border-violet-900/70 bg-gradient-to-r from-violet-100 via-white to-white dark:from-violet-950/60 dark:via-[#0c111c] dark:to-[#0c111c]"
+            : "border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0c111c]"
+        }`}
+      >
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative shrink-0">
             <div
-              className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+              className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${
+                hidden ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-violet-100 dark:ring-offset-violet-950" : ""
+              }`}
               style={{ backgroundColor: conversation.peer_avatar_color }}
             >
               {isGroup ? <Users className="h-5 w-5" /> : conversation.peer_name.charAt(0).toUpperCase()}
             </div>
-            <span
-              className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0c111c] ${
-                conversation.peer_status === "online" ? "bg-emerald-500" : "bg-slate-400"
-              }`}
-            />
+            {hidden ? (
+              <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-violet-600 text-white flex items-center justify-center border-2 border-white dark:border-[#0c111c]">
+                <EyeOff className="h-2.5 w-2.5" />
+              </span>
+            ) : (
+              <span
+                className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0c111c] ${
+                  conversation.peer_status === "online" ? "bg-emerald-500" : "bg-slate-400"
+                }`}
+              />
+            )}
           </div>
 
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate">{conversation.peer_name}</h2>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate min-w-[5rem]" title={conversation.peer_name}>
+                {conversation.peer_name}
+              </h2>
               {isGroup ? (
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[10px] font-semibold border border-indigo-500/20">
                   <Users className="h-3 w-3" /> {conversation.member_count} members
@@ -335,7 +425,11 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   <Timer className="h-3 w-3" /> Secret
                 </span>
               )}
-              {conversation.is_hidden && <EyeOff className="h-3.5 w-3.5 text-slate-400" aria-label="Hidden chat" />}
+              {hidden && (
+                <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-semibold shadow-sm shadow-violet-500/30">
+                  <EyeOff className="h-3 w-3" /> Hidden
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-0">
               {typingName ? (
@@ -361,6 +455,28 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {!isGroup && (
+            <>
+              <button
+                type="button"
+                onClick={() => onCall(false)}
+                disabled={blocked}
+                title={`Voice call ${conversation.peer_name}`}
+                className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors disabled:opacity-40"
+              >
+                <Phone className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onCall(true)}
+                disabled={blocked}
+                title={`Video call ${conversation.peer_name}`}
+                className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors disabled:opacity-40"
+              >
+                <Video className="h-4 w-4" />
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={onRing}
@@ -425,12 +541,15 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 
           <button
             type="button"
-            onClick={onPickFiles}
-            disabled={blocked || outOfGroup}
-            title="Send files"
-            className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"
+            onClick={() => onSetHidden(!hidden)}
+            title={hidden ? "Unhide this chat (back to the normal list)" : "Hide this chat (only shows after your PIN)"}
+            className={`p-2 rounded-xl transition-colors ${
+              hidden
+                ? "bg-violet-600 text-white hover:bg-violet-700"
+                : "text-slate-600 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+            }`}
           >
-            <Paperclip className="h-4 w-4" />
+            {hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
           </button>
 
           {confirmDelete ? (
@@ -496,6 +615,23 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         </div>
         {!isGroup && <span className="font-mono text-[10px] opacity-70">TCP :{peer?.tcp_port || 52926}</span>}
       </div>
+
+      {hidden && (
+        <div className="px-6 py-2 flex items-center gap-3 bg-violet-600 text-white text-[11px] shadow-sm lanx-fade">
+          <EyeOff className="h-4 w-4 shrink-0" />
+          <span className="flex-1 leading-snug">
+            <b>You're in a hidden chat.</b> It isn't in your normal chat list and only shows after your PIN. It hides again when you press
+            “Hide again” or LANX locks.
+          </span>
+          <button
+            type="button"
+            onClick={() => onSetHidden(false)}
+            className="shrink-0 px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 font-semibold"
+          >
+            Unhide chat
+          </button>
+        </div>
+      )}
 
       {notice && (
         <div className="mx-6 mt-3 flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 lanx-rise">
@@ -642,7 +778,11 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
       )}
 
       {/* Composer */}
-      <div className="p-4 bg-white dark:bg-[#0c111c] border-t border-slate-200 dark:border-slate-800">
+      <div
+        className={`p-4 border-t ${
+          hidden ? "bg-violet-50 dark:bg-[#140f26] border-violet-200 dark:border-violet-900/70" : "bg-white dark:bg-[#0c111c] border-slate-200 dark:border-slate-800"
+        }`}
+      >
         {blocked ? (
           <div className="flex items-center justify-between rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-xs text-red-700 dark:text-red-300">
             <span>You blocked {conversation.peer_name}. They can't message you or send you files.</span>
@@ -658,7 +798,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           <>
             <div
               className={`relative flex items-end gap-2 rounded-2xl border p-2 shadow-inner ${
-                secret ? "border-violet-300 dark:border-violet-800 bg-violet-50/60 dark:bg-violet-950/20" : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70"
+                secret || hidden ? "border-violet-300 dark:border-violet-800 bg-violet-50/60 dark:bg-violet-950/20" : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70"
               }`}
             >
               <button

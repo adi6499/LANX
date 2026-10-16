@@ -15,6 +15,12 @@ import {
   GroupInfo,
   LockStatus,
   BroadcastResult,
+  BackupInfo,
+  BackupOverview,
+  PickedBackup,
+  RestoreNotice,
+  CallInfo,
+  CallEvent,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -186,6 +192,16 @@ let mockMessages: Record<string, Message[]> = {
   "conv-elena": [
     msg({ id: "m-6", conversation_id: "conv-elena", content: "Will send the revised quote after lunch", timestamp: now() - 4100, status: "queued", error_reason: "Waiting for Elena (Sales) to come online" }),
     msg({ id: "m-7", conversation_id: "conv-elena", content: "📎 Price List 2026.pdf", message_type: "file", transfer_id: "tx-3", sender_id: "peer-elena", is_outgoing: false, timestamp: now() - 4000, status: "read" }),
+  ],
+};
+
+let mockBackups: BackupOverview = {
+  auto_enabled: true,
+  folder: "C:\Users\You\AppData\Roaming\LANX\Backups",
+  backups: [
+    { file_name: "auto-2026-10-16 09.00.00.lanxbackup", path: "", kind: "auto", created_at: now() - 3 * 3600, size_bytes: 412_000, conversations: 4, messages: 213, display_name: "Preview User", app_version: "1.2.0" },
+    { file_name: "manual-2026-10-14 17.30.00.lanxbackup", path: "", kind: "manual", created_at: now() - 2 * 86400, size_bytes: 398_000, conversations: 4, messages: 190, display_name: "Preview User", app_version: "1.2.0" },
+    { file_name: "auto-2026-10-13 09.00.00.lanxbackup", path: "", kind: "auto", created_at: now() - 3 * 86400, size_bytes: 380_000, conversations: 3, messages: 170, display_name: "Preview User", app_version: "1.1.0" },
   ],
 };
 
@@ -545,6 +561,101 @@ export const api = {
   playSound: async (name?: string | null, volume?: number, customPath?: string): Promise<void> => {
     if (isTauri) return invoke("play_sound", { name: name ?? null, volume: volume ?? null, customPath: customPath ?? null });
   },
+
+  // --------------------------------------------------------------- backups
+  getBackups: async (): Promise<BackupOverview> => {
+    if (isTauri) return invoke("get_backups");
+    return { ...mockBackups, backups: [...mockBackups.backups] };
+  },
+
+  backupNow: async (): Promise<BackupInfo> => {
+    if (isTauri) return invoke("backup_now");
+    const b: BackupInfo = { ...mockBackups.backups[0], file_name: `manual-${Date.now()}.lanxbackup`, kind: "manual", created_at: now() };
+    mockBackups = { ...mockBackups, backups: [b, ...mockBackups.backups] };
+    return b;
+  },
+
+  setAutoBackup: async (enabled: boolean): Promise<BackupOverview> => {
+    if (isTauri) return invoke("set_auto_backup", { enabled });
+    mockBackups = { ...mockBackups, auto_enabled: enabled };
+    return { ...mockBackups };
+  },
+
+  /** Restores a backup from the Backups folder; LANX then restarts. */
+  restoreBackup: async (fileName: string): Promise<void> => {
+    if (isTauri) return invoke("restore_backup", { fileName });
+    return previewOnly();
+  },
+
+  /** Saves a password-protected backup file; null if the user cancelled. */
+  exportBackup: async (password: string): Promise<string | null> => {
+    if (isTauri) return invoke("export_backup", { password });
+    if (password.length < 6) return Promise.reject("Use at least 6 characters for the backup password.");
+    return "E:\LANX backup 2026-10-16.lanxbackup";
+  },
+
+  pickBackupFile: async (): Promise<PickedBackup | null> => {
+    if (isTauri) return invoke("pick_backup_file");
+    return { path: "E:\LANX backup 2026-10-16.lanxbackup", encrypted: true, info: null };
+  },
+
+  /** Rejects with "PASSWORD" when the file needs its password. */
+  restoreBackupFile: async (path: string, password: string | null): Promise<void> => {
+    if (isTauri) return invoke("restore_backup_file", { path, password });
+    if (!password) return Promise.reject("PASSWORD");
+    return previewOnly();
+  },
+
+  revealBackupsFolder: async (): Promise<void> => {
+    if (isTauri) return invoke("reveal_backups_folder");
+  },
+
+  takeRestoreNotice: async (): Promise<RestoreNotice | null> => {
+    if (isTauri) return invoke("take_restore_notice");
+    return null;
+  },
+
+  // ----------------------------------------------------------------- calls
+  callStart: async (conversationId: string, video: boolean, sdp: string): Promise<CallInfo> => {
+    if (isTauri) return invoke("call_start", { conversationId, video, sdp });
+    const c = mockConversations.find((x) => x.id === conversationId);
+    return {
+      call_id: `call-${Date.now()}`,
+      conversation_id: conversationId,
+      peer_id: c?.peer_id ?? "",
+      peer_name: c?.peer_name ?? "Colleague",
+      avatar_color: c?.peer_avatar_color ?? "#6366f1",
+      video,
+      outgoing: true,
+      phase: "ringing",
+      started_at: now(),
+      answered_at: null,
+      private: false,
+    };
+  },
+
+  callAnswer: async (callId: string, sdp: string, video: boolean): Promise<CallInfo> => {
+    if (isTauri) return invoke("call_answer", { callId, sdp, video });
+    return previewOnly();
+  },
+
+  callDecline: async (callId: string): Promise<void> => {
+    if (isTauri) return invoke("call_decline", { callId });
+  },
+
+  callHangup: async (callId: string): Promise<void> => {
+    if (isTauri) return invoke("call_hangup", { callId });
+  },
+
+  callMedia: async (callId: string, media: { video?: boolean; muted?: boolean; screen?: boolean }): Promise<void> => {
+    if (isTauri)
+      return invoke("call_media", { callId, video: media.video ?? null, muted: media.muted ?? null, screen: media.screen ?? null });
+  },
+
+  getCall: async (): Promise<CallInfo | null> => {
+    if (isTauri) return invoke("get_call");
+    return null;
+  },
 };
 
 function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
@@ -571,4 +682,5 @@ export const events = {
     on<MessagesDeletedPayload>("lanx://messages-deleted", cb),
   onLockChanged: (cb: (s: LockStatus) => void) => on<LockStatus>("lanx://lock-changed", cb),
   onOpenPrivacySettings: (cb: () => void) => on<null>("lanx://open-privacy-settings", () => cb()),
+  onCall: (cb: (e: CallEvent) => void) => on<CallEvent>("lanx://call", cb),
 };

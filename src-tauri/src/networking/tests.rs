@@ -799,3 +799,117 @@ async fn hidden_chats_stay_out_of_lists_and_search() {
     assert!(a.db().search_messages("salary", 10, false).unwrap().is_empty());
     assert_eq!(a.db().search_messages("salary", 10, true).unwrap().len(), 1);
 }
+
+// ------------------------------------------------------------------ calls
+
+fn call_records(db: &Database, conv: &str) -> Vec<(bool, String)> {
+    messages_in(db, conv)
+        .into_iter()
+        .filter(|m| m.message_type == "call")
+        .map(|m| {
+            let v: serde_json::Value = serde_json::from_str(&m.content).unwrap();
+            (m.is_outgoing, v["outcome"].as_str().unwrap_or("").to_string())
+        })
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn call_is_answered_then_hung_up_and_both_sides_keep_a_record() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let conv = link(&a, &b).await;
+    let call = a.svc.start_call(&conv, true, "v=0 offer".into()).await.unwrap();
+    assert!(call.outgoing && call.video && call.phase == "ringing");
+    assert!(wait_for(|| b.svc.current_call().is_some_and(|c| c.phase == "ringing" && !c.outgoing), 5).await);
+    let incoming = b.svc.current_call().unwrap();
+    assert_eq!(incoming.call_id, call.call_id);
+    assert_eq!(incoming.peer_name, "Asha");
+    assert!(a.svc.start_call(&conv, false, "x".into()).await.unwrap_err().contains("already in a call"));
+
+    b.svc.answer_call(&call.call_id, "v=0 answer".into(), true).await.unwrap();
+    assert!(wait_for(|| a.svc.current_call().is_some_and(|c| c.phase == "active"), 5).await);
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    a.svc.hangup_call(&call.call_id).await.unwrap();
+    assert!(a.svc.current_call().is_none());
+    assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
+
+    assert_eq!(call_records(a.db(), &conv), vec![(true, "answered".to_string())]);
+    let b_conv = b.db().get_or_create_conversation(&a.id()).unwrap();
+    assert_eq!(call_records(b.db(), &b_conv.id), vec![(false, "answered".to_string())]);
+    let preview = conv_of(a.db(), &conv).unwrap().last_message_preview.unwrap();
+    assert!(preview.starts_with("📞 Video call · 0:0"), "got {}", preview);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn declined_and_cancelled_calls_are_recorded_on_both_sides() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let conv = link(&a, &b).await;
+    let b_conv = b.db().get_or_create_conversation(&a.id()).unwrap().id;
+
+    // Bharat declines.
+    let call = a.svc.start_call(&conv, false, "offer".into()).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
+    b.svc.decline_call(&call.call_id).await.unwrap();
+    assert!(wait_for(|| a.svc.current_call().is_none(), 5).await);
+    assert_eq!(call_records(a.db(), &conv).last().unwrap(), &(true, "declined".to_string()));
+    assert_eq!(call_records(b.db(), &b_conv).last().unwrap(), &(false, "declined".to_string()));
+
+    // Asha gives up while it rings: a missed call for Bharat.
+    let unread_before = conv_of(b.db(), &b_conv).unwrap().unread_count;
+    let call = a.svc.start_call(&conv, true, "offer".into()).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
+    a.svc.hangup_call(&call.call_id).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
+    assert_eq!(call_records(a.db(), &conv).last().unwrap(), &(true, "cancelled".to_string()));
+    assert_eq!(call_records(b.db(), &b_conv).last().unwrap(), &(false, "missed".to_string()));
+    assert_eq!(conv_of(b.db(), &b_conv).unwrap().unread_count, unread_before + 1);
+    assert_eq!(
+        conv_of(b.db(), &b_conv).unwrap().last_message_preview.unwrap(),
+        "📞 Missed video call"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn second_caller_hears_busy_and_strangers_cannot_end_the_call() {
+    let (a, b, c) = trio().await;
+    let ab = a.db().get_or_create_conversation(&b.id()).unwrap().id;
+    let cb = link(&c, &b).await;
+    let call = a.svc.start_call(&ab, false, "offer".into()).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
+
+    let err = c.svc.start_call(&cb, false, "offer".into()).await.unwrap_err();
+    assert!(err.contains("on another call"), "got {}", err);
+    assert!(c.svc.current_call().is_none());
+    let b_with_c = b.db().get_or_create_conversation(&c.id()).unwrap().id;
+    assert_eq!(call_records(b.db(), &b_with_c), vec![(false, "busy".to_string())]);
+
+    // Chetan cannot hang up a call between Asha and Bharat.
+    let chetan = b.db().get_peer(&c.id()).unwrap().unwrap();
+    let mut forged = CallPayload {
+        call_id: call.call_id.clone(),
+        action: "hangup".into(),
+        video: None,
+        sdp: None,
+        muted: None,
+        screen: None,
+    };
+    assert!(!b.svc.handle_call(&chetan, forged.clone()).ok);
+    assert!(b.svc.current_call().is_some(), "call must survive");
+    forged.action = "accept".into();
+    assert!(!a.svc.handle_call(&a.db().get_peer(&c.id()).unwrap().unwrap(), forged).ok);
+    a.svc.hangup_call(&call.call_id).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calling_an_offline_or_blocked_colleague_explains_why() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let conv = link(&a, &b).await;
+    a.svc.peer_went_offline(&b.id());
+    assert!(a.svc.start_call(&conv, false, "o".into()).await.unwrap_err().contains("offline"));
+    assert!(a.svc.current_call().is_none());
+    let _ = link(&a, &b).await;
+    a.db().update_peer_trust(&b.id(), "blocked").unwrap();
+    assert!(a.svc.start_call(&conv, false, "o".into()).await.unwrap_err().contains("blocked"));
+}

@@ -84,7 +84,7 @@ export interface Message {
   sender_id: string;
   receiver_id: string;
   content: string;
-  message_type: "text" | "file" | "system" | "secret_setting" | "ring";
+  message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call";
   timestamp: number;
   status: MessageStatus;
   error_reason?: string | null;
@@ -214,4 +214,61 @@ export const SECRET_TIMERS: { secs: number; label: string }[] = [
 
 export function secretLabel(secs: number): string {
   return SECRET_TIMERS.find((t) => t.secs === secs)?.label ?? `${secs} seconds`;
+}
+
+// ------------------------------------------------------------------ backups
+export interface BackupInfo {
+  file_name: string;
+  path: string;
+  /** auto | manual | before-restore | imported | file */
+  kind: string;
+  created_at: number;
+  size_bytes: number;
+  conversations: number;
+  messages: number;
+  display_name: string;
+  app_version: string;
+}
+
+export interface BackupOverview {
+  auto_enabled: boolean;
+  folder: string;
+  backups: BackupInfo[];
+}
+
+export interface PickedBackup {
+  path: string;
+  encrypted: boolean;
+  info: BackupInfo | null;
+}
+
+export interface RestoreNotice {
+  ok: boolean;
+  text: string;
+}
+
+// -------------------------------------------------------------------- calls
+export interface CallInfo {
+  call_id: string;
+  conversation_id: string;
+  peer_id: string;
+  peer_name: string;
+  avatar_color: string;
+  video: boolean;
+  outgoing: boolean;
+  phase: "ringing" | "active";
+  started_at: number;
+  answered_at: number | null;
+  /** Hidden chat or LANX locked: don't show the name. */
+  private: boolean;
+}
+
+export interface CallEvent {
+  action: "incoming" | "accepted" | "media" | "ended";
+  call: CallInfo;
+  sdp: string | null;
+  video: boolean | null;
+  muted: boolean | null;
+  screen: boolean | null;
+  reason: string | null;
 }

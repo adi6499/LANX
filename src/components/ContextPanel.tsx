@@ -128,10 +128,10 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
           {conversation.is_hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
           {conversation.is_hidden ? "Unhide this chat" : "Hide this chat"}
         </span>
-        {!pinEnabled && <span className="text-[10px] font-normal text-slate-400">needs a PIN</span>}
+        {!pinEnabled && <span className="text-[10px] font-normal text-slate-400">you will choose a PIN</span>}
       </button>
       <p className="mt-1.5 text-[10px] text-slate-400 leading-snug">
-        Hidden chats disappear from the list, search and Files until you choose "Show hidden chats" and enter your PIN.
+        Hidden chats leave your normal list, search and Files. To see them: "Hidden chats" at the top of your chat list, then your PIN.
       </p>
     </div>
   );

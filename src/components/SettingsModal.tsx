@@ -26,12 +26,15 @@ import {
   Play,
   Music,
   Sparkles,
+  DatabaseBackup,
 } from "lucide-react";
+import { BackupPanel } from "./BackupPanel";
 
 export type SettingsTab =
   | "profile"
   | "general"
   | "privacy"
+  | "backup"
   | "sounds"
   | "appearance"
   | "files"
@@ -304,6 +307,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     profile: "Profile",
     general: "General",
     privacy: "Privacy & security",
+    backup: "Backup & restore",
     sounds: "Sounds",
     appearance: "Appearance",
     files: "Files",
@@ -345,6 +349,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {navItem("profile", "Profile", User)}
             {navItem("general", "General", Bell)}
             {navItem("privacy", "Privacy", ShieldCheck)}
+            {navItem("backup", "Backup", DatabaseBackup)}
             {navItem("sounds", "Sounds", Volume2)}
             {navItem("appearance", "Appearance", Sun)}
             {navItem("files", "Files", FolderOpen)}
@@ -354,7 +359,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {navItem("about", "About", Info)}
           </div>
           <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-600 border-t border-slate-200 dark:border-slate-800">
-            LANX v{systemInfo?.app_version || "1.1.0"} · Windows
+            LANX v{systemInfo?.app_version || "1.2.0"} · Windows
           </div>
         </div>
 
@@ -480,10 +485,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="rounded-xl border border-violet-200 dark:border-violet-900 bg-violet-50 dark:bg-violet-950/30 p-3 text-[11px] text-violet-800 dark:text-violet-200 leading-relaxed">
                   <b>Secret chats:</b> open a chat and press the ⏱ timer button. Messages then disappear for both of you after they're read, are never searchable, and LANX blocks screenshots while the chat is open.
                   <br />
-                  <b>Hidden chats:</b> open a chat's details (ⓘ) → “Hide this chat”. Use the 👁 button bottom-left to show them again with your PIN.
+                  <b>Hidden chats:</b> open a chat and press the crossed-out eye at the top to hide it. To see hidden chats again, click “Hidden chats” at the top of your chat list and enter your PIN — they show in purple so you always know where you are.
                 </div>
               </>
             )}
+
+            {activeTab === "backup" && <BackupPanel />}
 
             {activeTab === "sounds" && (
               <>
