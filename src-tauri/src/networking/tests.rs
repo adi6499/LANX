@@ -1,348 +1,480 @@
-#[cfg(test)]
-mod tests {
-    use crate::networking::protocol::*;
-    use crate::security::{DeviceIdentity, KeyTrustCheck};
-    use crate::storage::Database;
-    use crate::storage::models::{Message, Peer};
-    use rusqlite::Connection;
-    use std::io::Cursor;
-    use std::sync::Arc;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use tokio::net::{TcpListener, TcpStream};
+//! End-to-end tests: two (or three) complete LANX network services talking
+//! over loopback with real sockets, encryption and SQLite.
 
-    fn create_test_identity() -> DeviceIdentity {
-        let mut conn = Connection::open_in_memory().unwrap();
-        crate::storage::schema::run_migrations(&mut conn).unwrap();
-        DeviceIdentity::load_or_create(&conn).unwrap()
+use super::protocol::*;
+use super::transfer::{sanitize_file_name, unique_destination};
+use super::{NetworkService, SeenPeer};
+use crate::events::Events;
+use crate::security::DeviceIdentity;
+use crate::storage::Database;
+use crate::storage::models::{Message, Peer};
+use rand::RngCore;
+use sha2::{Digest, Sha256};
+use std::io::Cursor;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::net::TcpListener;
+
+struct Node {
+    svc: NetworkService,
+    port: u16,
+    dir: tempfile::TempDir,
+}
+
+impl Node {
+    fn id(&self) -> String {
+        self.svc.identity.device_id.clone()
     }
-
-    fn create_test_database() -> Database {
-        Database::new_in_memory().unwrap()
+    fn db(&self) -> &Database {
+        &self.svc.db
     }
+}
 
-    // 1. Protocol serialization, envelope, and Ed25519 signature verification
-    #[test]
-    fn test_protocol_envelope_and_signature_verification() {
-        let identity = create_test_identity();
-        let payload = PacketPayload::Message(MessagePayload {
-            message_id: "msg-123".to_string(),
-            conversation_id: "conv-123".to_string(),
-            content: "Hello LANX secure network".to_string(),
-            message_type: "text".to_string(),
-        });
+fn new_service(name: &str) -> (NetworkService, tempfile::TempDir) {
+    let db = Arc::new(Database::new_in_memory().unwrap());
+    let identity = DeviceIdentity::load_or_create(&db.conn.lock()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = db.get_settings().unwrap();
+    s.display_name = name.to_string();
+    s.default_download_dir = dir.path().join("Downloads").to_string_lossy().to_string();
+    s.onboarding_completed = true;
+    db.save_settings(&s).unwrap();
+    (NetworkService::new(db, identity, Events::default()), dir)
+}
 
-        let packet = PacketEnvelope::new(&identity, "Alice", PacketType::Message, None, payload);
+async fn serve_on(svc: &NetworkService, port: u16) -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", port)).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let s = svc.clone();
+    tokio::spawn(async move { s.serve(listener).await });
+    assert!(wait_for(|| svc.is_listening(), 5).await);
+    port
+}
 
-        // Verification must succeed with original signature
-        assert!(packet.verify_signature().unwrap());
+async fn node(name: &str) -> Node {
+    let (svc, dir) = new_service(name);
+    let port = serve_on(&svc, 0).await;
+    Node { svc, port, dir }
+}
 
-        // Tampering with sender name or ID must fail verification
-        let mut tampered = packet.clone();
-        tampered.sender_name = "Mallory".to_string();
-        assert!(!tampered.verify_signature().unwrap());
-    }
-
-    // 2. Maximum frame sizes - reject frames exceeding 64 KB
-    #[tokio::test]
-    async fn test_frame_length_bounds_and_rejection() {
-        let oversized_len: u32 = 100_000;
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&oversized_len.to_be_bytes());
-        buf.extend_from_slice(&vec![0u8; 100]); // Partial body
-
-        let mut cursor = Cursor::new(buf);
-        let res = read_framed_packet(&mut cursor).await;
-        assert!(res.is_err());
-        assert!(
-            res.unwrap_err()
-                .to_string()
-                .contains("strict maximum limit")
-        );
-    }
-
-    // 3. Malformed and truncated packets
-    #[tokio::test]
-    async fn test_malformed_and_truncated_packet() {
-        // Frame claims 50 bytes, but stream has only 10 bytes
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&(50u32).to_be_bytes());
-        buf.extend_from_slice(b"{\"packet_i"); // Truncated
-
-        let mut cursor = Cursor::new(buf);
-        let res = read_framed_packet(&mut cursor).await;
-        assert!(res.is_err());
-    }
-
-    // 4. Unknown protocol version rejection
-    #[test]
-    fn test_unknown_protocol_version() {
-        let identity = create_test_identity();
-        let mut packet = PacketEnvelope::new(
-            &identity,
-            "Alice",
-            PacketType::Ping,
-            None,
-            PacketPayload::Ping,
-        );
-        packet.version = 99; // Unknown future or invalid version
-
-        let valid = packet.version == PROTOCOL_VERSION;
-        assert!(
-            !valid,
-            "Packets with version 99 must not be accepted as protocol version 1"
-        );
-    }
-
-    // 5. Key trust change detection (anti-spoofing warning)
-    #[test]
-    fn test_key_trust_change_detection() {
-        let id1 = create_test_identity();
-        let id2 = create_test_identity();
-
-        let check1 = DeviceIdentity::check_peer_key_trust(None, &id1.public_key_hex());
-        assert_eq!(check1, KeyTrustCheck::FirstContact);
-
-        let check2 = DeviceIdentity::check_peer_key_trust(
-            Some(&id1.public_key_hex()),
-            &id1.public_key_hex(),
-        );
-        assert_eq!(check2, KeyTrustCheck::MatchesExisting);
-
-        let check3 = DeviceIdentity::check_peer_key_trust(
-            Some(&id1.public_key_hex()),
-            &id2.public_key_hex(),
-        );
-        match check3 {
-            KeyTrustCheck::KeyChangedWarning { expected, actual } => {
-                assert_eq!(expected, id1.public_key_hex());
-                assert_eq!(actual, id2.public_key_hex());
-            }
-            _ => panic!("Expected KeyChangedWarning when peer public key changes!"),
+async fn wait_for<F: Fn() -> bool>(f: F, secs: u64) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(secs);
+    while Instant::now() < deadline {
+        if f() {
+            return true;
         }
+        tokio::time::sleep(Duration::from_millis(25)).await;
     }
+    f()
+}
 
-    // 6. Peer expiry logic (offline detection)
-    #[test]
-    fn test_peer_expiry_logic() {
-        let db = create_test_database();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+fn free_port() -> u16 {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    l.local_addr().unwrap().port()
+}
 
-        let active_peer = Peer {
-            id: "peer-active".to_string(),
-            display_name: "Active Peer".to_string(),
-            hostname: "HOST-A".to_string(),
-            last_ip: "192.168.1.50".to_string(),
-            tcp_port: 52926,
-            public_key: None,
-            trust_state: "trusted".to_string(),
-            status: "online".to_string(),
-            last_seen: now - 3, // Seen 3s ago
-            avatar_color: "#10b981".to_string(),
-        };
+/// A connects to B by IP (like "Connect by IP") and returns A's conversation id.
+async fn link(a: &Node, b: &Node) -> String {
+    let peer = a
+        .svc
+        .connect_manual_peer("127.0.0.1", b.port, None)
+        .await
+        .unwrap();
+    assert_eq!(peer.id, b.id(), "handshake must reveal B's real device id");
+    a.db().get_or_create_conversation(&peer.id).unwrap().id
+}
 
-        let expired_peer = Peer {
-            id: "peer-expired".to_string(),
-            display_name: "Expired Peer".to_string(),
-            hostname: "HOST-B".to_string(),
-            last_ip: "192.168.1.51".to_string(),
-            tcp_port: 52926,
-            public_key: None,
-            trust_state: "unverified".to_string(),
-            status: "online".to_string(),
-            last_seen: now - 20, // Seen 20s ago (> 15s expiry)
-            avatar_color: "#ef4444".to_string(),
-        };
+fn msg_status(db: &Database, id: &str) -> String {
+    db.get_message_by_id(id).unwrap().map(|m| m.status).unwrap_or_default()
+}
 
-        db.upsert_peer(&active_peer).unwrap();
-        db.upsert_peer(&expired_peer).unwrap();
+fn transfer_status(db: &Database, id: &str) -> String {
+    db.get_transfer(id).unwrap().map(|t| t.status).unwrap_or_default()
+}
 
-        // Expire peers older than 15s
-        let peers = db.list_peers().unwrap();
-        for mut p in peers {
-            if p.status == "online" && (now - p.last_seen > 15) {
-                p.status = "offline".to_string();
-                db.upsert_peer(&p).unwrap();
-            }
-        }
+fn write_random_file(dir: &std::path::Path, name: &str, size: usize) -> (std::path::PathBuf, Vec<u8>) {
+    let mut data = vec![0u8; size];
+    rand::thread_rng().fill_bytes(&mut data);
+    let path = dir.join(name);
+    std::fs::write(&path, &data).unwrap();
+    (path, data)
+}
 
-        let updated_peers = db.list_peers().unwrap();
-        let p_active = updated_peers
-            .iter()
-            .find(|p| p.id == "peer-active")
-            .unwrap();
-        let p_expired = updated_peers
-            .iter()
-            .find(|p| p.id == "peer-expired")
-            .unwrap();
+// ------------------------------------------------------------ protocol
 
-        assert_eq!(p_active.status, "online");
-        assert_eq!(p_expired.status, "offline");
-    }
+#[test]
+fn signature_detects_tampering() {
+    let (svc, _d) = new_service("Alice");
+    let packet = PacketEnvelope::new(
+        &svc.identity,
+        "Alice",
+        Some("corr-1".to_string()),
+        PacketPayload::Message(MessagePayload {
+            message_id: "m".into(),
+            conversation_id: "c".into(),
+            content: "hello".into(),
+            message_type: "text".into(),
+        }),
+    );
+    assert_eq!(packet.verify_signature(), Ok(true));
 
-    // 7. Loopback two-peer integration test with dynamic ports
-    #[tokio::test]
-    async fn test_two_peer_loopback_messaging_and_ack() {
-        let peer_b_db = Arc::new(create_test_database());
-        let peer_b_identity = create_test_identity();
+    let mut t = packet.clone();
+    t.sender_name = "Mallory".into();
+    assert_eq!(t.verify_signature(), Ok(false));
 
-        // Bind Peer B on loopback with dynamic port (0)
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let peer_b_addr = listener.local_addr().unwrap();
+    let mut t = packet.clone();
+    t.correlation_id = Some("corr-2".into());
+    assert_eq!(t.verify_signature(), Ok(false), "correlation id must be signed");
 
-        let b_db_clone = peer_b_db.clone();
-        let b_id_clone = peer_b_identity.clone();
+    let mut t = packet;
+    t.version = 1;
+    assert!(t.verify_signature().is_err(), "v1 packets are rejected");
+}
 
-        // Peer B server task
-        let server_task = tokio::spawn(async move {
-            let (mut stream, _remote_addr) = listener.accept().await.unwrap();
-            let packet = read_framed_packet(&mut stream).await.unwrap();
-            assert!(packet.verify_signature().unwrap());
+#[tokio::test]
+async fn oversized_and_truncated_frames_are_rejected() {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(100_000u32).to_be_bytes());
+    buf.extend_from_slice(&[0u8; 100]);
+    let err = read_framed_packet(&mut Cursor::new(buf)).await.unwrap_err();
+    assert!(err.to_string().contains("strict maximum limit"));
 
-            if let PacketPayload::Message(msg_payload) = packet.payload {
-                // Ensure conversation
-                let conv = b_db_clone
-                    .get_or_create_conversation(&packet.sender_id)
-                    .unwrap();
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(50u32).to_be_bytes());
+    buf.extend_from_slice(b"{\"packet_i");
+    assert!(read_framed_packet(&mut Cursor::new(buf)).await.is_err());
+}
 
-                // Commit message to DB
-                let incoming = Message {
-                    id: msg_payload.message_id.clone(),
-                    conversation_id: conv.id,
-                    sender_id: packet.sender_id.clone(),
-                    receiver_id: b_id_clone.device_id.clone(),
-                    content: msg_payload.content.clone(),
-                    message_type: "text".to_string(),
-                    timestamp: 1000,
-                    status: "delivered".to_string(),
-                    error_reason: None,
-                    is_outgoing: false,
-                };
-                b_db_clone.insert_message(&incoming).unwrap();
+#[test]
+fn file_names_from_other_computers_are_made_safe() {
+    assert_eq!(sanitize_file_name("..\\..\\Windows\\evil.exe"), "evil.exe");
+    assert_eq!(sanitize_file_name("../etc/passwd"), "passwd");
+    assert_eq!(sanitize_file_name("a<b>c:d|e?.txt"), "a_b_c_d_e_.txt");
+    assert_eq!(sanitize_file_name("CON.txt"), "_CON.txt");
+    assert_eq!(sanitize_file_name("report. "), "report");
+    assert_eq!(sanitize_file_name(""), "file");
+    assert_eq!(sanitize_file_name("..."), "file");
+    assert_eq!(sanitize_file_name("कोटेशन रिपोर्ट.xlsx"), "कोटेशन रिपोर्ट.xlsx");
+    let long = format!("{}.pdf", "x".repeat(400));
+    let s = sanitize_file_name(&long);
+    assert!(s.chars().count() <= 180 && s.ends_with(".pdf"));
+}
 
-                // Send ACK only after successful DB commit
-                let ack_reply = PacketEnvelope::new(
-                    &b_id_clone,
-                    "Peer B",
-                    PacketType::MessageAck,
-                    Some(packet.packet_id),
-                    PacketPayload::MessageAck(MessageAckPayload {
-                        message_id: msg_payload.message_id,
-                        status: "delivered".to_string(),
-                        db_committed: true,
-                        reason: None,
-                    }),
-                );
-                write_framed_packet(&mut stream, &ack_reply).await.unwrap();
-            }
-        });
+#[test]
+fn duplicate_names_get_numbered() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("Quote.pdf"), b"1").unwrap();
+    std::fs::write(dir.path().join("Quote (1).pdf"), b"2").unwrap();
+    assert_eq!(
+        unique_destination(dir.path(), "Quote.pdf"),
+        dir.path().join("Quote (2).pdf")
+    );
+    assert_eq!(unique_destination(dir.path(), "New.pdf"), dir.path().join("New.pdf"));
+}
 
-        // Peer A client: Send message to Peer B
-        let peer_a_identity = create_test_identity();
-        let mut client_stream = TcpStream::connect(peer_b_addr).await.unwrap();
+// ------------------------------------------------------------ messaging
 
-        let message_payload = PacketPayload::Message(MessagePayload {
-            message_id: "test-msg-456".to_string(),
-            conversation_id: "conv-b".to_string(),
-            content: "Hello from Peer A!".to_string(),
-            message_type: "text".to_string(),
-        });
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn handshake_registers_both_sides() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    link(&a, &b).await;
 
-        let send_packet = PacketEnvelope::new(
-            &peer_a_identity,
-            "Peer A",
-            PacketType::Message,
-            None,
-            message_payload,
-        );
+    let b_seen_by_a = a.db().get_peer(&b.id()).unwrap().unwrap();
+    assert_eq!(b_seen_by_a.display_name, "Bob");
+    assert_eq!(b_seen_by_a.status, "online");
+    assert_eq!(
+        b_seen_by_a.public_key.as_deref(),
+        Some(b.svc.identity.public_key_hex().as_str())
+    );
+    assert!(wait_for(|| b.db().get_peer(&a.id()).unwrap().is_some(), 5).await);
+}
 
-        write_framed_packet(&mut client_stream, &send_packet)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn message_is_delivered_and_acknowledged() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+
+    let text = "Quotation for 3100851312 ready ✅ — कृपया देखें";
+    let msg = a.svc.send_direct_message(&conv, text).await.unwrap();
+    assert!(wait_for(|| msg_status(a.db(), &msg.id) == "delivered", 10).await);
+
+    let stored = b.db().get_message_by_id(&msg.id).unwrap().unwrap();
+    assert_eq!(stored.content, text);
+    assert!(!stored.is_outgoing);
+    let b_conv = b.db().get_or_create_conversation(&a.id()).unwrap();
+    assert_eq!(b_conv.unread_count, 1);
+    assert!(b_conv.last_message_preview.unwrap().starts_with("Quotation"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn messages_to_offline_peer_queue_and_deliver_later() {
+    let a = node("Alice").await;
+    let (c_svc, _c_dir) = new_service("Carol");
+    let c_port = free_port();
+
+    // A already knows Carol (pinned key) but Carol is not running.
+    let carol = Peer {
+        id: c_svc.identity.device_id.clone(),
+        display_name: "Carol".into(),
+        hostname: "CAROL-PC".into(),
+        last_ip: "127.0.0.1".into(),
+        tcp_port: c_port,
+        public_key: Some(c_svc.identity.public_key_hex()),
+        trust_state: "unverified".into(),
+        status: "offline".into(),
+        last_seen: 0,
+        avatar_color: "#10b981".into(),
+    };
+    a.db().upsert_peer(&carol).unwrap();
+    let conv = a.db().get_or_create_conversation(&carol.id).unwrap().id;
+
+    let m1 = a.svc.send_direct_message(&conv, "first").await.unwrap();
+    let m2 = a.svc.send_direct_message(&conv, "second").await.unwrap();
+    assert!(wait_for(|| msg_status(a.db(), &m1.id) == "queued" && msg_status(a.db(), &m2.id) == "queued", 10).await);
+
+    // Carol starts; her beacon arrives.
+    serve_on(&c_svc, c_port).await;
+    a.svc.peer_seen(&SeenPeer {
+        device_id: carol.id.clone(),
+        display_name: "Carol".into(),
+        hostname: "CAROL-PC".into(),
+        ip: "127.0.0.1".into(),
+        tcp_port: c_port,
+        public_key: c_svc.identity.public_key_hex(),
+        avatar_color: "#10b981".into(),
+    });
+    assert!(wait_for(|| msg_status(a.db(), &m1.id) == "delivered" && msg_status(a.db(), &m2.id) == "delivered", 10).await);
+
+    let conv_c = c_svc.db.get_or_create_conversation(&a.id()).unwrap().id;
+    let got: Vec<String> = c_svc.db.get_messages(&conv_c).unwrap().into_iter().map(|m| m.content).collect();
+    assert_eq!(got, vec!["first", "second"], "order is preserved");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn manual_peer_is_merged_when_it_comes_online() {
+    let a = node("Alice").await;
+    let (b_svc, _b_dir) = new_service("Bob");
+    let port = free_port();
+
+    // Added by IP while Bob is not running.
+    let manual = a.svc.connect_manual_peer("127.0.0.1", port, Some("Bob (office)".into())).await.unwrap();
+    assert!(manual.id.starts_with("manual-"));
+    let conv = a.db().get_or_create_conversation(&manual.id).unwrap().id;
+    let m = a.svc.send_direct_message(&conv, "are you there?").await.unwrap();
+    assert!(wait_for(|| msg_status(a.db(), &m.id) == "queued", 10).await);
+
+    serve_on(&b_svc, port).await;
+    a.svc.retry_direct_message(&m.id).await.unwrap();
+    assert!(wait_for(|| msg_status(a.db(), &m.id) == "delivered", 10).await);
+
+    let peers = a.db().list_peers().unwrap();
+    assert!(peers.iter().all(|p| !p.id.starts_with("manual-")), "manual entry replaced");
+    let convs = a.db().get_conversations().unwrap();
+    assert_eq!(convs.len(), 1);
+    assert_eq!(convs[0].peer_id, b_svc.identity.device_id);
+    assert_eq!(a.db().get_messages(&convs[0].id).unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn blocked_sender_is_refused() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    assert!(wait_for(|| b.db().get_peer(&a.id()).unwrap().is_some(), 5).await);
+    b.db().update_peer_trust(&a.id(), "blocked").unwrap();
+
+    let m = a.svc.send_direct_message(&conv, "spam").await.unwrap();
+    assert!(wait_for(|| {
+        a.db().get_message_by_id(&m.id).unwrap().and_then(|m| m.error_reason).unwrap_or_default().contains("not accepting")
+    }, 10).await);
+    assert!(b.db().get_message_by_id(&m.id).unwrap().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn impostor_with_different_key_is_refused() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    // A believes B's device id has a different (attacker's) key.
+    let (other, _d) = new_service("Mallory");
+    a.db().upsert_peer(&Peer {
+        id: b.id(),
+        display_name: "Bob".into(),
+        hostname: "BOB".into(),
+        last_ip: "127.0.0.1".into(),
+        tcp_port: b.port,
+        public_key: Some(other.identity.public_key_hex()),
+        trust_state: "trusted".into(),
+        status: "offline".into(),
+        last_seen: 0,
+        avatar_color: "#000000".into(),
+    }).unwrap();
+    let peer = a.db().get_peer(&b.id()).unwrap().unwrap();
+    let err = a.svc.connect_peer(&peer).await.err().unwrap();
+    assert!(err.contains("Security"), "got: {}", err);
+}
+
+// ------------------------------------------------------------ files
+
+async fn offer_file(a: &Node, b: &Node, conv: &str, size: usize) -> (String, Vec<u8>) {
+    let (path, data) = write_random_file(a.dir.path(), "Drawing Rev-B.pdf", size);
+    let sent = a
+        .svc
+        .send_files(conv, vec![path.to_string_lossy().to_string()])
+        .await
+        .unwrap();
+    let id = sent[0].transfer.id.clone();
+    assert!(wait_for(|| transfer_status(a.db(), &id) == "pending", 10).await, "offer delivered");
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "pending", 10).await, "offer received");
+    (id, data)
+}
+
+fn received_bytes(b: &Node, id: &str) -> Vec<u8> {
+    let t = b.db().get_transfer(id).unwrap().unwrap();
+    std::fs::read(t.local_path.unwrap()).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn large_file_transfers_with_matching_hash() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let size = 24 * 1024 * 1024 + 12345; // many chunks plus a partial one
+    let (id, data) = offer_file(&a, &b, &conv, size).await;
+
+    let msg = b.db().get_message_by_transfer(&id).unwrap().unwrap();
+    assert_eq!(msg.message_type, "file");
+
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 60).await);
+    assert!(wait_for(|| transfer_status(a.db(), &id) == "completed", 10).await);
+
+    assert_eq!(received_bytes(&b, &id), data);
+    let expected = hex::encode(Sha256::digest(&data));
+    assert_eq!(b.db().get_transfer(&id).unwrap().unwrap().file_hash, expected);
+    assert_eq!(a.db().get_transfer(&id).unwrap().unwrap().file_hash, expected);
+    let t = b.db().get_transfer(&id).unwrap().unwrap();
+    assert!(t.local_path.unwrap().ends_with("Drawing Rev-B.pdf"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn empty_file_transfers() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 0).await;
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 20).await);
+    assert_eq!(received_bytes(&b, &id), data);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interrupted_download_resumes_from_partial_file() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 3 * 1024 * 1024).await;
+
+    // Simulate a download that broke after 1 MB.
+    let mut t = b.db().get_transfer(&id).unwrap().unwrap();
+    let dl = b.dir.path().join("Downloads");
+    std::fs::create_dir_all(&dl).unwrap();
+    let part = dl.join("partial.lanxpart");
+    std::fs::write(&part, &data[..1024 * 1024]).unwrap();
+    t.temp_path = Some(part.to_string_lossy().to_string());
+    t.status = "failed".into();
+    b.db().save_transfer(&t).unwrap();
+
+    b.svc.retry_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 30).await);
+    assert_eq!(received_bytes(&b, &id), data);
+    assert!(!part.exists(), "partial file is renamed into place");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn corrupted_partial_file_is_detected_then_redownloaded() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 2 * 1024 * 1024).await;
+
+    let mut t = b.db().get_transfer(&id).unwrap().unwrap();
+    let dl = b.dir.path().join("Downloads");
+    std::fs::create_dir_all(&dl).unwrap();
+    let part = dl.join("bad.lanxpart");
+    std::fs::write(&part, vec![0xAB; 512 * 1024]).unwrap(); // wrong bytes
+    t.temp_path = Some(part.to_string_lossy().to_string());
+    t.status = "failed".into();
+    b.db().save_transfer(&t).unwrap();
+
+    b.svc.retry_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "failed", 30).await);
+    let reason = b.db().get_transfer(&id).unwrap().unwrap().error_reason.unwrap();
+    assert!(reason.contains("damaged"), "got: {}", reason);
+    assert!(!part.exists(), "corrupted partial data is discarded");
+
+    b.svc.retry_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 30).await);
+    assert_eq!(received_bytes(&b, &id), data);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn declined_file_is_reported_to_sender() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, _data) = offer_file(&a, &b, &conv, 4096).await;
+
+    b.svc.cancel_transfer(&id).await.unwrap();
+    assert_eq!(transfer_status(b.db(), &id), "declined");
+    assert!(wait_for(|| transfer_status(a.db(), &id) == "declined", 10).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sender_cancel_stops_recipient() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, _data) = offer_file(&a, &b, &conv, 4096).await;
+
+    a.svc.cancel_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "cancelled", 10).await);
+    // Accepting a cancelled file is refused.
+    assert!(b.svc.accept_transfer(&id).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn trusted_peer_files_auto_download_when_enabled() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    assert!(wait_for(|| b.db().get_peer(&a.id()).unwrap().is_some(), 5).await);
+    b.db().update_peer_trust(&a.id(), "trusted").unwrap();
+    let mut s = b.db().get_settings().unwrap();
+    s.auto_download_transfers = true;
+    b.db().save_settings(&s).unwrap();
+
+    let (path, data) = write_random_file(a.dir.path(), "auto.bin", 300_000);
+    let sent = a.svc.send_files(&conv, vec![path.to_string_lossy().to_string()]).await.unwrap();
+    let id = sent[0].transfer.id.clone();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 30).await);
+    assert_eq!(received_bytes(&b, &id), data);
+}
+
+#[test]
+fn folders_are_refused_with_a_helpful_message() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let a = node("Alice").await;
+        let b = node("Bob").await;
+        let conv = link(&a, &b).await;
+        let err = a
+            .svc
+            .send_files(&conv, vec![a.dir.path().to_string_lossy().to_string()])
             .await
-            .unwrap();
-
-        // Await Ack
-        let ack_reply = read_framed_packet(&mut client_stream).await.unwrap();
-        assert!(ack_reply.verify_signature().unwrap());
-
-        if let PacketPayload::MessageAck(ack) = ack_reply.payload {
-            assert_eq!(ack.message_id, "test-msg-456");
-            assert!(ack.db_committed);
-            assert_eq!(ack.status, "delivered");
-        } else {
-            panic!("Expected MessageAck response!");
-        }
-
-        server_task.await.unwrap();
-
-        // Verify message was stored in Peer B's SQLite database
-        let stored = peer_b_db.get_message_by_id("test-msg-456").unwrap();
-        assert!(stored.is_some());
-        let m = stored.unwrap();
-        assert_eq!(m.content, "Hello from Peer A!");
-        assert_eq!(m.sender_id, peer_a_identity.device_id);
-    }
-
-    // 8. Deduplication check: retransmitted message IDs do not create duplicates
-    #[test]
-    fn test_duplicate_message_deduplication() {
-        let db = create_test_database();
-        let conv = db.get_or_create_conversation("sender-1").unwrap();
-        let msg = Message {
-            id: "msg-duplicate-test".to_string(),
-            conversation_id: conv.id.clone(),
-            sender_id: "sender-1".to_string(),
-            receiver_id: "receiver-1".to_string(),
-            content: "Unique content".to_string(),
-            message_type: "text".to_string(),
-            timestamp: 500,
-            status: "delivered".to_string(),
-            error_reason: None,
-            is_outgoing: false,
-        };
-
-        db.insert_message(&msg).unwrap();
-
-        // Verify message exists
-        let msgs = db.get_messages(&conv.id).unwrap();
-        assert_eq!(msgs.len(), 1);
-
-        // Check deduplication
-        let is_dup = msgs.iter().any(|m| m.id == "msg-duplicate-test");
-        assert!(
-            is_dup,
-            "Duplicate detector must recognize existing message ID"
-        );
-    }
-
-    // 9. Delivery status failure transition when connection fails
-    #[test]
-    fn test_delivery_status_failure_transition() {
-        let db = create_test_database();
-        let conv = db.get_or_create_conversation("peer-unreachable").unwrap();
-        let msg = Message {
-            id: "msg-fail-test".to_string(),
-            conversation_id: conv.id.clone(),
-            sender_id: "me".to_string(),
-            receiver_id: "peer-unreachable".to_string(),
-            content: "Unreachable packet".to_string(),
-            message_type: "text".to_string(),
-            timestamp: 600,
-            status: "sending".to_string(),
-            error_reason: None,
-            is_outgoing: true,
-        };
-
-        db.insert_message(&msg).unwrap();
-
-        // Simulate connection refusal
-        let error = "Connection refused or unreachable: Connection reset by peer";
-        db.update_message_status(&msg.id, "failed", Some(error))
-            .unwrap();
-
-        let updated = db.get_message_by_id(&msg.id).unwrap().unwrap();
-        assert_eq!(updated.status, "failed");
-        assert_eq!(updated.error_reason, Some(error.to_string()));
-    }
+            .unwrap_err();
+        assert!(err.contains("Zip it first"), "got: {}", err);
+        let _: Option<Message> = None;
+    });
 }

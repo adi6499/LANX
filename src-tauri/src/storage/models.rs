@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     pub device_id: String,
@@ -11,9 +15,14 @@ pub struct UserSettings {
     pub tcp_messaging_port: u16,
     pub discovery_interval_secs: u64,
     pub notifications_enabled: bool,
+    /// Auto-accept files from peers marked as trusted.
     pub auto_download_transfers: bool,
     pub default_download_dir: String,
     pub onboarding_completed: bool,
+    #[serde(default = "default_true")]
+    pub launch_at_startup: bool,
+    #[serde(default = "default_true")]
+    pub close_to_tray: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,11 +61,14 @@ pub struct Message {
     pub sender_id: String,
     pub receiver_id: String,
     pub content: String,
-    pub message_type: String, // "text" | "file_notice" | "system"
+    pub message_type: String, // "text" | "file" | "system"
     pub timestamp: i64,
-    pub status: String, // "sending" | "delivered" | "failed" | "read"
+    /// "sending" | "queued" | "delivered" | "failed" | "read"
+    pub status: String,
     pub error_reason: Option<String>,
     pub is_outgoing: bool,
+    #[serde(default)]
+    pub transfer_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,15 +76,23 @@ pub struct TransferRecord {
     pub id: String,
     pub peer_id: String,
     pub peer_name: Option<String>,
+    pub conversation_id: Option<String>,
     pub file_name: String,
     pub file_size: i64,
     pub file_hash: String,
     pub direction: String, // "incoming" | "outgoing"
-    pub status: String, // "pending" | "approved" | "transferring" | "completed" | "cancelled" | "failed"
+    /// "queued" (offer not delivered yet) | "pending" (waiting for the
+    /// recipient) | "transferring" | "completed" | "declined" | "cancelled" | "failed"
+    pub status: String,
     pub transferred_bytes: i64,
+    /// Outgoing: the file being sent. Incoming: where the received file was saved.
     pub local_path: Option<String>,
+    pub error_reason: Option<String>,
     pub created_at: i64,
     pub completed_at: Option<i64>,
+    /// Incoming only: partially downloaded data kept for resuming.
+    #[serde(skip)]
+    pub temp_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +103,10 @@ pub struct SystemInfo {
     pub database_path: String,
     pub database_size_bytes: u64,
     pub os: String,
+    pub app_version: String,
+    pub fingerprint: String,
+    pub tcp_listening: bool,
+    pub udp_listening: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

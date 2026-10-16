@@ -1,16 +1,18 @@
-use crate::security::{DeviceIdentity, KeyTrustCheck};
-use crate::storage::Database;
-use crate::storage::models::Peer;
+use crate::networking::session::normalize_ip;
+use crate::networking::{NetworkService, SeenPeer, now_secs};
+use crate::security::DeviceIdentity;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio_util::sync::CancellationToken;
 
 pub const DISCOVERY_PORT: u16 = 52925;
 pub const PROTOCOL_NAME: &str = "LANX";
+pub const BEACON_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveryBeacon {
@@ -22,252 +24,277 @@ pub struct DiscoveryBeacon {
     pub tcp_port: u16,
     pub public_key: String,
     pub avatar_color: String,
+    /// "online", or "offline" when LANX is quitting.
+    pub status: String,
+    pub timestamp: i64,
+    pub signature: String,
+}
+
+impl DiscoveryBeacon {
+    fn signing_bytes(&self) -> Vec<u8> {
+        let mut out = b"LANX-BEACON-V2".to_vec();
+        out.extend_from_slice(
+            &serde_json::to_vec(&(
+                &self.protocol,
+                self.version,
+                &self.device_id,
+                &self.display_name,
+                &self.hostname,
+                self.tcp_port,
+                &self.public_key,
+                &self.avatar_color,
+                &self.status,
+                self.timestamp,
+            ))
+            .unwrap_or_default(),
+        );
+        out
+    }
+
+    pub fn verify(&self) -> bool {
+        DeviceIdentity::verify_signature(&self.public_key, &self.signing_bytes(), &self.signature)
+            == Ok(true)
+    }
 }
 
 pub struct DiscoveryService {
-    db: Arc<Database>,
-    identity: DeviceIdentity,
-    app_handle: Option<AppHandle>,
+    network: NetworkService,
     cancel_token: CancellationToken,
+    socket: Mutex<Option<Arc<UdpSocket>>>,
+    listening: AtomicBool,
+}
+
+/// Broadcast addresses of every active IPv4 adapter, plus the global
+/// broadcast and loopback (for a second LANX profile on the same PC).
+fn beacon_targets(port: u16) -> Vec<SocketAddr> {
+    let mut targets: Vec<SocketAddr> = Vec::new();
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for iface in ifaces {
+            if iface.is_loopback() {
+                continue;
+            }
+            if let if_addrs::IfAddr::V4(v4) = iface.addr {
+                let bcast = v4.broadcast.unwrap_or_else(|| {
+                    Ipv4Addr::from(u32::from(v4.ip) | !u32::from(v4.netmask))
+                });
+                let addr = SocketAddr::V4(SocketAddrV4::new(bcast, port));
+                if !targets.contains(&addr) {
+                    targets.push(addr);
+                }
+            }
+        }
+    }
+    for fixed in [Ipv4Addr::BROADCAST, Ipv4Addr::LOCALHOST] {
+        let addr = SocketAddr::V4(SocketAddrV4::new(fixed, port));
+        if !targets.contains(&addr) {
+            targets.push(addr);
+        }
+    }
+    targets
+}
+
+/// Non-loopback IPv4 addresses of this computer.
+pub fn local_ipv4_addresses() -> Vec<String> {
+    let mut ips = Vec::new();
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for iface in ifaces {
+            if iface.is_loopback() {
+                continue;
+            }
+            if let if_addrs::IfAddr::V4(v4) = iface.addr {
+                let s = v4.ip.to_string();
+                if !ips.contains(&s) {
+                    ips.push(s);
+                }
+            }
+        }
+    }
+    ips
+}
+
+fn bind_discovery_socket(port: u16) -> std::io::Result<UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    // Lets a second LANX test profile share the port on one PC.
+    socket.set_reuse_address(true)?;
+    socket.set_broadcast(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port)).into())?;
+    UdpSocket::from_std(socket.into())
 }
 
 impl DiscoveryService {
-    pub fn new(db: Arc<Database>, identity: DeviceIdentity, app_handle: Option<AppHandle>) -> Self {
+    pub fn new(network: NetworkService) -> Self {
         Self {
-            db,
-            identity,
-            app_handle,
+            network,
             cancel_token: CancellationToken::new(),
+            socket: Mutex::new(None),
+            listening: AtomicBool::new(false),
         }
     }
 
-    pub fn start(&self) {
-        let db = self.db.clone();
-        let identity = self.identity.clone();
-        let app_handle = self.app_handle.clone();
-        let cancel_token = self.cancel_token.clone();
+    pub fn is_listening(&self) -> bool {
+        self.listening.load(Ordering::SeqCst)
+    }
 
-        // Spawn async tasks on tauri async runtime
+    fn build_beacon(&self, status: &str) -> Option<Vec<u8>> {
+        let profile = self.network.local_profile();
+        let identity = &self.network.identity;
+        let mut beacon = DiscoveryBeacon {
+            protocol: PROTOCOL_NAME.to_string(),
+            version: BEACON_VERSION,
+            device_id: identity.device_id.clone(),
+            display_name: profile.display_name,
+            hostname: profile.hostname,
+            tcp_port: profile.tcp_port,
+            public_key: identity.public_key_hex(),
+            avatar_color: profile.avatar_color,
+            status: status.to_string(),
+            timestamp: now_secs(),
+            signature: String::new(),
+        };
+        beacon.signature = identity.sign_bytes(&beacon.signing_bytes());
+        serde_json::to_vec(&beacon).ok()
+    }
+
+    fn port(&self) -> u16 {
+        self.network
+            .db
+            .get_settings()
+            .map(|s| s.udp_discovery_port)
+            .unwrap_or(DISCOVERY_PORT)
+    }
+
+    fn interval(&self) -> Duration {
+        let secs = self
+            .network
+            .db
+            .get_settings()
+            .map(|s| s.discovery_interval_secs)
+            .unwrap_or(5)
+            .clamp(2, 60);
+        Duration::from_secs(secs)
+    }
+
+    pub fn start(self: &Arc<Self>) {
+        let this = self.clone();
         tauri::async_runtime::spawn(async move {
-            let socket = match bind_discovery_socket(DISCOVERY_PORT).await {
+            let port = this.port();
+            let socket = match bind_discovery_socket(port) {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
-                    eprintln!("[Discovery] Failed to bind UDP discovery socket: {}", e);
+                    eprintln!("[Discovery] Cannot bind UDP port {}: {}", port, e);
                     return;
                 }
             };
+            *this.socket.lock() = Some(socket.clone());
+            this.listening.store(true, Ordering::SeqCst);
 
+            // 1. Periodic beacons on every adapter.
+            let beacons = this.clone();
             let beacon_socket = socket.clone();
-            let beacon_identity = identity.clone();
-            let beacon_db = db.clone();
-            let beacon_cancel = cancel_token.clone();
+            tokio::spawn(async move {
+                loop {
+                    if let Some(bytes) = beacons.build_beacon("online") {
+                        for target in beacon_targets(port) {
+                            let _ = beacon_socket.send_to(&bytes, target).await;
+                        }
+                    }
+                    tokio::select! {
+                        _ = beacons.cancel_token.cancelled() => break,
+                        _ = tokio::time::sleep(beacons.interval()) => {}
+                    }
+                }
+            });
 
-            // Task 1: Periodic Beacon Broadcaster
-            tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(5));
+            // 2. Expire peers that stopped sending beacons.
+            let expiry = this.clone();
+            tokio::spawn(async move {
                 loop {
                     tokio::select! {
-                        _ = beacon_cancel.cancelled() => break,
-                        _ = interval.tick() => {
-                            if let Ok(settings) = beacon_db.get_settings() {
-                                let beacon = DiscoveryBeacon {
-                                    protocol: PROTOCOL_NAME.to_string(),
-                                    version: 1,
-                                    device_id: beacon_identity.device_id.clone(),
-                                    display_name: settings.display_name,
-                                    hostname: settings.hostname,
-                                    tcp_port: settings.tcp_messaging_port,
-                                    public_key: beacon_identity.public_key_hex(),
-                                    avatar_color: settings.avatar_color,
-                                };
-
-                                if let Ok(json_bytes) = serde_json::to_vec(&beacon) {
-                                    // Broadcast to IPv4 LAN
-                                    let targets = [
-                                        "255.255.255.255:52925",
-                                        "127.0.0.1:52925",
-                                    ];
-                                    for target in targets {
-                                        let _ = beacon_socket.send_to(&json_bytes, target).await;
-                                    }
-                                }
+                        _ = expiry.cancel_token.cancelled() => break,
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                    }
+                    let timeout = (expiry.interval().as_secs() as i64 * 3 + 2).max(15);
+                    let now = now_secs();
+                    if let Ok(peers) = expiry.network.db.list_peers() {
+                        for p in peers {
+                            if p.status == "online" && now - p.last_seen > timeout {
+                                expiry.network.peer_went_offline(&p.id);
                             }
                         }
                     }
                 }
             });
 
-            // Task 2: Incoming Beacon Listener
-            let listener_socket = socket.clone();
-            let listener_db = db.clone();
-            let listener_identity = identity.clone();
-            let listener_app = app_handle.clone();
-            let listener_cancel = cancel_token.clone();
-
-            tauri::async_runtime::spawn(async move {
-                let mut buf = [0u8; 2048];
-                loop {
-                    tokio::select! {
-                        _ = listener_cancel.cancelled() => break,
-                        result = listener_socket.recv_from(&mut buf) => {
-                            match result {
-                                Ok((len, src_addr)) => {
-                                    handle_received_beacon(
-                                        &buf[..len],
-                                        src_addr,
-                                        &listener_identity,
-                                        &listener_db,
-                                        listener_app.as_ref(),
-                                    );
-                                }
-                                Err(e) => {
-                                    eprintln!("[Discovery] Error reading UDP socket: {}", e);
-                                    tokio::time::sleep(Duration::from_millis(500)).await;
-                                }
-                            }
+            // 3. Listen for beacons.
+            let mut buf = vec![0u8; 4096];
+            loop {
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => break,
+                    res = socket.recv_from(&mut buf) => match res {
+                        Ok((len, src)) => this.handle_beacon(&buf[..len], src, &socket).await,
+                        // Windows reports ICMP "port unreachable" from earlier
+                        // sends as a receive error; it is harmless.
+                        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+                        Err(e) => {
+                            eprintln!("[Discovery] UDP receive error: {}", e);
+                            tokio::time::sleep(Duration::from_millis(200)).await;
                         }
                     }
                 }
-            });
-
-            // Task 3: Peer Expiry Task (marks offline after 15s)
-            let expiry_db = db.clone();
-            let expiry_app = app_handle.clone();
-            let expiry_cancel = cancel_token.clone();
-
-            tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(5));
-                loop {
-                    tokio::select! {
-                        _ = expiry_cancel.cancelled() => break,
-                        _ = interval.tick() => {
-                            check_expired_peers(&expiry_db, expiry_app.as_ref());
-                        }
-                    }
-                }
-            });
+            }
+            this.listening.store(false, Ordering::SeqCst);
         });
+    }
+
+    async fn handle_beacon(&self, bytes: &[u8], src: SocketAddr, socket: &UdpSocket) {
+        let Ok(beacon) = serde_json::from_slice::<DiscoveryBeacon>(bytes) else {
+            return;
+        };
+        if beacon.protocol != PROTOCOL_NAME
+            || beacon.version != BEACON_VERSION
+            || beacon.device_id == self.network.identity.device_id
+            || !beacon.verify()
+        {
+            return;
+        }
+        if beacon.status == "offline" {
+            if let Ok(Some(p)) = self.network.db.get_peer(&beacon.device_id) {
+                if p.public_key.as_deref() == Some(beacon.public_key.as_str()) {
+                    self.network.peer_went_offline(&p.id);
+                }
+            }
+            return;
+        }
+        let seen = SeenPeer {
+            device_id: beacon.device_id,
+            display_name: beacon.display_name,
+            hostname: beacon.hostname,
+            ip: normalize_ip(&src),
+            tcp_port: beacon.tcp_port,
+            public_key: beacon.public_key,
+            avatar_color: beacon.avatar_color,
+        };
+        if self.network.peer_seen(&seen) {
+            // Newly online: answer directly so it sees us without waiting.
+            if let Some(reply) = self.build_beacon("online") {
+                let _ = socket.send_to(&reply, src).await;
+            }
+        }
+    }
+
+    /// Tells everyone we are going offline (called when LANX quits).
+    pub async fn announce_offline(&self) {
+        let socket = self.socket.lock().clone();
+        if let (Some(socket), Some(bytes)) = (socket, self.build_beacon("offline")) {
+            for target in beacon_targets(self.port()) {
+                let _ = socket.send_to(&bytes, target).await;
+            }
+        }
     }
 
     pub fn stop(&self) {
         self.cancel_token.cancel();
-    }
-}
-
-async fn bind_discovery_socket(port: u16) -> Result<UdpSocket, std::io::Error> {
-    let addr = format!("0.0.0.0:{}", port);
-    let socket = UdpSocket::bind(&addr).await?;
-    socket.set_broadcast(true)?;
-    Ok(socket)
-}
-
-fn handle_received_beacon(
-    bytes: &[u8],
-    src_addr: SocketAddr,
-    local_identity: &DeviceIdentity,
-    db: &Database,
-    app_handle: Option<&AppHandle>,
-) {
-    let beacon: DiscoveryBeacon = match serde_json::from_slice(bytes) {
-        Ok(b) => b,
-        Err(_) => return,
-    };
-
-    // Ignore packets from self
-    if beacon.device_id == local_identity.device_id {
-        return;
-    }
-
-    if beacon.protocol != PROTOCOL_NAME || beacon.version != 1 {
-        return;
-    }
-
-    let ip = match src_addr {
-        SocketAddr::V4(v4) => {
-            let s = v4.ip().to_string();
-            // If local loopback, keep as 127.0.0.1
-            if s.starts_with("127.") {
-                "127.0.0.1".to_string()
-            } else {
-                s
-            }
-        }
-        SocketAddr::V6(v6) => v6.ip().to_string(),
-    };
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-
-    // Check existing peer to evaluate key trust change
-    let existing_peer = db
-        .list_peers()
-        .ok()
-        .and_then(|peers| peers.into_iter().find(|p| p.id == beacon.device_id));
-
-    let trust_state = if let Some(ref p) = existing_peer {
-        let check =
-            DeviceIdentity::check_peer_key_trust(p.public_key.as_deref(), &beacon.public_key);
-        match check {
-            KeyTrustCheck::KeyChangedWarning { .. } => {
-                eprintln!(
-                    "[Security Alert] Peer {} public key changed! Forcing unverified state.",
-                    beacon.device_id
-                );
-                "unverified".to_string()
-            }
-            _ => p.trust_state.clone(),
-        }
-    } else {
-        "unverified".to_string()
-    };
-
-    let peer = Peer {
-        id: beacon.device_id.clone(),
-        display_name: beacon.display_name,
-        hostname: beacon.hostname,
-        last_ip: ip,
-        tcp_port: beacon.tcp_port,
-        public_key: Some(beacon.public_key),
-        trust_state,
-        status: "online".to_string(),
-        last_seen: now,
-        avatar_color: beacon.avatar_color,
-    };
-
-    let _ = db.upsert_peer(&peer);
-
-    // Emit typed Tauri event
-    if let Some(app) = app_handle {
-        let _ = app.emit("lanx://peer-discovered", &peer);
-    }
-}
-
-fn check_expired_peers(db: &Database, app_handle: Option<&AppHandle>) {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-
-    if let Ok(peers) = db.list_peers() {
-        for mut peer in peers {
-            if peer.status == "online" && (now - peer.last_seen > 15) {
-                peer.status = "offline".to_string();
-                let _ = db.upsert_peer(&peer);
-                if let Some(app) = app_handle {
-                    #[derive(Serialize, Clone)]
-                    struct PeerOfflinePayload {
-                        peer_id: String,
-                    }
-                    let _ = app.emit(
-                        "lanx://peer-offline",
-                        PeerOfflinePayload {
-                            peer_id: peer.id.clone(),
-                        },
-                    );
-                }
-            }
-        }
     }
 }

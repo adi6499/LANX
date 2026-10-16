@@ -1,6 +1,8 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub const LATEST_SCHEMA_VERSION: i64 = 2;
+
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -96,6 +98,29 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             (1, now),
         )?;
 
+        tx.commit()?;
+    }
+
+    if current_version < 2 {
+        // v2: real file transfers (links to chat messages, resumable partial
+        // files, failure reasons) and an index for the offline outbox.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE messages ADD COLUMN transfer_id TEXT;
+            ALTER TABLE transfers ADD COLUMN conversation_id TEXT;
+            ALTER TABLE transfers ADD COLUMN temp_path TEXT;
+            ALTER TABLE transfers ADD COLUMN error_reason TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_messages_outbox ON messages(receiver_id, is_outgoing, status);
+            CREATE INDEX IF NOT EXISTS idx_messages_transfer ON messages(transfer_id);
+            CREATE INDEX IF NOT EXISTS idx_transfers_peer ON transfers(peer_id, status);
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (2, now),
+        )?;
         tx.commit()?;
     }
 
