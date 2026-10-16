@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --bg-app: #f8fafc;
+    --bg-sidebar: #ffffff;
+    --bg-panel: #fcfcfd;
+    --bg-card: #f1f5f9;
+    --bg-card-hover: #e2e8f0;
+    --border-subtle: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-muted: #94a3b8;
+    --accent: #0284c7;
+    --accent-hover: #0369a1;
+    --accent-subtle: #e0f2fe;
+    --bubble-incoming: #ffffff;
+    --bubble-outgoing: #0284c7;
+    --bubble-outgoing-text: #ffffff;
+  }
+
+  .dark {
+    --bg-app: #080c14;
+    --bg-sidebar: #0f1624;
+    --bg-panel: #0c111c;
+    --bg-card: #162032;
+    --bg-card-hover: #1e2c44;
+    --border-subtle: #1c273c;
+    --border-strong: #2a3a56;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent: #38bdf8;
+    --accent-hover: #0ea5e9;
+    --accent-subtle: #082f49;
+    --bubble-incoming: #162032;
+    --bubble-outgoing: #0284c7;
+    --bubble-outgoing-text: #ffffff;
+  }
+
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.3);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.dark .glass-panel {
+  background: rgba(15, 22, 36, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Subtle animation pulses */
+@keyframes peer-pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.online-pulse {
+  animation: peer-pulse 2s infinite ease-in-out;
+}

@@ -1,0 +1,300 @@
+import React, { useState } from "react";
+import { Peer } from "../types";
+import {
+  Users,
+  Plus,
+  Shield,
+  ShieldAlert,
+  MessageSquare,
+  Laptop,
+} from "lucide-react";
+
+interface PeopleViewProps {
+  peers: Peer[];
+  searchQuery: string;
+  onStartChat: (peerId: string) => void;
+  onAddManualPeer: (ip: string, port: number, name?: string) => Promise<void>;
+  onUpdateTrust: (peerId: string, trustState: "unverified" | "trusted" | "blocked") => void;
+}
+
+export const PeopleView: React.FC<PeopleViewProps> = ({
+  peers,
+  searchQuery,
+  onStartChat,
+  onAddManualPeer,
+  onUpdateTrust,
+}) => {
+  const [filter, setFilter] = useState<"all" | "online" | "trusted">("all");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [manualIp, setManualIp] = useState("");
+  const [manualPort, setManualPort] = useState(52926);
+  const [manualName, setManualName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const filteredPeers = peers.filter((p) => {
+    const matchesSearch =
+      p.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.last_ip.includes(searchQuery) ||
+      p.hostname.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+    if (filter === "online") return p.status === "online";
+    if (filter === "trusted") return p.trust_state === "trusted";
+    return true;
+  });
+
+  const handleAddSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualIp.trim()) return;
+    setSubmitting(true);
+    try {
+      await onAddManualPeer(manualIp.trim(), manualPort, manualName.trim() || undefined);
+      setShowAddModal(false);
+      setManualIp("");
+      setManualName("");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex-1 h-full flex flex-col bg-slate-50/50 dark:bg-[#080c14] overflow-hidden select-none">
+      {/* Header */}
+      <div className="h-16 px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c111c] flex items-center justify-between shrink-0">
+        <div>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">
+            Local Network Peers
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Computers and colleagues discovered on your LAN
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 text-xs">
+            <button
+              type="button"
+              onClick={() => setFilter("all")}
+              className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                filter === "all"
+                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              All ({peers.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter("online")}
+              className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                filter === "online"
+                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              Online ({peers.filter((p) => p.status === "online").length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter("trusted")}
+              className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                filter === "trusted"
+                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              Trusted
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-md shadow-sky-500/20 transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Connect by IP</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Peer Grid */}
+      <div className="flex-1 overflow-y-auto p-8">
+        {filteredPeers.length === 0 ? (
+          <div className="h-64 flex flex-col items-center justify-center text-center p-8 text-xs text-slate-400">
+            <Users className="h-10 w-10 text-slate-300 dark:text-slate-700 mb-2" />
+            <p className="font-semibold text-slate-700 dark:text-slate-300">
+              No Peers Found
+            </p>
+            <p className="mt-1 text-slate-500 max-w-sm">
+              Peers on your LAN broadcast discovery beacons every 5 seconds. If router AP isolation is enabled, use "Connect by IP" to establish direct contact.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="mt-4 px-4 py-2 rounded-xl bg-sky-500 text-white text-xs font-semibold shadow-sm"
+            >
+              Connect to Peer by IP
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredPeers.map((peer) => {
+              const isOnline = peer.status === "online";
+              const isTrusted = peer.trust_state === "trusted";
+
+              return (
+                <div
+                  key={peer.id}
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="relative">
+                        <div
+                          className="h-12 w-12 rounded-full flex items-center justify-center text-white font-bold text-base shadow-sm"
+                          style={{ backgroundColor: peer.avatar_color }}
+                        >
+                          {peer.display_name.charAt(0).toUpperCase()}
+                        </div>
+                        <span
+                          className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-[#111827] ${
+                            isOnline ? "bg-emerald-500 online-pulse" : "bg-slate-400"
+                          }`}
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {isTrusted ? (
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold border border-emerald-500/20">
+                            <Shield className="h-3 w-3" />
+                            <span>Trusted</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold border border-amber-500/20">
+                            <ShieldAlert className="h-3 w-3" />
+                            <span>Unverified</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                      {peer.display_name}
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                      <Laptop className="h-3.5 w-3.5" />
+                      <span>{peer.hostname || "LAN Workstation"}</span>
+                    </p>
+
+                    <div className="mt-3 py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 text-[11px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                      <span>{peer.last_ip}</span>
+                      <span className="text-slate-400">:{peer.tcp_port}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onStartChat(peer.id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-sm transition-colors"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      <span>Chat</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateTrust(peer.id, isTrusted ? "unverified" : "trusted")
+                      }
+                      title={isTrusted ? "Mark unverified" : "Trust peer"}
+                      className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <Shield className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Manual Peer Add Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
+              Connect to Peer by IP
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Enter the local IP address and port of another machine running LANX on your network.
+            </p>
+
+            <form onSubmit={handleAddSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Peer IP Address
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 192.168.1.120"
+                  value={manualIp}
+                  onChange={(e) => setManualIp(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  TCP Messaging Port
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={manualPort}
+                  onChange={(e) => setManualPort(parseInt(e.target.value) || 52926)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Optional Label / Nickname
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Alex (Office Laptop)"
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || !manualIp.trim()}
+                  className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-md shadow-sky-500/20 disabled:opacity-50"
+                >
+                  {submitting ? "Connecting..." : "Add & Connect"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
