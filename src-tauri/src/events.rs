@@ -111,6 +111,12 @@ impl Events {
         self.emit("lanx://state-changed", ());
     }
 
+    /// A LANX update was offered, downloaded, checked or shared; the UI asks
+    /// for the new update status.
+    pub fn update_changed(&self) {
+        self.emit("lanx://update-changed", ());
+    }
+
     fn main_window_focused(app: &AppHandle) -> bool {
         app.get_webview_window("main")
             .map(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))

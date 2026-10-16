@@ -190,9 +190,15 @@ impl NetworkService {
         dirs::download_dir().unwrap_or_else(|| crate::storage::data_dir(None).join("Downloads"))
     }
 
-    fn save_and_emit(&self, t: &TransferRecord) {
+    /// Saves a transfer and tells the UI (update installers are not chat
+    /// files: the UI hears about them as an update change).
+    pub(crate) fn save_and_emit(&self, t: &TransferRecord) {
         let _ = self.db.save_transfer(t);
-        self.events.transfer_updated(t);
+        if t.kind == "update" {
+            self.events.update_changed();
+        } else {
+            self.events.transfer_updated(t);
+        }
     }
 
     fn update_file_message(&self, transfer_id: &str, status: &str, reason: Option<String>) {
@@ -288,6 +294,7 @@ impl NetworkService {
                     completed_at: None,
                     parent_id: parent.clone(),
                     temp_path: None,
+                    kind: "file".to_string(),
                 };
                 self.db.insert_transfer(&transfer).map_err(|e| e.to_string())?;
                 transfers.push(transfer);
@@ -331,6 +338,9 @@ impl NetworkService {
         mut t: TransferRecord,
         modern: bool,
     ) -> bool {
+        if t.kind == "update" {
+            return self.deliver_update_offer(chan, t).await;
+        }
         let group_id = t.parent_id.as_ref().and(t.conversation_id.clone());
         if group_id.is_some() && !modern {
             let reason = format!(
@@ -668,6 +678,7 @@ impl NetworkService {
             completed_at: None,
             parent_id: None,
             temp_path: None,
+            kind: "file".to_string(),
         };
         if self.db.insert_transfer(&t).is_err() {
             return ack(false, Some("Recipient database error"));
@@ -778,7 +789,8 @@ impl NetworkService {
             return Err("This file can no longer be accepted.".to_string());
         }
 
-        let dir = self.download_dir();
+        // LANX updates go to LANX's own folder, not Downloads.
+        let dir = if t.kind == "update" { self.updates_dir() } else { self.download_dir() };
         std::fs::create_dir_all(&dir).map_err(|e| friendly_io_error(&e))?;
         if t.temp_path.is_none() {
             let short: String = t.id.chars().take(8).collect();
@@ -813,6 +825,10 @@ impl NetworkService {
                 t.temp_path = None;
                 t.completed_at = Some(now_secs());
                 self.save_and_emit(&t);
+                if t.kind == "update" {
+                    self.update_downloaded(&t);
+                    return;
+                }
                 let hidden = t
                     .conversation_id
                     .as_deref()
@@ -839,6 +855,9 @@ impl NetworkService {
                 if notify_peer {
                     self.send_cancel_to_peer(&t.peer_id, &t.id, "The recipient cancelled this file.");
                 }
+                if t.kind == "update" {
+                    self.update_download_failed(&t);
+                }
             }
             Err(Outcome::Failed(reason)) => {
                 t.status = "failed".to_string();
@@ -847,6 +866,9 @@ impl NetworkService {
                     t.transferred_bytes = std::fs::metadata(tmp).map(|m| m.len() as i64).unwrap_or(0);
                 }
                 self.save_and_emit(&t);
+                if t.kind == "update" {
+                    self.update_download_failed(&t);
+                }
             }
         }
     }
@@ -1037,6 +1059,25 @@ impl NetworkService {
         tokio::fs::rename(&temp, &final_path)
             .await
             .map_err(|e| Outcome::Failed(friendly_io_error(&e)))?;
+        if t.kind == "update" {
+            // Signature, checksum and version info must all match before the
+            // installer is kept (and before the sender hears it arrived).
+            if let Err(reason) = self.check_downloaded_update(t, &final_path) {
+                let _ = tokio::fs::remove_file(&final_path).await;
+                t.temp_path = None;
+                let _ = chan
+                    .send(
+                        PacketPayload::FileResult(FileResultPayload {
+                            transfer_id: t.id.clone(),
+                            ok: false,
+                            reason: Some("The installer failed LANX's safety check on the recipient's computer".to_string()),
+                        }),
+                        None,
+                    )
+                    .await;
+                return Err(Outcome::Failed(reason));
+            }
+        }
         t.file_hash = digest;
         let _ = chan
             .send(

@@ -15,6 +15,8 @@ import {
   GroupInfo,
   LockStatus,
   BroadcastResult,
+  UpdateStatus,
+  SharedInstaller,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -51,6 +53,10 @@ export interface RingPayload {
 export interface MessagesDeletedPayload {
   message_ids: string[];
   conversation_ids: string[];
+}
+
+export interface UpdateProblemPayload {
+  message: string;
 }
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -187,6 +193,29 @@ let mockMessages: Record<string, Message[]> = {
     msg({ id: "m-6", conversation_id: "conv-elena", content: "Will send the revised quote after lunch", timestamp: now() - 4100, status: "queued", error_reason: "Waiting for Elena (Sales) to come online" }),
     msg({ id: "m-7", conversation_id: "conv-elena", content: "📎 Price List 2026.pdf", message_type: "file", transfer_id: "tx-3", sender_id: "peer-elena", is_outgoing: false, timestamp: now() - 4000, status: "read" }),
   ],
+};
+
+// Preview: Marcus passed on 1.2.1 and it is downloaded; Sarah and Elena are behind.
+let mockUpdate: UpdateStatus = {
+  current_version: "1.2.0",
+  latest_version: "1.2.1",
+  available: {
+    version: "1.2.1",
+    state: "ready",
+    from_name: "Marcus (Stores)",
+    from_online: true,
+    file_size: 6_210_000,
+    transfer_id: "upd-1",
+    transferred_bytes: 6_210_000,
+  },
+  sharing: null,
+  colleagues: [
+    { peer_id: "peer-sarah", display_name: "Sarah (Accounts)", online: true, app_version: "1.2.0", behind: true, state: "behind" },
+    { peer_id: "peer-marcus", display_name: "Marcus (Stores)", online: true, app_version: "1.2.1", behind: false, state: "up_to_date" },
+    { peer_id: "peer-elena", display_name: "Elena (Sales)", online: false, app_version: "1.1.0", behind: true, state: "behind" },
+  ],
+  snoozed_until: null,
+  auto_chat: true,
 };
 
 const previewOnly = () =>
@@ -406,7 +435,7 @@ export const api = {
       database_path: "%APPDATA%\\LANX\\lanx.db",
       database_size_bytes: 40960,
       os: "Windows",
-      app_version: "1.1.0",
+      app_version: "1.2.0",
       fingerprint: "3F:9A:12:C4:77:0B:E1:5D",
       tcp_listening: true,
       udp_listening: true,
@@ -536,6 +565,60 @@ export const api = {
     return { sent_to: peerIds.length, problems: [] };
   },
 
+  // ---------------------------------------------------------- LANX updates
+  getUpdateStatus: async (): Promise<UpdateStatus> => {
+    if (isTauri) return invoke("get_update_status");
+    return { ...mockUpdate };
+  },
+
+  /** "Update now": "downloading" | "installing" | "dry_run" (test copies). */
+  installUpdate: async (): Promise<string> => {
+    if (isTauri) return invoke("install_update");
+    if (mockUpdate.available) mockUpdate = { ...mockUpdate, available: { ...mockUpdate.available, state: "installing" } };
+    return "installing";
+  },
+
+  pickUpdateInstaller: async (): Promise<string | null> => {
+    if (isTauri) return invoke("pick_update_installer");
+    return "D:\\LANX\\release\\LANX-Setup-1.2.1.exe";
+  },
+
+  shareUpdate: async (path: string): Promise<SharedInstaller> => {
+    if (isTauri) return invoke("share_update", { path });
+    const s: SharedInstaller = { path, file_name: "LANX-Setup-1.2.1.exe", version: "1.2.1", sha256: "9f2c…", size: 6_210_000 };
+    mockUpdate = {
+      ...mockUpdate,
+      sharing: s,
+      colleagues: mockUpdate.colleagues.map((c) =>
+        c.peer_id === "peer-sarah" ? { ...c, state: "offered" } : c.peer_id === "peer-elena" ? { ...c, state: "chat_sent" } : c
+      ),
+    };
+    return s;
+  },
+
+  /** "Remind me tomorrow"; returns when the banner comes back. */
+  snoozeUpdate: async (): Promise<number> => {
+    if (isTauri) return invoke("snooze_update");
+    const until = now() + 86400;
+    mockUpdate = { ...mockUpdate, snoozed_until: until };
+    return until;
+  },
+
+  setUpdateAutoChat: async (enabled: boolean): Promise<void> => {
+    if (isTauri) return invoke("set_update_auto_chat", { enabled });
+    mockUpdate = { ...mockUpdate, auto_chat: enabled };
+  },
+
+  stopSharingUpdate: async (): Promise<void> => {
+    if (isTauri) return invoke("stop_sharing_update");
+    mockUpdate = { ...mockUpdate, sharing: null };
+  },
+
+  sendUpdateAsFile: async (peerIds: string[]): Promise<BroadcastResult> => {
+    if (isTauri) return invoke("send_update_as_file", { peerIds });
+    return { sent_to: peerIds.length, problems: [] };
+  },
+
   // ---------------------------------------------------------------- sounds
   pickSoundFile: async (): Promise<string | null> => {
     if (isTauri) return invoke("pick_sound_file");
@@ -571,4 +654,7 @@ export const events = {
     on<MessagesDeletedPayload>("lanx://messages-deleted", cb),
   onLockChanged: (cb: (s: LockStatus) => void) => on<LockStatus>("lanx://lock-changed", cb),
   onOpenPrivacySettings: (cb: () => void) => on<null>("lanx://open-privacy-settings", () => cb()),
+  onUpdateChanged: (cb: () => void) => on<null>("lanx://update-changed", () => cb()),
+  onUpdateProblem: (cb: (p: UpdateProblemPayload) => void) =>
+    on<UpdateProblemPayload>("lanx://update-problem", cb),
 };

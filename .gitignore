@@ -27,3 +27,7 @@ dist-ssr
 /release/
 *.zip
 
+
+# LANX release signing key (private; back it up, never commit it)
+/signing/
+*.pem

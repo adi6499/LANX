@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { UserSettings, SystemInfo, ConnectionTestResult } from "../types";
+import { UserSettings, SystemInfo, ConnectionTestResult, UpdateStatus } from "../types";
 import { api, errorText } from "../lib/api";
 import { formatSize } from "../lib/format";
+import { UpdatesPanel } from "./UpdatesPanel";
 import {
   X,
   User,
@@ -26,6 +27,7 @@ import {
   Play,
   Music,
   Sparkles,
+  ArrowUpCircle,
 } from "lucide-react";
 
 export type SettingsTab =
@@ -35,6 +37,7 @@ export type SettingsTab =
   | "sounds"
   | "appearance"
   | "files"
+  | "updates"
   | "network"
   | "diagnostics"
   | "help"
@@ -49,6 +52,10 @@ interface SettingsModalProps {
   onSave: (updated: UserSettings) => void;
   onThemeChange: (theme: "system" | "dark" | "light") => void;
   onShowGuide: () => void;
+  updateStatus: UpdateStatus | null;
+  installingUpdate: boolean;
+  onInstallUpdate: () => void;
+  onUpdateChanged: () => void;
 }
 
 const SOUNDS: { id: string; label: string }[] = [
@@ -201,6 +208,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSave,
   onThemeChange,
   onShowGuide,
+  updateStatus,
+  installingUpdate,
+  onInstallUpdate,
+  onUpdateChanged,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>("profile");
   useEffect(() => {
@@ -307,6 +318,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     sounds: "Sounds",
     appearance: "Appearance",
     files: "Files",
+    updates: "Updates",
     network: "Network",
     diagnostics: "Diagnostics",
     help: "Help",
@@ -348,13 +360,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {navItem("sounds", "Sounds", Volume2)}
             {navItem("appearance", "Appearance", Sun)}
             {navItem("files", "Files", FolderOpen)}
+            {navItem("updates", "Updates", ArrowUpCircle)}
             {navItem("network", "Network", Network)}
             {navItem("diagnostics", "Diagnostics", Activity)}
             {navItem("help", "Help", LifeBuoy)}
             {navItem("about", "About", Info)}
           </div>
           <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-600 border-t border-slate-200 dark:border-slate-800">
-            LANX v{systemInfo?.app_version || "1.1.0"} · Windows
+            LANX v{systemInfo?.app_version || "1.2.0"} · Windows
           </div>
         </div>
 
@@ -686,6 +699,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </>
             )}
 
+            {activeTab === "updates" && (
+              <UpdatesPanel
+                status={updateStatus}
+                installing={installingUpdate}
+                onInstall={onInstallUpdate}
+                onChanged={onUpdateChanged}
+              />
+            )}
+
             {activeTab === "network" && (
               <>
                 <div className="grid grid-cols-2 gap-3">
@@ -841,7 +863,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <img src="/lanx-logo.png" alt="" className="mx-auto h-16 w-16 rounded-2xl shadow-lg" />
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">LANX</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Version {systemInfo?.app_version || "1.0.0"}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Version {systemInfo?.app_version || "1.2.0"}</p>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
                   Office messenger and file sharing for your local network. No internet, no server, no accounts: computers

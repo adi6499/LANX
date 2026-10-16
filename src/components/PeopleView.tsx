@@ -22,6 +22,9 @@ function lastSeenText(ts: number): string {
 
 interface PeopleViewProps {
   peers: Peer[];
+  /** LANX version each colleague last reported, and whether it is behind. */
+  versions: Record<string, { version?: string | null; behind: boolean }>;
+  latestVersion: string | null;
   searchQuery: string;
   onStartChat: (peerId: string) => void;
   onAddManualPeer: (ip: string, port: number, name?: string) => Promise<void>;
@@ -30,6 +33,8 @@ interface PeopleViewProps {
 
 export const PeopleView: React.FC<PeopleViewProps> = ({
   peers,
+  versions,
+  latestVersion,
   searchQuery,
   onStartChat,
   onAddManualPeer,
@@ -210,6 +215,23 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                     </p>
                     {!isOnline && (
                       <p className="text-[11px] text-slate-400 mt-0.5">{lastSeenText(peer.last_seen)}</p>
+                    )}
+                    {versions[peer.id]?.version && (
+                      <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                        <span>LANX {versions[peer.id].version}</span>
+                        {versions[peer.id].behind ? (
+                          <span
+                            className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold border border-amber-500/20"
+                            title={latestVersion ? `LANX ${latestVersion} is the newest on your network` : undefined}
+                          >
+                            Behind{latestVersion ? ` · ${latestVersion} available` : ""}
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold border border-emerald-500/20">
+                            Up to date
+                          </span>
+                        )}
+                      </p>
                     )}
 
                     <div className="mt-3 py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 text-[11px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">

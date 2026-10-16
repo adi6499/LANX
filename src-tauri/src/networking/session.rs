@@ -34,6 +34,8 @@ pub struct LocalProfile {
     pub hostname: String,
     pub tcp_port: u16,
     pub avatar_color: String,
+    /// The LANX version this device reports (decides which packets it gets).
+    pub app_version: String,
 }
 
 /// The verified identity of the device at the other end of a session.
@@ -78,7 +80,7 @@ fn handshake_payload(eph: &PublicKey, me: &LocalProfile) -> HandshakePayload {
         hostname: me.hostname.clone(),
         tcp_port: me.tcp_port,
         avatar_color: me.avatar_color.clone(),
-        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        app_version: me.app_version.clone(),
     }
 }
 

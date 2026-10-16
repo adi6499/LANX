@@ -799,3 +799,395 @@ async fn hidden_chats_stay_out_of_lists_and_search() {
     assert!(a.db().search_messages("salary", 10, false).unwrap().is_empty());
     assert_eq!(a.db().search_messages("salary", 10, true).unwrap().len(), 1);
 }
+
+// ================================================ LANX 1.2: Share LANX update
+
+use super::update::{AvailableUpdate, UpdateConfig, release_message, verify_release, version_matches};
+use crate::storage::models::ReleaseInfo;
+use ed25519_dalek::{Signer, SigningKey};
+use std::path::{Path, PathBuf};
+
+/// Stands in for the LANX release key (the real private key never leaves
+/// the owner's PC).
+fn test_release_key() -> SigningKey {
+    SigningKey::from_bytes(&[7u8; 32])
+}
+
+fn update_cfg(node_dir: &Path, version: &str) -> UpdateConfig {
+    UpdateConfig {
+        app_version: version.into(),
+        release_key: hex::encode(test_release_key().verifying_key().to_bytes()),
+        check_exe_version: false, // test "installers" are random bytes
+        dry_run: true,
+        dir: Some(node_dir.join("Updates")),
+        install_dir: Some(node_dir.join("Program Files").join("LANX").join("updates")),
+    }
+}
+
+fn sign_release(version: &str, data: &[u8]) -> ReleaseInfo {
+    let sha256 = hex::encode(Sha256::digest(data));
+    let size = data.len() as u64;
+    let signature = test_release_key().sign(&release_message(version, &sha256, size));
+    ReleaseInfo {
+        version: version.into(),
+        sha256,
+        size,
+        signature: hex::encode(signature.to_bytes()),
+    }
+}
+
+/// LANX-Setup-<version>.exe plus its .sig, as `npm run release` makes them.
+fn fake_installer(dir: &Path, version: &str, size: usize) -> (PathBuf, Vec<u8>) {
+    let (path, data) = write_random_file(dir, &format!("LANX-Setup-{}.exe", version), size);
+    let sig = serde_json::to_string(&sign_release(version, &data)).unwrap();
+    std::fs::write(format!("{}.sig", path.display()), sig).unwrap();
+    (path, data)
+}
+
+/// A node that believes it runs LANX `version`.
+async fn updater(name: &str, version: &str) -> Node {
+    let n = node(name).await;
+    n.svc.set_update_config(update_cfg(n.dir.path(), version));
+    n
+}
+
+fn available(n: &Node) -> Option<AvailableUpdate> {
+    n.svc.update_status().available
+}
+
+fn avail_state(n: &Node) -> String {
+    available(n).map(|a| a.state).unwrap_or_default()
+}
+
+fn colleague_state(n: &Node, peer_id: &str) -> String {
+    n.svc
+        .update_status()
+        .colleagues
+        .into_iter()
+        .find(|c| c.peer_id == peer_id)
+        .map(|c| c.state)
+        .unwrap_or_default()
+}
+
+fn started_installers(n: &Node) -> Vec<String> {
+    n.svc.updates.lock().dry_runs.clone()
+}
+
+fn offer_of(version: &str, r: &ReleaseInfo) -> UpdateOfferPayload {
+    UpdateOfferPayload {
+        transfer_id: uuid::Uuid::new_v4().to_string(),
+        version: version.into(),
+        file_size: r.size,
+        sha256: r.sha256.clone(),
+        signature: r.signature.clone(),
+    }
+}
+
+#[test]
+fn update_offer_packet_and_version_rules() {
+    for good in ["1.2.0", "10.20.30"] {
+        assert!(valid_version(good), "{}", good);
+    }
+    for bad in ["1.2", "1.2.0.1", "1.2.x", "", "1..2", "../1.2.0", "1.2.0-beta", "123456.0.0"] {
+        assert!(!valid_version(bad), "{}", bad);
+    }
+    assert!(is_newer("1.2.1", "1.2.0") && is_newer("1.10.0", "1.9.9"));
+    assert!(!is_newer("1.2.0", "1.2.0") && !is_newer("1.1.9", "1.2.0"));
+    assert!(version_at_least("1.2.0", FEATURES_V12) && !version_at_least("1.1.0", FEATURES_V12));
+    assert!(version_matches("1.2.1.0", "1.2.1") && !version_matches("1.2.10.0", "1.2.1"));
+    let v = serde_json::to_value(PacketPayload::UpdateOffer(offer_of("1.2.1", &sign_release("1.2.1", b"x")))).unwrap();
+    assert_eq!(v["kind"], "update_offer");
+}
+
+#[test]
+fn only_installers_signed_with_the_release_key_are_accepted() {
+    let key = hex::encode(test_release_key().verifying_key().to_bytes());
+    let good = sign_release("1.3.0", b"installer bytes");
+    assert_eq!(verify_release(&key, &good), Ok(()));
+    let mut t = good.clone();
+    t.version = "1.3.1".into();
+    assert!(verify_release(&key, &t).is_err(), "the version is signed");
+    let mut t = good.clone();
+    t.sha256 = hex::encode(Sha256::digest(b"another program"));
+    assert!(verify_release(&key, &t).is_err(), "the checksum is signed");
+    let mut t = good.clone();
+    t.size += 1;
+    assert!(verify_release(&key, &t).is_err(), "the size is signed");
+    let other = hex::encode(SigningKey::from_bytes(&[9u8; 32]).verifying_key().to_bytes());
+    assert!(verify_release(&other, &good).is_err(), "signed with another key");
+    // The release key built into the app is a real key, and not the test one.
+    let real = UpdateConfig::default().release_key;
+    assert_eq!(real.len(), 64);
+    assert!(verify_release(&real, &good).is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn update_is_offered_downloaded_checked_and_started_on_click() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    link(&a, &b).await;
+    let (path, data) = fake_installer(a.dir.path(), "1.3.0", 700_000);
+    let share = a.svc.share_update(&path.to_string_lossy()).unwrap();
+    assert!(Path::new(&share.path).starts_with(a.dir.path().join("Updates")), "kept in LANX's folder");
+
+    // Without anyone doing anything, Bharat is offered it and his LANX
+    // fetches and checks it in the background.
+    assert!(wait_for(|| avail_state(&b) == "ready", 20).await);
+    let offer = available(&b).unwrap();
+    assert_eq!((offer.version.as_str(), offer.from_name.as_str()), ("1.3.0", "Asha"));
+    assert!(wait_for(|| colleague_state(&a, &b.id()) == "received", 10).await);
+    let t = b.db().update_transfers("incoming").unwrap().remove(0).0;
+    assert_eq!(std::fs::read(t.local_path.unwrap()).unwrap(), data);
+    assert!(!b.dir.path().join("Downloads").join("LANX-Setup-1.3.0.exe").exists(), "not in Downloads");
+    // It is not a chat file: no chat, nothing in the Files list.
+    assert!(b.db().list_transfers(true).unwrap().is_empty());
+    assert!(b.db().get_conversations(true).unwrap().is_empty());
+    // Nothing runs before the click.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(started_installers(&b).is_empty());
+
+    // "Update LANX now": checked once more, then started.
+    assert_eq!(b.svc.install_update().await.unwrap(), "dry_run");
+    let line = started_installers(&b).remove(0);
+    let updates = b.dir.path().join("Updates");
+    assert!(line.contains(&*updates.to_string_lossy()) && line.ends_with("/P /R /UPDATE"), "{}", line);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn update_that_cannot_be_fetched_never_starts_anything() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    link(&a, &b).await;
+    assert!(wait_for(|| b.db().get_peer(&a.id()).unwrap().is_some(), 5).await);
+    let asha = b.db().get_peer(&a.id()).unwrap().unwrap();
+    // An offer whose download cannot start on its own (Asha does not have it).
+    let r = sign_release("1.3.0", b"x");
+    assert!(b.svc.handle_update_offer(&asha, offer_of("1.3.0", &r)).accepted);
+    assert!(wait_for(|| matches!(avail_state(&b).as_str(), "failed" | "available"), 10).await);
+    assert!(b.svc.install_update().await.is_ok());
+    assert!(wait_for(|| avail_state(&b) == "failed", 10).await);
+    assert!(started_installers(&b).is_empty(), "nothing broken is started");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unsigned_forged_old_or_untrusted_updates_are_refused() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    link(&a, &b).await;
+    assert!(wait_for(|| b.db().get_peer(&a.id()).unwrap().is_some(), 5).await);
+    let asha = b.db().get_peer(&a.id()).unwrap().unwrap();
+
+    // Sharing needs the matching .sig that `npm run release` writes.
+    let (bare, _) = write_random_file(a.dir.path(), "LANX-Setup-copy.exe", 1000);
+    assert!(a.svc.share_update(&bare.to_string_lossy()).unwrap_err().contains("release signature"));
+    let (changed, _) = fake_installer(a.dir.path(), "1.3.0", 1000);
+    std::fs::write(&changed, vec![1u8; 1000]).unwrap(); // changed after signing
+    assert!(a.svc.share_update(&changed.to_string_lossy()).unwrap_err().contains("checksum"));
+
+    let r = sign_release("1.3.0", b"x");
+    let mut forged = offer_of("1.3.0", &r);
+    forged.signature = hex::encode([0u8; 64]);
+    assert!(!b.svc.handle_update_offer(&asha, forged).accepted);
+    assert!(!b.svc.handle_update_offer(&asha, offer_of("1.4.0", &r)).accepted, "version swapped");
+    let same = sign_release("1.2.0", b"x");
+    let reply = b.svc.handle_update_offer(&asha, offer_of("1.2.0", &same));
+    assert!(!reply.accepted && reply.reason.unwrap().contains("already has"), "not newer");
+    let mut blocked = asha.clone();
+    blocked.trust_state = "blocked".into();
+    assert!(!b.svc.handle_update_offer(&blocked, offer_of("1.3.0", &r)).accepted);
+    let mut unpinned = asha.clone();
+    unpinned.public_key = None;
+    assert!(!b.svc.handle_update_offer(&unpinned, offer_of("1.3.0", &r)).accepted);
+    assert!(available(&b).is_none());
+
+    assert!(b.svc.handle_update_offer(&asha, offer_of("1.3.0", &r)).accepted);
+    assert!(available(&b).is_some_and(|x| x.version == "1.3.0"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn installer_changed_on_the_sharing_pc_is_rejected_and_deleted() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    let (path, _) = fake_installer(a.dir.path(), "1.3.0", 400_000);
+    let share = a.svc.share_update(&path.to_string_lossy()).unwrap();
+    std::fs::write(&share.path, vec![0x5A; 400_000]).unwrap(); // same size, other program
+
+    link(&a, &b).await; // Bharat is offered it and fetches it by himself
+    assert!(wait_for(|| avail_state(&b) == "failed", 20).await);
+    // Pressing the button fetches it again, and it fails the check again.
+    b.svc.install_update().await.unwrap();
+    assert!(wait_for(|| avail_state(&b) == "failed", 20).await);
+    let error = available(&b).unwrap().error.unwrap_or_default();
+    assert!(error.contains("safety check"), "got: {}", error);
+    assert!(started_installers(&b).is_empty(), "nothing was started");
+    let exes = std::fs::read_dir(b.dir.path().join("Updates"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".exe"))
+        .count();
+    assert_eq!(exes, 0, "the bad file is deleted");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn colleagues_on_1_1_get_the_installer_as_a_chat_file() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.1.0").await; // reports 1.1.0 like a real 1.1 PC
+    link(&a, &b).await;
+    let (path, data) = fake_installer(a.dir.path(), "1.3.0", 300_000);
+    a.svc.share_update(&path.to_string_lossy()).unwrap();
+
+    // Sent once, by itself, as an ordinary file in their chat.
+    let copies = || {
+        b.db()
+            .list_transfers(true)
+            .unwrap()
+            .into_iter()
+            .filter(|t| t.file_name == "LANX-Setup-1.3.0.exe")
+            .collect::<Vec<_>>()
+    };
+    assert!(wait_for(|| copies().iter().any(|t| t.status == "pending"), 10).await);
+    assert!(wait_for(|| colleague_state(&a, &b.id()) == "chat_sent", 10).await);
+    assert!(b.db().update_transfers("incoming").unwrap().is_empty(), "1.1 never gets the new packet");
+    a.svc.maybe_offer_update(&b.id()); // seen again: not sent twice
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(copies().len(), 1);
+    let t = copies().remove(0);
+    assert!(t.conversation_id.is_some(), "an ordinary file in the chat");
+    b.svc.accept_transfer(&t.id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &t.id) == "completed", 20).await);
+    assert_eq!(received_bytes(&b, &t.id), data);
+
+    // The button in Settings → Updates sends it again on request.
+    assert_eq!(a.svc.send_update_as_file(&[b.id()]).await.unwrap().sent_to, 1);
+    assert!(wait_for(|| copies().len() == 2, 10).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn no_automatic_chat_files_when_turned_off() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.1.0").await;
+    a.svc.set_update_auto_chat(false).unwrap();
+    link(&a, &b).await;
+    let (path, _) = fake_installer(a.dir.path(), "1.3.0", 1000);
+    a.svc.share_update(&path.to_string_lossy()).unwrap();
+    assert!(wait_for(|| colleague_state(&a, &b.id()) == "old_version", 10).await);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(b.db().list_transfers(true).unwrap().is_empty());
+    assert!(!a.svc.update_status().auto_chat);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn everyone_sees_who_is_behind() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    link(&a, &b).await;
+    assert!(wait_for(|| b.db().peer_app_version(&a.id()).is_some(), 10).await);
+    let on_a = a.svc.update_status();
+    let bharat = on_a.colleagues.iter().find(|c| c.peer_id == b.id()).unwrap();
+    assert_eq!(on_a.latest_version, "1.3.0");
+    assert!(bharat.behind && bharat.state == "behind");
+    assert_eq!(bharat.app_version.as_deref(), Some("1.2.0"));
+    let on_b = b.svc.update_status();
+    assert_eq!(on_b.latest_version, "1.3.0", "Bharat knows a newer LANX exists");
+    let asha = on_b.colleagues.iter().find(|c| c.peer_id == a.id()).unwrap();
+    assert!(!asha.behind && asha.state == "up_to_date");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remind_me_tomorrow_and_daily_reminders() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    link(&a, &b).await;
+    assert!(wait_for(|| b.db().get_peer(&a.id()).unwrap().is_some(), 5).await);
+    let asha = b.db().get_peer(&a.id()).unwrap().unwrap();
+    assert!(!b.svc.remind_about_update(), "nothing to remind about");
+    let r = sign_release("1.3.0", b"x");
+    assert!(b.svc.handle_update_offer(&asha, offer_of("1.3.0", &r)).accepted);
+    assert!(!b.svc.remind_about_update(), "just announced");
+
+    // A day later it reminds again, once.
+    let yesterday = (now_secs() - 25 * 3600).to_string();
+    b.db().set_setting("update_reminded_at", &yesterday).unwrap();
+    assert!(b.svc.remind_about_update());
+    assert!(!b.svc.remind_about_update());
+
+    // "Remind me tomorrow" hides it for a day.
+    let until = b.svc.snooze_update().unwrap();
+    assert!(until >= now_secs() + 86_000);
+    assert_eq!(b.svc.update_status().snoozed_until, Some(until));
+    b.db().set_setting("update_reminded_at", &yesterday).unwrap();
+    assert!(!b.svc.remind_about_update(), "quiet while snoozed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn installing_from_a_release_folder_starts_sharing_by_itself() {
+    // The installer leaves a copy of itself (and its .sig) in the LANX
+    // folder; the LANX it installed then shares that version.
+    let a = updater("Asha", "1.3.0").await;
+    let copy_dir = a.dir.path().join("Program Files").join("LANX").join("updates");
+    std::fs::create_dir_all(&copy_dir).unwrap();
+    let (other, _) = fake_installer(&copy_dir, "1.2.9", 1000); // not the running version
+    a.svc.update_housekeeping();
+    assert!(a.svc.shared_installer().is_none());
+    std::fs::remove_file(other).unwrap();
+
+    let (path, _) = fake_installer(&copy_dir, "1.3.0", 50_000);
+    a.svc.update_housekeeping();
+    let share = a.svc.shared_installer().expect("shares the version it runs");
+    assert_eq!((share.release.version.as_str(), share.origin.as_str()), ("1.3.0", "chosen"));
+    assert_ne!(Path::new(&share.path), path.as_path(), "copied into LANX's own folder");
+
+    // Without the .sig (e.g. it came through LANX) nothing is shared.
+    let b = updater("Bharat", "1.3.0").await;
+    let b_copy = b.dir.path().join("Program Files").join("LANX").join("updates");
+    std::fs::create_dir_all(&b_copy).unwrap();
+    std::fs::copy(&path, b_copy.join("LANX-Setup-1.3.0.exe")).unwrap();
+    b.svc.update_housekeeping();
+    assert!(b.svc.shared_installer().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_updated_pc_passes_the_update_on() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    let c = updater("Chetan", "1.2.0").await;
+    link(&a, &b).await;
+    let (path, data) = fake_installer(a.dir.path(), "1.3.0", 500_000);
+    a.svc.share_update(&path.to_string_lossy()).unwrap();
+    assert!(wait_for(|| avail_state(&b) == "ready", 20).await);
+    assert_eq!(b.svc.install_update().await.unwrap(), "dry_run");
+
+    // Bharat's LANX starts again as 1.3.0 (what the installer does).
+    b.svc.set_update_config(update_cfg(b.dir.path(), "1.3.0"));
+    b.svc.update_housekeeping();
+    let share = b.svc.shared_installer().expect("keeps the installer to pass on");
+    assert_eq!((share.release.version.as_str(), share.origin.as_str()), ("1.3.0", "passed_on"));
+    assert!(available(&b).is_none(), "up to date now");
+
+    // Chetan only knows Bharat, and still gets 1.3.0.
+    link(&b, &c).await;
+    assert!(wait_for(|| available(&c).is_some_and(|x| x.from_name == "Bharat" && x.state == "ready"), 20).await);
+    assert_eq!(c.svc.install_update().await.unwrap(), "dry_run");
+    let t = c.db().update_transfers("incoming").unwrap().remove(0).0;
+    assert_eq!(std::fs::read(t.local_path.unwrap()).unwrap(), data);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopping_sharing_withdraws_the_offer() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    // Bharat's LANX cannot fetch it yet (its Updates folder is unavailable),
+    // so the offer is still waiting when Asha stops sharing.
+    let blocked_dir = b.dir.path().join("not-a-folder");
+    std::fs::write(&blocked_dir, b"x").unwrap();
+    let mut cfg = update_cfg(b.dir.path(), "1.2.0");
+    cfg.dir = Some(blocked_dir);
+    b.svc.set_update_config(cfg);
+    link(&a, &b).await;
+    let (path, _) = fake_installer(a.dir.path(), "1.3.0", 200_000);
+    a.svc.share_update(&path.to_string_lossy()).unwrap();
+    assert!(wait_for(|| avail_state(&b) == "available", 10).await);
+    a.svc.stop_sharing_update().unwrap();
+    assert!(a.svc.shared_installer().is_none());
+    assert!(wait_for(|| available(&b).is_none(), 10).await, "the banner goes away");
+}

@@ -36,6 +36,15 @@
   ; Networks Windows marked "Public": only computers on the same subnet.
   nsExec::Exec 'netsh advfirewall firewall add rule name="${LANX_FW_RULE_PUBLIC}" description="Lets computers on the same local subnet reach LANX." dir=in action=allow program="$INSTDIR\${MAINBINARYNAME}.exe" enable=yes profile=public remoteip=localsubnet'
   Pop $0
+  ; Keep a copy of this installer, plus its LANX release signature if it was
+  ; next to it (installed straight from the release folder). LANX then shares
+  ; this version with colleagues by itself (Settings → Updates).
+  CreateDirectory "$INSTDIR\updates"
+  Delete "$INSTDIR\updates\LANX-Setup-*.*"
+  CopyFiles /SILENT /FILESONLY "$EXEPATH" "$INSTDIR\updates\LANX-Setup-${VERSION}.exe"
+  ${If} ${FileExists} "$EXEPATH.sig"
+    CopyFiles /SILENT /FILESONLY "$EXEPATH.sig" "$INSTDIR\updates\LANX-Setup-${VERSION}.exe.sig"
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
@@ -45,4 +54,10 @@
   Pop $0
   ; "Start with Windows" entry created by LANX for this user.
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "LANX"
+  ; The installer copy kept for sharing updates.
+  ${If} $INSTDIR != ""
+    Delete "$INSTDIR\updates\LANX-Setup-*.*"
+    RMDir "$INSTDIR\updates"
+    RMDir "$INSTDIR"
+  ${EndIf}
 !macroend

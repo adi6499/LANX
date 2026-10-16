@@ -11,6 +11,7 @@ import {
   NavTab,
   TrustState,
   LockStatus,
+  UpdateStatus,
 } from "./types";
 import { api, events, errorText, isTauri } from "./lib/api";
 import { Sidebar } from "./components/Sidebar";
@@ -25,6 +26,7 @@ import { LockScreen, PinDialog } from "./components/LockScreen";
 import { NewGroupModal } from "./components/NewGroupModal";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { WelcomeTour } from "./components/WelcomeTour";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { AlertCircle, X } from "lucide-react";
 
 const TOUR_KEY = "lanx.tourSeen.v1";
@@ -90,6 +92,8 @@ export default function App() {
   const [showHiddenPrompt, setShowHiddenPrompt] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
 
   const locked = !!lock?.locked;
   const activeConversationIdRef = useRef<string | null>(null);
@@ -134,8 +138,14 @@ export default function App() {
     setTyping({});
   }, []);
 
+  const loadUpdateStatus = useCallback(() => {
+    if (lockedRef.current) return;
+    api.getUpdateStatus().then(setUpdateStatus).catch(() => {});
+  }, []);
+
   const reloadAll = useCallback(async () => {
     if (lockedRef.current) return [];
+    loadUpdateStatus();
     const [p, c, t] = await Promise.all([api.listPeers(), api.getConversations(), api.listTransfers()]);
     setPeers(p);
     setConversations(c);
@@ -147,7 +157,7 @@ export default function App() {
       api.getMessages(active).then(setMessages).catch(() => {});
     }
     return c;
-  }, []);
+  }, [loadUpdateStatus]);
 
   const loadAfterUnlock = useCallback(async () => {
     try {
@@ -385,12 +395,43 @@ export default function App() {
 
     add(events.onStateChanged(() => reloadAll().catch(() => {})));
     add(events.onOpenPrivacySettings(() => setSettingsTab("privacy")));
+    add(events.onUpdateChanged(loadUpdateStatus));
+    add(
+      events.onUpdateProblem(({ message }) => {
+        setNotice(message);
+        loadUpdateStatus();
+      })
+    );
 
     return () => {
       disposed = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [reloadAll, clearPrivateState]);
+  }, [reloadAll, clearPrivateState, loadUpdateStatus]);
+
+  // "Remind me tomorrow" ran out: show the banner again.
+  const snoozedUntil = updateStatus?.snoozed_until ?? 0;
+  useEffect(() => {
+    if (!snoozedUntil) return;
+    const ms = snoozedUntil * 1000 - Date.now();
+    const t = setTimeout(loadUpdateStatus, Math.max(1000, Math.min(ms + 1000, 2 ** 31 - 1)));
+    return () => clearTimeout(t);
+  }, [snoozedUntil, loadUpdateStatus]);
+
+  const handleInstallUpdate = useCallback(async () => {
+    setInstallingUpdate(true);
+    try {
+      const result = await api.installUpdate();
+      if (result === "dry_run") {
+        setNotice("Test copy (LANX_INSTALL_DRY_RUN): the installer passed every check but was not started.");
+      }
+    } catch (err) {
+      showError(err);
+    } finally {
+      setInstallingUpdate(false);
+      loadUpdateStatus();
+    }
+  }, [showError, loadUpdateStatus]);
 
   const addSentFiles = useCallback((sent: SentFile[]) => {
     if (sent.length === 0) return;
@@ -455,6 +496,12 @@ export default function App() {
     };
   }, [sendDroppedFiles]);
 
+  const availableUpdate = updateStatus?.available ?? null;
+  const peerVersions = useMemo(() => {
+    const map: Record<string, { version?: string | null; behind: boolean }> = {};
+    for (const c of updateStatus?.colleagues ?? []) map[c.peer_id] = { version: c.app_version, behind: c.behind };
+    return map;
+  }, [updateStatus]);
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
   const activePeer =
     activeConversation && activeConversation.kind === "direct"
@@ -720,6 +767,20 @@ export default function App() {
       />
 
       <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative">
+        {availableUpdate &&
+          (availableUpdate.state === "downloading" ||
+            availableUpdate.state === "installing" ||
+            !updateStatus?.snoozed_until ||
+            updateStatus.snoozed_until * 1000 <= Date.now()) && (
+            <UpdateBanner
+              update={availableUpdate}
+              progress={availableUpdate.transfer_id ? progress[availableUpdate.transfer_id] : undefined}
+              busy={installingUpdate}
+              onInstall={handleInstallUpdate}
+              onLater={() => api.snoozeUpdate().then(loadUpdateStatus).catch(showError)}
+            />
+          )}
+
         {activeTab === "messages" && (
           <ConversationPanel
             conversation={activeConversation}
@@ -752,6 +813,8 @@ export default function App() {
         {activeTab === "people" && (
           <PeopleView
             peers={peers}
+            versions={peerVersions}
+            latestVersion={updateStatus?.latest_version ?? null}
             searchQuery={searchQuery}
             onStartChat={handleStartChatFromPeer}
             onAddManualPeer={handleAddManualPeer}
@@ -784,7 +847,7 @@ export default function App() {
           />
         )}
 
-        {notice && activeTab !== "messages" && (
+        {notice && (activeTab !== "messages" || !activeConversation) && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-lg flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/80 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 shadow-lg lanx-rise">
             <AlertCircle className="h-4 w-4 shrink-0 mt-px" />
             <span className="flex-1 whitespace-pre-line">{notice}</span>
@@ -821,6 +884,10 @@ export default function App() {
         }}
         onThemeChange={applyTheme}
         onShowGuide={() => setShowTour(true)}
+        updateStatus={updateStatus}
+        installingUpdate={installingUpdate}
+        onInstallUpdate={handleInstallUpdate}
+        onUpdateChanged={loadUpdateStatus}
       />
 
       {showNewGroup && (

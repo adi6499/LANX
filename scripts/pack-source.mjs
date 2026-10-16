@@ -20,6 +20,8 @@ execFileSync(
     "--exclude=dist",
     "--exclude=release",
     "--exclude=.git",
+    "--exclude=signing",
+    "--exclude=*.pem",
     "--exclude=*.zip",
     ".",
   ],

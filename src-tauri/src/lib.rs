@@ -30,7 +30,7 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-fn quit_app(app: &AppHandle) {
+pub(crate) fn quit_app(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Some(state) = app.try_state::<AppState>() {
@@ -265,6 +265,14 @@ pub fn run() {
             commands::pick_files,
             commands::pick_sound_file,
             commands::play_sound,
+            commands::get_update_status,
+            commands::install_update,
+            commands::pick_update_installer,
+            commands::share_update,
+            commands::stop_sharing_update,
+            commands::send_update_as_file,
+            commands::snooze_update,
+            commands::set_update_auto_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LANX desktop application");

@@ -165,6 +165,26 @@ pub struct TransferRecord {
     /// Incoming only: partially downloaded data kept for resuming.
     #[serde(skip)]
     pub temp_path: Option<String>,
+    /// "file" (chat file) | "update" (LANX installer shared through Settings →
+    /// Updates; never shown in chats or the Files list).
+    #[serde(default = "default_transfer_kind")]
+    pub kind: String,
+}
+
+pub fn default_transfer_kind() -> String {
+    "file".to_string()
+}
+
+/// What the LANX release signature covers (also the content of the
+/// `LANX-Setup-<version>.exe.sig` file written by `npm run release`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReleaseInfo {
+    pub version: String,
+    /// SHA-256 of the installer, lowercase hex.
+    pub sha256: String,
+    pub size: u64,
+    /// Ed25519 signature by the LANX release key, hex.
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

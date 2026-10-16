@@ -608,6 +608,88 @@ pub async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {
         .collect())
 }
 
+// ------------------------------------------------------- LANX updates
+
+#[tauri::command]
+pub fn get_update_status(
+    state: State<AppState>,
+) -> Result<crate::networking::update::UpdateStatus, String> {
+    state.network.privacy.guard()?;
+    Ok(state.network.update_status())
+}
+
+/// "Update now" / "Install now". Returns "downloading", "installing" or
+/// "dry_run" (side-by-side test copies).
+#[tauri::command]
+pub async fn install_update(state: State<'_, AppState>) -> Result<String, String> {
+    state.network.privacy.guard()?;
+    state.network.install_update().await
+}
+
+/// File picker for the installer to share (its .sig must be next to it).
+#[tauri::command]
+pub async fn pick_update_installer(app: AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_title("Choose the LANX installer to share (LANX-Setup-….exe)")
+        .add_filter("LANX installer", &["exe"]);
+    if let Some(w) = app.get_webview_window("main") {
+        builder = builder.set_parent(&w);
+    }
+    builder.pick_file(move |f| {
+        let _ = tx.send(f);
+    });
+    Ok(rx
+        .await
+        .map_err(err)?
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn share_update(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<crate::networking::update::SharedInstaller, String> {
+    state.network.privacy.guard()?;
+    let network = state.network.clone();
+    // Checking and copying the installer reads the whole file.
+    tauri::async_runtime::spawn_blocking(move || network.share_update(&path))
+        .await
+        .map_err(err)?
+}
+
+#[tauri::command]
+pub fn stop_sharing_update(state: State<AppState>) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    state.network.stop_sharing_update()
+}
+
+/// "Remind me tomorrow". Returns when the banner comes back (unix seconds).
+#[tauri::command]
+pub fn snooze_update(state: State<AppState>) -> Result<i64, String> {
+    state.network.privacy.guard()?;
+    state.network.snooze_update()
+}
+
+#[tauri::command]
+pub fn set_update_auto_chat(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    state.network.set_update_auto_chat(enabled)
+}
+
+/// For colleagues on LANX 1.1 or older: the installer as a chat file.
+#[tauri::command]
+pub async fn send_update_as_file(
+    state: State<'_, AppState>,
+    peer_ids: Vec<String>,
+) -> Result<crate::networking::extras::BroadcastResult, String> {
+    state.network.privacy.guard()?;
+    state.network.send_update_as_file(&peer_ids).await
+}
+
 // ------------------------------------------------------------------ sounds
 
 #[tauri::command]

@@ -8,6 +8,8 @@
 //! - `LANX_BIND=127.0.0.1`   listen on loopback only (no firewall prompt)
 //! - `LANX_BEACON_TO=127.0.0.1:52952,...` extra discovery targets
 //! - `LANX_QUIET=1`          no notifications, no "start with Windows"
+//! - `LANX_INSTALL_DRY_RUN=1` "Update now" checks the installer but writes
+//!   `Updates\install-dry-run.txt` in the data folder instead of starting it
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -42,4 +44,8 @@ pub fn extra_beacon_targets() -> Vec<SocketAddr> {
 
 pub fn quiet() -> bool {
     var("LANX_QUIET").is_some()
+}
+
+pub fn install_dry_run() -> bool {
+    var("LANX_INSTALL_DRY_RUN").is_some()
 }

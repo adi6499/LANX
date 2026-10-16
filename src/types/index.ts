@@ -193,6 +193,66 @@ export interface ConnectionTestResult {
   message: string;
 }
 
+/** A newer LANX this PC can install ("Share LANX update"). */
+export interface AvailableUpdate {
+  version: string;
+  state: "available" | "downloading" | "ready" | "failed" | "installing";
+  /** Colleague offering it; empty when it is the installer this PC shares. */
+  from_name: string;
+  from_online: boolean;
+  file_size: number;
+  transfer_id?: string | null;
+  transferred_bytes: number;
+  error?: string | null;
+}
+
+/** The official installer this PC passes on to colleagues. */
+export interface SharedInstaller {
+  path: string;
+  file_name: string;
+  version: string;
+  sha256: string;
+  size: number;
+}
+
+export type ColleagueUpdateState =
+  | "up_to_date"
+  | "behind"
+  | "unknown"
+  | "old_version"
+  | "chat_sent"
+  | "waiting"
+  | "offered"
+  | "downloading"
+  | "received"
+  | "failed"
+  | "declined"
+  | "not_offered";
+
+export interface ColleagueUpdate {
+  peer_id: string;
+  display_name: string;
+  online: boolean;
+  app_version?: string | null;
+  /** Their LANX is older than the newest one on the network. */
+  behind: boolean;
+  state: ColleagueUpdateState;
+  detail?: string | null;
+}
+
+export interface UpdateStatus {
+  current_version: string;
+  /** Newest LANX seen on the network. */
+  latest_version: string;
+  available?: AvailableUpdate | null;
+  sharing?: SharedInstaller | null;
+  colleagues: ColleagueUpdate[];
+  /** "Remind me tomorrow": the banner is hidden until then (unix seconds). */
+  snoozed_until?: number | null;
+  /** Send the shared installer once as a chat file to colleagues on LANX 1.1. */
+  auto_chat: boolean;
+}
+
 export type NavTab = "messages" | "people" | "transfers" | "history";
 
 /** Actions on a file transfer, shared by the chat bubbles and the Files tab. */

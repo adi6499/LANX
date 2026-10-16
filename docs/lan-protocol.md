@@ -1,4 +1,4 @@
-# LANX network protocol (v2, LANX 1.0)
+# LANX network protocol (v2, LANX 1.0 – 1.2)
 
 Two layers, both on the local network only:
 
@@ -101,3 +101,58 @@ verify signatures).
 Group messages are sent to each member separately over their own encrypted session; delivery and
 "seen" are tracked per member, and offline members receive group changes first, then messages.
 Secret messages are wiped from disk with SQLite `secure_delete`.
+
+## 6. LANX 1.2: Share LANX update (same protocol v2)
+A PC that has an official LANX installer offers it to colleagues whose LANX is older. The new packet
+kind is sent **only** to peers whose handshake reports `app_version >= 1.2.0` (an older LANX would
+drop the connection on an unknown kind). Colleagues on 1.1 or older are instead sent the installer
+as an ordinary chat file, once, from Settings → Updates.
+
+| kind | meaning |
+|---|---|
+| `update_offer { transfer_id, version, file_size, sha256, signature }` → `file_offer_ack` | "I have the LANX `version` installer." The recipient stores it as a pending *update* (not a chat file) and shows "Update now" |
+
+After "Update now" the recipient pulls the installer with the usual `file_request` / data frames /
+`file_stream_end` / `file_result`, so it is encrypted, resumable and SHA-256 checked like any file.
+
+**Release signature.** `npm run release` signs every installer with the LANX release key (Ed25519;
+private key in `signing/`, never committed; public key built into the app from
+`src-tauri/release-key.pub`) and writes `LANX-Setup-<version>.exe.sig`:
+
+```json
+{ "format": "lanx-release-1", "version": "1.2.0", "sha256": "<hex>", "size": 6123456, "signature": "<hex>" }
+```
+
+The signature covers the UTF-8 bytes `"LANX-RELEASE-V1\n<version>\n<sha256>\n<size>"`.
+
+**What the recipient checks**
+1. The offer comes over an authenticated session from a known colleague (pinned key, not blocked,
+   not an unverified manual address).
+2. `version` is a plain `a.b.c` and newer than its own LANX.
+3. The release signature is valid for `version`, `sha256` and `file_size`.
+4. After downloading (before `file_result` is sent): size and SHA-256 match the signed values, and
+   the `.exe`'s Windows version information says product name `LANX`, product version `version`.
+   A file that fails is deleted and the sender is told it failed.
+5. Nothing runs without a click. Right before starting it, LANX opens the file so nobody can change
+   it, checks it once more, and asks Windows to start it (`ShellExecuteEx`, so the installer's own
+   UAC question appears) with `/P /R /UPDATE`: progress bar only, LANX is closed and updated in place,
+   then started again. Chats are kept (they live in `%APPDATA%\LANX`).
+
+Installers are kept in `%APPDATA%\LANX\Updates` (not Downloads). Files LANX writes carry no
+"downloaded from the internet" mark, so Windows SmartScreen's blue box does not appear. When LANX
+next starts as the new version, it keeps that installer and offers it to colleagues itself, so
+updates spread from PC to PC even when the first sharer is switched off.
+
+**Keeping everyone on the same version**
+- Every handshake reports `app_version`; LANX stores it per peer. When a colleague comes online and
+  their version is unknown or behind the newest one known, LANX opens a short session just to learn
+  it (at most once a minute per colleague). Peers and Settings → Updates show it, with "Behind".
+- The recipient downloads an offered update in the background from one online colleague at a time
+  and checks it; the banner then offers "Update LANX now". "Remind me tomorrow" hides it for 24 h,
+  and a notification repeats at most once every 20 h until LANX is updated. Failed downloads are
+  retried when a colleague who has it comes online (never ones that failed the safety check).
+- Colleagues on 1.1 or older get the installer once as an ordinary chat file, only from the PC where
+  it was chosen (not from every PC it was passed on to); this can be turned off.
+- The installer keeps a copy of itself in `<LANX folder>\updates`, with its `.sig` if one was next to
+  it. On start-up LANX shares a verified copy of the version it runs, so installing a release straight
+  from the release folder is enough to start sharing it.

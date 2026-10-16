@@ -3,6 +3,7 @@ pub mod groups;
 pub mod protocol;
 pub mod session;
 pub mod transfer;
+pub mod update;
 #[cfg(test)]
 mod tests;
 
@@ -78,6 +79,9 @@ pub struct Inner {
     /// Peers whose outbox is being flushed: id -> "run again when done".
     flushing: Mutex<HashMap<String, bool>>,
     last_failure: Mutex<HashMap<String, Instant>>,
+    /// "Share LANX update" settings and state (see update.rs).
+    pub(crate) update_cfg: Mutex<update::UpdateConfig>,
+    pub(crate) updates: Mutex<update::UpdateRuntime>,
 }
 
 #[derive(Clone)]
@@ -109,12 +113,15 @@ impl NetworkService {
                 remote_cancels: Mutex::new(HashMap::new()),
                 flushing: Mutex::new(HashMap::new()),
                 last_failure: Mutex::new(HashMap::new()),
+                update_cfg: Mutex::new(update::UpdateConfig::default()),
+                updates: Mutex::new(update::UpdateRuntime::default()),
             }),
         }
     }
 
     /// Binds the configured TCP port and serves connections (app runtime).
     pub fn start(&self) {
+        self.update_housekeeping();
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
             let port = this
@@ -125,6 +132,19 @@ impl NetworkService {
             match TcpListener::bind((crate::testmode::bind_addr(), port)).await {
                 Ok(listener) => this.serve(listener).await,
                 Err(e) => eprintln!("[Network] Cannot listen on TCP port {}: {}", port, e),
+            }
+        });
+
+        // A newer LANX that is waiting to be installed: remind once a day.
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(5 * 60)) => {
+                        this.remind_about_update();
+                    }
+                }
             }
         });
 
@@ -198,6 +218,7 @@ impl NetworkService {
                 .as_ref()
                 .map(|s| s.avatar_color.clone())
                 .unwrap_or_else(|| "#0284c7".to_string()),
+            app_version: self.update_cfg.lock().app_version.clone(),
         }
     }
 
@@ -257,6 +278,7 @@ impl NetworkService {
         }
         if !was_online {
             self.kick_outbox(&peer.id, true);
+            self.maybe_offer_update(&peer.id);
         } else if self.db.has_pending_outbox(&peer.id) {
             self.kick_outbox(&peer.id, false);
         }
@@ -295,6 +317,7 @@ impl NetworkService {
         )
         .await?;
         self.peer_seen(&SeenPeer::from(&chan.remote));
+        self.note_peer_version(&chan.remote);
         Ok(chan)
     }
 
@@ -326,6 +349,7 @@ impl NetworkService {
                     }
                 }
                 self.peer_seen(&seen);
+                self.note_peer_version(&remote);
                 if let Some(n) = name.filter(|n| !n.trim().is_empty()) {
                     let _ = self.rename_peer_locally(&remote.device_id, n.trim());
                 }
@@ -613,8 +637,7 @@ impl NetworkService {
                 for mut t in offers {
                     if t.error_reason.as_deref() != Some(reason.as_str()) {
                         t.error_reason = Some(reason.clone());
-                        let _ = self.db.save_transfer(&t);
-                        self.events.transfer_updated(&t);
+                        self.save_and_emit(&t);
                     }
                 }
                 return;
@@ -796,6 +819,7 @@ impl NetworkService {
             }
         };
         self.peer_seen(&SeenPeer::from(&chan.remote));
+        self.note_peer_version(&chan.remote);
         let Ok(Some(peer)) = self.db.get_peer(&chan.remote.device_id) else {
             return;
         };
@@ -836,6 +860,9 @@ impl NetworkService {
                 }
                 PacketPayload::GroupLeave(l) => {
                     Some(PacketPayload::Ack(self.handle_group_leave(&peer, l)))
+                }
+                PacketPayload::UpdateOffer(o) => {
+                    Some(PacketPayload::FileOfferAck(self.handle_update_offer(&peer, o)))
                 }
                 PacketPayload::Disconnect => break,
                 _ => None,

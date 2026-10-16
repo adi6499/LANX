@@ -344,7 +344,7 @@ impl NetworkService {
 
     // ------------------------------------------------------------- images
 
-    fn app_data_dir(&self) -> PathBuf {
+    pub(crate) fn app_data_dir(&self) -> PathBuf {
         match self.db.get_path().parent() {
             Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
             _ => std::env::temp_dir().join("LANX"),

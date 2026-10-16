@@ -62,7 +62,7 @@ const CONV_SELECT: &str = "SELECT c.id, COALESCE(c.peer_id, ''), COALESCE(p.disp
 const MSG_COLS: &str = "id, conversation_id, sender_id, receiver_id, content, message_type, timestamp, status, error_reason, is_outgoing, transfer_id, ttl_secs, expire_at";
 const TRANSFER_SELECT: &str = "SELECT t.id, t.peer_id, p.display_name, t.conversation_id, t.file_name, t.file_size, t.file_hash,
         t.direction, t.status, t.transferred_bytes, t.local_path, t.error_reason, t.created_at, t.completed_at, t.temp_path,
-        t.parent_id
+        t.parent_id, t.kind
      FROM transfers t LEFT JOIN peers p ON t.peer_id = p.id";
 
 /// Messages from secret chats that were never read still disappear after a week.
@@ -141,6 +141,7 @@ fn row_to_transfer(row: &Row) -> Result<TransferRecord> {
         completed_at: row.get(13)?,
         temp_path: row.get(14)?,
         parent_id: row.get(15)?,
+        kind: row.get(16)?,
     })
 }
 
@@ -953,11 +954,12 @@ impl Database {
     // ------------------------------------------------------------ transfers
 
     /// Files list. Transfers belonging to hidden chats are left out unless
-    /// `include_hidden`.
+    /// `include_hidden`; LANX update installers never appear here.
     pub fn list_transfers(&self, include_hidden: bool) -> Result<Vec<TransferRecord>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
-            "{} WHERE (?1 OR t.conversation_id IS NULL OR t.conversation_id NOT IN
+            "{} WHERE t.kind = 'file'
+               AND (?1 OR t.conversation_id IS NULL OR t.conversation_id NOT IN
                         (SELECT id FROM conversations WHERE is_hidden = 1))
              ORDER BY t.created_at DESC",
             TRANSFER_SELECT
@@ -998,8 +1000,8 @@ impl Database {
         conn.execute(
             "INSERT INTO transfers (id, peer_id, conversation_id, file_name, file_size, file_hash, direction, status,
                                     transferred_bytes, local_path, error_reason, created_at, completed_at, temp_path,
-                                    parent_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                                    parent_id, kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 t.id,
                 t.peer_id,
@@ -1016,6 +1018,7 @@ impl Database {
                 t.completed_at,
                 t.temp_path,
                 t.parent_id,
+                t.kind,
             ],
         )?;
         Ok(())
@@ -1072,9 +1075,113 @@ impl Database {
     pub fn clear_finished_transfers(&self) -> Result<usize> {
         let conn = self.conn.lock();
         conn.execute(
-            "DELETE FROM transfers WHERE status IN ('completed', 'cancelled', 'declined')",
+            "DELETE FROM transfers WHERE kind = 'file' AND status IN ('completed', 'cancelled', 'declined')",
             [],
         )
+    }
+
+    // ------------------------------------------------------- LANX updates
+
+    /// The LANX version a peer reported in its last handshake.
+    /// Returns true if it changed.
+    pub fn set_peer_app_version(&self, peer_id: &str, version: &str) -> bool {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE peers SET app_version = ?1 WHERE id = ?2 AND app_version IS NOT ?1",
+            params![version, peer_id],
+        )
+        .map(|n| n > 0)
+        .unwrap_or(false)
+    }
+
+    pub fn peer_app_version(&self, peer_id: &str) -> Option<String> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT app_version FROM peers WHERE id = ?1",
+            params![peer_id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+    }
+
+    /// Every known peer with the LANX version it last reported.
+    pub fn peers_with_versions(&self) -> Result<Vec<(Peer, Option<String>)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {}, app_version FROM peers ORDER BY status DESC, display_name COLLATE NOCASE",
+            PEER_COLS
+        ))?;
+        let rows = stmt.query_map([], |r| Ok((row_to_peer(r)?, r.get::<_, Option<String>>(10)?)))?;
+        Ok(rows.flatten().collect())
+    }
+
+    pub fn insert_update_offer(&self, transfer_id: &str, r: &ReleaseInfo) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO update_offers (transfer_id, version, sha256, file_size, signature, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![transfer_id, r.version, r.sha256, r.size as i64, r.signature, now_secs()],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_update_offer(&self, transfer_id: &str) -> Option<ReleaseInfo> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT version, sha256, file_size, signature FROM update_offers WHERE transfer_id = ?1",
+            params![transfer_id],
+            |r| {
+                Ok(ReleaseInfo {
+                    version: r.get(0)?,
+                    sha256: r.get(1)?,
+                    size: r.get::<_, i64>(2)?.max(0) as u64,
+                    signature: r.get(3)?,
+                })
+            },
+        )
+        .ok()
+    }
+
+    /// `version` was already offered to this peer (withdrawn offers don't count).
+    pub fn update_offered(&self, peer_id: &str, version: &str) -> bool {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT COUNT(*) FROM transfers t JOIN update_offers u ON u.transfer_id = t.id
+             WHERE t.kind = 'update' AND t.direction = 'outgoing' AND t.peer_id = ?1 AND u.version = ?2
+               AND t.status != 'cancelled'",
+            params![peer_id, version],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n > 0)
+        .unwrap_or(false)
+    }
+
+    /// Update installers in one direction, newest first, with their release info.
+    pub fn update_transfers(&self, direction: &str) -> Result<Vec<(TransferRecord, ReleaseInfo)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT t.id, t.peer_id, p.display_name, t.conversation_id, t.file_name, t.file_size, t.file_hash,
+                    t.direction, t.status, t.transferred_bytes, t.local_path, t.error_reason, t.created_at,
+                    t.completed_at, t.temp_path, t.parent_id, t.kind,
+                    u.version, u.sha256, u.file_size, u.signature
+             FROM transfers t JOIN update_offers u ON u.transfer_id = t.id
+                              LEFT JOIN peers p ON t.peer_id = p.id
+             WHERE t.kind = 'update' AND t.direction = ?1
+             ORDER BY t.created_at DESC"
+        ))?;
+        let rows = stmt.query_map(params![direction], |r| {
+            Ok((
+                row_to_transfer(r)?,
+                ReleaseInfo {
+                    version: r.get(17)?,
+                    sha256: r.get(18)?,
+                    size: r.get::<_, i64>(19)?.max(0) as u64,
+                    signature: r.get(20)?,
+                },
+            ))
+        })?;
+        Ok(rows.flatten().collect())
     }
 
     // ------------------------------------------------- secret / receipts

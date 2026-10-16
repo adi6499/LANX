@@ -153,6 +153,7 @@ fn outbox_and_restart_recovery() {
         completed_at: None,
         parent_id: None,
         temp_path: Some("x.lanxpart".into()),
+        kind: "file".into(),
     })
     .unwrap();
 

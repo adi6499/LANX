@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 3;
+pub const LATEST_SCHEMA_VERSION: i64 = 4;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -209,6 +209,33 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         })();
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         result?;
+    }
+
+    if current_version < 4 {
+        // v4 (LANX 1.2): "Share LANX update". Installers travel as transfers
+        // of kind 'update'; their release signature is kept alongside. Each
+        // peer's LANX version (from the handshake) decides what it is offered.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE transfers ADD COLUMN kind TEXT NOT NULL DEFAULT 'file';
+            ALTER TABLE peers ADD COLUMN app_version TEXT;
+            CREATE TABLE IF NOT EXISTS update_offers (
+                transfer_id TEXT PRIMARY KEY,
+                version TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                signature TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_transfers_kind ON transfers(kind, direction, status);
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (4, now),
+        )?;
+        tx.commit()?;
     }
 
     Ok(())

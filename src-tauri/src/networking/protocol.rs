@@ -28,6 +28,25 @@ pub struct HandshakePayload {
 /// typing and ring. Older peers are never sent those packets.
 pub const FEATURES_V11: &str = "1.1.0";
 
+/// Oldest app version that understands `UpdateOffer` ("Share LANX update").
+/// Older peers would drop the connection on an unknown packet kind, so they
+/// are offered the installer as an ordinary chat file instead.
+pub const FEATURES_V12: &str = "1.2.0";
+
+/// A plain "major.minor.patch" version (what LANX installers are named after).
+pub fn valid_version(v: &str) -> bool {
+    let parts: Vec<&str> = v.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// `version` is strictly newer than `than`.
+pub fn is_newer(version: &str, than: &str) -> bool {
+    !version_at_least(than, version)
+}
+
 /// `version` (e.g. "1.0.0") is at least `min`.
 pub fn version_at_least(version: &str, min: &str) -> bool {
     let parse = |v: &str| -> Vec<u32> {
@@ -120,6 +139,20 @@ pub struct FileOfferPayload {
     pub group_id: Option<String>,
 }
 
+/// LANX 1.2: "I have the official installer of LANX `version`; pull it with
+/// `FileRequest { transfer_id }` if you want it." Answered with
+/// `FileOfferAck`. `signature` is the LANX release signature (Ed25519 over
+/// version, sha256 and file_size, see `update.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateOfferPayload {
+    pub transfer_id: String,
+    pub version: String,
+    pub file_size: u64,
+    /// SHA-256 of the installer, hex encoded.
+    pub sha256: String,
+    pub signature: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileOfferAckPayload {
     pub transfer_id: String,
@@ -193,6 +226,8 @@ pub enum PacketPayload {
     GroupUpdate(GroupUpdatePayload),
     GroupLeave(ChatRefPayload),
     Ack(AckPayload),
+    // LANX 1.2 (only sent to peers reporting app_version >= 1.2.0)
+    UpdateOffer(UpdateOfferPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
