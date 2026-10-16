@@ -156,6 +156,14 @@ pub fn run() {
             }
             events.update_tray(&db);
 
+            // Keep "start with Windows" in step with the setting (e.g. after an
+            // upgrade from 0.1, where onboarding never ran under 1.0).
+            if let Ok(s) = db.get_settings() {
+                if s.onboarding_completed {
+                    commands::apply_autostart(app.handle(), s.launch_at_startup);
+                }
+            }
+
             let start_hidden = std::env::args().any(|a| a == "--minimized");
             if let Some(w) = app.get_webview_window("main") {
                 if profile.is_some() {
