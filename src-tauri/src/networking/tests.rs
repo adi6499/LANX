@@ -465,18 +465,20 @@ async fn trusted_peer_files_auto_download_when_enabled() {
 }
 
 #[test]
-fn folders_are_refused_with_a_helpful_message() {
+fn empty_folders_are_refused_with_a_helpful_message() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let a = node("Alice").await;
         let b = node("Bob").await;
         let conv = link(&a, &b).await;
+        let empty = a.dir.path().join("Nothing here");
+        std::fs::create_dir_all(&empty).unwrap();
         let err = a
             .svc
-            .send_files(&conv, vec![a.dir.path().to_string_lossy().to_string()])
+            .send_files(&conv, vec![empty.to_string_lossy().to_string()])
             .await
             .unwrap_err();
-        assert!(err.contains("Zip it first"), "got: {}", err);
+        assert!(err.contains("is empty"), "got: {}", err);
         let _: Option<Message> = None;
     });
 }
@@ -503,6 +505,7 @@ fn plain_messages_keep_the_1_0_wire_format() {
         file_name: "f".into(),
         file_size: 1,
         group_id: None,
+        folder: None,
     }))
     .unwrap();
     assert!(!o["data"].as_object().unwrap().contains_key("group_id"));
@@ -1304,4 +1307,177 @@ async fn calling_an_offline_or_blocked_colleague_explains_why() {
     let _ = link(&a, &b).await;
     a.db().update_peer_trust(&b.id(), "blocked").unwrap();
     assert!(a.svc.start_call(&conv, false, "o".into()).await.unwrap_err().contains("blocked"));
+}
+
+// ======================================== LANX 1.2.3: lanes, folders, speed test
+
+use super::lanes::{LanePlan, lane_count};
+
+fn lane_plan_file(part: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.lanes", part.display()))
+}
+
+#[test]
+fn lane_plans_split_the_rest_evenly() {
+    assert_eq!(lane_count(1_000_000), 1);
+    assert_eq!(lane_count(20 * 1024 * 1024), 2);
+    assert_eq!(lane_count(500 * 1024 * 1024), 4);
+    let p = LanePlan::new(100 * 1024 * 1024, 10 * 1024 * 1024);
+    assert_eq!(p.done(), 10 * 1024 * 1024, "the prefix from a single connection counts as done");
+    assert_eq!(p.lanes.len(), 5);
+    assert_eq!(p.lanes.last().unwrap().end, 100 * 1024 * 1024);
+    let covered: u64 = p.lanes.iter().map(|l| l.end - l.start).sum();
+    assert_eq!(covered, 100 * 1024 * 1024);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn big_file_travels_over_several_connections_and_arrives_intact() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 70 * 1024 * 1024).await;
+    b.svc.accept_transfer(&id).await.unwrap();
+    // While it runs, the sender serves several lanes at once.
+    assert!(wait_for(|| a.svc.lane_sessions.lock().get(&id).is_some(), 20).await, "lanes started");
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 120).await);
+    assert!(wait_for(|| transfer_status(a.db(), &id) == "completed", 10).await, "sender sees it finish");
+    assert_eq!(received_bytes(&b, &id), data);
+    let t = b.db().get_transfer(&id).unwrap().unwrap();
+    assert_eq!(t.file_hash, hex::encode(Sha256::digest(&data)));
+    assert_eq!(a.db().get_transfer(&id).unwrap().unwrap().file_hash, t.file_hash);
+    assert!(a.svc.lane_sessions.lock().is_empty() && a.svc.active_transfers.lock().is_empty());
+    let leftovers: Vec<_> = std::fs::read_dir(b.dir.path().join("Downloads"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.contains("lanxpart"))
+        .collect();
+    assert!(leftovers.is_empty(), "no part or plan files left: {:?}", leftovers);
+}
+
+/// A part file where every lane already holds the first half of its bytes.
+fn half_done_lanes(b: &Node, id: &str, data: &[u8], corrupt: bool) -> PathBuf {
+    let mut t = b.db().get_transfer(id).unwrap().unwrap();
+    let dl = b.dir.path().join("Downloads");
+    std::fs::create_dir_all(&dl).unwrap();
+    let part = dl.join("lanes.lanxpart");
+    let mut plan = LanePlan::new(data.len() as u64, 0);
+    let mut bytes = vec![0u8; data.len()];
+    for l in plan.lanes.iter_mut() {
+        let half = (l.end - l.start) / 2;
+        let (s, e) = (l.start as usize, (l.start + half) as usize);
+        bytes[s..e].copy_from_slice(&data[s..e]);
+        l.done = half;
+    }
+    if corrupt {
+        let at = plan.lanes[1].start as usize + 10;
+        bytes[at] ^= 0xFF; // a "done" byte that is wrong
+    }
+    std::fs::write(&part, &bytes).unwrap();
+    std::fs::write(lane_plan_file(&part), serde_json::to_vec(&plan).unwrap()).unwrap();
+    t.temp_path = Some(part.to_string_lossy().to_string());
+    t.status = "failed".into();
+    b.db().save_transfer(&t).unwrap();
+    part
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn interrupted_lanes_resume_where_each_one_stopped() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 20 * 1024 * 1024).await;
+    let part = half_done_lanes(&b, &id, &data, false);
+    b.svc.retry_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 60).await);
+    assert_eq!(received_bytes(&b, &id), data);
+    assert!(!part.exists() && !lane_plan_file(&part).exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn damaged_lane_data_is_caught_by_the_final_check() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 20 * 1024 * 1024).await;
+    let part = half_done_lanes(&b, &id, &data, true);
+    b.svc.retry_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "failed", 60).await);
+    let t = b.db().get_transfer(&id).unwrap().unwrap();
+    assert!(t.error_reason.unwrap_or_default().contains("checksum"));
+    assert!(!part.exists() && !lane_plan_file(&part).exists(), "bad data is thrown away");
+    // Retry downloads it again, cleanly.
+    b.svc.retry_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 60).await);
+    assert_eq!(received_bytes(&b, &id), data);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelling_a_lane_transfer_stops_both_sides() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, _) = offer_file(&a, &b, &conv, 200 * 1024 * 1024).await;
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| a.svc.lane_sessions.lock().get(&id).is_some(), 20).await);
+    a.svc.cancel_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "cancelled", 20).await);
+    assert!(wait_for(|| transfer_status(a.db(), &id) == "cancelled", 20).await);
+    assert!(wait_for(|| a.svc.lane_sessions.lock().is_empty(), 10).await);
+    let parts = std::fs::read_dir(b.dir.path().join("Downloads"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().contains("lanxpart"))
+        .count();
+    assert_eq!(parts, 0, "part and plan files are removed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn senders_on_older_lanx_still_use_one_connection() {
+    let a = updater("Alice", "1.2.2").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 20 * 1024 * 1024).await;
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 60).await);
+    assert_eq!(received_bytes(&b, &id), data);
+    assert!(a.svc.lane_sessions.lock().is_empty(), "no lanes with a 1.2.2 sender");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_folder_is_sent_in_one_go_and_unpacked() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let folder = a.dir.path().join("Site Photos");
+    std::fs::create_dir_all(folder.join("Day 2")).unwrap();
+    std::fs::write(folder.join("notes.txt"), "pump room ok\n".repeat(500)).unwrap();
+    let (_, img) = write_random_file(&folder.join("Day 2"), "IMG_0001.jpg", 300_000);
+    let sent = a.svc.send_files(&conv, vec![folder.to_string_lossy().to_string()]).await.unwrap();
+    assert_eq!(sent[0].message.content, "\u{1F4C1} Site Photos");
+    let id = sent[0].transfers[0].id.clone();
+    assert_eq!(sent[0].transfers[0].kind, "folder");
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "pending", 10).await);
+    let incoming = b.db().get_transfer(&id).unwrap().unwrap();
+    assert_eq!((incoming.kind.as_str(), incoming.file_name.as_str()), ("folder", "Site Photos.zip"));
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 30).await);
+    let t = b.db().get_transfer(&id).unwrap().unwrap();
+    let got = PathBuf::from(t.local_path.unwrap());
+    assert!(got.is_dir() && got.ends_with("Site Photos"), "unpacked into a folder: {}", got.display());
+    assert_eq!(std::fs::read_to_string(got.join("notes.txt")).unwrap(), "pump room ok\n".repeat(500));
+    assert_eq!(std::fs::read(got.join("Day 2").join("IMG_0001.jpg")).unwrap(), img);
+    assert!(!b.dir.path().join("Downloads").join("Site Photos.zip").exists(), "the zip is removed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn speed_test_measures_one_and_several_connections() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    link(&a, &b).await;
+    let r = a.svc.speed_test(&b.id()).await.unwrap();
+    assert!(r.single_mbps > 1.0 && r.multi_mbps > 1.0, "{:?}", r);
+    assert_eq!(r.connections, 4);
+    a.svc.peer_went_offline(&b.id());
+    assert!(a.svc.speed_test(&b.id()).await.unwrap_err().contains("offline"));
 }

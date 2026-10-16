@@ -40,12 +40,12 @@ pub fn is_image_name(name: &str) -> bool {
 /// Images up to this size download without asking (setting "auto_download_images").
 pub const AUTO_IMAGE_MAX_BYTES: u64 = 10 * 1024 * 1024;
 
-enum Outcome {
+pub(super) enum Outcome {
     Cancelled { notify_peer: bool, reason: String },
     Failed(String),
 }
 
-struct Progress {
+pub(super) struct Progress {
     last_emit: Instant,
     last_db: Instant,
     last_bytes: u64,
@@ -53,7 +53,7 @@ struct Progress {
 }
 
 impl Progress {
-    fn new(start: u64) -> Self {
+    pub(super) fn new(start: u64) -> Self {
         let now = Instant::now();
         Self {
             last_emit: now,
@@ -63,7 +63,7 @@ impl Progress {
         }
     }
 
-    fn tick(&mut self, svc: &NetworkService, id: &str, done: u64, total: u64, force: bool) {
+    pub(super) fn tick(&mut self, svc: &NetworkService, id: &str, done: u64, total: u64, force: bool) {
         let elapsed = self.last_emit.elapsed();
         if !force && elapsed < PROGRESS_EVERY {
             return;
@@ -98,6 +98,15 @@ pub fn format_size(bytes: u64) -> String {
         format!("{} B", bytes)
     } else {
         format!("{:.1} {}", v, UNITS[i])
+    }
+}
+
+/// Chat line for a file ("📎 report.pdf") or a folder ("📁 Q3 Accounts").
+fn file_label(file_name: &str, folder: bool) -> String {
+    if folder {
+        format!("📁 {}", file_name.strip_suffix(".zip").unwrap_or(file_name))
+    } else {
+        format!("📎 {}", file_name)
     }
 }
 
@@ -166,7 +175,7 @@ pub fn unique_destination(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{}-{}", uuid::Uuid::new_v4(), name))
 }
 
-fn friendly_io_error(e: &std::io::Error) -> String {
+pub(super) fn friendly_io_error(e: &std::io::Error) -> String {
     match e.raw_os_error() {
         Some(112) | Some(39) => "Not enough disk space to save the file.".to_string(),
         Some(5) => "Windows denied access to the download folder.".to_string(),
@@ -260,13 +269,30 @@ impl NetworkService {
                     continue;
                 }
             };
-            if meta.is_dir() {
-                problems.push(format!(
-                    "\"{}\" is a folder. Zip it first (right-click > Send to > Compressed folder), then send the zip.",
-                    p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or(path.clone())
-                ));
-                continue;
-            }
+            // LANX 1.2.3: a folder is packed into one zip and sent as one file.
+            let (p, meta, kind) = if meta.is_dir() {
+                let outbox = super::folders::outbox_dir(self.db.get_path().parent().unwrap_or(Path::new(".")));
+                let src = p.clone();
+                match tokio::task::spawn_blocking(move || super::folders::pack_folder(&src, &outbox)).await {
+                    Ok(Ok(packed)) => match std::fs::metadata(&packed.zip) {
+                        Ok(m) => (packed.zip, m, "folder"),
+                        Err(e) => {
+                            problems.push(e.to_string());
+                            continue;
+                        }
+                    },
+                    Ok(Err(e)) => {
+                        problems.push(e);
+                        continue;
+                    }
+                    Err(e) => {
+                        problems.push(e.to_string());
+                        continue;
+                    }
+                }
+            } else {
+                (p, meta, "file")
+            };
             let file_name = p
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -294,7 +320,7 @@ impl NetworkService {
                     completed_at: None,
                     parent_id: parent.clone(),
                     temp_path: None,
-                    kind: "file".to_string(),
+                    kind: kind.to_string(),
                 };
                 self.db.insert_transfer(&transfer).map_err(|e| e.to_string())?;
                 transfers.push(transfer);
@@ -304,7 +330,7 @@ impl NetworkService {
                 conversation_id: conv.id.clone(),
                 sender_id: self.identity.device_id.clone(),
                 receiver_id: if is_group { conv.id.clone() } else { recipients[0].id.clone() },
-                content: format!("📎 {}", file_name),
+                content: file_label(&file_name, kind == "folder"),
                 message_type: "file".to_string(),
                 timestamp: now,
                 status: "sending".to_string(),
@@ -353,11 +379,13 @@ impl NetworkService {
             }
             return true;
         }
+        let folder = (t.kind == "folder" && version_at_least(&chan.remote.app_version, FEATURES_FAST)).then_some(true);
         let offer = PacketPayload::FileOffer(FileOfferPayload {
             transfer_id: t.id.clone(),
             file_name: t.file_name.clone(),
             file_size: t.file_size.max(0) as u64,
             group_id,
+            folder,
         });
         let sent = match chan.send(offer, None).await {
             Ok(p) => p,
@@ -678,7 +706,7 @@ impl NetworkService {
             completed_at: None,
             parent_id: None,
             temp_path: None,
-            kind: "file".to_string(),
+            kind: if o.folder == Some(true) { "folder" } else { "file" }.to_string(),
         };
         if self.db.insert_transfer(&t).is_err() {
             return ack(false, Some("Recipient database error"));
@@ -688,7 +716,7 @@ impl NetworkService {
             conversation_id: conv.id.clone(),
             sender_id: peer.id.clone(),
             receiver_id: self.identity.device_id.clone(),
-            content: format!("📎 {}", name),
+            content: file_label(&name, o.folder == Some(true)),
             message_type: "file".to_string(),
             timestamp: now,
             status: "delivered".to_string(),
@@ -750,10 +778,13 @@ impl NetworkService {
             return;
         }
         let reason = c.reason.unwrap_or_else(|| format!("Cancelled by {}", peer.display_name));
-        if let Some(token) = self.active_transfers.lock().get(&t.id) {
-            self.remote_cancels.lock().insert(t.id.clone(), reason);
+        if let Some(token) = self.active_transfers.lock().get(&t.id).cloned() {
+            self.remote_cancels.lock().insert(t.id.clone(), reason.clone());
             token.cancel();
-            return;
+            if !self.end_idle_lane_session(&t.id) {
+                return;
+            }
+            self.remote_cancels.lock().remove(&t.id);
         }
         if matches!(t.status.as_str(), "completed" | "cancelled" | "declined") {
             return;
@@ -766,6 +797,7 @@ impl NetworkService {
         t.error_reason = Some(reason);
         t.completed_at = Some(now_secs());
         if let Some(tmp) = t.temp_path.take() {
+            super::lanes::remove_plan(Path::new(&tmp));
             let _ = std::fs::remove_file(tmp);
         }
         self.save_and_emit(&t);
@@ -818,10 +850,16 @@ impl NetworkService {
         let peer_name = t.peer_name.clone().unwrap_or_else(|| "a colleague".to_string());
         match result {
             Ok(final_path) => {
+                // A folder arrives as a zip: unpack it next to where it landed.
+                let (final_path, note) = if t.kind == "folder" {
+                    self.unpack_received_folder(final_path, &dir).await
+                } else {
+                    (final_path, None)
+                };
                 t.status = "completed".to_string();
                 t.local_path = Some(final_path.to_string_lossy().to_string());
                 t.transferred_bytes = t.file_size;
-                t.error_reason = None;
+                t.error_reason = note;
                 t.temp_path = None;
                 t.completed_at = Some(now_secs());
                 self.save_and_emit(&t);
@@ -846,6 +884,7 @@ impl NetworkService {
             }
             Err(Outcome::Cancelled { notify_peer, reason }) => {
                 if let Some(tmp) = t.temp_path.take() {
+                    super::lanes::remove_plan(Path::new(&tmp));
                     let _ = tokio::fs::remove_file(tmp).await;
                 }
                 t.status = "cancelled".to_string();
@@ -863,7 +902,7 @@ impl NetworkService {
                 t.status = "failed".to_string();
                 t.error_reason = Some(reason);
                 if let Some(tmp) = &t.temp_path {
-                    t.transferred_bytes = std::fs::metadata(tmp).map(|m| m.len() as i64).unwrap_or(0);
+                    t.transferred_bytes = super::lanes::bytes_on_disk(Path::new(tmp), t.file_size.max(0) as u64) as i64;
                 }
                 self.save_and_emit(&t);
                 if t.kind == "update" {
@@ -891,10 +930,6 @@ impl NetworkService {
             .ok_or_else(|| Outcome::Failed("The sender is unknown.".to_string()))?;
         let temp = PathBuf::from(t.temp_path.clone().unwrap_or_default());
         let size = t.file_size.max(0) as u64;
-        let mut offset = std::fs::metadata(&temp).map(|m| m.len()).unwrap_or(0);
-        if offset > size {
-            offset = 0;
-        }
 
         let mut chan = tokio::select! {
             _ = token.cancelled() => return Err(cancelled_locally()),
@@ -903,6 +938,23 @@ impl NetworkService {
                 else { format!("{} is not reachable right now. Press Resume when they are online.", peer.display_name) }
             ))?,
         };
+
+        // LANX 1.2.3: big files over several connections at once.
+        let fast = version_at_least(&chan.remote.app_version, FEATURES_FAST);
+        let has_plan = super::lanes::has_plan(&temp);
+        if fast && t.kind != "update" && (has_plan || size >= super::lanes::LANES_FROM_BYTES) {
+            return self.download_lanes(t, dir, token, &peer, chan).await;
+        }
+        if has_plan {
+            // Started over several connections, but the sender went back to
+            // an older LANX: the part file has gaps, so start again.
+            super::lanes::remove_plan(&temp);
+            let _ = std::fs::remove_file(&temp);
+        }
+        let mut offset = std::fs::metadata(&temp).map(|m| m.len()).unwrap_or(0);
+        if offset > size {
+            offset = 0;
+        }
         let req = chan
             .send(
                 PacketPayload::FileRequest(FileRequestPayload {
@@ -1093,6 +1145,31 @@ impl NetworkService {
         Ok(final_path)
     }
 
+    /// Unpacks a received folder into Downloads\<Folder> (or "<Folder> (1)").
+    /// Returns where it is, plus a note if it had to stay a zip.
+    async fn unpack_received_folder(&self, zip: PathBuf, dir: &Path) -> (PathBuf, Option<String>) {
+        let name = zip
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Folder".to_string());
+        let target = unique_destination(dir, &sanitize_file_name(&name));
+        let (z, tgt) = (zip.clone(), target.clone());
+        match tokio::task::spawn_blocking(move || super::folders::unpack_zip(&z, &tgt)).await {
+            Ok(Ok(_)) => {
+                let _ = tokio::fs::remove_file(&zip).await;
+                (target, None)
+            }
+            Ok(Err(e)) => {
+                let _ = tokio::fs::remove_dir_all(&target).await;
+                (zip, Some(format!("Saved as a .zip — it could not be unpacked ({}).", e)))
+            }
+            Err(e) => {
+                let _ = tokio::fs::remove_dir_all(&target).await;
+                (zip, Some(format!("Saved as a .zip — it could not be unpacked ({}).", e)))
+            }
+        }
+    }
+
     // ------------------------------------------------------ user controls
 
     pub async fn retry_transfer(&self, transfer_id: &str) -> Result<TransferRecord, String> {
@@ -1127,9 +1204,12 @@ impl NetworkService {
             .get_transfer(transfer_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Transfer not found".to_string())?;
-        if let Some(token) = self.active_transfers.lock().get(&t.id) {
+        if let Some(token) = self.active_transfers.lock().get(&t.id).cloned() {
             token.cancel();
-            return Ok(t);
+            if !self.end_idle_lane_session(&t.id) {
+                return Ok(t);
+            }
+            t.status = "failed".to_string(); // fall through: cancelled below
         }
         // A queued offer never reached the recipient, so there is no one to tell.
         let tell_peer = t.direction == "incoming" || t.status != "queued";
@@ -1146,6 +1226,7 @@ impl NetworkService {
         }
         t.completed_at = Some(now_secs());
         if let Some(tmp) = t.temp_path.take() {
+            super::lanes::remove_plan(Path::new(&tmp));
             let _ = tokio::fs::remove_file(tmp).await;
         }
         self.save_and_emit(&t);

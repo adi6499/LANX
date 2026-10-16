@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideoCamera,
+  Folder,
   Check,
   X,
   RotateCcw,
@@ -30,6 +31,11 @@ export function FileIcon({ name, className }: { name: string; className?: string
   if (["js", "ts", "json", "xml", "html", "py", "rs", "sql"].includes(ext)) return <FileCode className={className} />;
   return <File className={className} />;
 }
+
+/** A folder travels as "<name>.zip" (LANX 1.2.3); show it as the folder. */
+export const isFolderTransfer = (t: TransferRecord) => t.kind === "folder";
+export const displayName = (t: TransferRecord) =>
+  isFolderTransfer(t) ? t.file_name.replace(/\.zip$/i, "") : t.file_name;
 
 const IMAGE_EXT = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 export const isImageFile = (name: string) => IMAGE_EXT.includes(fileExtension(name));
@@ -111,6 +117,8 @@ export const FileCard: React.FC<FileCardProps> = ({
   }
 
   const incoming = t.direction === "incoming";
+  const folder = isFolderTransfer(t);
+  const name = displayName(t);
   const done = progress?.transferred_bytes ?? t.transferred_bytes;
   const total = progress?.file_size ?? t.file_size;
   const pct = total > 0 ? Math.min(100, Math.floor((done / total) * 100)) : 0;
@@ -136,7 +144,7 @@ export const FileCard: React.FC<FileCardProps> = ({
       break;
     case "pending":
       if (incoming) {
-        status = <span>Wants to send you this file</span>;
+        status = <span>Wants to send you this {folder ? "folder" : "file"}</span>;
         buttons = (
           <>
             <button type="button" className={`${btn} ${primary}`} onClick={() => actions.accept(t.id)}>
@@ -177,13 +185,20 @@ export const FileCard: React.FC<FileCardProps> = ({
       status = (
         <span className="inline-flex items-center gap-1">
           <ShieldCheck className={`h-3 w-3 ${onAccent ? "" : "text-emerald-500"}`} />
-          {incoming ? "Received · checksum verified" : "Delivered · checksum verified"}
+          {t.error_reason
+            ? t.error_reason
+            : incoming
+              ? folder
+                ? "Received and unpacked · checksum verified"
+                : "Received · checksum verified"
+              : "Delivered · checksum verified"}
         </span>
       );
       buttons = incoming ? (
         <>
           <button type="button" className={`${btn} ${primary}`} onClick={() => actions.open(t.id)}>
-            <ExternalLink className="h-3 w-3" /> Open
+            {folder ? <FolderOpen className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
+            {folder ? "Open folder" : "Open"}
           </button>
           <button type="button" className={`${btn} ${ghost}`} onClick={() => actions.reveal(t.id)}>
             <FolderOpen className="h-3 w-3" /> Show in folder
@@ -232,13 +247,15 @@ export const FileCard: React.FC<FileCardProps> = ({
             onAccent ? "bg-white/15" : "bg-sky-500/10 text-sky-600 dark:text-sky-400"
           }`}
         >
-          <FileIcon name={t.file_name} className="h-5 w-5" />
+          {folder ? <Folder className="h-5 w-5" /> : <FileIcon name={t.file_name} className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
-          <div className={`text-xs font-semibold truncate ${strong}`} title={t.file_name}>
-            {t.file_name}
+          <div className={`text-xs font-semibold truncate ${strong}`} title={name}>
+            {name}
           </div>
-          <div className={`text-[11px] ${muted}`}>{formatSize(t.file_size)}</div>
+          <div className={`text-[11px] ${muted}`}>
+            {folder ? `Folder · ${formatSize(t.file_size)}${t.status === "completed" ? "" : " packed"}` : formatSize(t.file_size)}
+          </div>
         </div>
         {t.status === "transferring" && (
           <span className={`text-[11px] font-bold tabular-nums ${strong}`}>{pct}%</span>
@@ -296,11 +313,11 @@ export const GroupFileCard: React.FC<GroupFileCardProps> = ({ transfers, fallbac
       )}
       <div className="flex items-center gap-2.5">
         <div className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0 bg-white/15">
-          <FileIcon name={first.file_name} className="h-5 w-5" />
+          {isFolderTransfer(first) ? <Folder className="h-5 w-5" /> : <FileIcon name={first.file_name} className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold truncate text-white" title={first.file_name}>
-            {first.file_name}
+          <div className="text-xs font-semibold truncate text-white" title={displayName(first)}>
+            {displayName(first)}
           </div>
           <div className="text-[11px] text-sky-100/90">
             {formatSize(first.file_size)} · received by {done} of {transfers.length}

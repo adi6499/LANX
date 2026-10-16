@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Conversation, GroupInfo, Peer, TransferRecord, TrustState, secretLabel } from "../types";
+import { Conversation, GroupInfo, Peer, SpeedTestResult, TransferRecord, TrustState, secretLabel } from "../types";
 import {
   X,
   Shield,
@@ -16,6 +16,7 @@ import {
   EyeOff,
   Eye,
   Timer,
+  Gauge,
 } from "lucide-react";
 import { FileIcon } from "./FileCard";
 import { PeerPicker, groupPickReason } from "./NewGroupModal";
@@ -33,6 +34,84 @@ interface ContextPanelProps {
   onOpenTransfer: (transferId: string) => void;
   onSetHidden: (hidden: boolean) => void;
   onError: (message: string) => void;
+}
+
+
+/** Measures the real network speed to this colleague (LANX 1.2.3+). */
+function SpeedTestCard({ peer }: { peer: Peer }) {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<SpeedTestResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setRes(null);
+    setErr(null);
+  }, [peer.id]);
+  const run = async () => {
+    setBusy(true);
+    setErr(null);
+    setRes(null);
+    try {
+      setRes(await api.speedTest(peer.id));
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const best = res ? Math.max(res.single_mbps, res.multi_mbps) : 0;
+  const bar = (v: number) => `${Math.max(4, Math.min(100, (v / Math.max(best, 1)) * 100))}%`;
+  return (
+    <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+      <div className="flex items-center justify-between mb-2">
+        <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
+          <Gauge className="h-3.5 w-3.5 text-sky-500" /> Connection speed
+        </span>
+        <button
+          type="button"
+          onClick={run}
+          disabled={busy || peer.status !== "online"}
+          className="px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-semibold disabled:opacity-40"
+        >
+          {busy ? "Testing… (7 s)" : res ? "Test again" : "Test speed"}
+        </button>
+      </div>
+      {!res && !err && (
+        <p className="text-[11px] text-slate-500 leading-snug">
+          {peer.status === "online"
+            ? `Measures how fast files can travel between you and ${peer.display_name} right now.`
+            : `${peer.display_name} is offline.`}
+        </p>
+      )}
+      {err && <p className="text-[11px] text-red-600 dark:text-red-400 leading-snug">{err}</p>}
+      {res && (
+        <div className="space-y-2" data-speed-result>
+          {[
+            ["1 connection", res.single_mbps],
+            [`${res.connections} connections (what LANX uses for big files)`, res.multi_mbps],
+          ].map(([label, v]) => (
+            <div key={label as string}>
+              <div className="flex justify-between text-[11px] text-slate-600 dark:text-slate-300">
+                <span>{label}</span>
+                <span className="font-bold tabular-nums">{(v as number).toFixed(1)} MB/s</span>
+              </div>
+              <div className="mt-1 h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                <div className="h-full rounded-full bg-sky-500 transition-all" style={{ width: bar(v as number) }} />
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px] text-slate-500 leading-snug">
+            {best < 6
+              ? "This link is slow. Usually one of the two PCs is on 2.4 GHz or weak Wi-Fi — a network cable or the 5 GHz Wi-Fi would make every transfer much faster."
+              : best < 30
+                ? "Normal Wi-Fi speed. A network cable would be faster still."
+                : "Fast — a cable or strong 5 GHz Wi-Fi."}
+            {res.multi_mbps > res.single_mbps * 1.3 &&
+              ` Big files go over ${res.connections} connections, so they travel at about ${res.multi_mbps.toFixed(0)} MB/s here.`}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -364,6 +443,8 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
           </div>
         </div>
       )}
+
+      {!isGroup && peer && <SpeedTestCard peer={peer} />}
 
       {hideBlock}
 

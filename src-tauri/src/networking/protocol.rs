@@ -38,6 +38,10 @@ pub const FEATURES_V12: &str = "1.2.0";
 /// reached colleagues had update sharing only, so calls start at 1.2.2.)
 pub const FEATURES_CALLS: &str = "1.2.2";
 
+/// Oldest app version with multi-connection transfers, folders and the speed
+/// test (`FileRangeRequest`, `FileRangeFinish`, `SpeedTest`, `FileOffer.folder`).
+pub const FEATURES_FAST: &str = "1.2.3";
+
 /// A plain "major.minor.patch" version (what LANX installers are named after).
 pub fn valid_version(v: &str) -> bool {
     let parts: Vec<&str> = v.split('.').collect();
@@ -160,6 +164,9 @@ pub struct FileOfferPayload {
     /// Set when the file is shared in a group chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
+    /// LANX 1.2.3: the file is a folder packed as a zip; unpack it on arrival.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<bool>,
 }
 
 /// LANX 1.2: "I have the official installer of LANX `version`; pull it with
@@ -189,6 +196,31 @@ pub struct FileRequestPayload {
     pub transfer_id: String,
     /// Resume position: bytes the receiver already holds.
     pub offset: u64,
+}
+
+/// LANX 1.2.3: send only bytes `offset..end` of the file on this connection
+/// (one of several parallel lanes). Answered like `FileRequest` with
+/// `FileStreamStart`, data frames, then `FileRangeEnd`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileRangeRequestPayload {
+    pub transfer_id: String,
+    pub offset: u64,
+    pub end: u64,
+}
+
+/// LANX 1.2.3: identifies a transfer (`FileRangeEnd`, `FileRangeFinish`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferRefPayload {
+    pub transfer_id: String,
+}
+
+/// LANX 1.2.3 network speed test: `start`, data frames, `end`; the receiver
+/// answers `result` with the bytes it got.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeedTestPayload {
+    pub phase: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,6 +281,11 @@ pub enum PacketPayload {
     GroupUpdate(GroupUpdatePayload),
     GroupLeave(ChatRefPayload),
     Ack(AckPayload),
+    // LANX 1.2.3 (only sent to peers reporting app_version >= 1.2.3)
+    FileRangeRequest(FileRangeRequestPayload),
+    FileRangeEnd(TransferRefPayload),
+    FileRangeFinish(TransferRefPayload),
+    SpeedTest(SpeedTestPayload),
     // LANX 1.2 (only sent to peers reporting app_version >= 1.2.0)
     UpdateOffer(UpdateOfferPayload),
     Call(CallPayload),

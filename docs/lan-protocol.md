@@ -1,4 +1,4 @@
-# LANX network protocol (v2, LANX 1.0 – 1.2)
+# LANX network protocol (v2, LANX 1.0 – 1.2.3)
 
 Two layers, both on the local network only:
 
@@ -171,3 +171,25 @@ Only the two devices in a call may change it (checked by device id). Unanswered 
 both sides. The audio and video travel directly between the two LANX windows over WebRTC (DTLS-SRTP),
 using LAN addresses only (no STUN/TURN servers). Both sides write the call into the chat as a
 `message_type: "call"` record (`{"video", "outcome", "secs"}`), which is never sent over the network.
+
+## 8. LANX 1.2.3: faster transfers, folders, speed test (same protocol v2)
+Sent only to peers whose handshake reports `app_version >= 1.2.3`; with older peers LANX uses the
+1.0 single-connection transfer.
+
+| kind | meaning |
+|---|---|
+| `file_range_request { transfer_id, offset, end }` → `file_stream_start`, data frames, `file_range_end { transfer_id }` | The recipient pulls bytes `offset..end` on this connection. Files of 16 MB or more are pulled over 2–4 such connections at once ("lanes"), each writing straight to its place in the part file |
+| `file_range_finish { transfer_id }` → `file_stream_end { sha256 }` → recipient `file_result { ok }` | All lanes arrived: the sender sends the SHA-256 of the whole file (computed in the background while the lanes ran), the recipient compares it with its own hash of the whole file and only then keeps it |
+| `file_offer.folder = true` | The file is a folder packed as a zip; LANX 1.2.3+ unpacks it into the download folder after the checksum matched |
+| `speed_test { phase: "start" }`, data frames, `speed_test { phase: "end", bytes }` → `speed_test { phase: "result", bytes }` | Network speed test (random data, nothing stored) |
+
+**Resume.** How far each lane got is saved next to the part file (`<part>.lanes`, JSON). Resume
+continues every lane from there. A part file without a lane plan (from a single connection) counts
+as a complete prefix. Part files are made sparse, so lanes can write in any order.
+
+**Folders** are zipped on the sender (Deflate level 1; already-compressed formats such as photos,
+videos, zip and Office files are stored) into `%APPDATA%\LANX\Outbox`, which is emptied after a week.
+Unpacking skips any entry whose path would leave the target folder.
+
+**Sockets** use 4 MB send and receive buffers so one connection is not held back by small default
+buffers on Wi-Fi.

@@ -93,6 +93,14 @@ fn parse_public_key(hex_key: &str) -> Result<PublicKey, String> {
 }
 
 /// Returns (client_to_server_key, server_to_client_key).
+/// Big socket buffers so a single connection can keep a fast network busy
+/// (Windows' defaults can hold a Wi-Fi link to a few MB/s).
+fn tune_socket(stream: &TcpStream) {
+    let sock = socket2::SockRef::from(stream);
+    let _ = sock.set_send_buffer_size(4 * 1024 * 1024);
+    let _ = sock.set_recv_buffer_size(4 * 1024 * 1024);
+}
+
 fn derive_keys(
     secret: EphemeralSecret,
     their: &PublicKey,
@@ -159,6 +167,7 @@ impl SecureChannel {
             Err(_) => return Err(format!("{} did not answer (timed out)", addr)),
         };
         let _ = stream.set_nodelay(true);
+        tune_socket(&stream);
         let remote_ip = stream
             .peer_addr()
             .map(|a| normalize_ip(&a))
@@ -238,6 +247,7 @@ impl SecureChannel {
         F: FnOnce(&PacketEnvelope) -> Result<(), (String, String)>,
     {
         let _ = stream.set_nodelay(true);
+        tune_socket(&stream);
         let remote_ip = stream
             .peer_addr()
             .map(|a| normalize_ip(&a))

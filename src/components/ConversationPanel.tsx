@@ -32,6 +32,7 @@ import {
   Eye,
   EyeOff,
   Phone,
+  FolderUp,
   PhoneIncoming,
   PhoneOutgoing,
   PhoneMissed,
@@ -59,6 +60,7 @@ interface ConversationPanelProps {
   onRetryMessage: (messageId: string) => void;
   onDeleteConversation: () => void;
   onPickFiles: () => void;
+  onPickFolder: () => void;
   onPasteImage: (dataUrl: string, mime: string) => void;
   onTyping: () => void;
   onRing: () => void;
@@ -115,6 +117,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onRetryMessage,
   onDeleteConversation,
   onPickFiles,
+  onPickFolder,
   onPasteImage,
   onTyping,
   onRing,
@@ -702,11 +705,11 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     }`}
                   >
                     {groupCopies ? (
-                      <GroupFileCard transfers={groupCopies} fallbackName={msg.content.replace(/^📎\s*/, "")} progress={progress} actions={transferActions} />
+                      <GroupFileCard transfers={groupCopies} fallbackName={msg.content.replace(/^(📎|📁)\s*/u, "")} progress={progress} actions={transferActions} />
                     ) : isFile ? (
                       <FileCard
                         transfer={transfer}
-                        fallbackName={msg.content.replace(/^📎\s*/, "")}
+                        fallbackName={msg.content.replace(/^(📎|📁)\s*/u, "")}
                         progress={msg.transfer_id ? progress[msg.transfer_id] : undefined}
                         actions={transferActions}
                         onAccent={isOut}
@@ -817,6 +820,14 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
               >
                 <Paperclip className="h-4 w-4" />
               </button>
+              <button
+                type="button"
+                onClick={onPickFolder}
+                title="Send a whole folder"
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                <FolderUp className="h-4 w-4" />
+              </button>
 
               <textarea
                 ref={textareaRef}
@@ -845,7 +856,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
               </button>
             </div>
             <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 px-1">
-              <span>Enter to send · Shift + Enter for a new line · drag files in · Ctrl+V pastes a screenshot</span>
+              <span>Enter to send · Shift + Enter for a new line · drag files or folders in · Ctrl+V pastes a screenshot</span>
               <span>Works without internet</span>
             </div>
           </>

@@ -590,6 +590,34 @@ pub async fn broadcast_message(
     state.network.broadcast(&peer_ids, content, paths).await
 }
 
+/// LANX 1.2.3: network speed to a colleague (one connection vs several).
+#[tauri::command]
+pub async fn speed_test(
+    state: State<'_, AppState>,
+    peer_id: String,
+) -> Result<crate::networking::lanes::SpeedTestResult, String> {
+    state.network.privacy.guard()?;
+    state.network.speed_test(&peer_id).await
+}
+
+/// LANX 1.2.3: choose a folder to send (it is packed and sent as one transfer).
+#[tauri::command]
+pub async fn pick_folder_to_send(app: AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut builder = app.dialog().file().set_title("Choose a folder to send");
+    if let Some(w) = app.get_webview_window("main") {
+        builder = builder.set_parent(&w);
+    }
+    builder.pick_folder(move |folder| {
+        let _ = tx.send(folder);
+    });
+    Ok(rx
+        .await
+        .map_err(err)?
+        .and_then(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string()))
+}
+
 /// File picker that only returns the chosen paths (used by "Message everyone").
 #[tauri::command]
 pub async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {

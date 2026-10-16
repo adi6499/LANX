@@ -189,6 +189,8 @@ pub fn run() {
                 Ok(None) => {}
                 Err(e) => backup::set_notice(false, format!("The restore did not happen: {}", e)),
             }
+            // Folders packed for sending more than a week ago.
+            networking::folders::clean_outbox(&networking::folders::outbox_dir(&data_dir), 7);
             let db = match Database::open(&data_dir) {
                 Ok(db) => Arc::new(db),
                 Err(e) => fatal_startup_error(
@@ -372,6 +374,8 @@ pub fn run() {
             commands::calls::call_hangup,
             commands::calls::call_media,
             commands::calls::get_call,
+            commands::speed_test,
+            commands::pick_folder_to_send,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LANX desktop application");

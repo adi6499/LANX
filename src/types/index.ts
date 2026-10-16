@@ -121,6 +121,8 @@ export interface TransferRecord {
   completed_at?: number | null;
   /** Group files: shared key of the per-member copies. */
   parent_id?: string | null;
+  /** "file" | "folder" (LANX 1.2.3, sent as a zip) | "update". */
+  kind?: string;
 }
 
 export interface TransferProgress {
@@ -308,6 +310,14 @@ export interface RestoreNotice {
 }
 
 // -------------------------------------------------------------------- calls
+export interface SpeedTestResult {
+  /** MB/s over one connection. */
+  single_mbps: number;
+  /** MB/s over several connections at once. */
+  multi_mbps: number;
+  connections: number;
+}
+
 export interface CallInfo {
   call_id: string;
   conversation_id: string;

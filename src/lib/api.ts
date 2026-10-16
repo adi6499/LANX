@@ -23,6 +23,7 @@ import {
   RestoreNotice,
   CallInfo,
   CallEvent,
+  SpeedTestResult,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -733,6 +734,19 @@ export const api = {
   callMedia: async (callId: string, media: { video?: boolean; muted?: boolean; screen?: boolean }): Promise<void> => {
     if (isTauri)
       return invoke("call_media", { callId, video: media.video ?? null, muted: media.muted ?? null, screen: media.screen ?? null });
+  },
+
+  // -------------------------------------------------- 1.2.3: speed, folders
+  speedTest: async (peerId: string): Promise<SpeedTestResult> => {
+    if (isTauri) return invoke("speed_test", { peerId });
+    await new Promise((r) => setTimeout(r, 1500));
+    return { single_mbps: 4.2, multi_mbps: 11.8, connections: 4 };
+  },
+
+  /** Lets the user choose a folder to send; null if cancelled. */
+  pickFolderToSend: async (): Promise<string | null> => {
+    if (isTauri) return invoke("pick_folder_to_send");
+    return "D:\\Projects\\Site Photos";
   },
 
   getCall: async (): Promise<CallInfo | null> => {

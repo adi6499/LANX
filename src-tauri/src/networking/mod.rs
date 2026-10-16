@@ -1,5 +1,7 @@
 pub mod calls;
+pub mod lanes;
 pub mod extras;
+pub mod folders;
 pub mod groups;
 pub mod protocol;
 pub mod session;
@@ -77,6 +79,8 @@ pub struct Inner {
     bound_port: AtomicU16,
     /// Running transfers (either direction) by transfer id.
     pub(crate) active_transfers: Mutex<HashMap<String, CancellationToken>>,
+    /// Sender side of transfers being pulled over several connections.
+    pub(crate) lane_sessions: Mutex<HashMap<String, lanes::LaneSession>>,
     /// Transfers the other side cancelled while running: id -> reason.
     pub(crate) remote_cancels: Mutex<HashMap<String, String>>,
     /// Peers whose outbox is being flushed: id -> "run again when done".
@@ -115,6 +119,7 @@ impl NetworkService {
                 bound_port: AtomicU16::new(0),
                 active_transfers: Mutex::new(HashMap::new()),
                 remote_cancels: Mutex::new(HashMap::new()),
+                lane_sessions: Mutex::new(HashMap::new()),
                 flushing: Mutex::new(HashMap::new()),
                 last_failure: Mutex::new(HashMap::new()),
                 update_cfg: Mutex::new(update::UpdateConfig::default()),
@@ -848,6 +853,18 @@ impl NetworkService {
                 }
                 PacketPayload::FileRequest(r) => {
                     self.serve_file(chan, &peer, r, pkt.packet_id).await;
+                    return;
+                }
+                PacketPayload::FileRangeRequest(r) => {
+                    self.serve_range(chan, &peer, r, pkt.packet_id).await;
+                    return;
+                }
+                PacketPayload::FileRangeFinish(r) => {
+                    self.serve_finish(chan, &peer, r, pkt.packet_id).await;
+                    return;
+                }
+                PacketPayload::SpeedTest(s) if s.phase == "start" => {
+                    self.serve_speed_test(chan).await;
                     return;
                 }
                 PacketPayload::ReadReceipt(r) => {

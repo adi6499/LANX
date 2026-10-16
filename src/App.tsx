@@ -461,6 +461,23 @@ export default function App() {
     );
   }, []);
 
+  /** Sends files and folders; big folders take a moment to pack, so say so. */
+  const sendPaths = useCallback(
+    async (conv: string, paths: string[]) => {
+      const packing = "Packing the folder… big folders take a moment.";
+      const timer = window.setTimeout(() => setNotice(packing), 700);
+      try {
+        addSentFiles(await api.sendFiles(conv, paths));
+        setNotice((n) => (n === packing ? null : n));
+      } catch (err) {
+        showError(err);
+      } finally {
+        window.clearTimeout(timer);
+      }
+    },
+    [addSentFiles, showError]
+  );
+
   const sendDroppedFiles = useCallback(
     async (paths: string[]) => {
       const conv = activeConversationIdRef.current;
@@ -468,13 +485,9 @@ export default function App() {
         setNotice("Open a chat first, then drop the files into it.");
         return;
       }
-      try {
-        addSentFiles(await api.sendFiles(conv, paths));
-      } catch (err) {
-        showError(err);
-      }
+      await sendPaths(conv, paths);
     },
-    [addSentFiles, showError]
+    [sendPaths]
   );
 
   // Drag files from Explorer into the window.
@@ -563,6 +576,17 @@ export default function App() {
     if (!activeConversationId) return;
     try {
       addSentFiles(await api.pickAndSendFiles(activeConversationId));
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const handlePickFolder = async () => {
+    const conv = activeConversationId;
+    if (!conv) return;
+    try {
+      const dir = await api.pickFolderToSend();
+      if (dir) await sendPaths(conv, [dir]);
     } catch (err) {
       showError(err);
     }
@@ -837,6 +861,7 @@ export default function App() {
             onRetryMessage={handleRetryMessage}
             onDeleteConversation={handleDeleteConversation}
             onPickFiles={handlePickFiles}
+            onPickFolder={handlePickFolder}
             onPasteImage={handlePasteImage}
             onTyping={handleTyping}
             onRing={handleRing}

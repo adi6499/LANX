@@ -7,7 +7,7 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 ## For users
 
 ### Install
-1. Run **`LANX-Setup-1.2.2.exe`**.
+1. Run **`LANX-Setup-1.2.3.exe`**.
 2. Windows asks *"Do you want to allow this app to make changes?"* → **Yes** (the installer needs
    this once, to install for all users and to allow LANX through Windows Firewall).
 3. LANX opens. Type your name → **Launch LANX**. Done.
@@ -31,7 +31,7 @@ After the first setup an **animated guide** shows how everything works (reopen i
 
 ### Everyday use
 - **Chat:** pick a colleague on the left (or **Peers → Chat**). Enter sends, Shift+Enter = new line.
-- **Send files:** press the 📎 paperclip, or **drag files into the chat**. No size limit.
+- **Send files:** press the 📎 paperclip, or **drag files (or whole folders) into the chat**. No size limit.
   The other person presses **Accept**. Files land in *Downloads* (change in **Settings → Files**).
 - **Offline colleague?** Messages and files wait (shown as *Queued*) and are delivered automatically
   when they come back online.
@@ -43,6 +43,17 @@ After the first setup an **animated guide** shows how everything works (reopen i
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 1.2.3: faster sending, whole folders
+- **Big files travel over 4 connections at once**, which uses Wi-Fi much better than one. Still
+  encrypted, still resumable, still checked at the end. (Both PCs need 1.2.3; with older versions LANX
+  uses one connection as before — and they get 1.2.3 automatically.)
+- **Send whole folders** — the folder button next to 📎, or drag a folder into the chat. LANX packs it
+  (compressing documents and code; photos and videos are left as they are), sends it as one transfer,
+  and on 1.2.3 it arrives as a normal folder in Downloads. Older versions receive a .zip.
+- **Test speed** — in a colleague's details (ⓘ). Shows the real network speed between the two PCs over
+  1 and 4 connections. If it's slow, one PC is usually on 2.4 GHz/weak Wi-Fi: a cable or the 5 GHz
+  Wi-Fi helps most.
 
 ### New in 1.2: calls, backups, clearer hidden chats
 - **📞 Voice and 🎥 video calls** — the phone and camera buttons at the top of a one-to-one chat.
