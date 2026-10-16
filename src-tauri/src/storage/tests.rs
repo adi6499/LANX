@@ -27,6 +27,9 @@ fn text_message(id: &str, conv: &str, content: &str, outgoing: bool, status: &st
         error_reason: None,
         is_outgoing: outgoing,
         transfer_id: None,
+        ttl_secs: None,
+        expire_at: None,
+        deliveries: None,
     }
 }
 
@@ -98,7 +101,7 @@ fn incoming_hindi_message_is_stored_with_preview() {
     assert_eq!(c.unread_count, 1);
     assert!(c.last_message_preview.unwrap().starts_with("कृपया"));
     assert_eq!(db.total_unread(), 1);
-    db.mark_conversation_read(&conv.id).unwrap();
+    db.mark_conversation_read(&conv.id, true).unwrap();
     assert_eq!(db.total_unread(), 0);
 }
 
@@ -109,12 +112,12 @@ fn search_finds_text_in_any_message() {
     db.insert_message(&text_message("a", &conv.id, "Quote for RFP 3100851312", true, "delivered")).unwrap();
     db.insert_message(&text_message("b", &conv.id, "lunch?", false, "delivered")).unwrap();
     db.insert_message(&text_message("c", &conv.id, "100% done_now", false, "delivered")).unwrap();
-    let hits = db.search_messages("rfp 3100", 10).unwrap();
+    let hits = db.search_messages("rfp 3100", 10, false).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].message.id, "a");
-    assert_eq!(db.search_messages("100%", 10).unwrap().len(), 1, "% is literal");
-    assert_eq!(db.search_messages("e_n", 10).unwrap().len(), 1, "_ is literal");
-    assert!(db.search_messages("  ", 10).unwrap().is_empty());
+    assert_eq!(db.search_messages("100%", 10, false).unwrap().len(), 1, "% is literal");
+    assert_eq!(db.search_messages("e_n", 10, false).unwrap().len(), 1, "_ is literal");
+    assert!(db.search_messages("  ", 10, false).unwrap().is_empty());
 }
 
 #[test]
@@ -148,6 +151,7 @@ fn outbox_and_restart_recovery() {
         error_reason: None,
         created_at: now(),
         completed_at: None,
+        parent_id: None,
         temp_path: Some("x.lanxpart".into()),
     })
     .unwrap();

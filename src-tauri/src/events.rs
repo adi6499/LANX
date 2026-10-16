@@ -11,6 +11,13 @@ pub struct Events {
     app: Option<AppHandle>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlertKind {
+    Message,
+    File,
+    Ring,
+}
+
 #[derive(Serialize, Clone)]
 struct PeerOfflinePayload<'a> {
     peer_id: &'a str,
@@ -110,24 +117,55 @@ impl Events {
             .unwrap_or(false)
     }
 
-    /// Shows a Windows notification unless LANX is already in front.
-    pub fn notify(&self, db: &Database, title: &str, body: &str) {
+    /// Generic event for the UI.
+    pub fn emit_json<S: Serialize + Clone>(&self, event: &str, payload: S) {
+        self.emit(event, payload);
+    }
+
+    /// Plays LANX's own sound for this kind of alert (if sounds are on).
+    pub fn play_sound(&self, db: &Database, kind: AlertKind) {
+        if self.app.is_none() {
+            return; // unit tests
+        }
+        let Ok(s) = db.get_settings() else { return };
+        if !s.sound_enabled {
+            return;
+        }
+        let name = match kind {
+            AlertKind::Ring => "bell",
+            _ => s.sound_choice.as_str(),
+        };
+        crate::sound::play(name, &s.custom_sound_path, s.sound_volume);
+    }
+
+    /// New message / file: when LANX is not in front, plays the LANX sound and
+    /// shows a Windows notification. A ring always sounds and flashes the
+    /// taskbar until the user looks.
+    pub fn notify(&self, db: &Database, kind: AlertKind, title: &str, body: &str) {
         let Some(app) = &self.app else { return };
-        if !db
-            .get_settings()
-            .map(|s| s.notifications_enabled)
-            .unwrap_or(true)
-        {
+        let settings = db.get_settings().ok();
+        let focused = Self::main_window_focused(app);
+        if focused && kind != AlertKind::Ring {
             return;
         }
-        if Self::main_window_focused(app) {
-            return;
+        let sound_on = settings.as_ref().map(|s| s.sound_enabled).unwrap_or(true);
+        self.play_sound(db, kind);
+        if settings.as_ref().map(|s| s.notifications_enabled).unwrap_or(true) && !focused {
+            use tauri_plugin_notification::NotificationExt;
+            let mut builder = app.notification().builder().title(title).body(body);
+            if sound_on {
+                builder = builder.silent(); // LANX already played its own sound
+            }
+            let _ = builder.show();
         }
-        use tauri_plugin_notification::NotificationExt;
-        let _ = app.notification().builder().title(title).body(body).show();
         if let Some(w) = app.get_webview_window("main") {
-            if w.is_visible().unwrap_or(false) {
-                let _ = w.request_user_attention(Some(tauri::UserAttentionType::Informational));
+            let attention = if kind == AlertKind::Ring {
+                tauri::UserAttentionType::Critical
+            } else {
+                tauri::UserAttentionType::Informational
+            };
+            if !focused {
+                let _ = w.request_user_attention(Some(attention));
             }
         }
     }

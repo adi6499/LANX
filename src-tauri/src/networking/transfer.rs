@@ -24,9 +24,21 @@ const DB_PROGRESS_EVERY: Duration = Duration::from_secs(2);
 
 #[derive(Serialize, Clone, Debug)]
 pub struct SentFile {
-    pub transfer: TransferRecord,
+    /// One per recipient (several in a group chat).
+    pub transfers: Vec<TransferRecord>,
     pub message: Message,
 }
+
+pub fn is_image_name(name: &str) -> bool {
+    let ext = Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp")
+}
+
+/// Images up to this size download without asking (setting "auto_download_images").
+pub const AUTO_IMAGE_MAX_BYTES: u64 = 10 * 1024 * 1024;
 
 enum Outcome {
     Cancelled { notify_peer: bool, reason: String },
@@ -203,14 +215,33 @@ impl NetworkService {
             .get_conversation(conversation_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Conversation not found".to_string())?;
-        let peer = self
-            .db
-            .get_peer(&conv.peer_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Peer not found".to_string())?;
-        if peer.trust_state == "blocked" {
-            return Err("You blocked this contact. Unblock them in People to send files.".to_string());
+
+        // Who receives a copy: the contact, or every other group member.
+        let recipients: Vec<Peer> = if conv.kind == "group" {
+            let g = self.get_group(&conv.id).ok_or("Group not found")?;
+            if g.membership != "member" {
+                return Err("You are no longer in this group.".to_string());
+            }
+            g.members
+                .iter()
+                .filter(|m| !m.is_me)
+                .filter_map(|m| self.db.get_peer(&m.device_id).ok().flatten())
+                .collect()
+        } else {
+            let peer = self
+                .db
+                .get_peer(&conv.peer_id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "Peer not found".to_string())?;
+            if peer.trust_state == "blocked" {
+                return Err("You blocked this contact. Unblock them in People to send files.".to_string());
+            }
+            vec![peer]
+        };
+        if recipients.is_empty() {
+            return Err("Nobody else is in this group.".to_string());
         }
+        let is_group = conv.kind == "group";
 
         let mut sent = Vec::new();
         let mut problems = Vec::new();
@@ -235,43 +266,56 @@ impl NetworkService {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "file".to_string());
             let now = now_secs();
-            let transfer = TransferRecord {
-                id: uuid::Uuid::new_v4().to_string(),
-                peer_id: peer.id.clone(),
-                peer_name: Some(peer.display_name.clone()),
-                conversation_id: Some(conv.id.clone()),
-                file_name: file_name.clone(),
-                file_size: meta.len() as i64,
-                file_hash: String::new(),
-                direction: "outgoing".to_string(),
-                status: "queued".to_string(),
-                transferred_bytes: 0,
-                local_path: Some(p.to_string_lossy().to_string()),
-                error_reason: None,
-                created_at: now,
-                completed_at: None,
-                temp_path: None,
-            };
-            self.db.insert_transfer(&transfer).map_err(|e| e.to_string())?;
+            // In a group every member gets their own transfer; the chat
+            // message points at their shared parent id.
+            let parent = if is_group { Some(uuid::Uuid::new_v4().to_string()) } else { None };
+            let mut transfers = Vec::new();
+            for peer in &recipients {
+                let transfer = TransferRecord {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    peer_id: peer.id.clone(),
+                    peer_name: Some(peer.display_name.clone()),
+                    conversation_id: Some(conv.id.clone()),
+                    file_name: file_name.clone(),
+                    file_size: meta.len() as i64,
+                    file_hash: String::new(),
+                    direction: "outgoing".to_string(),
+                    status: "queued".to_string(),
+                    transferred_bytes: 0,
+                    local_path: Some(p.to_string_lossy().to_string()),
+                    error_reason: None,
+                    created_at: now,
+                    completed_at: None,
+                    parent_id: parent.clone(),
+                    temp_path: None,
+                };
+                self.db.insert_transfer(&transfer).map_err(|e| e.to_string())?;
+                transfers.push(transfer);
+            }
             let message = Message {
                 id: uuid::Uuid::new_v4().to_string(),
                 conversation_id: conv.id.clone(),
                 sender_id: self.identity.device_id.clone(),
-                receiver_id: peer.id.clone(),
+                receiver_id: if is_group { conv.id.clone() } else { recipients[0].id.clone() },
                 content: format!("📎 {}", file_name),
                 message_type: "file".to_string(),
                 timestamp: now,
                 status: "sending".to_string(),
                 error_reason: None,
                 is_outgoing: true,
-                transfer_id: Some(transfer.id.clone()),
+                transfer_id: Some(parent.clone().unwrap_or_else(|| transfers[0].id.clone())),
+                ttl_secs: None,
+                expire_at: None,
+                deliveries: None,
             };
             self.db.insert_message(&message).map_err(|e| e.to_string())?;
-            sent.push(SentFile { transfer, message });
+            sent.push(SentFile { transfers, message });
         }
 
         if !sent.is_empty() {
-            self.kick_outbox(&peer.id, true);
+            for peer in &recipients {
+                self.kick_outbox(&peer.id, true);
+            }
         }
         if sent.is_empty() && !problems.is_empty() {
             return Err(problems.join("\n"));
@@ -281,11 +325,29 @@ impl NetworkService {
 
     /// Sends one queued offer on an open session. Returns false if the
     /// connection broke (the offer stays queued).
-    pub(super) async fn deliver_offer(&self, chan: &mut SecureChannel, mut t: TransferRecord) -> bool {
+    pub(super) async fn deliver_offer(
+        &self,
+        chan: &mut SecureChannel,
+        mut t: TransferRecord,
+        modern: bool,
+    ) -> bool {
+        let group_id = t.parent_id.as_ref().and(t.conversation_id.clone());
+        if group_id.is_some() && !modern {
+            let reason = format!(
+                "Waiting for {} to update to LANX 1.1",
+                t.peer_name.clone().unwrap_or_else(|| "them".to_string())
+            );
+            if t.error_reason.as_deref() != Some(reason.as_str()) {
+                t.error_reason = Some(reason);
+                self.save_and_emit(&t);
+            }
+            return true;
+        }
         let offer = PacketPayload::FileOffer(FileOfferPayload {
             transfer_id: t.id.clone(),
             file_name: t.file_name.clone(),
             file_size: t.file_size.max(0) as u64,
+            group_id,
         });
         let sent = match chan.send(offer, None).await {
             Ok(p) => p,
@@ -568,9 +630,24 @@ impl NetworkService {
             return ack(false, Some("Invalid transfer id"));
         }
 
-        let conv = match self.db.get_or_create_conversation(&peer.id) {
-            Ok(c) => c,
-            Err(_) => return ack(false, Some("Recipient database error")),
+        // Group file: only from a member of a group we are in.
+        let conv = match &o.group_id {
+            Some(gid) => {
+                let Some(g) = self.get_group(gid) else {
+                    return ack(false, Some("Not a member of this group"));
+                };
+                if g.membership != "member" || !g.members.iter().any(|m| m.device_id == peer.id) {
+                    return ack(false, Some("Not a member of this group"));
+                }
+                match self.db.get_conversation(gid) {
+                    Ok(Some(c)) => c,
+                    _ => return ack(false, Some("Recipient database error")),
+                }
+            }
+            None => match self.db.get_or_create_conversation(&peer.id) {
+                Ok(c) => c,
+                Err(_) => return ack(false, Some("Recipient database error")),
+            },
         };
         let name = sanitize_file_name(&o.file_name);
         let now = now_secs();
@@ -589,6 +666,7 @@ impl NetworkService {
             error_reason: None,
             created_at: now,
             completed_at: None,
+            parent_id: None,
             temp_path: None,
         };
         if self.db.insert_transfer(&t).is_err() {
@@ -606,6 +684,9 @@ impl NetworkService {
             error_reason: None,
             is_outgoing: false,
             transfer_id: Some(t.id.clone()),
+            ttl_secs: None,
+            expire_at: None,
+            deliveries: None,
         };
         let _ = self.db.insert_message(&msg);
         let _ = self.db.increment_unread(&conv.id);
@@ -614,30 +695,39 @@ impl NetworkService {
         self.events.message_received(&msg, conv.as_ref());
         self.events.update_tray(&self.db);
 
-        let auto = self
-            .db
-            .get_settings()
-            .map(|s| s.auto_download_transfers)
-            .unwrap_or(false)
+        let settings = self.db.get_settings().ok();
+        let trusted_auto = settings.as_ref().is_some_and(|s| s.auto_download_transfers)
             && peer.trust_state == "trusted";
+        let image_auto = settings.as_ref().is_some_and(|s| s.auto_download_images)
+            && is_image_name(&name)
+            && o.file_size <= AUTO_IMAGE_MAX_BYTES;
+        let auto = trusted_auto || image_auto;
         if auto {
             let this = self.clone();
             let id = t.id.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = this.accept_transfer(&id).await;
             });
-            self.events.notify(
-                &self.db,
-                &format!("Receiving a file from {}", peer.display_name),
-                &format!("{} ({})", name, format_size(o.file_size)),
-            );
-        } else {
-            self.events.notify(
-                &self.db,
-                &format!("{} wants to send you a file", peer.display_name),
-                &format!("{} ({}) — open LANX to accept", name, format_size(o.file_size)),
-            );
         }
+        let hidden = conv.as_ref().is_some_and(|c| c.is_hidden);
+        let where_from = match &o.group_id {
+            Some(_) => format!("{} in {}", peer.display_name, conv.as_ref().map(|c| c.peer_name.as_str()).unwrap_or("a group")),
+            None => peer.display_name.clone(),
+        };
+        let (title, body) = if hidden || self.privacy.is_locked() {
+            ("LANX".to_string(), "You have a new file".to_string())
+        } else if auto {
+            (
+                format!("Receiving a file from {}", where_from),
+                format!("{} ({})", name, format_size(o.file_size)),
+            )
+        } else {
+            (
+                format!("{} wants to send you a file", where_from),
+                format!("{} ({}) — open LANX to accept", name, format_size(o.file_size)),
+            )
+        };
+        self.events.notify(&self.db, crate::events::AlertKind::File, &title, &body);
         ack(true, None)
     }
 
@@ -723,11 +813,20 @@ impl NetworkService {
                 t.temp_path = None;
                 t.completed_at = Some(now_secs());
                 self.save_and_emit(&t);
-                self.events.notify(
-                    &self.db,
-                    &format!("File received from {}", peer_name),
-                    &t.file_name,
-                );
+                let hidden = t
+                    .conversation_id
+                    .as_deref()
+                    .is_some_and(|c| self.db.is_conversation_hidden(c));
+                if hidden || self.privacy.is_locked() {
+                    self.events.notify(&self.db, crate::events::AlertKind::File, "LANX", "A file finished downloading");
+                } else {
+                    self.events.notify(
+                        &self.db,
+                        crate::events::AlertKind::File,
+                        &format!("File received from {}", peer_name),
+                        &t.file_name,
+                    );
+                }
             }
             Err(Outcome::Cancelled { notify_peer, reason }) => {
                 if let Some(tmp) = t.temp_path.take() {

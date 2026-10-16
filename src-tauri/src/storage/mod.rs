@@ -48,13 +48,25 @@ pub fn preview_text(content: &str) -> String {
 
 const PEER_COLS: &str =
     "id, display_name, hostname, last_ip, tcp_port, public_key, trust_state, status, last_seen, avatar_color";
-const CONV_SELECT: &str = "SELECT c.id, c.peer_id, p.display_name, p.status, p.avatar_color, p.last_ip,
-        c.last_message_preview, c.last_message_time, c.unread_count, c.is_pinned, c.created_at
-     FROM conversations c JOIN peers p ON c.peer_id = p.id";
-const MSG_COLS: &str = "id, conversation_id, sender_id, receiver_id, content, message_type, timestamp, status, error_reason, is_outgoing, transfer_id";
+const CONV_SELECT: &str = "SELECT c.id, COALESCE(c.peer_id, ''), COALESCE(p.display_name, g.name, 'Unknown'),
+        CASE WHEN c.kind = 'group' THEN
+            CASE WHEN EXISTS (SELECT 1 FROM group_members gm JOIN peers pp ON pp.id = gm.device_id
+                              WHERE gm.group_id = c.id AND pp.status = 'online') THEN 'online' ELSE 'offline' END
+        ELSE COALESCE(p.status, 'offline') END,
+        COALESCE(p.avatar_color, g.avatar_color, '#6366f1'), COALESCE(p.last_ip, ''),
+        c.last_message_preview, c.last_message_time, c.unread_count, c.is_pinned, c.created_at,
+        c.kind, c.is_hidden, c.secret_ttl,
+        (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.group_id = c.id),
+        COALESCE(g.membership, '')
+     FROM conversations c LEFT JOIN peers p ON c.peer_id = p.id LEFT JOIN groups g ON g.id = c.id";
+const MSG_COLS: &str = "id, conversation_id, sender_id, receiver_id, content, message_type, timestamp, status, error_reason, is_outgoing, transfer_id, ttl_secs, expire_at";
 const TRANSFER_SELECT: &str = "SELECT t.id, t.peer_id, p.display_name, t.conversation_id, t.file_name, t.file_size, t.file_hash,
-        t.direction, t.status, t.transferred_bytes, t.local_path, t.error_reason, t.created_at, t.completed_at, t.temp_path
+        t.direction, t.status, t.transferred_bytes, t.local_path, t.error_reason, t.created_at, t.completed_at, t.temp_path,
+        t.parent_id
      FROM transfers t LEFT JOIN peers p ON t.peer_id = p.id";
+
+/// Messages from secret chats that were never read still disappear after a week.
+pub const SECRET_UNREAD_MAX_SECS: i64 = 7 * 24 * 3600;
 
 fn row_to_peer(row: &Row) -> Result<Peer> {
     Ok(Peer {
@@ -84,6 +96,11 @@ fn row_to_conversation(row: &Row) -> Result<Conversation> {
         unread_count: row.get(8)?,
         is_pinned: row.get::<_, i32>(9)? != 0,
         created_at: row.get(10)?,
+        kind: row.get(11)?,
+        is_hidden: row.get::<_, i32>(12)? != 0,
+        secret_ttl: row.get::<_, i64>(13)?.max(0) as u32,
+        member_count: row.get(14)?,
+        membership: row.get(15)?,
     })
 }
 
@@ -100,6 +117,9 @@ fn row_to_message(row: &Row) -> Result<Message> {
         error_reason: row.get(8)?,
         is_outgoing: row.get::<_, i32>(9)? != 0,
         transfer_id: row.get(10)?,
+        ttl_secs: row.get::<_, Option<i64>>(11)?.map(|v| v.max(0) as u32),
+        expire_at: row.get(12)?,
+        deliveries: None,
     })
 }
 
@@ -120,6 +140,7 @@ fn row_to_transfer(row: &Row) -> Result<TransferRecord> {
         created_at: row.get(12)?,
         completed_at: row.get(13)?,
         temp_path: row.get(14)?,
+        parent_id: row.get(15)?,
     })
 }
 
@@ -137,10 +158,13 @@ impl Database {
         let mut conn = Connection::open(&db_path)?;
 
         // Pragmas for performance and concurrency
+        // secure_delete: deleted rows (e.g. disappeared secret messages) are
+        // overwritten on disk instead of lingering in free pages.
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
+             PRAGMA secure_delete = ON;
              PRAGMA busy_timeout = 5000;",
         )?;
 
@@ -285,6 +309,23 @@ impl Database {
             onboarding_completed: flag("onboarding_completed", false),
             launch_at_startup: flag("launch_at_startup", true),
             close_to_tray: flag("close_to_tray", true),
+            read_receipts: flag("read_receipts", true),
+            auto_download_images: flag("auto_download_images", true),
+            auto_lock_minutes: map
+                .get("auto_lock_minutes")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5),
+            pin_enabled: map.get("pin_hash").is_some_and(|v| !v.is_empty()),
+            sound_enabled: flag("sound_enabled", true),
+            sound_choice: map
+                .get("sound_choice")
+                .cloned()
+                .unwrap_or_else(|| "chime".to_string()),
+            custom_sound_path: map.get("custom_sound_path").cloned().unwrap_or_default(),
+            sound_volume: map
+                .get("sound_volume")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(80),
         })
     }
 
@@ -324,6 +365,13 @@ impl Database {
             ),
             ("launch_at_startup", settings.launch_at_startup.to_string()),
             ("close_to_tray", settings.close_to_tray.to_string()),
+            ("read_receipts", settings.read_receipts.to_string()),
+            ("auto_download_images", settings.auto_download_images.to_string()),
+            ("auto_lock_minutes", settings.auto_lock_minutes.min(240).to_string()),
+            ("sound_enabled", settings.sound_enabled.to_string()),
+            ("sound_choice", settings.sound_choice.clone()),
+            ("custom_sound_path", settings.custom_sound_path.clone()),
+            ("sound_volume", settings.sound_volume.min(100).to_string()),
         ];
 
         for (k, v) in pairs {
@@ -488,13 +536,14 @@ impl Database {
 
     // -------------------------------------------------------- conversations
 
-    pub fn get_conversations(&self) -> Result<Vec<Conversation>> {
+    /// Chats for the sidebar. Hidden chats are left out unless `include_hidden`.
+    pub fn get_conversations(&self, include_hidden: bool) -> Result<Vec<Conversation>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
-            "{} ORDER BY c.is_pinned DESC, c.last_message_time DESC",
+            "{} WHERE (?1 OR c.is_hidden = 0) ORDER BY c.is_pinned DESC, c.last_message_time DESC",
             CONV_SELECT
         ))?;
-        let rows = stmt.query_map([], row_to_conversation)?;
+        let rows = stmt.query_map(params![include_hidden], row_to_conversation)?;
         Ok(rows.flatten().collect())
     }
 
@@ -513,7 +562,7 @@ impl Database {
 
         let existing = conn
             .query_row(
-                &format!("{} WHERE c.peer_id = ?1", CONV_SELECT),
+                &format!("{} WHERE c.peer_id = ?1 AND c.kind = 'direct'", CONV_SELECT),
                 params![peer_id],
                 row_to_conversation,
             )
@@ -569,27 +618,81 @@ impl Database {
         Ok(())
     }
 
+    /// Unread count shown in the tray (hidden chats are not counted).
     pub fn total_unread(&self) -> i64 {
         let conn = self.conn.lock();
         conn.query_row(
-            "SELECT COALESCE(SUM(unread_count), 0) FROM conversations",
+            "SELECT COALESCE(SUM(unread_count), 0) FROM conversations WHERE is_hidden = 0",
             [],
             |r| r.get(0),
         )
         .unwrap_or(0)
     }
 
-    pub fn mark_conversation_read(&self, conversation_id: &str) -> Result<()> {
+    /// Marks a chat read. Starts the disappearing timer of secret messages and
+    /// flags read receipts to send. Returns the senders who should be told.
+    pub fn mark_conversation_read(
+        &self,
+        conversation_id: &str,
+        send_receipts: bool,
+    ) -> Result<Vec<String>> {
         let conn = self.conn.lock();
+        let now = now_secs();
         conn.execute(
             "UPDATE conversations SET unread_count = 0 WHERE id = ?1",
             params![conversation_id],
         )?;
+        // Receipts are always sent for secret messages so the sender's copy
+        // disappears too.
         conn.execute(
-            "UPDATE messages SET status = 'read' WHERE conversation_id = ?1 AND is_outgoing = 0 AND status = 'delivered'",
-            params![conversation_id],
+            "UPDATE messages SET
+                 receipt_pending = CASE WHEN message_type IN ('text', 'file') AND (?2 OR ttl_secs IS NOT NULL)
+                                        THEN 1 ELSE receipt_pending END,
+                 expire_at = CASE WHEN ttl_secs IS NOT NULL
+                                  THEN MIN(COALESCE(expire_at, ?3 + ttl_secs), ?3 + ttl_secs)
+                                  ELSE expire_at END,
+                 status = 'read'
+             WHERE conversation_id = ?1 AND is_outgoing = 0 AND status = 'delivered'",
+            params![conversation_id, send_receipts, now],
+        )?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT sender_id FROM messages
+             WHERE conversation_id = ?1 AND is_outgoing = 0 AND receipt_pending = 1",
+        )?;
+        let senders = stmt
+            .query_map(params![conversation_id], |r| r.get(0))?
+            .flatten()
+            .collect();
+        Ok(senders)
+    }
+
+    pub fn set_conversation_hidden(&self, conversation_id: &str, hidden: bool) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE conversations SET is_hidden = ?1 WHERE id = ?2",
+            params![hidden, conversation_id],
         )?;
         Ok(())
+    }
+
+    pub fn set_conversation_secret_ttl(&self, conversation_id: &str, ttl: u32) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE conversations SET secret_ttl = ?1 WHERE id = ?2",
+            params![ttl as i64, conversation_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_conversation_hidden(&self, conversation_id: &str) -> bool {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT is_hidden FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |r| r.get::<_, i32>(0),
+        )
+        .map(|v| v != 0)
+        .unwrap_or(false)
     }
 
     pub fn delete_conversation(&self, conversation_id: &str) -> Result<()> {
@@ -604,13 +707,72 @@ impl Database {
     // ------------------------------------------------------------- messages
 
     pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<Message>> {
+        let mut messages: Vec<Message> = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {} FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC, rowid ASC",
+                MSG_COLS
+            ))?;
+            let rows = stmt.query_map(params![conversation_id], row_to_message)?;
+            rows.flatten().collect()
+        };
+        let summaries = self.delivery_summaries(conversation_id)?;
+        if !summaries.is_empty() {
+            for m in messages.iter_mut() {
+                if let Some(s) = summaries.get(&m.id) {
+                    m.deliveries = Some(s.clone());
+                }
+            }
+        }
+        Ok(messages)
+    }
+
+    /// Per-member delivery state of outgoing group messages in a chat.
+    pub fn delivery_summaries(
+        &self,
+        conversation_id: &str,
+    ) -> Result<std::collections::HashMap<String, DeliverySummary>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {} FROM messages WHERE conversation_id = ?1 ORDER BY timestamp ASC, rowid ASC",
-            MSG_COLS
-        ))?;
-        let rows = stmt.query_map(params![conversation_id], row_to_message)?;
-        Ok(rows.flatten().collect())
+        let mut stmt = conn.prepare(
+            "SELECT d.message_id, d.status, COALESCE(p.display_name, gm.display_name, d.peer_id)
+             FROM message_deliveries d
+             JOIN messages m ON m.id = d.message_id
+             LEFT JOIN peers p ON p.id = d.peer_id
+             LEFT JOIN group_members gm ON gm.group_id = m.conversation_id AND gm.device_id = d.peer_id
+             WHERE m.conversation_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![conversation_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        })?;
+        let mut map: std::collections::HashMap<String, DeliverySummary> = Default::default();
+        for (mid, status, name) in rows.flatten() {
+            let s = map.entry(mid).or_default();
+            s.total += 1;
+            match status.as_str() {
+                "read" => {
+                    s.read += 1;
+                    s.delivered += 1;
+                    s.read_by.push(name);
+                }
+                "delivered" => {
+                    s.delivered += 1;
+                }
+                "failed" => {
+                    s.failed += 1;
+                    s.waiting_for.push(name);
+                }
+                _ => {
+                    s.queued += 1;
+                    s.waiting_for.push(name);
+                }
+            }
+        }
+        Ok(map)
+    }
+
+    pub fn delivery_summary(&self, message_id: &str) -> Option<DeliverySummary> {
+        let conv = self.get_message_by_id(message_id).ok().flatten()?.conversation_id;
+        self.delivery_summaries(&conv).ok()?.remove(message_id)
     }
 
     pub fn get_message_by_id(&self, message_id: &str) -> Result<Option<Message>> {
@@ -649,7 +811,7 @@ impl Database {
         let tx = conn.transaction()?;
         tx.execute(
             &format!(
-                "INSERT INTO messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                "INSERT INTO messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 MSG_COLS
             ),
             params![
@@ -664,19 +826,27 @@ impl Database {
                 msg.error_reason,
                 if msg.is_outgoing { 1 } else { 0 },
                 msg.transfer_id,
+                msg.ttl_secs.map(|v| v as i64),
+                msg.expire_at,
             ],
         )?;
         tx.execute(
             "UPDATE conversations
              SET last_message_preview = ?1, last_message_time = ?2
              WHERE id = ?3",
-            params![preview_text(&msg.content), msg.timestamp, msg.conversation_id],
+            params![message_preview(msg), msg.timestamp, msg.conversation_id],
         )?;
         tx.commit()
     }
 
-    /// Case-insensitive search through every stored message (newest first).
-    pub fn search_messages(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
+    /// Case-insensitive search through stored messages (newest first).
+    /// Secret messages are never searchable; hidden chats only when unlocked.
+    pub fn search_messages(
+        &self,
+        query: &str,
+        limit: usize,
+        include_hidden: bool,
+    ) -> Result<Vec<SearchHit>> {
         let q = query.trim();
         if q.is_empty() {
             return Ok(Vec::new());
@@ -686,19 +856,23 @@ impl Database {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT m.id, m.conversation_id, m.sender_id, m.receiver_id, m.content, m.message_type, m.timestamp,
-                    m.status, m.error_reason, m.is_outgoing, m.transfer_id, p.display_name, p.avatar_color
+                    m.status, m.error_reason, m.is_outgoing, m.transfer_id, m.ttl_secs, m.expire_at,
+                    COALESCE(p.display_name, g.name, ''), COALESCE(p.avatar_color, g.avatar_color, '#6366f1')
              FROM messages m
              JOIN conversations c ON m.conversation_id = c.id
-             JOIN peers p ON c.peer_id = p.id
+             LEFT JOIN peers p ON c.peer_id = p.id
+             LEFT JOIN groups g ON g.id = c.id
              WHERE m.content LIKE ?1 ESCAPE '\\'
+               AND m.message_type IN ('text', 'file') AND m.ttl_secs IS NULL
+               AND (?3 OR c.is_hidden = 0)
              ORDER BY m.timestamp DESC
              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![pattern, limit as i64], |row| {
+        let rows = stmt.query_map(params![pattern, limit as i64, include_hidden], |row| {
             Ok(SearchHit {
                 message: row_to_message(row)?,
-                peer_name: row.get(11)?,
-                peer_avatar_color: row.get(12)?,
+                peer_name: row.get(13)?,
+                peer_avatar_color: row.get(14)?,
             })
         })?;
         Ok(rows.flatten().collect())
@@ -718,12 +892,13 @@ impl Database {
         Ok(())
     }
 
-    /// Outgoing text messages still waiting to reach `peer_id`.
+    /// Outgoing direct messages (text and secret-mode changes) still waiting
+    /// to reach `peer_id`.
     pub fn pending_outgoing_messages(&self, peer_id: &str) -> Result<Vec<Message>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {} FROM messages
-             WHERE receiver_id = ?1 AND is_outgoing = 1 AND message_type = 'text'
+             WHERE receiver_id = ?1 AND is_outgoing = 1 AND message_type IN ('text', 'secret_setting')
                AND status IN ('sending', 'queued')
              ORDER BY timestamp ASC, rowid ASC",
             MSG_COLS
@@ -734,22 +909,21 @@ impl Database {
 
     pub fn has_pending_outbox(&self, peer_id: &str) -> bool {
         let conn = self.conn.lock();
-        let msgs: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM messages WHERE receiver_id = ?1 AND is_outgoing = 1
-                 AND message_type = 'text' AND status IN ('sending', 'queued')",
-                params![peer_id],
-                |r| r.get(0),
+        let count = |sql: &str| -> i64 {
+            conn.query_row(sql, params![peer_id], |r| r.get(0)).unwrap_or(0)
+        };
+        count(
+            "SELECT COUNT(*) FROM messages WHERE receiver_id = ?1 AND is_outgoing = 1
+             AND message_type IN ('text', 'secret_setting') AND status IN ('sending', 'queued')",
+        ) + count(
+            "SELECT COUNT(*) FROM transfers WHERE peer_id = ?1 AND direction = 'outgoing' AND status = 'queued'",
+        ) + count(
+            "SELECT COUNT(*) FROM message_deliveries WHERE peer_id = ?1 AND status IN ('sending', 'queued')",
+        ) + count("SELECT COUNT(*) FROM group_sync WHERE peer_id = ?1")
+            + count(
+                "SELECT COUNT(*) FROM messages WHERE sender_id = ?1 AND is_outgoing = 0 AND receipt_pending = 1",
             )
-            .unwrap_or(0);
-        let offers: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM transfers WHERE peer_id = ?1 AND direction = 'outgoing' AND status = 'queued'",
-                params![peer_id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        msgs + offers > 0
+            > 0
     }
 
     /// Puts interrupted work back into a recoverable state after a restart.
@@ -757,6 +931,10 @@ impl Database {
         let conn = self.conn.lock();
         conn.execute(
             "UPDATE messages SET status = 'queued' WHERE is_outgoing = 1 AND status = 'sending'",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE message_deliveries SET status = 'queued' WHERE status = 'sending'",
             [],
         )?;
         conn.execute(
@@ -774,10 +952,24 @@ impl Database {
 
     // ------------------------------------------------------------ transfers
 
-    pub fn list_transfers(&self) -> Result<Vec<TransferRecord>> {
+    /// Files list. Transfers belonging to hidden chats are left out unless
+    /// `include_hidden`.
+    pub fn list_transfers(&self, include_hidden: bool) -> Result<Vec<TransferRecord>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(&format!("{} ORDER BY t.created_at DESC", TRANSFER_SELECT))?;
-        let rows = stmt.query_map([], row_to_transfer)?;
+        let mut stmt = conn.prepare(&format!(
+            "{} WHERE (?1 OR t.conversation_id IS NULL OR t.conversation_id NOT IN
+                        (SELECT id FROM conversations WHERE is_hidden = 1))
+             ORDER BY t.created_at DESC",
+            TRANSFER_SELECT
+        ))?;
+        let rows = stmt.query_map(params![include_hidden], row_to_transfer)?;
+        Ok(rows.flatten().collect())
+    }
+
+    pub fn transfers_by_parent(&self, parent_id: &str) -> Result<Vec<TransferRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!("{} WHERE t.parent_id = ?1", TRANSFER_SELECT))?;
+        let rows = stmt.query_map(params![parent_id], row_to_transfer)?;
         Ok(rows.flatten().collect())
     }
 
@@ -805,8 +997,9 @@ impl Database {
         let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO transfers (id, peer_id, conversation_id, file_name, file_size, file_hash, direction, status,
-                                    transferred_bytes, local_path, error_reason, created_at, completed_at, temp_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                                    transferred_bytes, local_path, error_reason, created_at, completed_at, temp_path,
+                                    parent_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 t.id,
                 t.peer_id,
@@ -822,6 +1015,7 @@ impl Database {
                 t.created_at,
                 t.completed_at,
                 t.temp_path,
+                t.parent_id,
             ],
         )?;
         Ok(())
@@ -881,6 +1075,315 @@ impl Database {
             "DELETE FROM transfers WHERE status IN ('completed', 'cancelled', 'declined')",
             [],
         )
+    }
+
+    // ------------------------------------------------- secret / receipts
+
+    /// Deletes secret messages whose time is up. Returns (message id, chat id).
+    pub fn delete_expired_messages(&self, now: i64) -> Result<Vec<(String, String)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "DELETE FROM messages WHERE expire_at IS NOT NULL AND expire_at <= ?1
+             RETURNING id, conversation_id",
+        )?;
+        let rows = stmt.query_map(params![now], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.flatten().collect())
+    }
+
+    /// Incoming messages from `peer_id` whose "read" receipt still has to be
+    /// sent, grouped by group id (None = direct chat).
+    pub fn pending_receipts(&self, peer_id: &str) -> Result<Vec<(Option<String>, Vec<String>)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT m.id, CASE WHEN c.kind = 'group' THEN c.id END
+             FROM messages m JOIN conversations c ON c.id = m.conversation_id
+             WHERE m.sender_id = ?1 AND m.is_outgoing = 0 AND m.receipt_pending = 1
+             LIMIT 1000",
+        )?;
+        let rows = stmt.query_map(params![peer_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })?;
+        let mut groups: Vec<(Option<String>, Vec<String>)> = Vec::new();
+        for (id, group) in rows.flatten() {
+            match groups.iter_mut().find(|(g, _)| *g == group) {
+                Some((_, ids)) => ids.push(id),
+                None => groups.push((group, vec![id])),
+            }
+        }
+        Ok(groups)
+    }
+
+    pub fn clear_receipts(&self, ids: &[String]) -> Result<()> {
+        let conn = self.conn.lock();
+        for id in ids {
+            conn.execute(
+                "UPDATE messages SET receipt_pending = 0 WHERE id = ?1",
+                params![id],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// A peer read our messages. Direct chats: the message becomes "read" and
+    /// secret messages start their timer. Groups: that member's delivery row.
+    /// Returns the ids of messages whose state changed.
+    pub fn apply_read_receipt(
+        &self,
+        peer_id: &str,
+        ids: &[String],
+        group_id: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let now = now_secs();
+        let mut changed = Vec::new();
+        for id in ids {
+            let n = match group_id {
+                None => conn.execute(
+                    "UPDATE messages SET status = 'read',
+                         expire_at = CASE WHEN ttl_secs IS NOT NULL
+                                          THEN MIN(COALESCE(expire_at, ?3 + ttl_secs), ?3 + ttl_secs)
+                                          ELSE expire_at END
+                     WHERE id = ?1 AND is_outgoing = 1 AND receiver_id = ?2
+                       AND status IN ('sending', 'queued', 'delivered')",
+                    params![id, peer_id, now],
+                )?,
+                Some(g) => conn.execute(
+                    "UPDATE message_deliveries SET status = 'read'
+                     WHERE message_id = ?1 AND peer_id = ?2
+                       AND message_id IN (SELECT id FROM messages WHERE conversation_id = ?3 AND is_outgoing = 1)",
+                    params![id, peer_id, g],
+                )?,
+            };
+            if n > 0 {
+                changed.push(id.clone());
+            }
+        }
+        Ok(changed)
+    }
+
+    // ------------------------------------------------------------ groups
+
+    pub fn create_group(
+        &self,
+        group: &GroupInfo,
+        members: &[(String, String, Option<String>)],
+    ) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO groups (id, name, admin_id, version, avatar_color, membership, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                group.id,
+                group.name,
+                group.admin_id,
+                group.version,
+                group.avatar_color,
+                group.membership,
+                group.created_at
+            ],
+        )?;
+        for (device_id, name, key) in members {
+            tx.execute(
+                "INSERT OR REPLACE INTO group_members (group_id, device_id, display_name, public_key)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![group.id, device_id, name, key],
+            )?;
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO conversations (id, peer_id, kind, last_message_preview, last_message_time,
+                                                  unread_count, is_pinned, created_at)
+             VALUES (?1, NULL, 'group', NULL, ?2, 0, 0, ?2)",
+            params![group.id, group.created_at],
+        )?;
+        tx.commit()
+    }
+
+    /// Replaces a group's details and member list (newer version from the admin).
+    pub fn update_group(
+        &self,
+        group_id: &str,
+        name: &str,
+        admin_id: &str,
+        version: i64,
+        membership: &str,
+        members: &[(String, String, Option<String>)],
+    ) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE groups SET name = ?1, admin_id = ?2, version = ?3, membership = ?4 WHERE id = ?5",
+            params![name, admin_id, version, membership, group_id],
+        )?;
+        tx.execute("DELETE FROM group_members WHERE group_id = ?1", params![group_id])?;
+        for (device_id, member_name, key) in members {
+            tx.execute(
+                "INSERT INTO group_members (group_id, device_id, display_name, public_key)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![group_id, device_id, member_name, key],
+            )?;
+        }
+        tx.commit()
+    }
+
+    pub fn set_group_membership(&self, group_id: &str, membership: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE groups SET membership = ?1 WHERE id = ?2",
+            params![membership, group_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_group_member(&self, group_id: &str, device_id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "DELETE FROM group_members WHERE group_id = ?1 AND device_id = ?2",
+            params![group_id, device_id],
+        )?;
+        conn.execute(
+            "DELETE FROM message_deliveries WHERE peer_id = ?2 AND status IN ('sending', 'queued')
+               AND message_id IN (SELECT id FROM messages WHERE conversation_id = ?1)",
+            params![group_id, device_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_group(&self, group_id: &str, my_id: &str) -> Result<Option<GroupInfo>> {
+        let conn = self.conn.lock();
+        let base = conn
+            .query_row(
+                "SELECT id, name, admin_id, version, avatar_color, membership, created_at FROM groups WHERE id = ?1",
+                params![group_id],
+                |r| {
+                    Ok(GroupInfo {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        admin_id: r.get(2)?,
+                        version: r.get(3)?,
+                        avatar_color: r.get(4)?,
+                        membership: r.get(5)?,
+                        created_at: r.get(6)?,
+                        members: Vec::new(),
+                    })
+                },
+            )
+            .optional()?;
+        let Some(mut g) = base else {
+            return Ok(None);
+        };
+        let mut stmt = conn.prepare(
+            "SELECT gm.device_id, COALESCE(p.display_name, gm.display_name), COALESCE(gm.public_key, p.public_key),
+                    COALESCE(p.status, 'offline')
+             FROM group_members gm LEFT JOIN peers p ON p.id = gm.device_id
+             WHERE gm.group_id = ?1
+             ORDER BY gm.rowid",
+        )?;
+        let admin = g.admin_id.clone();
+        g.members = stmt
+            .query_map(params![group_id], |r| {
+                let device_id: String = r.get(0)?;
+                Ok(GroupMemberInfo {
+                    is_admin: device_id == admin,
+                    is_me: device_id == my_id,
+                    status: if device_id == my_id { "online".to_string() } else { r.get(3)? },
+                    display_name: r.get(1)?,
+                    public_key: r.get(2)?,
+                    device_id,
+                })
+            })?
+            .flatten()
+            .collect();
+        Ok(Some(g))
+    }
+
+    /// Queue a group change ('update' or 'leave') for a member.
+    pub fn queue_group_sync(&self, group_id: &str, peer_id: &str, kind: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO group_sync (group_id, peer_id, kind) VALUES (?1, ?2, ?3)",
+            params![group_id, peer_id, kind],
+        )?;
+        Ok(())
+    }
+
+    pub fn pending_group_syncs(&self, peer_id: &str) -> Result<Vec<(String, String)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT group_id, kind FROM group_sync WHERE peer_id = ?1")?;
+        let rows = stmt.query_map(params![peer_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.flatten().collect())
+    }
+
+    pub fn clear_group_sync(&self, group_id: &str, peer_id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "DELETE FROM group_sync WHERE group_id = ?1 AND peer_id = ?2",
+            params![group_id, peer_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn insert_deliveries(&self, message_id: &str, peer_ids: &[String]) -> Result<()> {
+        let conn = self.conn.lock();
+        for p in peer_ids {
+            conn.execute(
+                "INSERT OR IGNORE INTO message_deliveries (message_id, peer_id, status) VALUES (?1, ?2, 'sending')",
+                params![message_id, p],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Group messages still waiting to reach `peer_id`.
+    pub fn pending_group_deliveries(&self, peer_id: &str) -> Result<Vec<Message>> {
+        let conn = self.conn.lock();
+        let cols = MSG_COLS
+            .split(", ")
+            .map(|c| format!("m.{}", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM message_deliveries d JOIN messages m ON m.id = d.message_id
+             WHERE d.peer_id = ?1 AND d.status IN ('sending', 'queued') AND m.message_type = 'text'
+             ORDER BY m.timestamp ASC, m.rowid ASC",
+            cols
+        ))?;
+        let rows = stmt.query_map(params![peer_id], row_to_message)?;
+        Ok(rows.flatten().collect())
+    }
+
+    pub fn set_delivery_status(
+        &self,
+        message_id: &str,
+        peer_id: &str,
+        status: &str,
+        reason: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE message_deliveries SET status = ?1, error_reason = ?2
+             WHERE message_id = ?3 AND peer_id = ?4 AND status != 'read'",
+            params![status, reason, message_id, peer_id],
+        )?;
+        Ok(())
+    }
+}
+
+/// Sidebar preview for a message (secret messages never show their text).
+pub fn message_preview(msg: &Message) -> String {
+    if msg.ttl_secs.is_some() {
+        return "🔒 Secret message".to_string();
+    }
+    match msg.message_type.as_str() {
+        "secret_setting" => {
+            if msg.content.trim() == "0" {
+                "Secret messages turned off".to_string()
+            } else {
+                "🔒 Secret messages turned on".to_string()
+            }
+        }
+        "ring" => "🔔 Ring".to_string(),
+        _ => preview_text(&msg.content),
     }
 }
 

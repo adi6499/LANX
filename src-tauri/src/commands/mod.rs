@@ -48,8 +48,12 @@ pub fn save_settings(
     state: State<AppState>,
     settings: UserSettings,
 ) -> Result<UserSettings, String> {
+    state.network.privacy.guard()?;
     if settings.display_name.trim().is_empty() {
         return Err("Display name cannot be empty".to_string());
+    }
+    if settings.sound_choice == "custom" && !settings.custom_sound_path.is_empty() {
+        crate::sound::load_custom(&settings.custom_sound_path)?;
     }
     state.db.save_settings(&settings).map_err(err)?;
     if settings.onboarding_completed {
@@ -114,7 +118,19 @@ pub fn update_peer_trust(
 
 #[tauri::command]
 pub fn get_conversations(state: State<AppState>) -> Result<Vec<Conversation>, String> {
-    state.db.get_conversations().map_err(err)
+    let privacy = &state.network.privacy;
+    privacy.guard()?;
+    state.db.get_conversations(privacy.hidden_unlocked()).map_err(err)
+}
+
+/// Hidden chats can only be opened after "show hidden chats" with the PIN.
+fn guard_conversation(state: &AppState, conversation_id: &str) -> Result<(), String> {
+    let privacy = &state.network.privacy;
+    privacy.guard()?;
+    if state.db.is_conversation_hidden(conversation_id) && !privacy.hidden_unlocked() {
+        return Err("HIDDEN".to_string());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -127,12 +143,18 @@ pub fn get_or_create_conversation(
 
 #[tauri::command]
 pub fn get_messages(state: State<AppState>, conversation_id: String) -> Result<Vec<Message>, String> {
+    guard_conversation(&state, &conversation_id)?;
     state.db.get_messages(&conversation_id).map_err(err)
 }
 
 #[tauri::command]
 pub fn search_messages(state: State<AppState>, query: String) -> Result<Vec<SearchHit>, String> {
-    state.db.search_messages(&query, 200).map_err(err)
+    let privacy = &state.network.privacy;
+    privacy.guard()?;
+    state
+        .db
+        .search_messages(&query, 200, privacy.hidden_unlocked())
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -152,11 +174,15 @@ pub async fn retry_message(state: State<'_, AppState>, message_id: String) -> Re
     state.network.retry_direct_message(&message_id).await
 }
 
+/// Marks a chat read (sends "seen", starts secret-message timers) and
+/// returns its messages.
 #[tauri::command]
-pub fn mark_conversation_read(state: State<AppState>, conversation_id: String) -> Result<(), String> {
-    state.db.mark_conversation_read(&conversation_id).map_err(err)?;
-    state.network.events.update_tray(&state.db);
-    Ok(())
+pub fn mark_conversation_read(
+    state: State<AppState>,
+    conversation_id: String,
+) -> Result<Vec<Message>, String> {
+    guard_conversation(&state, &conversation_id)?;
+    state.network.mark_read_and_notify(&conversation_id)
 }
 
 #[tauri::command]
@@ -168,7 +194,9 @@ pub fn delete_conversation(state: State<AppState>, conversation_id: String) -> R
 
 #[tauri::command]
 pub fn list_transfers(state: State<AppState>) -> Result<Vec<TransferRecord>, String> {
-    state.db.list_transfers().map_err(err)
+    let privacy = &state.network.privacy;
+    privacy.guard()?;
+    state.db.list_transfers(privacy.hidden_unlocked()).map_err(err)
 }
 
 #[tauri::command]
@@ -361,4 +389,256 @@ pub async fn test_lan_connection(
             ),
         },
     })
+}
+
+// ------------------------------------------------------------------ groups
+
+#[tauri::command]
+pub fn create_group(
+    state: State<AppState>,
+    name: String,
+    member_ids: Vec<String>,
+) -> Result<Conversation, String> {
+    state.network.privacy.guard()?;
+    state.network.create_group(&name, &member_ids)
+}
+
+#[tauri::command]
+pub fn update_group(
+    state: State<AppState>,
+    group_id: String,
+    name: Option<String>,
+    add: Vec<String>,
+    remove: Vec<String>,
+) -> Result<GroupInfo, String> {
+    state.network.privacy.guard()?;
+    state.network.update_group(&group_id, name, &add, &remove)
+}
+
+#[tauri::command]
+pub fn leave_group(state: State<AppState>, group_id: String) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    state.network.leave_group(&group_id)
+}
+
+#[tauri::command]
+pub fn get_group(state: State<AppState>, group_id: String) -> Result<Option<GroupInfo>, String> {
+    guard_conversation(&state, &group_id)?;
+    Ok(state.network.get_group(&group_id))
+}
+
+// ------------------------------------------------------- lock and hidden
+
+fn emit_lock(state: &AppState) -> crate::privacy::LockStatus {
+    let status = state.network.privacy.status(&state.db);
+    state.network.events.emit_json("lanx://lock-changed", status.clone());
+    status
+}
+
+#[tauri::command]
+pub fn get_lock_status(state: State<AppState>) -> crate::privacy::LockStatus {
+    state.network.privacy.status(&state.db)
+}
+
+#[tauri::command]
+pub fn unlock(state: State<AppState>, pin: String) -> Result<crate::privacy::LockStatus, String> {
+    match crate::privacy::check_pin(&state.db, &pin) {
+        crate::privacy::PinCheck::Ok => {
+            state.network.privacy.unlock();
+            Ok(emit_lock(&state))
+        }
+        crate::privacy::PinCheck::NoPin => {
+            state.network.privacy.unlock();
+            Ok(emit_lock(&state))
+        }
+        other => Err(crate::privacy::pin_error_text(&other)),
+    }
+}
+
+#[tauri::command]
+pub fn lock_app(state: State<AppState>) -> crate::privacy::LockStatus {
+    if crate::privacy::pin_is_set(&state.db) {
+        state.network.privacy.lock();
+    }
+    emit_lock(&state)
+}
+
+#[tauri::command]
+pub fn set_pin(
+    state: State<AppState>,
+    current: Option<String>,
+    new_pin: Option<String>,
+) -> Result<crate::privacy::LockStatus, String> {
+    state.network.privacy.guard()?;
+    crate::privacy::set_pin(&state.db, current.as_deref(), new_pin.as_deref())?;
+    if new_pin.is_none() {
+        state.network.privacy.set_hidden_unlocked(false);
+        state.network.events.state_changed();
+    }
+    Ok(emit_lock(&state))
+}
+
+#[tauri::command]
+pub fn unlock_hidden(state: State<AppState>, pin: String) -> Result<crate::privacy::LockStatus, String> {
+    state.network.privacy.guard()?;
+    match crate::privacy::check_pin(&state.db, &pin) {
+        crate::privacy::PinCheck::Ok => {
+            state.network.privacy.set_hidden_unlocked(true);
+            state.network.events.state_changed();
+            Ok(emit_lock(&state))
+        }
+        other => Err(crate::privacy::pin_error_text(&other)),
+    }
+}
+
+#[tauri::command]
+pub fn hide_hidden_chats(state: State<AppState>) -> crate::privacy::LockStatus {
+    state.network.privacy.set_hidden_unlocked(false);
+    state.network.events.state_changed();
+    emit_lock(&state)
+}
+
+#[tauri::command]
+pub fn set_conversation_hidden(
+    state: State<AppState>,
+    conversation_id: String,
+    hidden: bool,
+) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    if !crate::privacy::pin_is_set(&state.db) {
+        return Err("Set a PIN first (Settings → Privacy) so hidden chats stay protected.".to_string());
+    }
+    if !hidden && !state.network.privacy.hidden_unlocked() {
+        return Err("HIDDEN".to_string());
+    }
+    state
+        .db
+        .set_conversation_hidden(&conversation_id, hidden)
+        .map_err(err)?;
+    state.network.events.update_tray(&state.db);
+    state.network.events.state_changed();
+    Ok(())
+}
+
+// ------------------------------------------------- secret, typing, ring
+
+#[tauri::command]
+pub fn set_secret_mode(
+    state: State<AppState>,
+    conversation_id: String,
+    ttl: u32,
+) -> Result<Message, String> {
+    guard_conversation(&state, &conversation_id)?;
+    state.network.set_secret_mode(&conversation_id, ttl)
+}
+
+#[tauri::command]
+pub fn send_typing(state: State<AppState>, conversation_id: String) {
+    if state.network.privacy.guard().is_ok() {
+        state.network.send_typing(&conversation_id);
+    }
+}
+
+#[tauri::command]
+pub async fn ring(state: State<'_, AppState>, conversation_id: String) -> Result<usize, String> {
+    guard_conversation(&state, &conversation_id)?;
+    state.network.ring(&conversation_id).await
+}
+
+/// Hides the window from screenshots while a secret chat is open.
+#[tauri::command]
+pub fn set_content_protection(app: AppHandle, enabled: bool) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_content_protected(enabled);
+    }
+}
+
+// ------------------------------------------------ images and broadcast
+
+#[tauri::command]
+pub async fn send_pasted_image(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    data_base64: String,
+    mime: String,
+) -> Result<Vec<SentFile>, String> {
+    guard_conversation(&state, &conversation_id)?;
+    let path = state.network.save_pasted_image(&data_base64, &mime)?;
+    state
+        .network
+        .send_files(&conversation_id, vec![path.to_string_lossy().to_string()])
+        .await
+}
+
+#[tauri::command]
+pub fn get_image_preview(state: State<AppState>, transfer_id: String) -> Result<Option<String>, String> {
+    state.network.privacy.guard()?;
+    Ok(state.network.image_preview(&transfer_id))
+}
+
+#[tauri::command]
+pub async fn broadcast_message(
+    state: State<'_, AppState>,
+    peer_ids: Vec<String>,
+    content: Option<String>,
+    paths: Vec<String>,
+) -> Result<crate::networking::extras::BroadcastResult, String> {
+    state.network.privacy.guard()?;
+    state.network.broadcast(&peer_ids, content, paths).await
+}
+
+/// File picker that only returns the chosen paths (used by "Message everyone").
+#[tauri::command]
+pub async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut builder = app.dialog().file().set_title("Choose files");
+    if let Some(w) = app.get_webview_window("main") {
+        builder = builder.set_parent(&w);
+    }
+    builder.pick_files(move |files| {
+        let _ = tx.send(files);
+    });
+    Ok(rx
+        .await
+        .map_err(err)?
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|f| f.into_path().ok())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect())
+}
+
+// ------------------------------------------------------------------ sounds
+
+#[tauri::command]
+pub async fn pick_sound_file(app: AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut builder = app
+        .dialog()
+        .file()
+        .set_title("Choose a sound (.wav)")
+        .add_filter("WAV sound", &["wav"]);
+    if let Some(w) = app.get_webview_window("main") {
+        builder = builder.set_parent(&w);
+    }
+    builder.pick_file(move |f| {
+        let _ = tx.send(f);
+    });
+    let Some(path) = rx.await.map_err(err)?.and_then(|f| f.into_path().ok()) else {
+        return Ok(None);
+    };
+    let p = path.to_string_lossy().to_string();
+    crate::sound::load_custom(&p)?;
+    Ok(Some(p))
+}
+
+/// Plays a sound: a built-in name, "custom", "bell", or None for the user's
+/// chosen message sound. `volume` overrides the saved volume (for previews).
+#[tauri::command]
+pub fn play_sound(state: State<AppState>, name: Option<String>, volume: Option<u32>, custom_path: Option<String>) {
+    let s = state.db.get_settings().ok();
+    let choice = name.unwrap_or_else(|| s.as_ref().map(|s| s.sound_choice.clone()).unwrap_or_default());
+    let path = custom_path.unwrap_or_else(|| s.as_ref().map(|s| s.custom_sound_path.clone()).unwrap_or_default());
+    let vol = volume.unwrap_or_else(|| s.as_ref().map(|s| s.sound_volume).unwrap_or(80));
+    crate::sound::play(&choice, &path, vol);
 }

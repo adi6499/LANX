@@ -24,12 +24,82 @@ pub struct HandshakePayload {
     pub app_version: String,
 }
 
+/// Oldest app version that understands groups, secret messages, receipts,
+/// typing and ring. Older peers are never sent those packets.
+pub const FEATURES_V11: &str = "1.1.0";
+
+/// `version` (e.g. "1.0.0") is at least `min`.
+pub fn version_at_least(version: &str, min: &str) -> bool {
+    let parse = |v: &str| -> Vec<u32> {
+        v.split(['.', '-', '+'])
+            .take(3)
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    let (a, b) = (parse(version), parse(min));
+    for i in 0..3 {
+        let (x, y) = (a.get(i).copied().unwrap_or(0), b.get(i).copied().unwrap_or(0));
+        if x != y {
+            return x > y;
+        }
+    }
+    true
+}
+
+// New optional fields are skipped when empty so that ordinary messages keep
+// the exact 1.0 wire format (1.0 re-serialises payloads to check signatures).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessagePayload {
     pub message_id: String,
     pub conversation_id: String,
     pub content: String,
-    pub message_type: String, // "text"
+    pub message_type: String, // "text" | "secret_setting"
+    /// Secret message: delete this many seconds after it is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_secs: Option<u32>,
+    /// Set for group messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadReceiptPayload {
+    pub message_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatRefPayload {
+    /// None = the direct chat with the sender.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GroupMemberPayload {
+    pub device_id: String,
+    pub display_name: String,
+    pub public_key: String,
+    pub ip: String,
+    pub tcp_port: u16,
+    pub avatar_color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupUpdatePayload {
+    pub group_id: String,
+    pub name: String,
+    pub admin_id: String,
+    pub version: i64,
+    pub avatar_color: String,
+    pub members: Vec<GroupMemberPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AckPayload {
+    pub ok: bool,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +115,9 @@ pub struct FileOfferPayload {
     pub transfer_id: String,
     pub file_name: String,
     pub file_size: u64,
+    /// Set when the file is shared in a group chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +186,13 @@ pub enum PacketPayload {
     FileCancel(FileCancelPayload),
     Disconnect,
     Error(ErrorPayload),
+    // LANX 1.1 (only sent to peers reporting app_version >= 1.1.0)
+    ReadReceipt(ReadReceiptPayload),
+    Typing(ChatRefPayload),
+    Ring(ChatRefPayload),
+    GroupUpdate(GroupUpdatePayload),
+    GroupLeave(ChatRefPayload),
+    Ack(AckPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

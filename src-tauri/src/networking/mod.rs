@@ -1,13 +1,16 @@
+pub mod extras;
+pub mod groups;
 pub mod protocol;
 pub mod session;
 pub mod transfer;
 #[cfg(test)]
 mod tests;
 
-use crate::events::Events;
+use crate::events::{AlertKind, Events};
+use crate::privacy::PrivacyState;
 use crate::security::DeviceIdentity;
-use crate::storage::Database;
 use crate::storage::models::{Message, Peer};
+use crate::storage::{Database, SECRET_UNREAD_MAX_SECS};
 use parking_lot::Mutex;
 use protocol::*;
 use session::{ExpectedPeer, LocalProfile, RemotePeer, SecureChannel};
@@ -62,6 +65,10 @@ pub struct Inner {
     pub db: Arc<Database>,
     pub identity: DeviceIdentity,
     pub events: Events,
+    pub privacy: Arc<PrivacyState>,
+    /// Last "typing…" / ring sent per chat (rate limits).
+    pub(crate) typing_sent: Mutex<HashMap<String, Instant>>,
+    pub(crate) ring_sent: Mutex<HashMap<String, Instant>>,
     cancel_token: CancellationToken,
     bound_port: AtomicU16,
     /// Running transfers (either direction) by transfer id.
@@ -87,11 +94,15 @@ impl std::ops::Deref for NetworkService {
 
 impl NetworkService {
     pub fn new(db: Arc<Database>, identity: DeviceIdentity, events: Events) -> Self {
+        let privacy = Arc::new(PrivacyState::new(crate::privacy::pin_is_set(&db)));
         Self {
             inner: Arc::new(Inner {
                 db,
                 identity,
                 events,
+                privacy,
+                typing_sent: Mutex::new(HashMap::new()),
+                ring_sent: Mutex::new(HashMap::new()),
                 cancel_token: CancellationToken::new(),
                 bound_port: AtomicU16::new(0),
                 active_transfers: Mutex::new(HashMap::new()),
@@ -114,6 +125,19 @@ impl NetworkService {
             match TcpListener::bind((crate::testmode::bind_addr(), port)).await {
                 Ok(listener) => this.serve(listener).await,
                 Err(e) => eprintln!("[Network] Cannot listen on TCP port {}: {}", port, e),
+            }
+        });
+
+        // Deletes secret messages when their time is up.
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                        this.delete_expired_messages();
+                    }
+                }
             }
         });
     }
@@ -376,6 +400,9 @@ impl NetworkService {
             .get_conversation(conversation_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Conversation not found".to_string())?;
+        if conv.kind == "group" {
+            return self.send_group_message(&conv, trimmed);
+        }
         let peer = self
             .db
             .get_peer(&conv.peer_id)
@@ -385,6 +412,8 @@ impl NetworkService {
             return Err("You blocked this contact. Unblock them in People to send messages.".to_string());
         }
 
+        let now = now_secs();
+        let ttl = (conv.secret_ttl > 0).then_some(conv.secret_ttl);
         let msg = Message {
             id: uuid::Uuid::new_v4().to_string(),
             conversation_id: conversation_id.to_string(),
@@ -392,15 +421,39 @@ impl NetworkService {
             receiver_id: peer.id.clone(),
             content: trimmed.to_string(),
             message_type: "text".to_string(),
-            timestamp: now_secs(),
+            timestamp: now,
             status: "sending".to_string(),
             error_reason: None,
             is_outgoing: true,
             transfer_id: None,
+            ttl_secs: ttl,
+            expire_at: ttl.map(|_| now + SECRET_UNREAD_MAX_SECS),
+            deliveries: None,
         };
         self.db.insert_message(&msg).map_err(|e| e.to_string())?;
         self.kick_outbox(&peer.id, true);
         Ok(msg)
+    }
+
+    /// Emits the current state of an outgoing group message.
+    pub(crate) fn emit_group_message(&self, message_id: &str) {
+        if let Ok(Some(mut m)) = self.db.get_message_by_id(message_id) {
+            if let Some(s) = self.db.delivery_summary(message_id) {
+                let status = if s.delivered == s.total && s.total > 0 {
+                    if s.read == s.total { "read" } else { "delivered" }
+                } else if s.delivered > 0 {
+                    "delivered"
+                } else {
+                    "sending"
+                };
+                if m.status != status {
+                    let _ = self.db.update_message_status(&m.id, status, None);
+                    m.status = status.to_string();
+                }
+                m.deliveries = Some(s);
+            }
+            self.events.message_updated(&m);
+        }
     }
 
     pub async fn retry_direct_message(&self, message_id: &str) -> Result<Message, String> {
@@ -470,10 +523,58 @@ impl NetworkService {
         });
     }
 
+    /// Sends a message packet and waits for its acknowledgement.
+    /// Ok(Err(reason)) = rejected by the recipient; Err(()) = connection lost.
+    async fn send_message_packet(
+        chan: &mut SecureChannel,
+        payload: MessagePayload,
+    ) -> Result<Result<(), String>, ()> {
+        let sent = chan.send(PacketPayload::Message(payload), None).await.map_err(|_| ())?;
+        match chan.recv_packet_timeout(ACK_TIMEOUT).await {
+            Ok(reply) if reply.correlation_id.as_deref() == Some(sent.packet_id.as_str()) => {
+                Ok(match reply.payload {
+                    PacketPayload::MessageAck(ack) if ack.db_committed => Ok(()),
+                    PacketPayload::MessageAck(ack) => {
+                        Err(ack.reason.unwrap_or_else(|| "Rejected by recipient".to_string()))
+                    }
+                    PacketPayload::Error(e) => Err(e.message),
+                    _ => Err("Unexpected reply from recipient".to_string()),
+                })
+            }
+            _ => Err(()),
+        }
+    }
+
+    /// Sends a 1.1 packet that is answered with `Ack`. Err(()) = connection lost.
+    pub(crate) async fn send_acked(
+        chan: &mut SecureChannel,
+        payload: PacketPayload,
+    ) -> Result<AckPayload, ()> {
+        let sent = chan.send(payload, None).await.map_err(|_| ())?;
+        match chan.recv_packet_timeout(ACK_TIMEOUT).await {
+            Ok(reply) if reply.correlation_id.as_deref() == Some(sent.packet_id.as_str()) => {
+                match reply.payload {
+                    PacketPayload::Ack(a) => Ok(a),
+                    PacketPayload::Error(e) => Ok(AckPayload { ok: false, reason: Some(e.message) }),
+                    _ => Err(()),
+                }
+            }
+            _ => Err(()),
+        }
+    }
+
     async fn flush_outbox_once(&self, peer_id: &str) {
+        let syncs = self.db.pending_group_syncs(peer_id).unwrap_or_default();
         let mut messages = self.db.pending_outgoing_messages(peer_id).unwrap_or_default();
+        let group_msgs = self.db.pending_group_deliveries(peer_id).unwrap_or_default();
         let offers = self.db.queued_offers_for_peer(peer_id).unwrap_or_default();
-        if messages.is_empty() && offers.is_empty() {
+        let receipts = self.db.pending_receipts(peer_id).unwrap_or_default();
+        if syncs.is_empty()
+            && messages.is_empty()
+            && group_msgs.is_empty()
+            && offers.is_empty()
+            && receipts.is_empty()
+        {
             return;
         }
         let Ok(Some(peer)) = self.db.get_peer(peer_id) else {
@@ -482,6 +583,10 @@ impl NetworkService {
         if peer.trust_state == "blocked" {
             for m in messages.iter_mut() {
                 self.set_message_status(m, "failed", Some("You blocked this contact".to_string()));
+            }
+            for m in &group_msgs {
+                let _ = self.db.set_delivery_status(&m.id, peer_id, "failed", Some("You blocked this contact"));
+                self.emit_group_message(&m.id);
             }
             return;
         }
@@ -502,6 +607,9 @@ impl NetworkService {
                         self.set_message_status(m, "queued", Some(reason.clone()));
                     }
                 }
+                for m in &group_msgs {
+                    let _ = self.db.set_delivery_status(&m.id, peer_id, "queued", Some(&reason));
+                }
                 for mut t in offers {
                     if t.error_reason.as_deref() != Some(reason.as_str()) {
                         t.error_reason = Some(reason.clone());
@@ -513,55 +621,109 @@ impl NetworkService {
             }
         };
         self.last_failure.lock().remove(peer_id);
-
+        let modern = version_at_least(&chan.remote.app_version, FEATURES_V11);
+        let needs_update = format!("Waiting for {} to update to LANX 1.1", peer.display_name);
         let mut connection_lost = false;
-        for m in messages.iter_mut() {
-            let payload = PacketPayload::Message(MessagePayload {
-                message_id: m.id.clone(),
-                conversation_id: m.conversation_id.clone(),
-                content: m.content.clone(),
-                message_type: m.message_type.clone(),
-            });
-            let sent = match chan.send(payload, None).await {
-                Ok(p) => p,
-                Err(_) => {
-                    connection_lost = true;
-                    break;
-                }
-            };
-            match chan.recv_packet_timeout(ACK_TIMEOUT).await {
-                Ok(reply) if reply.correlation_id.as_deref() == Some(sent.packet_id.as_str()) => {
-                    match reply.payload {
-                        PacketPayload::MessageAck(ack) if ack.db_committed => {
-                            self.set_message_status(m, "delivered", None)
-                        }
-                        PacketPayload::MessageAck(ack) => self.set_message_status(
-                            m,
-                            "failed",
-                            Some(ack.reason.unwrap_or_else(|| "Rejected by recipient".to_string())),
-                        ),
-                        PacketPayload::Error(e) => {
-                            self.set_message_status(m, "failed", Some(e.message))
-                        }
-                        _ => self.set_message_status(
-                            m,
-                            "failed",
-                            Some("Unexpected reply from recipient".to_string()),
-                        ),
-                    }
-                }
-                _ => {
+
+        // 1. Group changes first, so the member knows a group before its messages.
+        if modern {
+            for (group_id, kind) in &syncs {
+                if !self.deliver_group_sync(&mut chan, group_id, kind).await {
                     connection_lost = true;
                     break;
                 }
             }
         }
 
+        // 2. Direct messages.
+        if !connection_lost {
+            for m in messages.iter_mut() {
+                let new_feature = m.ttl_secs.is_some() || m.message_type == "secret_setting";
+                if new_feature && !modern {
+                    if m.error_reason.as_deref() != Some(needs_update.as_str()) {
+                        self.set_message_status(m, "queued", Some(needs_update.clone()));
+                    }
+                    continue;
+                }
+                let payload = MessagePayload {
+                    message_id: m.id.clone(),
+                    conversation_id: m.conversation_id.clone(),
+                    content: m.content.clone(),
+                    message_type: m.message_type.clone(),
+                    ttl_secs: m.ttl_secs,
+                    group_id: None,
+                };
+                match Self::send_message_packet(&mut chan, payload).await {
+                    Ok(Ok(())) => self.set_message_status(m, "delivered", None),
+                    Ok(Err(reason)) => self.set_message_status(m, "failed", Some(reason)),
+                    Err(()) => {
+                        connection_lost = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Group messages.
+        if !connection_lost {
+            for m in &group_msgs {
+                if !modern {
+                    let _ = self.db.set_delivery_status(&m.id, peer_id, "queued", Some(&needs_update));
+                    continue;
+                }
+                let payload = MessagePayload {
+                    message_id: m.id.clone(),
+                    conversation_id: m.conversation_id.clone(),
+                    content: m.content.clone(),
+                    message_type: m.message_type.clone(),
+                    ttl_secs: None,
+                    group_id: Some(m.conversation_id.clone()),
+                };
+                match Self::send_message_packet(&mut chan, payload).await {
+                    Ok(Ok(())) => {
+                        let _ = self.db.set_delivery_status(&m.id, peer_id, "delivered", None);
+                    }
+                    Ok(Err(reason)) => {
+                        let _ = self.db.set_delivery_status(&m.id, peer_id, "failed", Some(&reason));
+                    }
+                    Err(()) => {
+                        connection_lost = true;
+                        break;
+                    }
+                }
+                self.emit_group_message(&m.id);
+            }
+        }
+
+        // 4. File offers.
         if !connection_lost {
             for t in offers {
-                if !self.deliver_offer(&mut chan, t).await {
+                if !self.deliver_offer(&mut chan, t, modern).await {
                     connection_lost = true;
                     break;
+                }
+            }
+        }
+
+        // 5. "Seen" receipts.
+        if !connection_lost {
+            for (group_id, ids) in receipts {
+                if !modern {
+                    let _ = self.db.clear_receipts(&ids);
+                    continue;
+                }
+                let payload = PacketPayload::ReadReceipt(ReadReceiptPayload {
+                    message_ids: ids.clone(),
+                    group_id,
+                });
+                match Self::send_acked(&mut chan, payload).await {
+                    Ok(_) => {
+                        let _ = self.db.clear_receipts(&ids);
+                    }
+                    Err(()) => {
+                        connection_lost = true;
+                        break;
+                    }
                 }
             }
         }
@@ -570,15 +732,37 @@ impl NetworkService {
             self.last_failure
                 .lock()
                 .insert(peer_id.to_string(), Instant::now());
+            let reason = format!("Waiting for {} to come online", peer.display_name);
             for m in messages.iter_mut().filter(|m| m.status == "sending") {
-                self.set_message_status(
-                    m,
-                    "queued",
-                    Some(format!("Waiting for {} to come online", peer.display_name)),
-                );
+                self.set_message_status(m, "queued", Some(reason.clone()));
             }
         }
         chan.close().await;
+    }
+
+    /// Deletes secret messages whose time ran out and tells the UI.
+    pub fn delete_expired_messages(&self) -> usize {
+        match self.db.delete_expired_messages(now_secs()) {
+            Ok(gone) if !gone.is_empty() => {
+                #[derive(serde::Serialize, Clone)]
+                struct Deleted {
+                    message_ids: Vec<String>,
+                    conversation_ids: Vec<String>,
+                }
+                let mut conversation_ids: Vec<String> = gone.iter().map(|(_, c)| c.clone()).collect();
+                conversation_ids.dedup();
+                let n = gone.len();
+                self.events.emit_json(
+                    "lanx://messages-deleted",
+                    Deleted {
+                        message_ids: gone.into_iter().map(|(m, _)| m).collect(),
+                        conversation_ids,
+                    },
+                );
+                n
+            }
+            _ => 0,
+        }
     }
 
     // ------------------------------------------------------------- incoming
@@ -638,6 +822,21 @@ impl NetworkService {
                     self.serve_file(chan, &peer, r, pkt.packet_id).await;
                     return;
                 }
+                PacketPayload::ReadReceipt(r) => {
+                    self.handle_read_receipt(&peer, r);
+                    Some(PacketPayload::Ack(AckPayload { ok: true, reason: None }))
+                }
+                PacketPayload::Typing(t) => {
+                    self.handle_typing(&peer, t);
+                    None
+                }
+                PacketPayload::Ring(r) => Some(PacketPayload::Ack(self.handle_ring(&peer, r))),
+                PacketPayload::GroupUpdate(g) => {
+                    Some(PacketPayload::Ack(self.handle_group_update(&peer, g)))
+                }
+                PacketPayload::GroupLeave(l) => {
+                    Some(PacketPayload::Ack(self.handle_group_leave(&peer, l)))
+                }
                 PacketPayload::Disconnect => break,
                 _ => None,
             };
@@ -659,14 +858,48 @@ impl NetworkService {
         if self.db.message_exists(&m.message_id) {
             return ack(true, None); // duplicate retransmission
         }
-        if m.content.trim().is_empty() || m.content.len() > MAX_MESSAGE_CONTENT_LEN {
-            return ack(false, Some("Message rejected (empty or too long)"));
+        if m.group_id.is_some() {
+            return self.handle_group_message(peer, m);
         }
 
         let conv = match self.db.get_or_create_conversation(&peer.id) {
             Ok(c) => c,
             Err(_) => return ack(false, Some("Recipient database error")),
         };
+        let now = now_secs();
+
+        if m.message_type == "secret_setting" {
+            // The other person changed secret mode for this chat.
+            let ttl: u32 = m.content.trim().parse::<u32>().unwrap_or(0).min(7 * 24 * 3600);
+            let _ = self.db.set_conversation_secret_ttl(&conv.id, ttl);
+            let msg = Message {
+                id: m.message_id.clone(),
+                conversation_id: conv.id.clone(),
+                sender_id: peer.id.clone(),
+                receiver_id: self.identity.device_id.clone(),
+                content: ttl.to_string(),
+                message_type: "secret_setting".to_string(),
+                timestamp: now,
+                status: "read".to_string(),
+                error_reason: None,
+                is_outgoing: false,
+                transfer_id: None,
+                ttl_secs: None,
+                expire_at: None,
+                deliveries: None,
+            };
+            if self.db.insert_message(&msg).is_err() {
+                return ack(false, Some("Recipient database error"));
+            }
+            let conv = self.db.get_conversation(&conv.id).ok().flatten();
+            self.events.message_received(&msg, conv.as_ref());
+            return ack(true, None);
+        }
+
+        if m.content.trim().is_empty() || m.content.len() > MAX_MESSAGE_CONTENT_LEN {
+            return ack(false, Some("Message rejected (empty or too long)"));
+        }
+        let ttl = m.ttl_secs.filter(|t| *t > 0).map(|t| t.min(7 * 24 * 3600));
         let msg = Message {
             id: m.message_id.clone(),
             conversation_id: conv.id.clone(),
@@ -674,11 +907,14 @@ impl NetworkService {
             receiver_id: self.identity.device_id.clone(),
             content: m.content.clone(),
             message_type: "text".to_string(),
-            timestamp: now_secs(),
+            timestamp: now,
             status: "delivered".to_string(),
             error_reason: None,
             is_outgoing: false,
             transfer_id: None,
+            ttl_secs: ttl,
+            expire_at: ttl.map(|_| now + SECRET_UNREAD_MAX_SECS),
+            deliveries: None,
         };
         if let Err(e) = self.db.insert_message(&msg) {
             eprintln!("[Network] Failed to store incoming message: {}", e);
@@ -687,11 +923,15 @@ impl NetworkService {
         let _ = self.db.increment_unread(&conv.id);
         let conv = self.db.get_conversation(&conv.id).ok().flatten();
         self.events.message_received(&msg, conv.as_ref());
-        self.events.notify(
-            &self.db,
-            &peer.display_name,
-            &crate::storage::preview_text(&msg.content),
-        );
+        let hidden = conv.as_ref().is_some_and(|c| c.is_hidden);
+        let (title, body) = if hidden || self.privacy.is_locked() {
+            ("LANX".to_string(), "You have a new message".to_string())
+        } else if ttl.is_some() {
+            (peer.display_name.clone(), "🔒 Secret message".to_string())
+        } else {
+            (peer.display_name.clone(), crate::storage::preview_text(&msg.content))
+        };
+        self.events.notify(&self.db, AlertKind::Message, &title, &body);
         self.events.update_tray(&self.db);
         ack(true, None)
     }

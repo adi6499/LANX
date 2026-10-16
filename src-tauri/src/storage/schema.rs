@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 2;
+pub const LATEST_SCHEMA_VERSION: i64 = 3;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -122,6 +122,93 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
             (2, now),
         )?;
         tx.commit()?;
+    }
+
+    if current_version < 3 {
+        // v3 (LANX 1.1): group chats, per-member delivery/read tracking,
+        // secret (disappearing) messages, hidden chats, read receipts.
+        // `conversations` is rebuilt so group chats can exist without a peer
+        // (SQLite cannot drop NOT NULL in place). Foreign keys must be off
+        // while the table is swapped; the pragma is ignored inside a transaction.
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        let result = (|| -> Result<()> {
+            let tx = conn.transaction()?;
+            tx.execute_batch(
+                "
+                CREATE TABLE conversations_v3 (
+                    id TEXT PRIMARY KEY,
+                    peer_id TEXT,
+                    kind TEXT NOT NULL DEFAULT 'direct',
+                    last_message_preview TEXT,
+                    last_message_time INTEGER NOT NULL,
+                    unread_count INTEGER NOT NULL DEFAULT 0,
+                    is_pinned INTEGER NOT NULL DEFAULT 0,
+                    is_hidden INTEGER NOT NULL DEFAULT 0,
+                    secret_ttl INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY (peer_id) REFERENCES peers(id) ON DELETE CASCADE
+                );
+                INSERT INTO conversations_v3 (id, peer_id, kind, last_message_preview, last_message_time,
+                                              unread_count, is_pinned, created_at)
+                    SELECT id, peer_id, 'direct', last_message_preview, last_message_time,
+                           unread_count, is_pinned, created_at
+                    FROM conversations;
+                DROP TABLE conversations;
+                ALTER TABLE conversations_v3 RENAME TO conversations;
+                CREATE INDEX IF NOT EXISTS idx_conversations_peer ON conversations(peer_id);
+
+                CREATE TABLE IF NOT EXISTS groups (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    admin_id TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    avatar_color TEXT NOT NULL DEFAULT '#6366f1',
+                    membership TEXT NOT NULL DEFAULT 'member',
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS group_members (
+                    group_id TEXT NOT NULL,
+                    device_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    public_key TEXT,
+                    PRIMARY KEY (group_id, device_id)
+                );
+                -- Group changes still to be sent to a member: kind 'update' | 'leave'.
+                CREATE TABLE IF NOT EXISTS group_sync (
+                    group_id TEXT NOT NULL,
+                    peer_id TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'update',
+                    PRIMARY KEY (group_id, peer_id)
+                );
+                -- Outgoing group messages: one row per member.
+                CREATE TABLE IF NOT EXISTS message_deliveries (
+                    message_id TEXT NOT NULL,
+                    peer_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'sending',
+                    error_reason TEXT,
+                    PRIMARY KEY (message_id, peer_id),
+                    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+                );
+
+                ALTER TABLE messages ADD COLUMN ttl_secs INTEGER;
+                ALTER TABLE messages ADD COLUMN expire_at INTEGER;
+                ALTER TABLE messages ADD COLUMN receipt_pending INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE transfers ADD COLUMN parent_id TEXT;
+
+                CREATE INDEX IF NOT EXISTS idx_messages_expire ON messages(expire_at);
+                CREATE INDEX IF NOT EXISTS idx_messages_receipts ON messages(sender_id, receipt_pending);
+                CREATE INDEX IF NOT EXISTS idx_deliveries_peer ON message_deliveries(peer_id, status);
+                CREATE INDEX IF NOT EXISTS idx_transfers_parent ON transfers(parent_id);
+                ",
+            )?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                (3, now),
+            )?;
+            tx.commit()
+        })();
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        result?;
     }
 
     Ok(())

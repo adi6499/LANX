@@ -2,7 +2,9 @@ pub mod commands;
 pub mod discovery;
 pub mod events;
 pub mod networking;
+pub mod privacy;
 pub mod security;
+pub mod sound;
 pub mod storage;
 pub mod testmode;
 
@@ -42,9 +44,10 @@ fn quit_app(app: &AppHandle) {
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open LANX", true, None::<&str>)?;
+    let lock = MenuItem::with_id(app, "lock", "Lock LANX", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit LANX", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &lock, &sep, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("LANX — Local Network Messenger")
@@ -52,6 +55,18 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main_window(app),
+            "lock" => {
+                if let Some(state) = app.try_state::<AppState>() {
+                    if privacy::pin_is_set(&state.db) {
+                        state.network.privacy.lock();
+                        let status = state.network.privacy.status(&state.db);
+                        state.network.events.emit_json("lanx://lock-changed", status);
+                    } else {
+                        show_main_window(app);
+                        state.network.events.emit_json("lanx://open-privacy-settings", ());
+                    }
+                }
+            }
             "quit" => quit_app(app),
             _ => {}
         })
@@ -229,6 +244,27 @@ pub fn run() {
             commands::pick_download_dir,
             commands::get_system_info,
             commands::test_lan_connection,
+            commands::create_group,
+            commands::update_group,
+            commands::leave_group,
+            commands::get_group,
+            commands::get_lock_status,
+            commands::unlock,
+            commands::lock_app,
+            commands::set_pin,
+            commands::unlock_hidden,
+            commands::hide_hidden_chats,
+            commands::set_conversation_hidden,
+            commands::set_secret_mode,
+            commands::send_typing,
+            commands::ring,
+            commands::set_content_protection,
+            commands::send_pasted_image,
+            commands::get_image_preview,
+            commands::broadcast_message,
+            commands::pick_files,
+            commands::pick_sound_file,
+            commands::play_sound,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LANX desktop application");
