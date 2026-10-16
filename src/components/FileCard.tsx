@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { api } from "../lib/api";
 import {
   File,
   FileArchive,
@@ -29,6 +30,44 @@ export function FileIcon({ name, className }: { name: string; className?: string
   if (["js", "ts", "json", "xml", "html", "py", "rs", "sql"].includes(ext)) return <FileCode className={className} />;
   return <File className={className} />;
 }
+
+const IMAGE_EXT = ["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+export const isImageFile = (name: string) => IMAGE_EXT.includes(fileExtension(name));
+
+// Previews are loaded once per transfer and kept for the session.
+const previewCache = new Map<string, string | null>();
+
+/** Picture of a sent/received image; click opens it in the normal viewer. */
+export const ImagePreview: React.FC<{ transferId: string; name: string; onOpen: () => void }> = ({
+  transferId,
+  name,
+  onOpen,
+}) => {
+  const [src, setSrc] = useState<string | null | undefined>(previewCache.get(transferId));
+  useEffect(() => {
+    if (previewCache.has(transferId)) {
+      setSrc(previewCache.get(transferId));
+      return;
+    }
+    let alive = true;
+    api
+      .getImagePreview(transferId)
+      .then((url) => {
+        previewCache.set(transferId, url);
+        if (alive) setSrc(url);
+      })
+      .catch(() => alive && setSrc(null));
+    return () => {
+      alive = false;
+    };
+  }, [transferId]);
+  if (!src) return null;
+  return (
+    <button type="button" onClick={onOpen} title={`Open ${name}`} className="block mb-2 -mx-1 overflow-hidden rounded-xl lanx-fade">
+      <img src={src} alt={name} className="max-h-60 max-w-[300px] w-auto object-contain rounded-xl bg-black/5" />
+    </button>
+  );
+};
 
 interface FileCardProps {
   transfer?: TransferRecord;
@@ -182,8 +221,11 @@ export const FileCard: React.FC<FileCardProps> = ({
       break;
   }
 
+  const showPreview = isImageFile(t.file_name) && (t.status === "completed" || !incoming);
+
   return (
     <div className="min-w-[240px] max-w-[340px]">
+      {showPreview && <ImagePreview transferId={t.id} name={t.file_name} onOpen={() => actions.open(t.id)} />}
       <div className="flex items-center gap-2.5">
         <div
           className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
@@ -214,6 +256,91 @@ export const FileCard: React.FC<FileCardProps> = ({
 
       {status && <div className={`mt-1.5 text-[11px] leading-snug ${muted}`}>{status}</div>}
       {buttons && <div className="mt-2 flex flex-wrap items-center gap-1.5">{buttons}</div>}
+    </div>
+  );
+};
+
+const STATUS_WORD: Record<string, string> = {
+  queued: "waiting",
+  pending: "not accepted yet",
+  transferring: "receiving…",
+  completed: "received",
+  declined: "declined",
+  cancelled: "cancelled",
+  failed: "failed",
+};
+
+interface GroupFileCardProps {
+  transfers: TransferRecord[];
+  fallbackName: string;
+  progress: Record<string, TransferProgress>;
+  actions: TransferActions;
+}
+
+/** A file I sent to a group: one copy per member, summarised. */
+export const GroupFileCard: React.FC<GroupFileCardProps> = ({ transfers, fallbackName, progress, actions }) => {
+  if (transfers.length === 0) {
+    return <FileCard fallbackName={fallbackName} actions={actions} onAccent />;
+  }
+  const first = transfers[0];
+  const done = transfers.filter((t) => t.status === "completed").length;
+  const active = transfers.filter((t) => ["queued", "pending", "transferring"].includes(t.status));
+  const failed = transfers.filter((t) => t.status === "failed");
+  const bytes = transfers.reduce((acc, t) => acc + (progress[t.id]?.transferred_bytes ?? (t.status === "completed" ? t.file_size : t.transferred_bytes)), 0);
+  const pct = Math.floor((bytes / Math.max(1, first.file_size * transfers.length)) * 100);
+
+  return (
+    <div className="min-w-[260px] max-w-[340px]">
+      {isImageFile(first.file_name) && (
+        <ImagePreview transferId={first.id} name={first.file_name} onOpen={() => actions.reveal(first.id)} />
+      )}
+      <div className="flex items-center gap-2.5">
+        <div className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0 bg-white/15">
+          <FileIcon name={first.file_name} className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold truncate text-white" title={first.file_name}>
+            {first.file_name}
+          </div>
+          <div className="text-[11px] text-sky-100/90">
+            {formatSize(first.file_size)} · received by {done} of {transfers.length}
+          </div>
+        </div>
+      </div>
+      {active.some((t) => t.status === "transferring") && (
+        <div className="mt-2 h-1.5 w-full rounded-full overflow-hidden bg-white/20">
+          <div className="h-full rounded-full bg-white transition-all duration-300" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap gap-1">
+        {transfers.map((t) => (
+          <span
+            key={t.id}
+            title={t.error_reason || STATUS_WORD[t.status]}
+            className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
+              t.status === "completed" ? "bg-white/25 text-white" : t.status === "failed" ? "bg-red-400/40 text-white" : "bg-white/10 text-sky-50"
+            }`}
+          >
+            {t.status === "completed" ? "✓ " : ""}
+            {(t.peer_name || "?").split(" ")[0]} · {STATUS_WORD[t.status]}
+          </span>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <button type="button" className={`${btn} bg-white/15 hover:bg-white/25 text-white`} onClick={() => actions.reveal(first.id)}>
+          <FolderOpen className="h-3 w-3" /> Show in folder
+        </button>
+        {failed.length > 0 && (
+          <button type="button" className={`${btn} bg-white text-sky-600 hover:bg-sky-50`} onClick={() => failed.forEach((t) => actions.retry(t.id))}>
+            <RotateCcw className="h-3 w-3" /> Retry {failed.length}
+          </button>
+        )}
+        {active.length > 0 && (
+          <button type="button" className={`${btn} bg-white/15 hover:bg-white/25 text-white`} onClick={() => active.forEach((t) => actions.cancel(t.id))}>
+            <X className="h-3 w-3" /> Cancel for {active.length === transfers.length ? "everyone" : `${active.length} waiting`}
+          </button>
+        )}
+      </div>
     </div>
   );
 };

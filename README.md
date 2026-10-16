@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v1.0)
+# LANX — Local Network Messenger (v1.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -7,7 +7,7 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 ## For users
 
 ### Install
-1. Run **`LANX-Setup-1.0.0.exe`**.
+1. Run **`LANX-Setup-1.1.0.exe`**.
 2. Windows asks *"Do you want to allow this app to make changes?"* → **Yes** (the installer needs
    this once, to install for all users and to allow LANX through Windows Firewall).
 3. LANX opens. Type your name → **Launch LANX**. Done.
@@ -15,8 +15,12 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 The installer sets up Windows Firewall for you, so there is **no firewall popup** and colleagues can
 reach you straight away (also on networks Windows marked as "Public", but only from the same subnet).
 
-**Upgrading from LANX 0.1:** just run the 1.0 installer — it removes the old 0.1 copy and keeps your
-chats. Install 1.0 on **every** PC: 1.0 is encrypted and cannot talk to 0.1.
+**Upgrading:** just run the new installer — it replaces the old copy and keeps your chats.
+1.1 talks normally with colleagues still on 1.0; groups, secret messages, “Seen”, typing and the bell
+start working with them once they update too. (0.1 is not compatible — update every PC from 0.1.)
+
+After the first setup an **animated guide** shows how everything works (reopen it in
+**Settings → Help**).
 
 > **About the blue "Windows protected your PC" box** — see [docs/install-without-warnings.md](docs/install-without-warnings.md).
 > In short: it appears only for files downloaded from the internet/email/WhatsApp that are not
@@ -37,6 +41,24 @@ chats. Install 1.0 on **every** PC: 1.0 is encrypted and cannot talk to 0.1.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 1.1
+- **Groups** — the people icon at the top of the chat list. Everyone sees every message and file;
+  you can see who has *seen* each message. The creator (👑 admin) can rename, add and remove people.
+- **Message everyone** — the 📣 megaphone sends one message and/or files to many colleagues at once.
+- **🔔 Bell** — in any chat header; rings the colleague's LANX (bell sound, taskbar flash,
+  notification). In a group it rings everyone online.
+- **Secret chats** — the ⏱ timer in a chat header. Messages disappear for both people 30 s–1 week
+  after they're read, are never searchable, and LANX blocks screenshots while the chat is open.
+- **PIN lock** — Settings → Privacy. LANX asks for the PIN at start-up and after you've been away;
+  🔒 bottom-left (or the tray icon) locks it immediately.
+- **Hidden chats** — a chat's details (ⓘ) → *Hide this chat*; 👁 bottom-left shows them with your PIN.
+- **“Seen” and typing…** — see when messages were read and when someone is typing (can be turned
+  off in Settings → Privacy).
+- **Screenshots & pictures** — paste a screenshot with **Ctrl+V**; pictures under 10 MB download
+  by themselves and show as previews.
+- **Sounds** — LANX's own sounds (Chime, Soft, Ding, Pop) or your own .wav, with volume
+  (Settings → Sounds).
 
 ## For developers
 

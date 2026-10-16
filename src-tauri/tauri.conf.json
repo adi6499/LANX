@@ -50,6 +50,8 @@
         "installMode": "perMachine",
         "installerHooks": "./windows/installer-hooks.nsh",
         "installerIcon": "icons/icon.ico",
+        "sidebarImage": "./windows/installer-sidebar.bmp",
+        "headerImage": "./windows/installer-header.bmp",
         "displayLanguageSelector": false,
         "languages": ["English"]
       }

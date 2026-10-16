@@ -16,6 +16,12 @@ import {
   Sun,
   Moon,
   Pin,
+  UsersRound,
+  Megaphone,
+  Lock,
+  Eye,
+  EyeOff,
+  Timer,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -27,12 +33,17 @@ interface SidebarProps {
   searchQuery: string;
   /** Incoming files waiting for the user to accept. */
   pendingFiles: number;
+  hiddenUnlocked: boolean;
   onSelectConversation: (id: string) => void;
   onSelectTab: (tab: NavTab) => void;
   onSearchChange: (q: string) => void;
   onOpenSettings: () => void;
   onToggleTheme: () => void;
   onNewChat: () => void;
+  onNewGroup: () => void;
+  onBroadcast: () => void;
+  onLock: () => void;
+  onToggleHidden: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -43,12 +54,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   searchQuery,
   pendingFiles,
+  hiddenUnlocked,
   onSelectConversation,
   onSelectTab,
   onSearchChange,
   onOpenSettings,
   onToggleTheme,
   onNewChat,
+  onNewGroup,
+  onBroadcast,
+  onLock,
+  onToggleHidden,
 }) => {
   const onlineCount = peers.filter((p) => p.status === "online").length;
   const totalUnread = conversations.reduce((acc, c) => acc + c.unread_count, 0);
@@ -104,14 +120,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onNewChat}
-            title="Start conversation with peer"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onBroadcast}
+              title="Message everyone"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              <Megaphone className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onNewGroup}
+              title="New group"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              <UsersRound className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onNewChat}
+              title="New chat"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Search Bar */}
@@ -228,10 +262,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {/* Avatar with status dot */}
                     <div className="relative shrink-0">
                       <div
-                        className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm"
+                        className={`h-10 w-10 flex items-center justify-center text-white font-bold text-xs shadow-sm ${
+                          conv.kind === "group" ? "rounded-xl" : "rounded-full"
+                        }`}
                         style={{ backgroundColor: conv.peer_avatar_color }}
                       >
-                        {conv.peer_name.charAt(0).toUpperCase()}
+                        {conv.kind === "group" ? <Users className="h-4 w-4" /> : conv.peer_name.charAt(0).toUpperCase()}
                       </div>
                       <span
                         className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0c111c] ${
@@ -246,10 +282,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="font-semibold text-xs truncate text-slate-900 dark:text-white flex items-center gap-1">
-                          {conv.peer_name}
+                          <span className="truncate">{conv.peer_name}</span>
                           {conv.is_pinned && (
                             <Pin className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
                           )}
+                          {conv.secret_ttl > 0 && <Timer className="h-3 w-3 text-violet-500 shrink-0" aria-label="Secret chat" />}
+                          {conv.is_hidden && <EyeOff className="h-3 w-3 text-slate-400 shrink-0" aria-label="Hidden chat" />}
                         </span>
                         <span className="text-[10px] text-slate-400 shrink-0 font-medium">
                           {formatTimestamp(conv.last_message_time)}
@@ -305,6 +343,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {settings.pin_enabled && (
+            <>
+              <button
+                type="button"
+                onClick={onToggleHidden}
+                title={hiddenUnlocked ? "Hide hidden chats again" : "Show hidden chats"}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  hiddenUnlocked
+                    ? "text-violet-600 bg-violet-500/10"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800"
+                }`}
+              >
+                {hiddenUnlocked ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={onLock}
+                title="Lock LANX now"
+                className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
+              >
+                <Lock className="h-4 w-4" />
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={onToggleTheme}

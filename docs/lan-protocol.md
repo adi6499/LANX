@@ -80,3 +80,24 @@ The signature covers `"LANX-PACKET-V2"` + JSON array of
   messages become *queued*.
 - **File names** from other computers are sanitised (no paths, reserved names or illegal characters);
   existing files are never overwritten (`name (1).ext`).
+
+## 5. LANX 1.1 additions (same protocol v2)
+New packet kinds are sent **only** to peers whose handshake reports `app_version >= 1.1.0`; for
+older peers the item stays queued ("waiting for X to update"). New optional fields are omitted when
+empty, so ordinary messages and offers keep the exact 1.0 wire format (1.0 re-serialises payloads to
+verify signatures).
+
+| kind / field | meaning |
+|---|---|
+| `message.ttl_secs` | Secret message: both sides delete it this long after it is read (max 1 week unread) |
+| `message` with `message_type: "secret_setting"`, content = seconds | Turn secret mode on/off for the chat |
+| `message.group_id`, `file_offer.group_id` | Group message / group file |
+| `read_receipt { message_ids, group_id? }` → `ack` | "Seen" (direct: message becomes read; group: per-member) |
+| `typing { group_id? }` | Best-effort "typing…" (no ack, rate-limited) |
+| `ring { group_id? }` → `ack` | Bell: recipient plays a bell, flashes the taskbar, shows a notification |
+| `group_update { group_id, name, admin_id, version, members[] }` → `ack` | Full group state from the admin; accepted only from the current admin and only if `version` is newer. Members include each device's public key, last IP and port, so members can reach each other directly |
+| `group_leave { group_id }` → `ack` | A member left; the admin then sends a new version to everyone |
+
+Group messages are sent to each member separately over their own encrypted session; delivery and
+"seen" are tracked per member, and offline members receive group changes first, then messages.
+Secret messages are wiped from disk with SQLite `secure_delete`.

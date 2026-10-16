@@ -12,6 +12,9 @@ import {
   SystemInfo,
   ConnectionTestResult,
   TrustState,
+  GroupInfo,
+  LockStatus,
+  BroadcastResult,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -34,6 +37,22 @@ export interface TransferProgressPayload extends TransferProgress {
   transfer_id: string;
 }
 
+export interface TypingPayload {
+  conversation_id: string;
+  peer_id: string;
+  display_name: string;
+}
+
+export interface RingPayload {
+  conversation_id: string;
+  peer_name: string;
+}
+
+export interface MessagesDeletedPayload {
+  message_ids: string[];
+  conversation_ids: string[];
+}
+
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /** Tauri command errors arrive as plain strings. */
@@ -48,9 +67,10 @@ export function errorText(err: unknown): string {
 // demo so the UI can be designed without two computers. Not used in the app.
 // ---------------------------------------------------------------------------
 const now = () => Math.floor(Date.now() / 1000);
+const ME = "preview-device-7890";
 
 let mockSettings: UserSettings = {
-  device_id: "preview-device-7890",
+  device_id: ME,
   display_name: "Preview User",
   hostname: "DESKTOP-LANX",
   avatar_color: "#0284c7",
@@ -64,7 +84,17 @@ let mockSettings: UserSettings = {
   onboarding_completed: true,
   launch_at_startup: true,
   close_to_tray: true,
+  read_receipts: true,
+  auto_download_images: true,
+  auto_lock_minutes: 5,
+  pin_enabled: false,
+  sound_enabled: true,
+  sound_choice: "chime",
+  custom_sound_path: "",
+  sound_volume: 80,
 };
+
+let mockLock: LockStatus = { pin_set: false, locked: false, hidden_unlocked: false, retry_after_secs: 0 };
 
 let mockPeers: Peer[] = [
   { id: "peer-sarah", display_name: "Sarah (Accounts)", hostname: "ACCOUNTS-PC", last_ip: "192.168.1.104", tcp_port: 52926, trust_state: "trusted", status: "online", last_seen: now(), avatar_color: "#6366f1", public_key: "a1b2c3" },
@@ -72,31 +102,90 @@ let mockPeers: Peer[] = [
   { id: "peer-elena", display_name: "Elena (Sales)", hostname: "SALES-LAPTOP", last_ip: "192.168.1.142", tcp_port: 52926, trust_state: "trusted", status: "offline", last_seen: now() - 3600, avatar_color: "#ec4899", public_key: "778899" },
 ];
 
+const conv = (c: Partial<Conversation> & Pick<Conversation, "id" | "peer_name">): Conversation => ({
+  peer_id: "",
+  peer_status: "online",
+  peer_avatar_color: "#6366f1",
+  peer_ip: "",
+  last_message_preview: null,
+  last_message_time: now(),
+  unread_count: 0,
+  is_pinned: false,
+  created_at: now() - 86400,
+  kind: "direct",
+  is_hidden: false,
+  secret_ttl: 0,
+  member_count: 0,
+  membership: "",
+  ...c,
+});
+
 let mockConversations: Conversation[] = [
-  { id: "conv-sarah", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", peer_status: "online", peer_avatar_color: "#6366f1", peer_ip: "192.168.1.104", last_message_preview: "📎 Vendor-Payments-Oct.xlsx", last_message_time: now() - 120, unread_count: 1, is_pinned: false, created_at: now() - 86400 },
-  { id: "conv-marcus", peer_id: "peer-marcus", peer_name: "Marcus (Stores)", peer_status: "online", peer_avatar_color: "#10b981", peer_ip: "192.168.1.115", last_message_preview: "Can you check the GRN?", last_message_time: now() - 900, unread_count: 0, is_pinned: false, created_at: now() - 43200 },
-  { id: "conv-elena", peer_id: "peer-elena", peer_name: "Elena (Sales)", peer_status: "offline", peer_avatar_color: "#ec4899", peer_ip: "192.168.1.142", last_message_preview: "Thanks!", last_message_time: now() - 4000, unread_count: 0, is_pinned: false, created_at: now() - 100000 },
+  conv({ id: "grp-accounts", peer_name: "Accounts Team", kind: "group", member_count: 4, membership: "member", peer_avatar_color: "#0ea5e9", last_message_preview: "Quarter close on Friday", last_message_time: now() - 60, unread_count: 2 }),
+  conv({ id: "conv-sarah", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", peer_avatar_color: "#6366f1", peer_ip: "192.168.1.104", last_message_preview: "📎 Vendor-Payments-Oct.xlsx", last_message_time: now() - 120, unread_count: 1 }),
+  conv({ id: "conv-marcus", peer_id: "peer-marcus", peer_name: "Marcus (Stores)", peer_avatar_color: "#10b981", peer_ip: "192.168.1.115", last_message_preview: "🔒 Secret message", last_message_time: now() - 900, secret_ttl: 300 }),
+  conv({ id: "conv-elena", peer_id: "peer-elena", peer_name: "Elena (Sales)", peer_status: "offline", peer_avatar_color: "#ec4899", peer_ip: "192.168.1.142", last_message_preview: "Thanks!", last_message_time: now() - 4000 }),
 ];
+
+let mockGroups: Record<string, GroupInfo> = {
+  "grp-accounts": {
+    id: "grp-accounts",
+    name: "Accounts Team",
+    admin_id: ME,
+    version: 3,
+    avatar_color: "#0ea5e9",
+    membership: "member",
+    created_at: now() - 86400,
+    members: [
+      { device_id: ME, display_name: "Preview User", status: "online", is_admin: true, is_me: true },
+      { device_id: "peer-sarah", display_name: "Sarah (Accounts)", status: "online", is_admin: false, is_me: false },
+      { device_id: "peer-marcus", display_name: "Marcus (Stores)", status: "online", is_admin: false, is_me: false },
+      { device_id: "peer-elena", display_name: "Elena (Sales)", status: "offline", is_admin: false, is_me: false },
+    ],
+  },
+};
 
 let mockTransfers: TransferRecord[] = [
   { id: "tx-1", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", conversation_id: "conv-sarah", file_name: "Vendor-Payments-Oct.xlsx", file_size: 1_485_760, file_hash: "", direction: "incoming", status: "pending", transferred_bytes: 0, local_path: null, error_reason: null, created_at: now() - 120 },
   { id: "tx-2", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", conversation_id: "conv-sarah", file_name: "Site-Photos-Dolvi.zip", file_size: 2_400_000_000, file_hash: "", direction: "outgoing", status: "transferring", transferred_bytes: 1_150_000_000, local_path: "D:\\Projects\\Site-Photos-Dolvi.zip", error_reason: null, created_at: now() - 300 },
   { id: "tx-3", peer_id: "peer-elena", peer_name: "Elena (Sales)", conversation_id: "conv-elena", file_name: "Price List 2026.pdf", file_size: 840_000, file_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", direction: "incoming", status: "completed", transferred_bytes: 840_000, local_path: "C:\\Users\\Public\\Downloads\\Price List 2026.pdf", error_reason: null, created_at: now() - 4000, completed_at: now() - 3990 },
+  { id: "tx-g1", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", conversation_id: "grp-accounts", file_name: "Q3-Closing.xlsx", file_size: 240_000, file_hash: "", direction: "outgoing", status: "completed", transferred_bytes: 240_000, local_path: "D:\\Q3-Closing.xlsx", error_reason: null, created_at: now() - 50, parent_id: "pg-1" },
+  { id: "tx-g2", peer_id: "peer-marcus", peer_name: "Marcus (Stores)", conversation_id: "grp-accounts", file_name: "Q3-Closing.xlsx", file_size: 240_000, file_hash: "", direction: "outgoing", status: "pending", transferred_bytes: 0, local_path: "D:\\Q3-Closing.xlsx", error_reason: null, created_at: now() - 50, parent_id: "pg-1" },
+  { id: "tx-g3", peer_id: "peer-elena", peer_name: "Elena (Sales)", conversation_id: "grp-accounts", file_name: "Q3-Closing.xlsx", file_size: 240_000, file_hash: "", direction: "outgoing", status: "queued", transferred_bytes: 0, local_path: "D:\\Q3-Closing.xlsx", error_reason: "Waiting for Elena (Sales) to come online", created_at: now() - 50, parent_id: "pg-1" },
 ];
 
+const msg = (m: Partial<Message> & Pick<Message, "id" | "conversation_id" | "content">): Message => ({
+  sender_id: ME,
+  receiver_id: "",
+  message_type: "text",
+  timestamp: now(),
+  status: "delivered",
+  is_outgoing: true,
+  ...m,
+});
+
 let mockMessages: Record<string, Message[]> = {
+  "grp-accounts": [
+    msg({ id: "g-0", conversation_id: "grp-accounts", content: "You created “Accounts Team” with Sarah (Accounts), Marcus (Stores) and Elena (Sales)", message_type: "system", is_outgoing: false, sender_id: "", timestamp: now() - 3000, status: "read" }),
+    msg({ id: "g-1", conversation_id: "grp-accounts", content: "Quarter close on Friday — please send your sheets by Thursday.", timestamp: now() - 400, deliveries: { total: 3, delivered: 2, read: 2, queued: 1, failed: 0, read_by: ["Sarah (Accounts)", "Marcus (Stores)"], waiting_for: ["Elena (Sales)"] } }),
+    msg({ id: "g-2", conversation_id: "grp-accounts", content: "Will do 👍", sender_id: "peer-sarah", is_outgoing: false, timestamp: now() - 200 }),
+    msg({ id: "g-3", conversation_id: "grp-accounts", content: "", message_type: "ring", sender_id: "peer-marcus", is_outgoing: false, timestamp: now() - 120 }),
+    msg({ id: "g-4", conversation_id: "grp-accounts", content: "📎 Q3-Closing.xlsx", message_type: "file", transfer_id: "pg-1", timestamp: now() - 50 }),
+  ],
   "conv-sarah": [
-    { id: "m-1", conversation_id: "conv-sarah", sender_id: "preview-device-7890", receiver_id: "peer-sarah", content: "Sending the Dolvi site photos now — it's a big one.", message_type: "text", timestamp: now() - 320, status: "read", is_outgoing: true },
-    { id: "m-2", conversation_id: "conv-sarah", sender_id: "preview-device-7890", receiver_id: "peer-sarah", content: "📎 Site-Photos-Dolvi.zip", message_type: "file", timestamp: now() - 300, status: "delivered", is_outgoing: true, transfer_id: "tx-2" },
-    { id: "m-3", conversation_id: "conv-sarah", sender_id: "peer-sarah", receiver_id: "preview-device-7890", content: "Got it, thanks. Here are this month's vendor payments.", message_type: "text", timestamp: now() - 130, status: "read", is_outgoing: false },
-    { id: "m-4", conversation_id: "conv-sarah", sender_id: "peer-sarah", receiver_id: "preview-device-7890", content: "📎 Vendor-Payments-Oct.xlsx", message_type: "file", timestamp: now() - 120, status: "delivered", is_outgoing: false, transfer_id: "tx-1" },
+    msg({ id: "m-1", conversation_id: "conv-sarah", content: "Sending the Dolvi site photos now — it's a big one.", timestamp: now() - 320, status: "read" }),
+    msg({ id: "m-2", conversation_id: "conv-sarah", content: "📎 Site-Photos-Dolvi.zip", message_type: "file", transfer_id: "tx-2", timestamp: now() - 300 }),
+    msg({ id: "m-3", conversation_id: "conv-sarah", content: "Got it, thanks. Here are this month's vendor payments.", sender_id: "peer-sarah", is_outgoing: false, timestamp: now() - 130, status: "read" }),
+    msg({ id: "m-4", conversation_id: "conv-sarah", content: "📎 Vendor-Payments-Oct.xlsx", message_type: "file", transfer_id: "tx-1", sender_id: "peer-sarah", is_outgoing: false, timestamp: now() - 120 }),
   ],
   "conv-marcus": [
-    { id: "m-5", conversation_id: "conv-marcus", sender_id: "peer-marcus", receiver_id: "preview-device-7890", content: "Can you check the GRN?", message_type: "text", timestamp: now() - 900, status: "read", is_outgoing: false },
+    msg({ id: "s-0", conversation_id: "conv-marcus", content: "300", message_type: "secret_setting", timestamp: now() - 1000 }),
+    msg({ id: "s-1", conversation_id: "conv-marcus", content: "The locker code is 4417", ttl_secs: 300, expire_at: now() + 240, timestamp: now() - 950, status: "read" }),
+    msg({ id: "s-2", conversation_id: "conv-marcus", content: "Got it, thanks", sender_id: "peer-marcus", is_outgoing: false, ttl_secs: 300, expire_at: now() + 280, timestamp: now() - 900 }),
   ],
   "conv-elena": [
-    { id: "m-6", conversation_id: "conv-elena", sender_id: "preview-device-7890", receiver_id: "peer-elena", content: "Will send the revised quote after lunch", message_type: "text", timestamp: now() - 4100, status: "queued", error_reason: "Waiting for Elena (Sales) to come online", is_outgoing: true },
-    { id: "m-7", conversation_id: "conv-elena", sender_id: "peer-elena", receiver_id: "preview-device-7890", content: "📎 Price List 2026.pdf", message_type: "file", timestamp: now() - 4000, status: "read", is_outgoing: false, transfer_id: "tx-3" },
+    msg({ id: "m-6", conversation_id: "conv-elena", content: "Will send the revised quote after lunch", timestamp: now() - 4100, status: "queued", error_reason: "Waiting for Elena (Sales) to come online" }),
+    msg({ id: "m-7", conversation_id: "conv-elena", content: "📎 Price List 2026.pdf", message_type: "file", transfer_id: "tx-3", sender_id: "peer-elena", is_outgoing: false, timestamp: now() - 4000, status: "read" }),
   ],
 };
 
@@ -106,13 +195,13 @@ const previewOnly = () =>
 export const api = {
   getSettings: async (): Promise<UserSettings> => {
     if (isTauri) return invoke("get_settings");
-    return { ...mockSettings };
+    return { ...mockSettings, pin_enabled: mockLock.pin_set };
   },
 
   saveSettings: async (settings: UserSettings): Promise<UserSettings> => {
     if (isTauri) return invoke("save_settings", { settings });
     mockSettings = { ...settings };
-    return { ...mockSettings };
+    return { ...mockSettings, pin_enabled: mockLock.pin_set };
   },
 
   completeOnboarding: async (
@@ -162,7 +251,7 @@ export const api = {
 
   getConversations: async (): Promise<Conversation[]> => {
     if (isTauri) return invoke("get_conversations");
-    return [...mockConversations];
+    return mockConversations.filter((c) => !c.is_hidden || mockLock.hidden_unlocked);
   },
 
   getOrCreateConversation: async (peerId: string): Promise<Conversation> => {
@@ -170,22 +259,17 @@ export const api = {
     const existing = mockConversations.find((c) => c.peer_id === peerId);
     if (existing) return existing;
     const peer = mockPeers.find((p) => p.id === peerId);
-    const conv: Conversation = {
+    const c = conv({
       id: `conv-${peerId}`,
       peer_id: peerId,
       peer_name: peer?.display_name || "Unknown",
       peer_status: peer?.status || "offline",
       peer_avatar_color: peer?.avatar_color || "#3b82f6",
       peer_ip: peer?.last_ip || "",
-      last_message_preview: null,
-      last_message_time: now(),
-      unread_count: 0,
-      is_pinned: false,
-      created_at: now(),
-    };
-    mockConversations = [conv, ...mockConversations];
-    mockMessages[conv.id] = [];
-    return conv;
+    });
+    mockConversations = [c, ...mockConversations];
+    mockMessages[c.id] = [];
+    return c;
   },
 
   getMessages: async (conversationId: string): Promise<Message[]> => {
@@ -199,7 +283,7 @@ export const api = {
     if (!q) return [];
     return Object.values(mockMessages)
       .flat()
-      .filter((m) => m.content.toLowerCase().includes(q))
+      .filter((m) => (m.message_type === "text" || m.message_type === "file") && !m.ttl_secs && m.content.toLowerCase().includes(q))
       .map((m) => {
         const c = mockConversations.find((x) => x.id === m.conversation_id);
         return { message: m, peer_name: c?.peer_name || "", peer_avatar_color: c?.peer_avatar_color || "#3b82f6" };
@@ -216,11 +300,13 @@ export const api = {
     return previewOnly();
   },
 
-  markConversationRead: async (conversationId: string): Promise<void> => {
+  /** Marks the chat read and returns its messages (secret timers start now). */
+  markConversationRead: async (conversationId: string): Promise<Message[]> => {
     if (isTauri) return invoke("mark_conversation_read", { conversationId });
     mockConversations = mockConversations.map((c) =>
       c.id === conversationId ? { ...c, unread_count: 0 } : c
     );
+    return [...(mockMessages[conversationId] || [])];
   },
 
   deleteConversation: async (conversationId: string): Promise<void> => {
@@ -242,6 +328,16 @@ export const api = {
   sendFiles: async (conversationId: string, paths: string[]): Promise<SentFile[]> => {
     if (isTauri) return invoke("send_files", { conversationId, paths });
     return previewOnly();
+  },
+
+  sendPastedImage: async (conversationId: string, dataBase64: string, mime: string): Promise<SentFile[]> => {
+    if (isTauri) return invoke("send_pasted_image", { conversationId, dataBase64, mime });
+    return previewOnly();
+  },
+
+  getImagePreview: async (transferId: string): Promise<string | null> => {
+    if (isTauri) return invoke("get_image_preview", { transferId });
+    return null;
   },
 
   acceptTransfer: async (transferId: string): Promise<TransferRecord> => {
@@ -296,6 +392,11 @@ export const api = {
     return "D:\\LANX Downloads";
   },
 
+  pickFiles: async (): Promise<string[]> => {
+    if (isTauri) return invoke("pick_files");
+    return ["C:\\Users\\Public\\Documents\\Circular.pdf"];
+  },
+
   getSystemInfo: async (): Promise<SystemInfo> => {
     if (isTauri) return invoke("get_system_info");
     return {
@@ -305,7 +406,7 @@ export const api = {
       database_path: "%APPDATA%\\LANX\\lanx.db",
       database_size_bytes: 40960,
       os: "Windows",
-      app_version: "1.0.0",
+      app_version: "1.1.0",
       fingerprint: "3F:9A:12:C4:77:0B:E1:5D",
       tcp_listening: true,
       udp_listening: true,
@@ -314,13 +415,135 @@ export const api = {
 
   testLanConnection: async (ip: string, port: number): Promise<ConnectionTestResult> => {
     if (isTauri) return invoke("test_lan_connection", { ip, port });
-    return {
-      reachable: true,
-      ip,
-      port,
-      latency_ms: 2,
-      message: "Preview mode: connection tests run in the desktop app.",
+    return { reachable: true, ip, port, latency_ms: 2, message: "Preview mode: connection tests run in the desktop app." };
+  },
+
+  // ---------------------------------------------------------------- groups
+  createGroup: async (name: string, memberIds: string[]): Promise<Conversation> => {
+    if (isTauri) return invoke("create_group", { name, memberIds });
+    const id = `grp-${Date.now()}`;
+    const c = conv({ id, peer_name: name, kind: "group", member_count: memberIds.length + 1, membership: "member", peer_avatar_color: "#8b5cf6" });
+    mockConversations = [c, ...mockConversations];
+    mockGroups[id] = {
+      id, name, admin_id: ME, version: 1, avatar_color: "#8b5cf6", membership: "member", created_at: now(),
+      members: [
+        { device_id: ME, display_name: mockSettings.display_name, status: "online", is_admin: true, is_me: true },
+        ...memberIds.map((pid) => {
+          const p = mockPeers.find((x) => x.id === pid)!;
+          return { device_id: pid, display_name: p.display_name, status: p.status, is_admin: false, is_me: false };
+        }),
+      ],
     };
+    mockMessages[id] = [msg({ id: `${id}-0`, conversation_id: id, content: `You created “${name}”`, message_type: "system", is_outgoing: false, sender_id: "", status: "read" })];
+    return c;
+  },
+
+  updateGroup: async (groupId: string, name: string | null, add: string[], remove: string[]): Promise<GroupInfo> => {
+    if (isTauri) return invoke("update_group", { groupId, name, add, remove });
+    const g = mockGroups[groupId];
+    if (name) g.name = name;
+    g.members = g.members.filter((m) => !remove.includes(m.device_id));
+    for (const pid of add) {
+      const p = mockPeers.find((x) => x.id === pid);
+      if (p && !g.members.some((m) => m.device_id === pid)) {
+        g.members.push({ device_id: pid, display_name: p.display_name, status: p.status, is_admin: false, is_me: false });
+      }
+    }
+    mockConversations = mockConversations.map((c) => (c.id === groupId ? { ...c, peer_name: g.name, member_count: g.members.length } : c));
+    return { ...g };
+  },
+
+  leaveGroup: async (groupId: string): Promise<void> => {
+    if (isTauri) return invoke("leave_group", { groupId });
+    mockConversations = mockConversations.map((c) => (c.id === groupId ? { ...c, membership: "left" } : c));
+  },
+
+  getGroup: async (groupId: string): Promise<GroupInfo | null> => {
+    if (isTauri) return invoke("get_group", { groupId });
+    return mockGroups[groupId] ? { ...mockGroups[groupId] } : null;
+  },
+
+  // --------------------------------------------------------- lock / hidden
+  getLockStatus: async (): Promise<LockStatus> => {
+    if (isTauri) return invoke("get_lock_status");
+    return { ...mockLock };
+  },
+
+  unlock: async (pin: string): Promise<LockStatus> => {
+    if (isTauri) return invoke("unlock", { pin });
+    if (pin !== "1234") return Promise.reject("Wrong PIN. (Preview PIN is 1234)");
+    mockLock = { ...mockLock, locked: false };
+    return { ...mockLock };
+  },
+
+  lockApp: async (): Promise<LockStatus> => {
+    if (isTauri) return invoke("lock_app");
+    if (mockLock.pin_set) mockLock = { ...mockLock, locked: true, hidden_unlocked: false };
+    return { ...mockLock };
+  },
+
+  setPin: async (current: string | null, newPin: string | null): Promise<LockStatus> => {
+    if (isTauri) return invoke("set_pin", { current, newPin });
+    mockLock = { ...mockLock, pin_set: !!newPin };
+    return { ...mockLock };
+  },
+
+  unlockHidden: async (pin: string): Promise<LockStatus> => {
+    if (isTauri) return invoke("unlock_hidden", { pin });
+    if (pin !== "1234") return Promise.reject("Wrong PIN. (Preview PIN is 1234)");
+    mockLock = { ...mockLock, hidden_unlocked: true };
+    return { ...mockLock };
+  },
+
+  hideHiddenChats: async (): Promise<LockStatus> => {
+    if (isTauri) return invoke("hide_hidden_chats");
+    mockLock = { ...mockLock, hidden_unlocked: false };
+    return { ...mockLock };
+  },
+
+  setConversationHidden: async (conversationId: string, hidden: boolean): Promise<void> => {
+    if (isTauri) return invoke("set_conversation_hidden", { conversationId, hidden });
+    if (!mockLock.pin_set) return Promise.reject("Set a PIN first (Settings → Privacy) so hidden chats stay protected.");
+    mockConversations = mockConversations.map((c) => (c.id === conversationId ? { ...c, is_hidden: hidden } : c));
+  },
+
+  // ------------------------------------------------- secret / typing / ring
+  setSecretMode: async (conversationId: string, ttl: number): Promise<Message> => {
+    if (isTauri) return invoke("set_secret_mode", { conversationId, ttl });
+    mockConversations = mockConversations.map((c) => (c.id === conversationId ? { ...c, secret_ttl: ttl } : c));
+    const m = msg({ id: `ss-${Date.now()}`, conversation_id: conversationId, content: String(ttl), message_type: "secret_setting" });
+    mockMessages[conversationId] = [...(mockMessages[conversationId] || []), m];
+    return m;
+  },
+
+  sendTyping: async (conversationId: string): Promise<void> => {
+    if (isTauri) return invoke("send_typing", { conversationId });
+  },
+
+  ring: async (conversationId: string): Promise<number> => {
+    if (isTauri) return invoke("ring", { conversationId });
+    const m = msg({ id: `r-${Date.now()}`, conversation_id: conversationId, content: "", message_type: "ring" });
+    mockMessages[conversationId] = [...(mockMessages[conversationId] || []), m];
+    return 1;
+  },
+
+  setContentProtection: async (enabled: boolean): Promise<void> => {
+    if (isTauri) return invoke("set_content_protection", { enabled });
+  },
+
+  broadcast: async (peerIds: string[], content: string | null, paths: string[]): Promise<BroadcastResult> => {
+    if (isTauri) return invoke("broadcast_message", { peerIds, content, paths });
+    return { sent_to: peerIds.length, problems: [] };
+  },
+
+  // ---------------------------------------------------------------- sounds
+  pickSoundFile: async (): Promise<string | null> => {
+    if (isTauri) return invoke("pick_sound_file");
+    return "C:\\Users\\Public\\Music\\my-alert.wav";
+  },
+
+  playSound: async (name?: string | null, volume?: number, customPath?: string): Promise<void> => {
+    if (isTauri) return invoke("play_sound", { name: name ?? null, volume: volume ?? null, customPath: customPath ?? null });
   },
 };
 
@@ -342,4 +565,10 @@ export const events = {
   onTransferProgress: (cb: (p: TransferProgressPayload) => void) =>
     on<TransferProgressPayload>("lanx://transfer-progress", cb),
   onStateChanged: (cb: () => void) => on<null>("lanx://state-changed", () => cb()),
+  onTyping: (cb: (p: TypingPayload) => void) => on<TypingPayload>("lanx://typing", cb),
+  onRing: (cb: (p: RingPayload) => void) => on<RingPayload>("lanx://ring", cb),
+  onMessagesDeleted: (cb: (p: MessagesDeletedPayload) => void) =>
+    on<MessagesDeletedPayload>("lanx://messages-deleted", cb),
+  onLockChanged: (cb: (s: LockStatus) => void) => on<LockStatus>("lanx://lock-changed", cb),
+  onOpenPrivacySettings: (cb: () => void) => on<null>("lanx://open-privacy-settings", () => cb()),
 };
