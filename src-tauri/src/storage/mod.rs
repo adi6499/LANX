@@ -35,6 +35,20 @@ pub fn data_dir(profile: Option<&str>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("./data"))
 }
 
+/// A chat background the UI knows: a preset name or "#rrggbb" (else "default").
+pub fn clean_background(v: &str) -> String {
+    const PRESETS: [&str; 12] = [
+        "default", "sky", "mint", "peach", "lavender", "rose", "sand", "slate", "sunrise", "ocean", "forest", "candy",
+    ];
+    let v = v.trim();
+    let hex = v.len() == 7 && v.starts_with('#') && v[1..].chars().all(|c| c.is_ascii_hexdigit());
+    if PRESETS.contains(&v) || hex {
+        v.to_ascii_lowercase()
+    } else {
+        "default".to_string()
+    }
+}
+
 /// Shortens text for the sidebar preview without splitting a UTF-8 character.
 pub fn preview_text(content: &str) -> String {
     let mut chars = content.chars();
@@ -327,6 +341,7 @@ impl Database {
                 .get("sound_volume")
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(80),
+            chat_background: clean_background(map.get("chat_background").map(|s| s.as_str()).unwrap_or("")),
         })
     }
 
@@ -373,6 +388,7 @@ impl Database {
             ("sound_choice", settings.sound_choice.clone()),
             ("custom_sound_path", settings.custom_sound_path.clone()),
             ("sound_volume", settings.sound_volume.min(100).to_string()),
+            ("chat_background", clean_background(&settings.chat_background)),
         ];
 
         for (k, v) in pairs {

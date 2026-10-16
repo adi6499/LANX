@@ -7,7 +7,7 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 ## For users
 
 ### Install
-1. Run **`LANX-Setup-1.2.3.exe`**.
+1. Run **`LANX-Setup-1.2.4.exe`**.
 2. Windows asks *"Do you want to allow this app to make changes?"* → **Yes** (the installer needs
    this once, to install for all users and to allow LANX through Windows Firewall).
 3. LANX opens. Type your name → **Launch LANX**. Done.
@@ -44,10 +44,16 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.2.4: even faster
+- **Compression while sending** — documents, spreadsheets, text, code and database files are squeezed
+  on the fly (often 2–5× less data on the network). Photos, videos and zip files are sent as they are.
+- **8 connections** for files over 256 MB.
+- The speed test warns if a file is being sent at the same time (the result would be too low).
+
 ### New in 1.2.3: faster sending, whole folders
-- **Big files travel over 4 connections at once**, which uses Wi-Fi much better than one. Still
-  encrypted, still resumable, still checked at the end. (Both PCs need 1.2.3; with older versions LANX
-  uses one connection as before — and they get 1.2.3 automatically.)
+- **Big files travel over several connections at once** (4–8), which uses Wi-Fi much better than one.
+  Still encrypted, still resumable, still checked at the end. (Both PCs need 1.2.3; with older versions
+  LANX uses one connection as before — and they get the update automatically.)
 - **Send whole folders** — the folder button next to 📎, or drag a folder into the chat. LANX packs it
   (compressing documents and code; photos and videos are left as they are), sends it as one transfer,
   and on 1.2.3 it arrives as a normal folder in Downloads. Older versions receive a .zip.

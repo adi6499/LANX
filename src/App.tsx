@@ -14,6 +14,7 @@ import {
   UpdateStatus,
 } from "./types";
 import { api, events, errorText, isTauri } from "./lib/api";
+import { applyChatBackground } from "./lib/background";
 import { Sidebar } from "./components/Sidebar";
 import { ConversationPanel } from "./components/ConversationPanel";
 import { ContextPanel } from "./components/ContextPanel";
@@ -198,6 +199,10 @@ export default function App() {
       }
     })();
   }, [applyTheme, reloadAll]);
+
+  useEffect(() => {
+    applyChatBackground(settings?.chat_background ?? "default");
+  }, [settings?.chat_background]);
 
   useEffect(() => {
     if (!settings || settings.theme !== "system") return;

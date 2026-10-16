@@ -38,7 +38,7 @@ interface ContextPanelProps {
 
 
 /** Measures the real network speed to this colleague (LANX 1.2.3+). */
-function SpeedTestCard({ peer }: { peer: Peer }) {
+function SpeedTestCard({ peer, busy: sending }: { peer: Peer; busy: boolean }) {
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<SpeedTestResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -75,6 +75,11 @@ function SpeedTestCard({ peer }: { peer: Peer }) {
           {busy ? "Testing… (7 s)" : res ? "Test again" : "Test speed"}
         </button>
       </div>
+      {sending && (
+        <p className="mb-2 rounded-lg bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300 leading-snug" data-speed-busy>
+          A file is being sent right now, so the result will be lower than normal. Test again when it has finished.
+        </p>
+      )}
       {!res && !err && (
         <p className="text-[11px] text-slate-500 leading-snug">
           {peer.status === "online"
@@ -444,7 +449,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
         </div>
       )}
 
-      {!isGroup && peer && <SpeedTestCard peer={peer} />}
+      {!isGroup && peer && <SpeedTestCard peer={peer} busy={transfers.some((t) => t.status === "transferring")} />}
 
       {hideBlock}
 

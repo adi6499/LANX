@@ -32,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Files from this size are pulled over several connections.
 pub const LANES_FROM_BYTES: u64 = 16 * 1024 * 1024;
-const LANES_MAX: usize = 4;
+const LANES_MAX: usize = 8;
 const LANE_RETRIES: u32 = 4;
 const LANE_STALL: Duration = Duration::from_secs(30);
 /// How long the sender waits for the recipient to come back before it
@@ -44,8 +44,10 @@ const SPEED_TEST_MAX_BYTES: u64 = 512 * 1024 * 1024;
 
 /// How many connections to use for this many remaining bytes.
 pub fn lane_count(remaining: u64) -> usize {
-    if remaining >= 64 * 1024 * 1024 {
+    if remaining >= 256 * 1024 * 1024 {
         LANES_MAX
+    } else if remaining >= 64 * 1024 * 1024 {
+        4
     } else if remaining >= LANES_FROM_BYTES {
         2
     } else {
@@ -178,6 +180,45 @@ fn hash_file(path: &Path) -> Result<String, String> {
         hasher.update(&buf[..n]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+/// LANX 1.2.4: compresses file chunks on one connection while it pays off.
+/// Photos, videos and archives are never tried; for anything else LANX stops
+/// trying after a run of chunks that don't shrink.
+pub(crate) struct ChunkCompressor {
+    zstd: Option<zstd::bulk::Compressor<'static>>,
+    misses: u32,
+}
+
+impl ChunkCompressor {
+    /// `asked`: the receiver accepts compressed frames.
+    pub(crate) fn new(asked: bool, file_name: &str) -> Self {
+        let zstd = (asked && !super::folders::store_only(file_name))
+            .then(|| zstd::bulk::Compressor::new(1).ok())
+            .flatten();
+        Self { zstd, misses: 0 }
+    }
+
+    pub(crate) fn compress(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        let c = self.zstd.as_mut()?;
+        let out = c.compress(data).ok()?;
+        if out.len() * 10 < data.len() * 9 {
+            self.misses = 0;
+            Some(out)
+        } else {
+            self.misses += 1;
+            if self.misses >= 8 {
+                self.zstd = None; // 2 MB in a row didn't shrink: stop trying
+            }
+            None
+        }
+    }
+
+    /// Still trying to compress (tests).
+    #[cfg(test)]
+    pub(crate) fn active(&self) -> bool {
+        self.zstd.is_some()
+    }
 }
 
 /// Sender-side state of a transfer being pulled over lanes.
@@ -458,12 +499,14 @@ impl NetworkService {
                     }
                 }
             };
+            let compress = version_at_least(&c.remote.app_version, FEATURES_COMPRESS).then_some(true);
             let req = match c
                 .send(
                     PacketPayload::FileRangeRequest(FileRangeRequestPayload {
                         transfer_id: transfer_id.to_string(),
                         offset: pos,
                         end,
+                        compress,
                     }),
                     None,
                 )
@@ -572,15 +615,26 @@ impl NetworkService {
     }
 
     /// Joins (or starts) the sender-side lane session of a transfer.
-    fn join_lane_session(&self, t: &mut TransferRecord, path: &Path) -> Option<(CancellationToken, Arc<AtomicU64>)> {
+    /// Err("BUSY" | "CANCELLED") when this lane must be refused.
+    fn join_lane_session(
+        &self,
+        t: &mut TransferRecord,
+        path: &Path,
+    ) -> Result<(CancellationToken, Arc<AtomicU64>), &'static str> {
         let mut sessions = self.lane_sessions.lock();
         if let Some(s) = sessions.get_mut(&t.id) {
             s.active += 1;
-            return Some((s.token.clone(), s.sent.clone()));
+            return Ok((s.token.clone(), s.sent.clone()));
         }
         // A single-connection transfer of the same file is running.
         if self.active_transfers.lock().contains_key(&t.id) {
-            return None;
+            return Err("BUSY");
+        }
+        // Re-read under the lock: a cancel (or the end) may have happened
+        // since this lane's request was checked; never revive it.
+        match self.db.get_transfer(&t.id) {
+            Ok(Some(cur)) if !matches!(cur.status.as_str(), "cancelled" | "declined" | "completed") => *t = cur,
+            _ => return Err("CANCELLED"),
         }
         let token = CancellationToken::new();
         self.active_transfers.lock().insert(t.id.clone(), token.clone());
@@ -610,7 +664,7 @@ impl NetworkService {
         t.status = "transferring".to_string();
         t.error_reason = None;
         self.save_and_emit(t);
-        Some((token, sent))
+        Ok((token, sent))
     }
 
     /// A lane connection closed. When none is left the sender waits a
@@ -692,8 +746,14 @@ impl NetworkService {
         if req.offset > req.end || req.end > size {
             return Self::refuse(&mut chan, corr, "BAD_RANGE", "Invalid part of the file requested.", &t.id).await;
         }
-        let Some((token, sent)) = self.join_lane_session(&mut t, &path) else {
-            return Self::refuse(&mut chan, corr, "BUSY", "This file is already being transferred.", &t.id).await;
+        let (token, sent) = match self.join_lane_session(&mut t, &path) {
+            Ok(j) => j,
+            Err("CANCELLED") => {
+                return Self::refuse(&mut chan, corr, "CANCELLED", "The sender cancelled this file.", &t.id).await;
+            }
+            Err(_) => {
+                return Self::refuse(&mut chan, corr, "BUSY", "This file is already being transferred.", &t.id).await;
+            }
         };
         let ok = async {
             chan.send(
@@ -708,6 +768,7 @@ impl NetworkService {
             .ok()?;
             file.seek(std::io::SeekFrom::Start(req.offset)).await.ok()?;
             let mut buf = vec![0u8; FILE_CHUNK_SIZE];
+            let mut comp = ChunkCompressor::new(req.compress == Some(true), &t.file_name);
             let mut at = req.offset;
             while at < req.end {
                 if token.is_cancelled() {
@@ -730,7 +791,8 @@ impl NetworkService {
                 if n == 0 {
                     return None;
                 }
-                chan.send_data(&buf[..n]).await.ok()?;
+                let saved = chan.send_file_chunk(&buf[..n], &mut comp).await.ok()?;
+                self.bytes_saved.fetch_add(saved, Ordering::Relaxed);
                 at += n as u64;
                 sent.fetch_add(n as u64, Ordering::Relaxed);
                 self.lane_progress(&t.id, size);

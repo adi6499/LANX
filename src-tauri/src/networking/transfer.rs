@@ -537,6 +537,7 @@ impl NetworkService {
 
             let mut sent = offset;
             let mut progress = Progress::new(offset);
+            let mut comp = super::lanes::ChunkCompressor::new(req.compress == Some(true), &t.file_name);
             loop {
                 if token.is_cancelled() {
                     let reason = self
@@ -559,9 +560,10 @@ impl NetworkService {
                     break;
                 }
                 hasher.update(&buf[..n]);
-                chan.send_data(&buf[..n]).await.map_err(|_| {
+                let saved = chan.send_file_chunk(&buf[..n], &mut comp).await.map_err(|_| {
                     Outcome::Failed("Connection lost. The recipient can resume.".to_string())
                 })?;
+                self.bytes_saved.fetch_add(saved, std::sync::atomic::Ordering::Relaxed);
                 sent += n as u64;
                 progress.tick(self, &t.id, sent, size, false);
             }
@@ -955,11 +957,13 @@ impl NetworkService {
         if offset > size {
             offset = 0;
         }
+        let compress = version_at_least(&chan.remote.app_version, FEATURES_COMPRESS).then_some(true);
         let req = chan
             .send(
                 PacketPayload::FileRequest(FileRequestPayload {
                     transfer_id: t.id.clone(),
                     offset,
+                    compress,
                 }),
                 None,
             )

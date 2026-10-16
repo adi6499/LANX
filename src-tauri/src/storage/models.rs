@@ -50,6 +50,13 @@ pub struct UserSettings {
     /// 0–100
     #[serde(default = "default_volume")]
     pub sound_volume: u32,
+    /// LANX 1.2.4: chat background — "default", a preset name, or "#rrggbb".
+    #[serde(default = "default_background")]
+    pub chat_background: String,
+}
+
+fn default_background() -> String {
+    "default".to_string()
 }
 
 fn default_sound() -> String {

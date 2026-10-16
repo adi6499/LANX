@@ -23,6 +23,8 @@ use x25519_dalek::{EphemeralSecret, PublicKey};
 
 const FRAME_PACKET: u8 = 1;
 const FRAME_DATA: u8 = 2;
+/// LANX 1.2.4: zstd-compressed file data (only sent when the receiver asked).
+const FRAME_DATA_Z: u8 = 3;
 /// Largest ciphertext frame accepted (one file chunk plus headroom).
 const MAX_SECURE_FRAME: usize = FILE_CHUNK_SIZE + 64 * 1024;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(8);
@@ -378,6 +380,22 @@ impl SecureChannel {
         self.write_frame(FRAME_DATA, data).await
     }
 
+    /// LANX 1.2.4: sends a file chunk compressed when that saves enough;
+    /// returns the bytes saved.
+    pub(crate) async fn send_file_chunk(
+        &mut self,
+        data: &[u8],
+        comp: &mut super::lanes::ChunkCompressor,
+    ) -> Result<u64, String> {
+        match comp.compress(data) {
+            Some(z) => {
+                self.write_frame(FRAME_DATA_Z, &z).await?;
+                Ok((data.len() - z.len()) as u64)
+            }
+            None => self.write_frame(FRAME_DATA, data).await.map(|_| 0),
+        }
+    }
+
     pub async fn flush(&mut self) -> Result<(), String> {
         self.stream.flush().await.map_err(|e| e.to_string())
     }
@@ -417,6 +435,10 @@ impl SecureChannel {
                 Ok(Frame::Packet(pkt))
             }
             Some(&FRAME_DATA) => Ok(Frame::Data(plain[1..].to_vec())),
+            // Bounded: a frame can never unpack to more than one file chunk.
+            Some(&FRAME_DATA_Z) => zstd::bulk::decompress(&plain[1..], FILE_CHUNK_SIZE)
+                .map(Frame::Data)
+                .map_err(|_| "Compressed data could not be unpacked".to_string()),
             _ => Err("Unknown frame type".to_string()),
         }
     }

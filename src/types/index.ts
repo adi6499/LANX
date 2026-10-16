@@ -26,6 +26,8 @@ export interface UserSettings {
   sound_choice: string;
   custom_sound_path: string;
   sound_volume: number;
+  /** "default", a preset id or "#rrggbb" (see lib/background.ts). */
+  chat_background: string;
 }
 
 export type TrustState = "unverified" | "trusted" | "blocked";

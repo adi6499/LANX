@@ -81,6 +81,8 @@ pub struct Inner {
     pub(crate) active_transfers: Mutex<HashMap<String, CancellationToken>>,
     /// Sender side of transfers being pulled over several connections.
     pub(crate) lane_sessions: Mutex<HashMap<String, lanes::LaneSession>>,
+    /// Bytes compression kept off the network (sender side, this run).
+    pub(crate) bytes_saved: std::sync::atomic::AtomicU64,
     /// Transfers the other side cancelled while running: id -> reason.
     pub(crate) remote_cancels: Mutex<HashMap<String, String>>,
     /// Peers whose outbox is being flushed: id -> "run again when done".
@@ -120,6 +122,7 @@ impl NetworkService {
                 active_transfers: Mutex::new(HashMap::new()),
                 remote_cancels: Mutex::new(HashMap::new()),
                 lane_sessions: Mutex::new(HashMap::new()),
+                bytes_saved: std::sync::atomic::AtomicU64::new(0),
                 flushing: Mutex::new(HashMap::new()),
                 last_failure: Mutex::new(HashMap::new()),
                 update_cfg: Mutex::new(update::UpdateConfig::default()),

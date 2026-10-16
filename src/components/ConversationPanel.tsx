@@ -367,7 +367,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     <div
       data-hidden-chat={hidden ? "true" : undefined}
       className={`flex-1 h-full flex flex-col overflow-hidden select-none relative ${
-        hidden ? "bg-violet-50/70 dark:bg-[#0f0b1d] lanx-hidden-bg" : "bg-[#fcfcfd] dark:bg-[#080c14]"
+        hidden ? "bg-violet-50/70 dark:bg-[#0f0b1d] lanx-hidden-bg" : "lanx-chat-bg"
       } ${shaking ? "lanx-shake" : ""}`}
     >
       {/* Header */}

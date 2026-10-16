@@ -17,7 +17,7 @@ pub fn outbox_dir(data_dir: &Path) -> PathBuf {
 }
 
 /// Already-compressed formats: compressing them again only costs time.
-fn store_only(name: &str) -> bool {
+pub(crate) fn store_only(name: &str) -> bool {
     let ext = Path::new(name)
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())

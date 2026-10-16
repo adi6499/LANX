@@ -42,6 +42,10 @@ pub const FEATURES_CALLS: &str = "1.2.2";
 /// test (`FileRangeRequest`, `FileRangeFinish`, `SpeedTest`, `FileOffer.folder`).
 pub const FEATURES_FAST: &str = "1.2.3";
 
+/// Oldest app version that can send and receive compressed file data
+/// (`compress` in file requests, compressed data frames).
+pub const FEATURES_COMPRESS: &str = "1.2.4";
+
 /// A plain "major.minor.patch" version (what LANX installers are named after).
 pub fn valid_version(v: &str) -> bool {
     let parts: Vec<&str> = v.split('.').collect();
@@ -196,6 +200,9 @@ pub struct FileRequestPayload {
     pub transfer_id: String,
     /// Resume position: bytes the receiver already holds.
     pub offset: u64,
+    /// LANX 1.2.4: the receiver accepts compressed data frames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compress: Option<bool>,
 }
 
 /// LANX 1.2.3: send only bytes `offset..end` of the file on this connection
@@ -206,6 +213,9 @@ pub struct FileRangeRequestPayload {
     pub transfer_id: String,
     pub offset: u64,
     pub end: u64,
+    /// LANX 1.2.4: the receiver accepts compressed data frames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compress: Option<bool>,
 }
 
 /// LANX 1.2.3: identifies a transfer (`FileRangeEnd`, `FileRangeFinish`).

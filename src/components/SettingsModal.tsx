@@ -31,6 +31,7 @@ import {
   DatabaseBackup,
 } from "lucide-react";
 import { BackupPanel } from "./BackupPanel";
+import { BACKGROUND_PRESETS, backgroundCss, isCustomColor } from "../lib/background";
 
 export type SettingsTab =
   | "profile"
@@ -260,6 +261,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onSave(saved);
     } catch (err) {
       console.error("Failed to persist theme setting:", err);
+    }
+  };
+
+  const handleBackground = async (chat_background: string) => {
+    setForm((f) => ({ ...f, chat_background }));
+    try {
+      const saved = await api.saveSettings({ ...settings, chat_background });
+      onSave(saved);
+    } catch (err) {
+      setError(errorText(err));
     }
   };
 
@@ -668,7 +679,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">The theme is saved immediately.</p>
+
+                <div className="pt-2">
+                  <label className={labelCls}>Chat background</label>
+                  <div className="grid grid-cols-6 gap-2.5" data-bg-picker>
+                    {BACKGROUND_PRESETS.map((p) => {
+                      const selected = (form.chat_background || "default") === p.id;
+                      const preview = backgroundCss(p.id, false);
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          title={p.label}
+                          onClick={() => handleBackground(p.id)}
+                          className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition-all ${
+                            selected ? "ring-2 ring-sky-500 bg-sky-500/5" : "hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                          }`}
+                        >
+                          <span
+                            className="h-10 w-full rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-center"
+                            style={{ background: preview ?? "#fcfcfd" }}
+                          >
+                            {selected && <Check className="h-4 w-4 text-slate-700" />}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300">{p.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <label
+                    className={`mt-3 flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer ${
+                      isCustomColor(form.chat_background || "")
+                        ? "border-sky-500 ring-1 ring-sky-500 bg-sky-500/5"
+                        : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <span>
+                      <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">Pick any colour</span>
+                      <span className="block text-[11px] text-slate-500">LANX softens it so messages stay easy to read.</span>
+                    </span>
+                    <input
+                      type="color"
+                      aria-label="Pick any background colour"
+                      value={isCustomColor(form.chat_background || "") ? form.chat_background : "#38bdf8"}
+                      onChange={(e) => handleBackground(e.target.value)}
+                      className="h-9 w-14 cursor-pointer rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent"
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Theme and background are saved immediately.</p>
               </>
             )}
 

@@ -1,4 +1,4 @@
-# LANX network protocol (v2, LANX 1.0 – 1.2.3)
+# LANX network protocol (v2, LANX 1.0 – 1.2.4)
 
 Two layers, both on the local network only:
 
@@ -193,3 +193,12 @@ Unpacking skips any entry whose path would leave the target folder.
 
 **Sockets** use 4 MB send and receive buffers so one connection is not held back by small default
 buffers on Wi-Fi.
+
+## 9. LANX 1.2.4: compression, 8 lanes
+- `file_request.compress = true` / `file_range_request.compress = true` (only sent to senders reporting
+  `app_version >= 1.2.4`): the receiver accepts **compressed data frames** — frame type `3`, the zstd
+  (level 1) compression of one file chunk. The sender compresses a chunk only when that saves at least
+  10%, never tries photos/videos/archives, and stops trying on a connection after 8 chunks in a row
+  that didn't shrink. A compressed frame may unpack to at most one chunk (256 KB). Hashes and resume
+  positions always refer to the uncompressed file.
+- Files of 256 MB or more are pulled over 8 lanes (64–256 MB: 4, 16–64 MB: 2).

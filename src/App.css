@@ -178,6 +178,14 @@
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 
+/* Chat background chosen in Settings → Appearance (variables set by lib/background.ts) */
+.lanx-chat-bg {
+  background: var(--lanx-chat-bg, #fcfcfd);
+}
+.dark .lanx-chat-bg {
+  background: var(--lanx-chat-bg-dark, #080c14);
+}
+
 /* Hidden chats: a faint diagonal pattern so they never look like a normal chat */
 .lanx-hidden-bg {
   background-image: repeating-linear-gradient(

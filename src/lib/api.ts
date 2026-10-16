@@ -105,6 +105,7 @@ let mockSettings: UserSettings = {
   sound_choice: "chime",
   custom_sound_path: "",
   sound_volume: 80,
+  chat_background: "default",
 };
 
 let mockLock: LockStatus = { pin_set: false, locked: false, hidden_unlocked: false, retry_after_secs: 0 };

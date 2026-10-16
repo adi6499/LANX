@@ -1321,7 +1321,8 @@ fn lane_plan_file(part: &Path) -> PathBuf {
 fn lane_plans_split_the_rest_evenly() {
     assert_eq!(lane_count(1_000_000), 1);
     assert_eq!(lane_count(20 * 1024 * 1024), 2);
-    assert_eq!(lane_count(500 * 1024 * 1024), 4);
+    assert_eq!(lane_count(500 * 1024 * 1024), 8);
+    assert_eq!(lane_count(100 * 1024 * 1024), 4);
     let p = LanePlan::new(100 * 1024 * 1024, 10 * 1024 * 1024);
     assert_eq!(p.done(), 10 * 1024 * 1024, "the prefix from a single connection counts as done");
     assert_eq!(p.lanes.len(), 5);
@@ -1422,7 +1423,9 @@ async fn cancelling_a_lane_transfer_stops_both_sides() {
     assert!(wait_for(|| a.svc.lane_sessions.lock().get(&id).is_some(), 20).await);
     a.svc.cancel_transfer(&id).await.unwrap();
     assert!(wait_for(|| transfer_status(b.db(), &id) == "cancelled", 20).await);
-    assert!(wait_for(|| transfer_status(a.db(), &id) == "cancelled", 20).await);
+    let ok = wait_for(|| transfer_status(a.db(), &id) == "cancelled", 20).await;
+    let ta = a.db().get_transfer(&id).unwrap().unwrap();
+    assert!(ok, "sender status {} ({:?}), lanes {}", ta.status, ta.error_reason, a.svc.lane_sessions.lock().len());
     assert!(wait_for(|| a.svc.lane_sessions.lock().is_empty(), 10).await);
     let parts = std::fs::read_dir(b.dir.path().join("Downloads"))
         .unwrap()
@@ -1477,7 +1480,164 @@ async fn speed_test_measures_one_and_several_connections() {
     link(&a, &b).await;
     let r = a.svc.speed_test(&b.id()).await.unwrap();
     assert!(r.single_mbps > 1.0 && r.multi_mbps > 1.0, "{:?}", r);
-    assert_eq!(r.connections, 4);
+    assert_eq!(r.connections, 8);
     a.svc.peer_went_offline(&b.id());
     assert!(a.svc.speed_test(&b.id()).await.unwrap_err().contains("offline"));
+}
+
+// ================================================= LANX 1.2.4: compression
+
+use super::lanes::ChunkCompressor;
+use std::sync::atomic::Ordering as AtomicOrdering;
+
+/// Spreadsheet-like text: compresses well, like real CSV/Excel exports or logs.
+fn write_text_file(dir: &Path, name: &str, size: usize) -> (PathBuf, Vec<u8>) {
+    let mut data = Vec::with_capacity(size + 100);
+    let mut i = 0u64;
+    while data.len() < size {
+        data.extend_from_slice(
+            format!("{},INV-{:06},JSW Steel Dolvi,{}.{:02},2026-10-{:02},paid\n", i, i * 7 % 999_983, 1000 + i % 977, i % 100, 1 + i % 28)
+                .as_bytes(),
+        );
+        i += 1;
+    }
+    data.truncate(size);
+    let path = dir.join(name);
+    std::fs::write(&path, &data).unwrap();
+    (path, data)
+}
+
+#[test]
+fn compressor_shrinks_text_and_gives_up_on_random_data() {
+    let mut text = Vec::new();
+    while text.len() < FILE_CHUNK_SIZE {
+        text.extend_from_slice(b"2026-10-16,Dolvi,Bearing 6205-2RS,12 pcs,INR 4,560\n");
+    }
+    text.truncate(FILE_CHUNK_SIZE);
+    let mut c = ChunkCompressor::new(true, "ledger.csv");
+    let z = c.compress(&text).expect("text compresses");
+    assert!(z.len() * 4 < text.len(), "at least 4x smaller ({} -> {})", text.len(), z.len());
+    assert_eq!(zstd::bulk::decompress(&z, FILE_CHUNK_SIZE).unwrap(), text);
+
+    let mut noise = vec![0u8; FILE_CHUNK_SIZE];
+    rand::thread_rng().fill_bytes(&mut noise);
+    let mut c = ChunkCompressor::new(true, "backup.bin");
+    for _ in 0..8 {
+        assert!(c.compress(&noise).is_none());
+    }
+    assert!(!c.active(), "stops trying after a run of incompressible chunks");
+
+    assert!(!ChunkCompressor::new(true, "photo.JPG").active(), "photos are never tried");
+    assert!(!ChunkCompressor::new(true, "site.mp4").active());
+    assert!(!ChunkCompressor::new(false, "ledger.csv").active(), "only when the receiver asked");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compressible_big_file_is_squeezed_on_the_wire_and_arrives_intact() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (path, data) = write_text_file(a.dir.path(), "Ledger 2026.csv", 40 * 1024 * 1024);
+    let sent = a.svc.send_files(&conv, vec![path.to_string_lossy().to_string()]).await.unwrap();
+    let id = sent[0].transfers[0].id.clone();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "pending", 10).await);
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 120).await);
+    assert_eq!(received_bytes(&b, &id), data);
+    let saved = a.svc.bytes_saved.load(AtomicOrdering::Relaxed);
+    assert!(saved > data.len() as u64 / 2, "more than half kept off the network: {} of {}", saved, data.len());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn small_text_file_is_compressed_over_a_single_connection() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (path, data) = write_text_file(a.dir.path(), "notes.txt", 3 * 1024 * 1024);
+    let sent = a.svc.send_files(&conv, vec![path.to_string_lossy().to_string()]).await.unwrap();
+    let id = sent[0].transfers[0].id.clone();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "pending", 10).await);
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 60).await);
+    assert_eq!(received_bytes(&b, &id), data);
+    assert!(a.svc.bytes_saved.load(AtomicOrdering::Relaxed) > 1024 * 1024);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn random_data_is_sent_as_it_is() {
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (id, data) = offer_file(&a, &b, &conv, 20 * 1024 * 1024).await;
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 60).await);
+    assert_eq!(received_bytes(&b, &id), data);
+    assert_eq!(a.svc.bytes_saved.load(AtomicOrdering::Relaxed), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn no_compression_with_a_sender_on_1_2_3() {
+    let a = updater("Alice", "1.2.3").await;
+    let b = node("Bob").await;
+    let conv = link(&a, &b).await;
+    let (path, data) = write_text_file(a.dir.path(), "Ledger.csv", 20 * 1024 * 1024);
+    let sent = a.svc.send_files(&conv, vec![path.to_string_lossy().to_string()]).await.unwrap();
+    let id = sent[0].transfers[0].id.clone();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "pending", 10).await);
+    b.svc.accept_transfer(&id).await.unwrap();
+    assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 60).await);
+    assert_eq!(received_bytes(&b, &id), data);
+    assert_eq!(a.svc.bytes_saved.load(AtomicOrdering::Relaxed), 0, "a 1.2.3 PC is never sent compressed frames");
+}
+
+/// Speed check for compression (run on purpose: cargo test --release bench_ -- --ignored --nocapture).
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore]
+async fn bench_compression_and_transfer_speed() {
+    // 1. Raw compression speed, one CPU core.
+    let mut chunk = Vec::new();
+    let mut i = 0u64;
+    while chunk.len() < FILE_CHUNK_SIZE {
+        chunk.extend_from_slice(format!("{},INV-{:06},JSW Steel Dolvi,{}.{:02},paid\n", i, i * 7 % 999_983, 1000 + i % 977, i % 100).as_bytes());
+        i += 1;
+    }
+    chunk.truncate(FILE_CHUNK_SIZE);
+    let mut c = ChunkCompressor::new(true, "x.csv");
+    let t = Instant::now();
+    let mut out = 0usize;
+    for _ in 0..1024 {
+        out += c.compress(&chunk).map(|z| z.len()).unwrap_or(FILE_CHUNK_SIZE);
+    }
+    let secs = t.elapsed().as_secs_f64();
+    println!(
+        "BENCH compress one core: {:.0} MB/s, ratio {:.1}x",
+        256.0 / secs,
+        (1024 * FILE_CHUNK_SIZE) as f64 / out as f64
+    );
+
+    // 2. The same 300 MB spreadsheet over loopback, compressed vs not.
+    for (label, sender_version) in [("compressed (1.2.4)", None), ("plain (1.2.3 sender)", Some("1.2.3"))] {
+        let a = match sender_version {
+            Some(v) => updater("Alice", v).await,
+            None => node("Alice").await,
+        };
+        let b = node("Bob").await;
+        let conv = link(&a, &b).await;
+        let (path, data) = write_text_file(a.dir.path(), "Ledger.csv", 300 * 1024 * 1024);
+        let sent = a.svc.send_files(&conv, vec![path.to_string_lossy().to_string()]).await.unwrap();
+        let id = sent[0].transfers[0].id.clone();
+        assert!(wait_for(|| transfer_status(b.db(), &id) == "pending", 10).await);
+        let t = Instant::now();
+        b.svc.accept_transfer(&id).await.unwrap();
+        assert!(wait_for(|| transfer_status(b.db(), &id) == "completed", 300).await);
+        let secs = t.elapsed().as_secs_f64();
+        assert_eq!(received_bytes(&b, &id).len(), data.len());
+        println!(
+            "BENCH 300 MB spreadsheet, {}: {:.1} s = {:.0} MB/s (saved {} MB)",
+            label,
+            secs,
+            300.0 / secs,
+            a.svc.bytes_saved.load(AtomicOrdering::Relaxed) / (1024 * 1024)
+        );
+    }
 }
