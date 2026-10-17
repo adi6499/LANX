@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Check, Laptop, Moon, Sun } from "lucide-react";
+import { Check, Laptop, Moon, Sparkles, Sun } from "lucide-react";
 import { UserSettings } from "../types";
 import {
   ACCENT_PRESETS,
@@ -10,12 +10,13 @@ import {
   isCustomColor,
   backgroundCss,
 } from "../lib/background";
+import { Origin, originOf, revealChange, setMotion } from "../lib/motion";
 
-type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level">>;
+type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion">>;
 
 interface AppearancePanelProps {
   form: UserSettings;
-  onTheme: (theme: "system" | "dark" | "light") => void;
+  onTheme: (theme: "system" | "dark" | "light", origin: Origin) => void;
   /** Saves at once; the whole app follows. */
   onChange: (patch: Patch) => void;
 }
@@ -101,6 +102,19 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
     timer.current = window.setTimeout(() => onChange({ glass_level: g, frost_level: f }), 350);
   };
 
+  /** Background, accent and glass presets change with the glass reveal
+   *  (from the tile you pressed) or a soft cross-fade. */
+  const pick = (patch: Patch, origin: Origin) => {
+    revealChange(() => applyAppearance({ ...form, ...patch }), origin);
+    onChange(patch);
+  };
+  const pickGlass = (g: number, f: number) => {
+    setGlass(g);
+    setFrost(f);
+    window.clearTimeout(timer.current);
+    pick({ glass_level: g, frost_level: f }, null);
+  };
+
   const background = form.chat_background || "default";
   const accent = form.accent_color || "default";
   const preset = GLASS_PRESETS.find((p) => p.glass === glass && p.frost === frost)?.id;
@@ -120,7 +134,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
           ).map(([key, label, Icon]) => {
             const on = form.theme === key;
             return (
-              <button key={key} type="button" onClick={() => onTheme(key)} title={key === "system" ? "Match Windows" : label} className="group flex flex-col items-center gap-1.5">
+              <button key={key} type="button" onClick={(e) => onTheme(key, originOf(e))} title={key === "system" ? "Match Windows" : label} className="group flex flex-col items-center gap-1.5">
                 <span
                   className={`relative block h-16 w-full rounded-[10px] overflow-hidden transition-all ${
                     on ? "ring-[3px] ring-sky-500 ring-offset-2 ring-offset-transparent" : "ring-1 ring-black/10 dark:ring-white/10 group-hover:ring-black/20"
@@ -155,7 +169,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
                 key={p.id}
                 type="button"
                 title={p.label}
-                onClick={() => onChange({ accent_color: p.id })}
+                onClick={() => pick({ accent_color: p.id }, null)}
                 className={`relative h-[26px] w-[26px] rounded-full transition-transform hover:scale-110 active:scale-95 shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)] ${
                   on ? "ring-2 ring-offset-2 ring-offset-white dark:ring-offset-[#24262c]" : ""
                 }`}
@@ -195,7 +209,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
           {BACKGROUND_PRESETS.map((p) => {
             const on = background === p.id;
             return (
-              <button key={p.id} type="button" title={p.label} onClick={() => onChange({ chat_background: p.id })} className="group flex flex-col items-center gap-1">
+              <button key={p.id} type="button" title={p.label} onClick={(e) => pick({ chat_background: p.id }, originOf(e))} className="group flex flex-col items-center gap-1">
                 <span
                   className={`relative block h-12 w-full rounded-[11px] transition-all ${
                     on ? "ring-[3px] ring-sky-500 ring-offset-2 ring-offset-transparent" : "ring-1 ring-black/10 dark:ring-white/10 group-hover:scale-[1.04]"
@@ -238,7 +252,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             <button
               key={p.id}
               type="button"
-              onClick={() => liveGlass(p.glass, p.frost)}
+              onClick={() => pickGlass(p.glass, p.frost)}
               className={`flex-1 py-1.5 rounded-[8px] text-[11px] font-semibold transition-all ${
                 preset === p.id
                   ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
@@ -295,6 +309,41 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             ? "Solid panels: no see-through effect. Easiest to read and lightest on older computers."
             : "Slide Transparency to the left for solid panels, or press Solid, if LANX ever feels slow on an older computer."}
         </p>
+      </Section>
+
+      <Section title="Motion">
+        <label className="flex items-start justify-between gap-4 cursor-pointer" data-motion-toggle>
+          <span className="flex items-start gap-2.5">
+            <span className="mt-0.5 h-7 w-7 shrink-0 rounded-[8px] bg-gradient-to-br from-sky-400 to-indigo-500 text-white flex items-center justify-center shadow-sm">
+              <Sparkles className="h-3.5 w-3.5" />
+            </span>
+            <span>
+              <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">Animations</span>
+              <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                Windows spring open, messages glide in and colours change with a glass reveal. Turn off on a slower computer.
+              </span>
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!form.reduce_motion}
+            aria-label="Animations"
+            onClick={() => {
+              setMotion(!form.reduce_motion);
+              onChange({ reduce_motion: !form.reduce_motion });
+            }}
+            className={`relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 ${
+              !form.reduce_motion ? "bg-sky-500" : "bg-[var(--lanx-fill-2)]"
+            }`}
+          >
+            <span
+              className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow-[0_2px_4px_rgb(0_0_0/0.2),0_0_0_0.5px_rgb(0_0_0/0.04)] transition-all duration-200 ease-[cubic-bezier(.3,.7,.3,1)] ${
+                !form.reduce_motion ? "left-[18px]" : "left-[2px]"
+              }`}
+            />
+          </button>
+        </label>
       </Section>
 
       <p className="px-1 text-[11px] text-slate-500 dark:text-slate-400">Changes apply at once, everywhere in LANX, and are saved automatically.</p>

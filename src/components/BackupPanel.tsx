@@ -315,7 +315,7 @@ export function BackupPanel() {
       {/* Confirm restore */}
       {confirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center lanx-scrim p-4">
-          <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-5">
+          <div className="w-full max-w-sm rounded-[22px] lanx-sheet lanx-sheet-in p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
                 <RotateCcw className="h-5 w-5" />

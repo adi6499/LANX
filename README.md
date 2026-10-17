@@ -44,6 +44,18 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.2.6: smooth animations
+- **Glass reveal** — switching Light/Dark, or picking a background, makes the new look grow as a soft
+  circle from what you clicked while the old one frosts over.
+- Windows (Settings, New group, PIN) spring open and fade away; the details panel slides in and out;
+  the Settings list has a highlight that glides to the page you pick.
+- **Messages you send spring up** from the message box; messages you receive pop in from the left.
+  Opening a chat jumps straight to the newest message.
+- Chats, Peers, Files and History fade in, with rows and cards appearing one after another; cards lift
+  slightly under the mouse; unread counts pop; unlocking zooms the lock card away.
+- Settings → Appearance → **Animations** turns them off (for slower computers). Windows' own
+  "reduce animations" setting is respected too.
+
 ### New in 1.2.5: a new look, your colours everywhere
 - **Glass design** — the chat list, details panel, top bars, message box and Settings are now
   see-through "glass" panels floating over a soft background, like on a Mac or iPhone.

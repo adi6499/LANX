@@ -109,6 +109,7 @@ let mockSettings: UserSettings = {
   accent_color: "default",
   glass_level: 55,
   frost_level: 60,
+  reduce_motion: false,
 };
 
 let mockLock: LockStatus = { pin_set: false, locked: false, hidden_unlocked: false, retry_after_secs: 0 };

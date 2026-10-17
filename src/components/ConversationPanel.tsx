@@ -40,6 +40,7 @@ import {
   Video,
 } from "lucide-react";
 import { FileCard, GroupFileCard } from "./FileCard";
+import { lessMotion } from "../lib/motion";
 
 interface ConversationPanelProps {
   conversation: Conversation | null;
@@ -146,15 +147,24 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [secretMenu, setSecretMenu] = useState(false);
-  const [shaking, setShaking] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [topRef, topH] = useHeight(92);
   const [bottomRef, bottomH] = useHeight(96);
 
+  // Messages that arrive while a chat is open animate in; the ones that are
+  // already there when it opens just fade in together.
+  const opened = useRef({ id: "", at: 0, kinds: new Map<string, string>() });
+  if (conversation && opened.current.id !== conversation.id) {
+    opened.current = { id: conversation.id, at: Date.now(), kinds: new Map() };
+  }
+  const justOpened = () => Date.now() - opened.current.at < 700;
+
+  // Opening a chat jumps to the newest message; new messages scroll in smoothly.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: justOpened() ? "auto" : "smooth" });
   }, [messages.length, conversation?.id]);
 
   useEffect(() => {
@@ -167,9 +177,19 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   // A ring arrived for this chat: shake the panel.
   useEffect(() => {
     if (!ringPulse) return;
-    setShaking(true);
-    const t = setTimeout(() => setShaking(false), 900);
-    return () => clearTimeout(t);
+    if (lessMotion()) return;
+    // (Web Animations, so the screen's own entrance animation never replays.)
+    rootRef.current?.animate(
+      [
+        { transform: "translateX(0)" },
+        { transform: "translateX(-7px)", offset: 0.15 },
+        { transform: "translateX(7px)", offset: 0.35 },
+        { transform: "translateX(-7px)", offset: 0.55 },
+        { transform: "translateX(7px)", offset: 0.75 },
+        { transform: "translateX(0)" },
+      ],
+      { duration: 450, easing: "ease-in-out" }
+    );
   }, [ringPulse]);
 
   // Secret messages count down once read.
@@ -189,7 +209,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 
   if (!conversation) {
     return (
-      <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center select-none">
+      <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center select-none lanx-screen-in">
         <div className="flex h-20 w-20 items-center justify-center rounded-[24px] lanx-glass text-sky-500 mb-5 lanx-float">
           <Send className="h-9 w-9" />
         </div>
@@ -383,10 +403,21 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 
   const toolCls = "lanx-tool p-2 text-slate-600 dark:text-slate-300 transition-colors disabled:opacity-40";
 
+  /** How a message enters: yours spring up, theirs pop in (decided once per message). */
+  const enterClass = (msg: Message) => {
+    let k = opened.current.kinds.get(msg.id);
+    if (k === undefined) {
+      k = justOpened() || msg.conversation_id !== conversation.id ? "" : msg.is_outgoing ? "lanx-send" : "lanx-recv";
+      opened.current.kinds.set(msg.id, k);
+    }
+    return k;
+  };
+
   return (
     <div
       data-hidden-chat={hidden ? "true" : undefined}
-      className={`flex-1 h-full relative overflow-hidden select-none ${hidden ? "lanx-hidden-bg" : ""} ${shaking ? "lanx-shake" : ""}`}
+      ref={rootRef}
+      className={`flex-1 h-full relative overflow-hidden select-none lanx-screen-in ${hidden ? "lanx-hidden-bg" : ""}`}
     >
       {/* Top: glass header that the messages scroll underneath */}
       <div ref={topRef} className="absolute top-0 inset-x-0 z-20">
@@ -516,7 +547,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     <Timer className="h-[17px] w-[17px]" />
                   </button>
                   {secretMenu && (
-                    <div className="absolute right-0 top-11 z-30 w-60 rounded-[14px] lanx-menu p-1.5 lanx-rise">
+                    <div className="absolute right-0 top-11 z-30 w-60 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
                       <div className="px-2.5 py-2 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                         New messages disappear for both of you this long after they are read. Screenshots of LANX are blocked while a secret chat is open.
                       </div>
@@ -650,7 +681,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 
       {/* Messages: run the full height, under the glass header and message box */}
       <div
-        className="absolute inset-0 overflow-y-auto px-6 space-y-2.5 lanx-under"
+        className="absolute inset-0 overflow-y-auto px-6 lanx-under"
         style={
           {
             paddingTop: topH + 14,
@@ -661,6 +692,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         }
         onClick={() => setSecretMenu(false)}
       >
+        <div key={conversation.id} className="min-h-full space-y-2.5 lanx-chat-in">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-8 text-xs text-slate-400">
             <div className="h-14 w-14 rounded-full lanx-card flex items-center justify-center text-slate-400 mb-3 lanx-float">
@@ -702,7 +734,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             return (
               <React.Fragment key={msg.id}>
                 {showDay && <DaySeparator day={day} />}
-                <div className={`flex flex-col group lanx-msg ${isOut ? "items-end" : "items-start"}`}>
+                <div className={`flex flex-col group ${enterClass(msg)} ${isOut ? "items-end" : "items-start"}`}>
                   {showSender && (
                     <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>
                   )}
@@ -776,6 +808,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           </div>
         )}
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Bottom: glass message box */}
@@ -784,7 +817,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         className={`absolute bottom-0 inset-x-0 z-20 lanx-bar border-t lanx-line ${hidden ? "bg-gradient-to-r from-violet-500/15 to-transparent" : ""}`}
       >
         {showEmojiPicker && (
-          <div className="px-5 pt-2 flex items-center gap-1 overflow-x-auto">
+          <div className="px-5 pt-2 flex items-center gap-1 overflow-x-auto lanx-screen-in">
             {QUICK_EMOJIS.map((emoji) => (
               <button
                 key={emoji}

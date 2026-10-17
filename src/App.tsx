@@ -15,6 +15,7 @@ import {
 } from "./types";
 import { api, events, errorText, isTauri } from "./lib/api";
 import { applyAppearance } from "./lib/background";
+import { lessMotion, originOf, revealChange, setMotion, usePresence } from "./lib/motion";
 import { Sidebar } from "./components/Sidebar";
 import { ConversationPanel } from "./components/ConversationPanel";
 import { ContextPanel } from "./components/ContextPanel";
@@ -87,6 +88,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>("messages");
   const [searchQuery, setSearchQuery] = useState("");
   const [isContextOpen, setIsContextOpen] = useState(true);
+  const [unlocking, setUnlocking] = useState(false);
+  /** An unlock is in progress here: its zoom-out plays before the app shows. */
+  const unlockingRef = useRef(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
@@ -210,6 +214,10 @@ export default function App() {
   }, [settings?.chat_background, settings?.accent_color, settings?.glass_level, settings?.frost_level]);
 
   useEffect(() => {
+    setMotion(!!settings?.reduce_motion);
+  }, [settings?.reduce_motion]);
+
+  useEffect(() => {
     if (!settings || settings.theme !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => applyTheme("system");
@@ -278,6 +286,9 @@ export default function App() {
 
     add(
       events.onLockChanged((s) => {
+        // Unlocked from the lock screen: the lock screen shows the app itself
+        // once its zoom-out animation has played.
+        if (!s.locked && unlockingRef.current) return;
         setLock(s);
         lockedRef.current = s.locked;
         if (s.locked) clearPrivateState();
@@ -718,13 +729,14 @@ export default function App() {
     }
   };
 
-  const handleToggleTheme = () => {
+  const handleToggleTheme = (e?: React.MouseEvent) => {
     if (!settings) return;
     const nextTheme: UserSettings["theme"] =
       settings.theme === "system" ? "dark" : settings.theme === "dark" ? "light" : "system";
     const updated = { ...settings, theme: nextTheme };
     setSettings(updated);
-    applyTheme(nextTheme);
+    // The new theme grows from the button (glass reveal).
+    revealChange(() => applyTheme(nextTheme), originOf(e));
     api.saveSettings(updated).catch(console.error);
   };
 
@@ -752,6 +764,9 @@ export default function App() {
     }
     return map;
   }, [transfers]);
+
+  // The details panel slides out before it goes away.
+  const contextPresence = usePresence(activeTab === "messages" && isContextOpen && !!activeConversation, 220);
 
   if (!settings || !lock) {
     return (
@@ -796,8 +811,21 @@ export default function App() {
         <LockScreen
           displayName={settings.display_name}
           avatarColor={settings.avatar_color}
+          leaving={unlocking}
           onUnlock={async (pin) => {
-            const s = await api.unlock(pin);
+            unlockingRef.current = true;
+            let s: LockStatus;
+            try {
+              s = await api.unlock(pin);
+              // Right PIN: the lock card zooms away, then the app settles in.
+              if (!lessMotion()) {
+                setUnlocking(true);
+                await new Promise((r) => setTimeout(r, 340));
+              }
+            } finally {
+              unlockingRef.current = false;
+              setUnlocking(false);
+            }
             setLock(s);
             lockedRef.current = false;
             await loadAfterUnlock();
@@ -835,7 +863,7 @@ export default function App() {
         onToggleHidden={handleToggleHidden}
       />
 
-      <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative">
+      <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative lanx-launch" style={{ ["--d" as string]: "70ms" }}>
         {availableUpdate &&
           (availableUpdate.state === "downloading" ||
             availableUpdate.state === "installing" ||
@@ -930,8 +958,9 @@ export default function App() {
         )}
       </main>
 
-      {activeTab === "messages" && isContextOpen && activeConversation && (
+      {contextPresence.mounted && activeConversation && (
         <ContextPanel
+          closing={contextPresence.closing}
           conversation={activeConversation}
           peer={activePeer}
           peers={peers}

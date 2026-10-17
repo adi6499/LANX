@@ -24,6 +24,8 @@ import { api, errorText } from "../lib/api";
 import { formatSize, keyFingerprint } from "../lib/format";
 
 interface ContextPanelProps {
+  /** Sliding out (it goes away when the animation ends). */
+  closing?: boolean;
   conversation: Conversation | null;
   peer: Peer | null;
   peers: Peer[];
@@ -129,6 +131,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export const ContextPanel: React.FC<ContextPanelProps> = ({
+  closing,
   conversation,
   peer,
   peers,
@@ -221,7 +224,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   );
 
   return (
-    <aside className="w-72 m-2 ml-0 rounded-[20px] lanx-glass flex flex-col overflow-y-auto select-none shrink-0 lanx-slide-left">
+    <aside className={`w-72 m-2 ml-0 rounded-[20px] lanx-glass flex flex-col overflow-y-auto select-none shrink-0 ${closing ? "lanx-panel-out" : "lanx-panel-in"}`}>
       <div className="p-4 border-b lanx-line flex items-center justify-between">
         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{isGroup ? "Group" : "Contact"}</span>
         <button type="button" onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-[var(--lanx-fill)] transition-colors">

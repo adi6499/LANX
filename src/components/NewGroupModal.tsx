@@ -113,7 +113,7 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({ peers, onCreate, o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
-      <div className="w-full max-w-md rounded-[22px] lanx-sheet p-6 lanx-rise">
+      <div className="w-full max-w-md rounded-[22px] lanx-sheet p-6 lanx-sheet-in">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <div className="h-9 w-9 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center">

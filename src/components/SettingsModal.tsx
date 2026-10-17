@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { UserSettings, SystemInfo, ConnectionTestResult, UpdateStatus } from "../types";
 import { api, errorText } from "../lib/api";
 import { formatSize } from "../lib/format";
@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { BackupPanel } from "./BackupPanel";
 import { AppearancePanel } from "./AppearancePanel";
+import { Origin, revealChange, usePresence } from "../lib/motion";
 
 export type SettingsTab =
   | "profile"
@@ -242,7 +243,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  // Opens with a spring, closes with a quick fade (stays on screen meanwhile).
+  const presence = usePresence(isOpen, 200);
+
+  // The highlight in the list glides to the open page.
+  const navRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [pill, setPill] = useState<{ top: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = presence.mounted ? navRefs.current[activeTab] : null;
+    setPill(el ? { top: el.offsetTop, height: el.offsetHeight } : null);
+  }, [activeTab, presence.mounted]);
+
+  if (!presence.mounted) return null;
 
   const portsChanged =
     form.tcp_messaging_port !== settings.tcp_messaging_port ||
@@ -266,8 +278,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleThemeSelect = (theme: "system" | "dark" | "light") => {
-    onThemeChange(theme);
+  const handleThemeSelect = (theme: "system" | "dark" | "light", origin: Origin = null) => {
+    // The new theme grows from the tile you pressed (glass reveal).
+    revealChange(() => onThemeChange(theme), origin);
     handleAppearance({ theme });
   };
 
@@ -310,11 +323,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const navItem = (tab: Tab, label: string, Icon: React.ComponentType<{ className?: string }>, tile: string) => (
     <button
       type="button"
+      ref={(el) => {
+        navRefs.current[tab] = el;
+      }}
       onClick={() => setActiveTab(tab)}
-      className={`w-full flex items-center gap-2.5 px-2 py-[5px] text-[12.5px] font-medium rounded-[8px] transition-colors ${
-        activeTab === tab
-          ? "bg-sky-500 text-white shadow-sm shadow-sky-500/25"
-          : "text-slate-700 dark:text-slate-300 hover:bg-[var(--lanx-fill)]"
+      className={`relative z-10 w-full flex items-center gap-2.5 px-2 py-[5px] text-[12.5px] font-medium rounded-[8px] transition-colors duration-200 ${
+        activeTab === tab ? "text-white" : "text-slate-700 dark:text-slate-300 hover:bg-[var(--lanx-fill)]"
       }`}
     >
       <span
@@ -367,10 +381,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
-      <div className="w-full max-w-3xl h-[600px] rounded-[22px] lanx-sheet flex overflow-hidden">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4 ${presence.closing ? "lanx-scrim-out" : ""}`}>
+      <div
+        className={`w-full max-w-3xl h-[600px] rounded-[22px] lanx-sheet flex overflow-hidden ${
+          presence.closing ? "lanx-sheet-out" : "lanx-sheet-in"
+        }`}
+      >
         <div className="w-52 border-r lanx-line bg-black/[0.025] dark:bg-white/[0.025] p-2.5 flex flex-col justify-between shrink-0 overflow-y-auto">
-          <div className="space-y-0.5">
+          <div className="relative space-y-0.5">
+            {pill && (
+              <span
+                aria-hidden
+                className="absolute inset-x-0 rounded-[8px] bg-sky-500 shadow-sm shadow-sky-500/25 transition-[top,height] duration-300 ease-[cubic-bezier(.3,.8,.3,1.1)]"
+                style={{ top: pill.top, height: pill.height }}
+              />
+            )}
             <div className="flex items-center gap-2.5 px-2 pt-1.5 pb-3">
               <span
                 className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm"
@@ -416,7 +441,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <div key={activeTab} className="flex-1 overflow-y-auto px-6 py-5 space-y-4 lanx-tab-in">
             {activeTab === "profile" && (
               <>
                 <div>

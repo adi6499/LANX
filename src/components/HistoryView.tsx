@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Conversation, SearchHit } from "../types";
 import { api } from "../lib/api";
+import { stagger } from "../lib/motion";
 import { Search, Paperclip } from "lucide-react";
 
 interface HistoryViewProps {
@@ -50,7 +51,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, onSelec
   }, [query]);
 
   return (
-    <div className="flex-1 h-full flex flex-col overflow-hidden select-none">
+    <div className="flex-1 h-full flex flex-col overflow-hidden select-none lanx-screen-in">
       <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0 gap-4">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-white">History & search</h2>
@@ -77,12 +78,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, onSelec
               {searching ? "Searching…" : `${hits.length}${hits.length === 200 ? "+" : ""} result${hits.length === 1 ? "" : "s"} for “${query.trim()}”`}
             </p>
             <div className="space-y-2">
-              {hits.map((h) => (
+              {hits.map((h, i) => (
                 <button
                   key={h.message.id}
                   type="button"
                   onClick={() => onSelectConversation(h.message.conversation_id)}
-                  className="w-full text-left p-3.5 rounded-2xl lanx-card hover:border-sky-500/40 transition-all flex items-start gap-3"
+                  style={stagger(i, 30)}
+                  className="w-full text-left p-3.5 rounded-2xl lanx-card lanx-lift lanx-item-in flex items-start gap-3"
                 >
                   <div
                     className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] shrink-0"
@@ -115,12 +117,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, onSelec
               letters to search
             </p>
             <div className="space-y-2">
-              {conversations.map((c) => (
+              {conversations.map((c, i) => (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => onSelectConversation(c.id)}
-                  className="w-full text-left p-4 rounded-2xl lanx-card hover:border-sky-500/40 hover:shadow-sm transition-all flex items-center justify-between"
+                  style={stagger(i, 35)}
+                  className="w-full text-left p-4 rounded-2xl lanx-card lanx-lift lanx-item-in flex items-center justify-between"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div

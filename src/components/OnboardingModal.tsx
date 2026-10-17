@@ -52,7 +52,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
-      <div className="w-full max-w-lg rounded-[22px] lanx-sheet overflow-hidden transition-all duration-300">
+      <div className="w-full max-w-lg rounded-[22px] lanx-sheet lanx-sheet-in overflow-hidden transition-all duration-300">
         {/* Header bar */}
         <div className="relative px-8 pt-8 pb-4 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-500 dark:bg-sky-500/20 shadow-inner">

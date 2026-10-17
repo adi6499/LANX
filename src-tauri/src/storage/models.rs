@@ -64,6 +64,9 @@ pub struct UserSettings {
     /// LANX 1.2.5: how frosted (blurred) the glass is, 0 (clear) – 100 (heavy frost).
     #[serde(default = "default_frost")]
     pub frost_level: u32,
+    /// LANX 1.2.6: turn the animations off (for slower computers).
+    #[serde(default)]
+    pub reduce_motion: bool,
 }
 
 fn default_glass() -> u32 {

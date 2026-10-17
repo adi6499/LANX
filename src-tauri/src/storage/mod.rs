@@ -365,6 +365,7 @@ impl Database {
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(60)
                 .min(100),
+            reduce_motion: flag("reduce_motion", false),
         })
     }
 
@@ -415,6 +416,7 @@ impl Database {
             ("accent_color", clean_accent(&settings.accent_color)),
             ("glass_level", settings.glass_level.min(100).to_string()),
             ("frost_level", settings.frost_level.min(100).to_string()),
+            ("reduce_motion", settings.reduce_motion.to_string()),
         ];
 
         for (k, v) in pairs {

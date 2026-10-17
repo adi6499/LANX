@@ -3,6 +3,7 @@ import { TransferActions, TransferProgress, TransferRecord } from "../types";
 import { ArrowDownLeft, ArrowUpRight, FolderOpen, Inbox, ShieldCheck, Eraser } from "lucide-react";
 import { FileCard } from "./FileCard";
 import { formatSize } from "../lib/format";
+import { stagger } from "../lib/motion";
 
 interface TransfersViewProps {
   transfers: TransferRecord[];
@@ -53,7 +54,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
   );
 
   return (
-    <div className="flex-1 h-full flex flex-col overflow-hidden select-none">
+    <div className="flex-1 h-full flex flex-col overflow-hidden select-none lanx-screen-in">
       <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0 gap-4">
         <div className="min-w-0">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">Files</h2>
@@ -106,12 +107,13 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
           </div>
         ) : (
           <div className="space-y-3 max-w-4xl mx-auto">
-            {shown.map((tx) => {
+            {shown.map((tx, i) => {
               const incoming = tx.direction === "incoming";
               return (
                 <div
                   key={tx.id}
-                  className="rounded-2xl lanx-card p-4 shadow-sm"
+                  style={stagger(i, 40, 10)}
+                  className="rounded-2xl lanx-card lanx-item-in p-4"
                 >
                   <div className="flex items-center justify-between mb-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1.5">

@@ -22,6 +22,7 @@ import {
   EyeOff,
   Timer,
 } from "lucide-react";
+import { stagger } from "../lib/motion";
 
 interface SidebarProps {
   settings: UserSettings;
@@ -37,7 +38,7 @@ interface SidebarProps {
   onSelectTab: (tab: NavTab) => void;
   onSearchChange: (q: string) => void;
   onOpenSettings: () => void;
-  onToggleTheme: () => void;
+  onToggleTheme: (e: React.MouseEvent<HTMLButtonElement>) => void;
   onNewChat: () => void;
   onNewGroup: () => void;
   onBroadcast: () => void;
@@ -91,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
 
-  const renderRow = (conv: Conversation, hidden: boolean) => {
+  const renderRow = (conv: Conversation, hidden: boolean, index: number) => {
     const isSelected = activeConversationId === conv.id;
     return (
       <button
@@ -100,7 +101,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         data-hidden-chat={hidden ? "true" : undefined}
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelectConversation(conv.id)}
-        className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-[12px] text-left transition-all duration-200 relative active:scale-[0.985] ${
+        style={stagger(index)}
+        className={`lanx-item-in w-full flex items-center gap-3 px-2.5 py-2 rounded-[12px] text-left transition-[background-color,box-shadow,color,transform] duration-200 relative active:scale-[0.985] ${
           isSelected
             ? hidden
               ? "bg-violet-600 text-white shadow-md shadow-violet-600/25"
@@ -150,7 +152,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </p>
             {conv.unread_count > 0 && (
               <span
-                className={`ml-1.5 shrink-0 min-w-[18px] text-center px-1.5 py-[3px] rounded-full text-[10px] font-bold leading-none ${
+                key={conv.unread_count}
+                className={`lanx-pop ml-1.5 shrink-0 min-w-[18px] text-center px-1.5 py-[3px] rounded-full text-[10px] font-bold leading-none ${
                   isSelected ? "bg-white text-sky-600" : hidden ? "bg-violet-600 text-white" : "bg-sky-500 text-white"
                 }`}
               >
@@ -164,7 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="w-80 m-2 mr-0 rounded-[20px] lanx-glass flex flex-col overflow-hidden select-none shrink-0">
+    <aside className="w-80 m-2 mr-0 rounded-[20px] lanx-glass flex flex-col overflow-hidden select-none shrink-0 lanx-launch">
       {/* Brand Header */}
       <div className="px-4 pt-4 pb-3">
         <div className="flex items-center justify-between mb-3">
@@ -272,7 +275,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Users className="h-4 w-4 mb-0.5" />
           <span>Peers</span>
           {onlineCount > 0 && (
-            <span className="absolute top-1 right-2.5 px-1 py-0.2 rounded-full bg-emerald-500 text-[8px] text-white font-bold leading-none">
+            <span key={onlineCount} className="lanx-pop absolute top-1 right-2.5 px-1 py-0.2 rounded-full bg-emerald-500 text-[8px] text-white font-bold leading-none">
               {onlineCount}
             </span>
           )}
@@ -290,7 +293,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <ArrowUpDown className="h-4 w-4 mb-0.5" />
           <span>Files</span>
           {pendingFiles > 0 && (
-            <span className="absolute top-1 right-2.5 px-1 rounded-full bg-sky-500 text-[8px] text-white font-bold leading-none py-0.5">
+            <span key={pendingFiles} className="lanx-pop absolute top-1 right-2.5 px-1 rounded-full bg-sky-500 text-[8px] text-white font-bold leading-none py-0.5">
               {pendingFiles}
             </span>
           )}
@@ -335,7 +338,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       No hidden chats yet. Open a chat and press <EyeOff className="inline h-3 w-3" /> at the top to hide it.
                     </p>
                   ) : (
-                    <div className="space-y-1">{hiddenConversations.map((c) => renderRow(c, true))}</div>
+                    <div className="space-y-1">{hiddenConversations.map((c, i) => renderRow(c, true, i))}</div>
                   )}
                 </div>
               ) : (
@@ -369,7 +372,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               </div>
             ) : (
-              visibleConversations.map((c) => renderRow(c, false))
+              visibleConversations.map((c, i) => renderRow(c, false, i))
             )}
           </>
         )}

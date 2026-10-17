@@ -34,6 +34,8 @@ export interface UserSettings {
   glass_level: number;
   /** How frosted (blurred) the glass is: 0 (clear) – 100 (heavy frost). */
   frost_level: number;
+  /** Animations off (for slower computers). */
+  reduce_motion: boolean;
 }
 
 export type TrustState = "unverified" | "trusted" | "blocked";

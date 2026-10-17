@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Peer } from "../types";
 import { errorText } from "../lib/api";
+import { stagger } from "../lib/motion";
 import {
   Users,
   Plus,
@@ -78,7 +79,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
   };
 
   return (
-    <div className="flex-1 h-full flex flex-col overflow-hidden select-none">
+    <div className="flex-1 h-full flex flex-col overflow-hidden select-none lanx-screen-in">
       {/* Header */}
       <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0">
         <div>
@@ -160,7 +161,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredPeers.map((peer) => {
+            {filteredPeers.map((peer, i) => {
               const isOnline = peer.status === "online";
               const isTrusted = peer.trust_state === "trusted";
               const isBlocked = peer.trust_state === "blocked";
@@ -168,7 +169,8 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
               return (
                 <div
                   key={peer.id}
-                  className="rounded-2xl lanx-card p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                  style={stagger(i, 45)}
+                  className="rounded-2xl lanx-card lanx-lift lanx-item-in p-5 flex flex-col justify-between"
                 >
                   <div>
                     <div className="flex items-start justify-between mb-3">
@@ -271,7 +273,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
       {/* Manual Peer Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
-          <div className="w-full max-w-md rounded-[22px] lanx-sheet p-6">
+          <div className="w-full max-w-md rounded-[22px] lanx-sheet lanx-sheet-in p-6">
             <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
               Connect to Peer by IP
             </h3>

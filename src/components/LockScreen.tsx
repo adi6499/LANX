@@ -124,14 +124,16 @@ export const PinPad: React.FC<PinPadProps> = ({ onSubmit, submitLabel = "Unlock"
 interface LockScreenProps {
   displayName: string;
   avatarColor: string;
+  /** Right PIN: the card zooms away before the app appears. */
+  leaving?: boolean;
   onUnlock: (pin: string) => Promise<void>;
 }
 
-export const LockScreen: React.FC<LockScreenProps> = ({ displayName, avatarColor, onUnlock }) => {
+export const LockScreen: React.FC<LockScreenProps> = ({ displayName, avatarColor, leaving, onUnlock }) => {
   const [showHelp, setShowHelp] = useState(false);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden lanx-window">
-      <div className="relative flex flex-col items-center rounded-[28px] lanx-glass px-10 pt-8 pb-6 lanx-rise">
+      <div className={`relative flex flex-col items-center rounded-[28px] lanx-glass px-10 pt-8 pb-6 ${leaving ? "lanx-unlock-out" : "lanx-sheet-in"}`}>
         <img src="/lanx-logo.png" alt="" className="h-14 w-14 rounded-2xl shadow-xl shadow-sky-500/30 mb-5" />
         <div
           className="h-16 w-16 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg ring-4 ring-white/60 dark:ring-slate-900/60"
@@ -174,7 +176,7 @@ export const NewPinDialog: React.FC<NewPinDialogProps> = ({ title, description, 
   const [first, setFirst] = useState<string | null>(null);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
-      <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-6 lanx-rise relative">
+      <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-6 lanx-sheet-in relative">
         <button
           type="button"
           onClick={onClose}
@@ -223,7 +225,7 @@ interface PinDialogProps {
 
 export const PinDialog: React.FC<PinDialogProps> = ({ title, description, submitLabel, onSubmit, onClose }) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
-    <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-6 lanx-rise relative">
+    <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-6 lanx-sheet-in relative">
       <button
         type="button"
         onClick={onClose}
