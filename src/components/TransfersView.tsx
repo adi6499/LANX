@@ -44,7 +44,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
       onClick={() => setFilter(f)}
       className={`px-3 py-1 rounded-lg font-medium transition-colors ${
         filter === f
-          ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+          ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
           : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
       }`}
     >
@@ -53,8 +53,8 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
   );
 
   return (
-    <div className="flex-1 h-full flex flex-col bg-slate-50/50 dark:bg-[#080c14] overflow-hidden select-none">
-      <div className="h-16 px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c111c] flex items-center justify-between shrink-0 gap-4">
+    <div className="flex-1 h-full flex flex-col overflow-hidden select-none">
+      <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0 gap-4">
         <div className="min-w-0">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">Files</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -63,7 +63,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 text-xs shrink-0">
-          <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1">
+          <div className="flex rounded-[11px] bg-[var(--lanx-fill)] p-[3px]">
             {tab("all", `All (${transfers.length})`)}
             {tab("active", `Active (${activeCount})`)}
             {tab("incoming", "Received")}
@@ -72,7 +72,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
           <button
             type="button"
             onClick={onOpenDownloads}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl lanx-btn text-slate-700 dark:text-slate-300 font-medium"
           >
             <FolderOpen className="h-3.5 w-3.5" />
             Downloads
@@ -81,7 +81,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
             type="button"
             onClick={onClearFinished}
             title="Remove finished items from this list (files stay on disk)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl lanx-btn text-slate-700 dark:text-slate-300 font-medium"
           >
             <Eraser className="h-3.5 w-3.5" />
             Clear finished
@@ -111,7 +111,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
               return (
                 <div
                   key={tx.id}
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 shadow-sm"
+                  className="rounded-2xl lanx-card p-4 shadow-sm"
                 >
                   <div className="flex items-center justify-between mb-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="flex items-center gap-1.5">
@@ -132,7 +132,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
                   <FileCard transfer={tx} fallbackName={tx.file_name} progress={progress[tx.id]} actions={actions} />
 
                   {(tx.file_hash || tx.local_path) && (
-                    <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-3 text-[10px] text-slate-400">
+                    <div className="mt-3 pt-2 border-t lanx-line flex items-center justify-between gap-3 text-[10px] text-slate-400">
                       {tx.file_hash ? (
                         <span className="flex items-center gap-1 font-mono truncate min-w-0" title={tx.file_hash}>
                           <ShieldCheck className="h-3 w-3 text-emerald-500 shrink-0" />

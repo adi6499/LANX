@@ -14,7 +14,7 @@ import {
   UpdateStatus,
 } from "./types";
 import { api, events, errorText, isTauri } from "./lib/api";
-import { applyChatBackground } from "./lib/background";
+import { applyAppearance } from "./lib/background";
 import { Sidebar } from "./components/Sidebar";
 import { ConversationPanel } from "./components/ConversationPanel";
 import { ContextPanel } from "./components/ContextPanel";
@@ -201,8 +201,13 @@ export default function App() {
   }, [applyTheme, reloadAll]);
 
   useEffect(() => {
-    applyChatBackground(settings?.chat_background ?? "default");
-  }, [settings?.chat_background]);
+    applyAppearance({
+      chat_background: settings?.chat_background ?? "default",
+      accent_color: settings?.accent_color ?? "default",
+      glass_level: settings?.glass_level ?? 55,
+      frost_level: settings?.frost_level ?? 60,
+    });
+  }, [settings?.chat_background, settings?.accent_color, settings?.glass_level, settings?.frost_level]);
 
   useEffect(() => {
     if (!settings || settings.theme !== "system") return;
@@ -750,7 +755,7 @@ export default function App() {
 
   if (!settings || !lock) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-[#080c14] text-slate-400">
+      <div className="h-screen w-screen flex items-center justify-center lanx-window text-slate-400">
         <div className="flex flex-col items-center gap-3 max-w-md text-center px-6">
           {loadError ? (
             <>
@@ -805,7 +810,7 @@ export default function App() {
   return (
     <>
     {callLayer}
-    <div className="h-screen w-screen flex overflow-hidden bg-slate-100 dark:bg-black">
+    <div className="h-screen w-screen flex overflow-hidden lanx-window">
       <Sidebar
         settings={settings}
         conversations={conversations}
@@ -915,7 +920,7 @@ export default function App() {
         )}
 
         {notice && (activeTab !== "messages" || !activeConversation) && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-lg flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/80 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 shadow-lg lanx-rise">
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-lg flex items-start gap-2 rounded-2xl border border-amber-300/60 bg-amber-50/90 dark:bg-amber-950/80 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 shadow-lg backdrop-blur-xl lanx-rise">
             <AlertCircle className="h-4 w-4 shrink-0 mt-px" />
             <span className="flex-1 whitespace-pre-line">{notice}</span>
             <button type="button" onClick={() => setNotice(null)} className="p-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-900/50">

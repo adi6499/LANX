@@ -78,9 +78,9 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
   };
 
   return (
-    <div className="flex-1 h-full flex flex-col bg-slate-50/50 dark:bg-[#080c14] overflow-hidden select-none">
+    <div className="flex-1 h-full flex flex-col overflow-hidden select-none">
       {/* Header */}
-      <div className="h-16 px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c111c] flex items-center justify-between shrink-0">
+      <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
             Local Network Peers
@@ -91,13 +91,13 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 text-xs">
+          <div className="flex rounded-[11px] bg-[var(--lanx-fill)] p-[3px] text-xs">
             <button
               type="button"
               onClick={() => setFilter("all")}
               className={`px-3 py-1 rounded-lg font-medium transition-colors ${
                 filter === "all"
-                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                  ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
@@ -108,7 +108,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
               onClick={() => setFilter("online")}
               className={`px-3 py-1 rounded-lg font-medium transition-colors ${
                 filter === "online"
-                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                  ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
@@ -119,7 +119,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
               onClick={() => setFilter("trusted")}
               className={`px-3 py-1 rounded-lg font-medium transition-colors ${
                 filter === "trusted"
-                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                  ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
@@ -168,7 +168,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
               return (
                 <div
                   key={peer.id}
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                  className="rounded-2xl lanx-card p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
                 >
                   <div>
                     <div className="flex items-start justify-between mb-3">
@@ -234,13 +234,13 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                       </p>
                     )}
 
-                    <div className="mt-3 py-2 px-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800/80 text-[11px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                    <div className="mt-3 py-2 px-3 rounded-xl lanx-group text-[11px] font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">
                       <span>{peer.last_ip}</span>
                       <span className="text-slate-400">:{peer.tcp_port}</span>
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                  <div className="mt-4 pt-4 border-t lanx-line flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => onStartChat(peer.id)}
@@ -256,7 +256,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                         onUpdateTrust(peer.id, isTrusted || isBlocked ? "unverified" : "trusted")
                       }
                       title={isBlocked ? "Unblock" : isTrusted ? "Remove trust" : "Mark as trusted"}
-                      className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      className="p-2 rounded-xl lanx-btn text-slate-600 dark:text-slate-300 transition-colors"
                     >
                       <Shield className="h-4 w-4" />
                     </button>
@@ -270,8 +270,8 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
 
       {/* Manual Peer Add Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
+          <div className="w-full max-w-md rounded-[22px] lanx-sheet p-6">
             <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">
               Connect to Peer by IP
             </h3>
@@ -291,7 +291,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                   placeholder="e.g. 192.168.1.120"
                   value={manualIp}
                   onChange={(e) => setManualIp(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="w-full rounded-xl lanx-field px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
 
@@ -304,7 +304,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                   required
                   value={manualPort}
                   onChange={(e) => setManualPort(parseInt(e.target.value) || 52926)}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="w-full rounded-xl lanx-field px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
 
@@ -317,7 +317,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                   placeholder="e.g. Alex (Office Laptop)"
                   value={manualName}
                   onChange={(e) => setManualName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  className="w-full rounded-xl lanx-field px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
                 />
               </div>
 
@@ -334,7 +334,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                     setShowAddModal(false);
                     setAddError(null);
                   }}
-                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="px-4 py-2 rounded-xl lanx-btn text-xs font-medium text-slate-700 dark:text-slate-200"
                 >
                   Cancel
                 </button>

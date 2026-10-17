@@ -50,8 +50,8 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, onSelec
   }, [query]);
 
   return (
-    <div className="flex-1 h-full flex flex-col bg-slate-50/50 dark:bg-[#080c14] overflow-hidden select-none">
-      <div className="h-16 px-8 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c111c] flex items-center justify-between shrink-0 gap-4">
+    <div className="flex-1 h-full flex flex-col overflow-hidden select-none">
+      <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0 gap-4">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-white">History & search</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">Search every message in every chat on this computer</p>
@@ -65,7 +65,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, onSelec
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search messages and file names…"
-            className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 pl-9 pr-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 select-text"
+            className="w-full rounded-xl lanx-field pl-9 pr-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 select-text"
           />
         </div>
       </div>
@@ -82,7 +82,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, onSelec
                   key={h.message.id}
                   type="button"
                   onClick={() => onSelectConversation(h.message.conversation_id)}
-                  className="w-full text-left p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:border-sky-500/40 transition-all flex items-start gap-3"
+                  className="w-full text-left p-3.5 rounded-2xl lanx-card hover:border-sky-500/40 transition-all flex items-start gap-3"
                 >
                   <div
                     className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] shrink-0"
@@ -120,7 +120,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, onSelec
                   key={c.id}
                   type="button"
                   onClick={() => onSelectConversation(c.id)}
-                  className="w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:border-sky-500/40 hover:shadow-sm transition-all flex items-center justify-between"
+                  className="w-full text-left p-4 rounded-2xl lanx-card hover:border-sky-500/40 hover:shadow-sm transition-all flex items-center justify-between"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div

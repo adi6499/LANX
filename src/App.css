@@ -56,7 +56,7 @@
   }
 
   button:focus-visible, input:focus-visible, textarea:focus-visible {
-    outline: 2px solid #0ea5e9;
+    outline: 2px solid var(--color-sky-500);
     outline-offset: 1px;
   }
 }
@@ -83,16 +83,166 @@
   background: rgba(100, 116, 139, 0.6);
 }
 
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+/* ============================================================ appearance
+ * One look for the whole app (Settings → Appearance). lib/background.ts sets:
+ *   --lanx-wall-l / --lanx-wall-d  window background (light / dark)
+ *   --lanx-tint                    the background's main colour
+ *   --lanx-glass-a                 panel opacity (1 = solid)
+ *   --lanx-filter                  the frosted-glass blur
+ *   --color-sky-*                  the accent colour
+ */
+@layer base {
+  :root {
+    --lanx-wall: var(--lanx-wall-l, linear-gradient(160deg, #f6f8fb, #eef1f6));
+    --lanx-surface: #ffffff;
+    --lanx-surface-c: color-mix(in srgb, var(--lanx-surface) 93%, var(--lanx-tint, #94a3b8));
+    --lanx-glass-a: 0.637;
+    --lanx-filter: blur(24px) saturate(154%);
+    --lanx-line: rgb(15 23 42 / 0.09);
+    --lanx-rim: rgb(255 255 255 / 0.6);
+    --lanx-shine: rgb(255 255 255 / 0.75);
+    --lanx-fill: rgb(118 118 128 / 0.12);
+    --lanx-fill-2: rgb(118 118 128 / 0.2);
+    --lanx-bubble: #ffffff;
+    --lanx-shadow: 0 1px 1px rgb(0 0 0 / 0.03), 0 14px 36px -16px rgb(15 23 42 / 0.25);
+  }
+  .dark {
+    --lanx-wall: var(--lanx-wall-d, linear-gradient(160deg, #0a0c11, #05070b));
+    --lanx-surface: #1c1e24;
+    --lanx-surface-c: color-mix(in srgb, var(--lanx-surface) 92%, var(--lanx-tint, #94a3b8));
+    --lanx-line: rgb(255 255 255 / 0.08);
+    --lanx-rim: rgb(255 255 255 / 0.08);
+    --lanx-shine: rgb(255 255 255 / 0.1);
+    --lanx-fill: rgb(118 118 128 / 0.22);
+    --lanx-fill-2: rgb(118 118 128 / 0.32);
+    --lanx-bubble: #2a2c33;
+    --lanx-shadow: 0 1px 1px rgb(0 0 0 / 0.2), 0 18px 44px -18px rgb(0 0 0 / 0.7);
+  }
 }
-.dark .glass-panel {
-  background: rgba(15, 22, 36, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+
+@layer components {
+  /* The window background, behind everything */
+  .lanx-window {
+    background: var(--lanx-wall);
+  }
+
+  /* Glass: see-through panels that blur and pick up the colour behind them */
+  .lanx-glass,
+  .lanx-bar,
+  .lanx-sheet,
+  .lanx-menu {
+    -webkit-backdrop-filter: var(--lanx-filter);
+    backdrop-filter: var(--lanx-filter);
+    transition: background-color 0.35s ease;
+  }
+  /* Sidebar and the details panel: floating glass */
+  .lanx-glass {
+    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(var(--lanx-glass-a) * 100%), transparent);
+    box-shadow: inset 0 0 0 1px var(--lanx-rim), inset 0 1px 0 var(--lanx-shine), var(--lanx-shadow);
+  }
+  /* Top bars and the message box */
+  .lanx-bar {
+    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(min(1, var(--lanx-glass-a) + 0.08) * 100%), transparent);
+  }
+  /* Settings and the other windows */
+  .lanx-sheet {
+    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(min(1, var(--lanx-glass-a) + 0.16) * 100%), transparent);
+    box-shadow: inset 0 0 0 1px var(--lanx-rim), inset 0 1px 0 var(--lanx-shine), 0 0 0 0.5px rgb(0 0 0 / 0.14),
+      0 40px 120px -30px rgb(0 0 0 / 0.5);
+  }
+  /* Small menus */
+  .lanx-menu {
+    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(min(1, var(--lanx-glass-a) + 0.22) * 100%), transparent);
+    box-shadow: inset 0 0 0 1px var(--lanx-rim), 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 18px 50px -12px rgb(0 0 0 / 0.35);
+  }
+  /* Cards lying on the background (no blur, so many of them stay cheap) */
+  .lanx-card {
+    background-color: color-mix(in srgb, var(--lanx-surface) calc(min(1, var(--lanx-glass-a) + 0.24) * 100%), transparent);
+    box-shadow: inset 0 0 0 1px var(--lanx-rim), 0 0 0 0.5px var(--lanx-line), 0 1px 3px rgb(0 0 0 / 0.04);
+  }
+  /* Grouped rows inside a window, like iPhone / Mac settings */
+  .lanx-group {
+    background-color: color-mix(in srgb, var(--lanx-surface) 62%, transparent);
+    box-shadow: 0 0 0 0.5px var(--lanx-line);
+  }
+  .dark .lanx-group {
+    background-color: rgb(255 255 255 / 0.045);
+  }
+  /* Text boxes */
+  .lanx-field {
+    background-color: var(--lanx-fill);
+    border-color: transparent;
+    transition: background-color 0.2s, box-shadow 0.2s;
+  }
+  .lanx-field:focus {
+    background-color: color-mix(in srgb, var(--lanx-surface) 85%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-sky-500) 35%, transparent);
+    outline: none;
+  }
+  /* Hairline separators */
+  .lanx-line {
+    border-color: var(--lanx-line);
+  }
+  /* Dims the app behind a window (no blur here: the window's glass does it) */
+  .lanx-scrim {
+    background-color: rgb(15 23 42 / 0.2);
+  }
+  .dark .lanx-scrim {
+    background-color: rgb(0 0 0 / 0.45);
+  }
+  /* Borderless toolbar buttons */
+  .lanx-tool {
+    border-radius: 9999px;
+    transition: background-color 0.15s, color 0.15s, transform 0.1s;
+  }
+  .lanx-tool:hover {
+    background-color: var(--lanx-fill);
+  }
+  .lanx-tool:active {
+    transform: scale(0.92);
+  }
+  /* Plain grey buttons */
+  .lanx-btn {
+    background-color: var(--lanx-fill);
+    transition: background-color 0.15s, transform 0.1s;
+  }
+  .lanx-btn:hover {
+    background-color: var(--lanx-fill-2);
+  }
+  .lanx-btn:active {
+    transform: scale(0.97);
+  }
+  /* Incoming message bubbles */
+  .lanx-bubble-in {
+    background-color: var(--lanx-bubble);
+    box-shadow: 0 0 0 0.5px var(--lanx-line), 0 1px 2px rgb(0 0 0 / 0.05);
+  }
+  /* Small labels lying on the background (dates, call lines) */
+  .lanx-chip {
+    background-color: color-mix(in srgb, var(--lanx-surface) 72%, transparent);
+    box-shadow: 0 0 0 0.5px var(--lanx-line);
+  }
+  /* Apple-style sliders */
+  .lanx-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: linear-gradient(to right, var(--color-sky-500) var(--fill, 50%), var(--lanx-fill-2) var(--fill, 50%));
+    cursor: pointer;
+  }
+  .lanx-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 22px;
+    width: 22px;
+    border-radius: 9999px;
+    background: #fff;
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 3px 8px rgb(0 0 0 / 0.18);
+    transition: transform 0.15s;
+  }
+  .lanx-range:active::-webkit-slider-thumb {
+    transform: scale(1.12);
+  }
 }
 
 /* Subtle animation pulses */
@@ -178,16 +328,9 @@
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 
-/* Chat background chosen in Settings → Appearance (variables set by lib/background.ts) */
-.lanx-chat-bg {
-  background: var(--lanx-chat-bg, #fcfcfd);
-}
-.dark .lanx-chat-bg {
-  background: var(--lanx-chat-bg-dark, #080c14);
-}
-
-/* Hidden chats: a faint diagonal pattern so they never look like a normal chat */
+/* Hidden chats: a violet wash and a faint diagonal pattern so they never look like a normal chat */
 .lanx-hidden-bg {
+  background-color: rgb(237 233 254 / 0.6);
   background-image: repeating-linear-gradient(
     135deg,
     rgba(124, 58, 237, 0.045) 0 2px,
@@ -195,6 +338,7 @@
   );
 }
 .dark .lanx-hidden-bg {
+  background-color: rgb(24 14 48 / 0.55);
   background-image: repeating-linear-gradient(
     135deg,
     rgba(167, 139, 250, 0.06) 0 2px,
@@ -240,4 +384,11 @@
   .lanx-call-pulse {
     animation: none;
   }
+}
+
+/* Chat messages run under the glass header and message box; keep the
+   scrollbar between them. */
+.lanx-under::-webkit-scrollbar-track {
+  margin-top: var(--lanx-top, 0px);
+  margin-bottom: var(--lanx-bottom, 0px);
 }

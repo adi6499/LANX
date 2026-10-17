@@ -12,7 +12,7 @@ import {
   History,
   Settings,
   Search,
-  Plus,
+  SquarePen,
   Sun,
   Moon,
   Pin,
@@ -44,6 +44,8 @@ interface SidebarProps {
   onLock: () => void;
   onToggleHidden: () => void;
 }
+
+const TAB_ORDER: NavTab[] = ["messages", "people", "transfers", "history"];
 
 export const Sidebar: React.FC<SidebarProps> = ({
   settings,
@@ -96,34 +98,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
         key={conv.id}
         type="button"
         data-hidden-chat={hidden ? "true" : undefined}
+        aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelectConversation(conv.id)}
-        className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all relative ${
+        className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-[12px] text-left transition-all duration-200 relative active:scale-[0.985] ${
           isSelected
             ? hidden
-              ? "bg-violet-500/15 text-slate-900 dark:text-white border border-violet-500/40 shadow-sm"
-              : "bg-sky-500/10 dark:bg-sky-500/15 text-slate-900 dark:text-white border border-sky-500/30 shadow-sm"
+              ? "bg-violet-600 text-white shadow-md shadow-violet-600/25"
+              : "bg-sky-500 text-white shadow-md shadow-sky-500/25"
             : hidden
-              ? "hover:bg-violet-100/80 dark:hover:bg-violet-900/30 text-slate-700 dark:text-slate-300 border border-transparent"
-              : "hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-transparent"
+              ? "hover:bg-violet-500/10 text-slate-700 dark:text-slate-300"
+              : "hover:bg-[var(--lanx-fill)] text-slate-700 dark:text-slate-300"
         }`}
       >
         {/* Avatar with status dot */}
         <div className="relative shrink-0">
           <div
             className={`h-10 w-10 flex items-center justify-center text-white font-bold text-xs shadow-sm ${
-              conv.kind === "group" ? "rounded-xl" : "rounded-full"
-            } ${hidden ? "ring-2 ring-violet-400 ring-offset-1 ring-offset-violet-50 dark:ring-offset-[#1a1230]" : ""}`}
+              conv.kind === "group" ? "rounded-[12px]" : "rounded-full"
+            } ${hidden && !isSelected ? "ring-2 ring-violet-400/80" : ""} ${isSelected ? "ring-2 ring-white/70" : ""}`}
             style={{ backgroundColor: conv.peer_avatar_color }}
           >
             {conv.kind === "group" ? <Users className="h-4 w-4" /> : conv.peer_name.charAt(0).toUpperCase()}
           </div>
           {hidden ? (
-            <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center border-2 border-white dark:border-[#0c111c]">
+            <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-[#1c1e24]">
               <EyeOff className="h-2 w-2" />
             </span>
           ) : (
             <span
-              className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0c111c] ${
+              className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-white dark:ring-[#1c1e24] ${
                 conv.peer_status === "online" ? "bg-emerald-500" : "bg-slate-400 dark:bg-slate-600"
               }`}
             />
@@ -133,22 +136,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Details */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-0.5">
-            <span className="font-semibold text-xs truncate text-slate-900 dark:text-white flex items-center gap-1">
+            <span className={`font-semibold text-[13px] tracking-[-0.01em] truncate flex items-center gap-1 ${isSelected ? "text-white" : "text-slate-900 dark:text-white"}`}>
               <span className="truncate">{conv.peer_name}</span>
-              {conv.is_pinned && <Pin className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />}
-              {conv.secret_ttl > 0 && <Timer className="h-3 w-3 text-violet-500 shrink-0" aria-label="Secret chat" />}
+              {conv.is_pinned && <Pin className={`h-3 w-3 shrink-0 ${isSelected ? "text-white fill-white" : "text-amber-500 fill-amber-500"}`} />}
+              {conv.secret_ttl > 0 && <Timer className={`h-3 w-3 shrink-0 ${isSelected ? "text-white" : "text-violet-500"}`} aria-label="Secret chat" />}
             </span>
-            <span className="text-[10px] text-slate-400 shrink-0 font-medium">{formatTimestamp(conv.last_message_time)}</span>
+            <span className={`text-[10px] shrink-0 font-medium ${isSelected ? "text-white/75" : "text-slate-400"}`}>{formatTimestamp(conv.last_message_time)}</span>
           </div>
 
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+            <p className={`text-[11.5px] truncate ${isSelected ? "text-white/80" : "text-slate-500 dark:text-slate-400"}`}>
               {conv.last_message_preview || "No messages yet"}
             </p>
             {conv.unread_count > 0 && (
               <span
-                className={`ml-1.5 shrink-0 px-1.5 py-0.5 rounded-full text-[10px] text-white font-bold leading-none ${
-                  hidden ? "bg-violet-600" : "bg-sky-500"
+                className={`ml-1.5 shrink-0 min-w-[18px] text-center px-1.5 py-[3px] rounded-full text-[10px] font-bold leading-none ${
+                  isSelected ? "bg-white text-sky-600" : hidden ? "bg-violet-600 text-white" : "bg-sky-500 text-white"
                 }`}
               >
                 {conv.unread_count}
@@ -161,15 +164,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="w-80 h-full flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c111c] select-none transition-colors">
+    <aside className="w-80 m-2 mr-0 rounded-[20px] lanx-glass flex flex-col overflow-hidden select-none shrink-0">
       {/* Brand Header */}
-      <div className="p-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+      <div className="px-4 pt-4 pb-3">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
-            <img src="/lanx-logo.png" alt="LANX" className="h-9 w-9 rounded-xl shadow-md shadow-sky-500/25" />
+            <img src="/lanx-logo.png" alt="LANX" className="h-9 w-9 rounded-[10px] shadow-md shadow-sky-500/25" />
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white">
+                <span className="font-bold text-[17px] tracking-[-0.02em] text-slate-900 dark:text-white">
                   LANX
                 </span>
                 <span className="rounded bg-sky-500/10 dark:bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-sky-600 dark:text-sky-400">
@@ -193,55 +196,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <button
               type="button"
               onClick={onBroadcast}
               title="Message everyone"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-slate-700 transition-colors"
+              className="lanx-tool flex h-8 w-8 items-center justify-center text-amber-600 dark:text-amber-400"
             >
-              <Megaphone className="h-4 w-4" />
+              <Megaphone className="h-[17px] w-[17px]" />
             </button>
             <button
               type="button"
               onClick={onNewGroup}
               title="New group"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors"
+              className="lanx-tool flex h-8 w-8 items-center justify-center text-indigo-600 dark:text-indigo-300"
             >
-              <UsersRound className="h-4 w-4" />
+              <UsersRound className="h-[17px] w-[17px]" />
             </button>
             <button
               type="button"
               onClick={onNewChat}
               title="New chat"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              className="lanx-tool flex h-8 w-8 items-center justify-center text-sky-600 dark:text-sky-400"
             >
-              <Plus className="h-4 w-4" />
+              <SquarePen className="h-[17px] w-[17px]" />
             </button>
           </div>
         </div>
 
         {/* Search Bar */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search conversations, peers..."
-            className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 pl-9 pr-3 py-1.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500 transition-all"
+            placeholder="Search"
+            className="lanx-field w-full rounded-[10px] pl-8 pr-3 py-[7px] text-xs text-slate-900 dark:text-white placeholder:text-slate-400"
           />
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="grid grid-cols-4 p-2 gap-1 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40">
+      {/* Navigation Tabs: a segmented control with a sliding highlight */}
+      <div className="relative grid grid-cols-4 mx-3 mb-2 p-[3px] rounded-[11px] bg-[var(--lanx-fill)]">
+        <span
+          aria-hidden
+          className="absolute top-[3px] bottom-[3px] left-[3px] w-[calc((100%-6px)/4)] rounded-[9px] bg-white dark:bg-white/15 shadow-[0_1px_3px_rgb(0_0_0/0.12),0_0_0_0.5px_rgb(0_0_0/0.04)] transition-transform duration-300 ease-[cubic-bezier(.3,.7,.3,1)]"
+          style={{ transform: `translateX(${Math.max(0, TAB_ORDER.indexOf(activeTab)) * 100}%)` }}
+        />
         <button
           type="button"
           onClick={() => onSelectTab("messages")}
-          className={`flex flex-col items-center py-1.5 rounded-lg text-[10px] font-semibold transition-all relative ${
+          className={`relative z-10 flex flex-col items-center py-1.5 rounded-[9px] text-[10px] font-semibold transition-colors ${
             activeTab === "messages"
-              ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-sm"
+              ? "text-sky-600 dark:text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -255,9 +263,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={() => onSelectTab("people")}
-          className={`flex flex-col items-center py-1.5 rounded-lg text-[10px] font-semibold transition-all relative ${
+          className={`relative z-10 flex flex-col items-center py-1.5 rounded-[9px] text-[10px] font-semibold transition-colors ${
             activeTab === "people"
-              ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-sm"
+              ? "text-sky-600 dark:text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -273,9 +281,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={() => onSelectTab("transfers")}
-          className={`flex flex-col items-center py-1.5 rounded-lg text-[10px] font-semibold transition-all relative ${
+          className={`relative z-10 flex flex-col items-center py-1.5 rounded-[9px] text-[10px] font-semibold transition-colors ${
             activeTab === "transfers"
-              ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-sm"
+              ? "text-sky-600 dark:text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -291,9 +299,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={() => onSelectTab("history")}
-          className={`flex flex-col items-center py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
+          className={`relative z-10 flex flex-col items-center py-1.5 rounded-[9px] text-[10px] font-semibold transition-colors ${
             activeTab === "history"
-              ? "bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-sm"
+              ? "text-sky-600 dark:text-white"
               : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -303,12 +311,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
         {activeTab === "messages" && (
           <>
             {settings.pin_enabled &&
               (hiddenUnlocked ? (
-                <div className="mb-2 rounded-2xl border border-violet-300/70 dark:border-violet-800/70 bg-violet-50/80 dark:bg-violet-950/30 p-1.5 lanx-rise">
+                <div className="mb-2 rounded-[16px] border border-violet-300/60 dark:border-violet-700/50 bg-violet-500/10 p-1.5 lanx-rise">
                   <div className="flex items-center justify-between px-2 pt-1 pb-1.5">
                     <span className="flex items-center gap-1.5 text-[11px] font-bold text-violet-700 dark:text-violet-300">
                       <EyeOff className="h-3.5 w-3.5" /> Hidden chats
@@ -335,7 +343,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   type="button"
                   onClick={onToggleHidden}
                   title="Show hidden chats"
-                  className="w-full mb-1 flex items-center gap-2.5 px-3 py-2 rounded-xl border border-dashed border-violet-300/80 dark:border-violet-800 text-left text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30 transition-colors"
+                  className="w-full mb-1 flex items-center gap-2.5 px-3 py-2 rounded-[12px] border border-dashed border-violet-400/50 dark:border-violet-700/60 text-left text-violet-700 dark:text-violet-300 hover:bg-violet-500/10 transition-colors"
                 >
                   <span className="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
                     <EyeOff className="h-3.5 w-3.5" />
@@ -370,7 +378,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => onSelectTab("messages")}
-            className="w-full p-3 text-left text-xs text-slate-500 dark:text-slate-400 hover:text-sky-600"
+            className="w-full p-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-sky-600"
           >
             ← Back to chats
           </button>
@@ -378,7 +386,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* User Profile Footer */}
-      <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-900/60 flex items-center justify-between">
+      <div className="px-3 py-2.5 border-t lanx-line flex items-center justify-between">
         <div className="flex items-center gap-2.5 min-w-0">
           <div
             className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0"
@@ -402,7 +410,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={onLock}
               title="Lock LANX now"
-              className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
+              className="lanx-tool p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
             >
               <Lock className="h-4 w-4" />
             </button>
@@ -411,7 +419,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={onToggleTheme}
             title="Toggle theme (System / Light / Dark)"
-            className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
+            className="lanx-tool p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           >
             {settings.theme === "dark" ? (
               <Moon className="h-4 w-4" />
@@ -426,7 +434,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             onClick={onOpenSettings}
             title="Application Settings"
-            className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors"
+            className="lanx-tool p-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           >
             <Settings className="h-4 w-4" />
           </button>

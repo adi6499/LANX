@@ -39,7 +39,7 @@ const KIND: Record<string, { label: string; Icon: React.ComponentType<{ classNam
 };
 
 const field =
-  "w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-white select-text focus:outline-none focus:ring-2 focus:ring-sky-500";
+  "w-full rounded-xl lanx-field px-3 py-2 text-xs text-slate-900 dark:text-white select-text focus:outline-none focus:ring-2 focus:ring-sky-500";
 
 type Confirm =
   | { kind: "list"; backup: BackupInfo }
@@ -181,7 +181,7 @@ export function BackupPanel() {
       )}
 
       {/* Automatic */}
-      <label className="flex items-start justify-between gap-4 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 cursor-pointer">
+      <label className="flex items-start justify-between gap-4 p-3 rounded-xl lanx-group cursor-pointer">
         <span>
           <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">Back up automatically every day</span>
           <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
@@ -224,7 +224,7 @@ export function BackupPanel() {
               <div
                 key={b.file_name}
                 data-backup={b.file_name}
-                className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 px-3 py-2.5"
+                className="flex items-center gap-3 rounded-xl lanx-group px-3 py-2.5"
               >
                 <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${k.tint}`}>
                   <k.Icon className="h-4 w-4" />
@@ -239,7 +239,7 @@ export function BackupPanel() {
                   type="button"
                   onClick={() => setConfirm({ kind: "list", backup: b })}
                   disabled={!!busy}
-                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg lanx-btn text-[11px] font-semibold text-slate-700 dark:text-slate-200 disabled:opacity-50"
                 >
                   <RotateCcw className="h-3.5 w-3.5" /> Restore
                 </button>
@@ -250,7 +250,7 @@ export function BackupPanel() {
       </div>
 
       {/* Files */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3 space-y-2">
+      <div className="rounded-xl lanx-group p-3 space-y-2">
         <div className="text-xs font-bold text-slate-800 dark:text-slate-200">New computer, or a copy on a USB drive</div>
         <p className="text-[11px] text-slate-500 leading-snug">
           Save a backup file protected by a password, then use “Restore from a file” on the new computer.
@@ -271,7 +271,7 @@ export function BackupPanel() {
               type="button"
               onClick={pickFile}
               disabled={!!busy}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl lanx-field text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]"
             >
               <Upload className="h-3.5 w-3.5" /> Restore from a file…
             </button>
@@ -290,7 +290,7 @@ export function BackupPanel() {
                   setPw1("");
                   setPw2("");
                 }}
-                className="px-3 py-1.5 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800"
+                className="px-3 py-1.5 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 hover:bg-[var(--lanx-fill)]"
               >
                 Cancel
               </button>
@@ -314,13 +314,13 @@ export function BackupPanel() {
 
       {/* Confirm restore */}
       {confirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center lanx-scrim p-4">
+          <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-5">
             <div className="flex items-start justify-between gap-3">
               <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center shrink-0">
                 <RotateCcw className="h-5 w-5" />
               </div>
-              <button type="button" onClick={() => setConfirm(null)} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+              <button type="button" onClick={() => setConfirm(null)} className="p-1 rounded-lg text-slate-400 hover:bg-[var(--lanx-fill)]">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -364,7 +364,7 @@ export function BackupPanel() {
                   setConfirm(null);
                   setMsg(null);
                 }}
-                className="px-3 py-2 rounded-xl text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="px-3 py-2 rounded-xl text-xs text-slate-600 dark:text-slate-300 hover:bg-[var(--lanx-fill)]"
               >
                 Cancel
               </button>

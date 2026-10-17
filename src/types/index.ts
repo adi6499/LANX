@@ -26,8 +26,14 @@ export interface UserSettings {
   sound_choice: string;
   custom_sound_path: string;
   sound_volume: number;
-  /** "default", a preset id or "#rrggbb" (see lib/background.ts). */
+  /** Window background: "default", a preset id or "#rrggbb" (see lib/background.ts). */
   chat_background: string;
+  /** Accent colour: "default", a preset id or "#rrggbb" (see lib/background.ts). */
+  accent_color: string;
+  /** How see-through the glass panels are: 0 (solid) – 100 (clear). */
+  glass_level: number;
+  /** How frosted (blurred) the glass is: 0 (clear) – 100 (heavy frost). */
+  frost_level: number;
 }
 
 export type TrustState = "unverified" | "trusted" | "blocked";

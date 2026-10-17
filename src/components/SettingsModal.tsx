@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { UserSettings, SystemInfo, ConnectionTestResult, UpdateStatus } from "../types";
 import { api, errorText } from "../lib/api";
 import { formatSize } from "../lib/format";
@@ -7,8 +7,6 @@ import {
   X,
   User,
   Sun,
-  Moon,
-  Laptop,
   Network,
   Info,
   Check,
@@ -31,7 +29,7 @@ import {
   DatabaseBackup,
 } from "lucide-react";
 import { BackupPanel } from "./BackupPanel";
-import { BACKGROUND_PRESETS, backgroundCss, isCustomColor } from "../lib/background";
+import { AppearancePanel } from "./AppearancePanel";
 
 export type SettingsTab =
   | "profile"
@@ -105,9 +103,9 @@ function PinManager({ pinSet, onChanged }: { pinSet: boolean; onChanged: () => v
       setMsg({ ok: false, text: errorText(err) });
     }
   };
-  const field = "flex-1 min-w-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-white select-text";
+  const field = "flex-1 min-w-0 rounded-xl lanx-field px-3 py-2 text-xs text-slate-900 dark:text-white select-text";
   return (
-    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3">
+    <div className="rounded-xl lanx-group p-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
           <KeyRound className="h-4 w-4 text-sky-500" /> PIN lock
@@ -121,7 +119,7 @@ function PinManager({ pinSet, onChanged }: { pinSet: boolean; onChanged: () => v
               {pinSet ? "Change PIN" : "Set a PIN"}
             </button>
             {pinSet && (
-              <button type="button" onClick={() => setMode("remove")} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300">
+              <button type="button" onClick={() => setMode("remove")} className="px-2.5 py-1 rounded-lg lanx-btn text-[11px] text-slate-600 dark:text-slate-300">
                 Remove
               </button>
             )}
@@ -143,7 +141,7 @@ function PinManager({ pinSet, onChanged }: { pinSet: boolean; onChanged: () => v
             </div>
           )}
           <div className="flex justify-end gap-1.5">
-            <button type="button" onClick={reset} className="px-3 py-1.5 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+            <button type="button" onClick={reset} className="px-3 py-1.5 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 hover:bg-[var(--lanx-fill)]">
               Cancel
             </button>
             <button
@@ -165,7 +163,7 @@ function PinManager({ pinSet, onChanged }: { pinSet: boolean; onChanged: () => v
 const AVATAR_COLORS = ["#0284c7", "#6366f1", "#8b5cf6", "#ec4899", "#10b981", "#06b6d4", "#f59e0b", "#ef4444"];
 
 const inputCls =
-  "w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 select-text";
+  "w-full rounded-xl lanx-field px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 select-text";
 const labelCls = "block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5";
 
 function Toggle({
@@ -180,7 +178,7 @@ function Toggle({
   description: string;
 }) {
   return (
-    <label className="flex items-start justify-between gap-4 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 cursor-pointer">
+    <label className="flex items-start justify-between gap-4 p-3 rounded-[12px] lanx-group cursor-pointer">
       <span>
         <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">{title}</span>
         <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{description}</span>
@@ -190,13 +188,13 @@ function Toggle({
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
-          checked ? "bg-sky-500" : "bg-slate-300 dark:bg-slate-700"
+        className={`relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 ${
+          checked ? "bg-sky-500" : "bg-[var(--lanx-fill-2)]"
         }`}
       >
         <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-            checked ? "left-[18px]" : "left-0.5"
+          className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow-[0_2px_4px_rgb(0_0_0/0.2),0_0_0_0.5px_rgb(0_0_0/0.04)] transition-all duration-200 ease-[cubic-bezier(.3,.7,.3,1)] ${
+            checked ? "left-[18px]" : "left-[2px]"
           }`}
         />
       </button>
@@ -232,13 +230,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
   const [testing, setTesting] = useState(false);
 
+  // The newest saved settings: appearance changes save at once, one after another.
+  const latest = useRef(settings);
+  latest.current = settings;
+
   useEffect(() => {
     if (isOpen) {
-      setForm({ ...settings });
+      setForm({ ...latest.current });
       setError(null);
       api.getSystemInfo().then(setSystemInfo).catch(console.error);
     }
-  }, [isOpen, settings]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -252,26 +254,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTimeout(() => setCopied(null), 1500);
   };
 
-  const handleThemeSelect = async (theme: "system" | "dark" | "light") => {
-    const updated = { ...form, theme };
-    setForm(updated);
-    onThemeChange(theme);
+  /** Appearance choices are saved at once (the whole app follows). */
+  const handleAppearance = async (patch: Partial<UserSettings>) => {
+    setForm((f) => ({ ...f, ...patch }));
     try {
-      const saved = await api.saveSettings({ ...settings, theme });
-      onSave(saved);
-    } catch (err) {
-      console.error("Failed to persist theme setting:", err);
-    }
-  };
-
-  const handleBackground = async (chat_background: string) => {
-    setForm((f) => ({ ...f, chat_background }));
-    try {
-      const saved = await api.saveSettings({ ...settings, chat_background });
+      const saved = await api.saveSettings({ ...latest.current, ...patch });
+      latest.current = saved;
       onSave(saved);
     } catch (err) {
       setError(errorText(err));
     }
+  };
+
+  const handleThemeSelect = (theme: "system" | "dark" | "light") => {
+    onThemeChange(theme);
+    handleAppearance({ theme });
   };
 
   const handleSave = async () => {
@@ -310,17 +307,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const navItem = (tab: Tab, label: string, Icon: React.ComponentType<{ className?: string }>) => (
+  const navItem = (tab: Tab, label: string, Icon: React.ComponentType<{ className?: string }>, tile: string) => (
     <button
       type="button"
       onClick={() => setActiveTab(tab)}
-      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
+      className={`w-full flex items-center gap-2.5 px-2 py-[5px] text-[12.5px] font-medium rounded-[8px] transition-colors ${
         activeTab === tab
-          ? "bg-sky-500 text-white shadow-sm"
-          : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800"
+          ? "bg-sky-500 text-white shadow-sm shadow-sky-500/25"
+          : "text-slate-700 dark:text-slate-300 hover:bg-[var(--lanx-fill)]"
       }`}
     >
-      <Icon className="h-4 w-4" />
+      <span
+        className="relative h-[22px] w-[22px] shrink-0 rounded-[6px] flex items-center justify-center text-white shadow-[inset_0_0_0_0.5px_rgb(0_0_0/0.15)] overflow-hidden"
+        style={{ background: tile }}
+      >
+        <span className="absolute inset-0 bg-gradient-to-b from-white/25 to-transparent" />
+        <Icon className="relative h-3.5 w-3.5" />
+      </span>
       <span>{label}</span>
     </button>
   );
@@ -364,38 +367,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-3xl h-[600px] rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl flex overflow-hidden">
-        <div className="w-52 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0c111c] p-3 flex flex-col justify-between shrink-0">
-          <div className="space-y-1">
-            <div className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Settings</div>
-            {navItem("profile", "Profile", User)}
-            {navItem("general", "General", Bell)}
-            {navItem("privacy", "Privacy", ShieldCheck)}
-            {navItem("backup", "Backup", DatabaseBackup)}
-            {navItem("sounds", "Sounds", Volume2)}
-            {navItem("appearance", "Appearance", Sun)}
-            {navItem("files", "Files", FolderOpen)}
-            {navItem("updates", "Updates", ArrowUpCircle)}
-            {navItem("network", "Network", Network)}
-            {navItem("diagnostics", "Diagnostics", Activity)}
-            {navItem("help", "Help", LifeBuoy)}
-            {navItem("about", "About", Info)}
+    <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
+      <div className="w-full max-w-3xl h-[600px] rounded-[22px] lanx-sheet flex overflow-hidden">
+        <div className="w-52 border-r lanx-line bg-black/[0.025] dark:bg-white/[0.025] p-2.5 flex flex-col justify-between shrink-0 overflow-y-auto">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2.5 px-2 pt-1.5 pb-3">
+              <span
+                className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm"
+                style={{ backgroundColor: form.avatar_color }}
+              >
+                {form.display_name.charAt(0).toUpperCase()}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-semibold text-slate-900 dark:text-white truncate">{form.display_name}</span>
+                <span className="block text-[10px] text-slate-500 dark:text-slate-400">Settings</span>
+              </span>
+            </div>
+            {navItem("profile", "Profile", User, "#5e5ce6")}
+            {navItem("general", "General", Bell, "#ff3b30")}
+            {navItem("privacy", "Privacy", ShieldCheck, "#007aff")}
+            {navItem("backup", "Backup", DatabaseBackup, "#34c759")}
+            {navItem("sounds", "Sounds", Volume2, "#ff2d55")}
+            <div className="h-2" />
+            {navItem("appearance", "Appearance", Sun, "linear-gradient(135deg, #1c1c1e, #48484a)")}
+            {navItem("files", "Files", FolderOpen, "#0ea5e9")}
+            {navItem("updates", "Updates", ArrowUpCircle, "#8e8e93")}
+            {navItem("network", "Network", Network, "#32ade6")}
+            <div className="h-2" />
+            {navItem("diagnostics", "Diagnostics", Activity, "#ff9500")}
+            {navItem("help", "Help", LifeBuoy, "#30b0c7")}
+            {navItem("about", "About", Info, "#8e8e93")}
           </div>
-          <div className="px-3 py-2 text-[11px] text-slate-400 dark:text-slate-600 border-t border-slate-200 dark:border-slate-800">
+          <div className="px-2 pt-2 mt-2 text-[10px] text-slate-400 dark:text-slate-500 border-t lanx-line">
             LANX v{systemInfo?.app_version || "1.2.2"} · Windows
           </div>
         </div>
 
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 dark:border-slate-800">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">{titles[activeTab]}</h3>
+          <div className="flex items-center justify-between px-6 pt-5 pb-3.5 border-b lanx-line">
+            <h3 className="text-[17px] font-semibold tracking-[-0.02em] text-slate-900 dark:text-white">{titles[activeTab]}</h3>
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Close"
+              className="lanx-tool p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
             >
-              <X className="h-5 w-5" />
+              <X className="h-[18px] w-[18px]" />
             </button>
           </div>
 
@@ -441,7 +458,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={() => copy("id", form.device_id)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl lanx-btn text-xs text-slate-700 dark:text-slate-300"
                     >
                       {copied === "id" ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                     </button>
@@ -476,13 +493,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {activeTab === "privacy" && (
               <>
                 <PinManager pinSet={!!form.pin_enabled} onChanged={refreshPin} />
-                <div className={`rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3 ${form.pin_enabled ? "" : "opacity-50"}`}>
+                <div className={`rounded-xl lanx-group p-3 ${form.pin_enabled ? "" : "opacity-50"}`}>
                   <label className={labelCls}>Lock automatically after I've been away for</label>
                   <select
                     disabled={!form.pin_enabled}
                     value={form.auto_lock_minutes}
                     onChange={(e) => setForm({ ...form, auto_lock_minutes: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-white"
+                    className="w-full rounded-xl lanx-field px-3 py-2 text-xs text-slate-900 dark:text-white"
                   >
                     {AUTO_LOCK.map((o) => (
                       <option key={o.v} value={o.v}>
@@ -533,7 +550,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className={`flex items-center justify-between rounded-xl border px-3 py-2 cursor-pointer transition-all ${
                           form.sound_choice === s.id
                             ? "border-sky-500 bg-sky-500/10 ring-1 ring-sky-500"
-                            : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                            : "lanx-line hover:bg-[var(--lanx-fill)]"
                         }`}
                         onClick={() => {
                           setForm({ ...form, sound_choice: s.id });
@@ -559,7 +576,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <div
                     className={`mt-2 flex items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
-                      form.sound_choice === "custom" ? "border-sky-500 bg-sky-500/10 ring-1 ring-sky-500" : "border-slate-200 dark:border-slate-800"
+                      form.sound_choice === "custom" ? "border-sky-500 bg-sky-500/10 ring-1 ring-sky-500" : "lanx-line"
                     }`}
                   >
                     <div className="min-w-0">
@@ -587,7 +604,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             setError(errorText(err));
                           }
                         }}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+                        className="px-2.5 py-1 rounded-lg lanx-field text-[11px] font-semibold text-slate-700 dark:text-slate-200"
                       >
                         Choose…
                       </button>
@@ -642,10 +659,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ["Tell everyone", "The 📣 megaphone sends to many at once"],
                     ["Secret chat", "⏱ in a chat: messages disappear after reading"],
                     ["Lock LANX", "Settings → Privacy sets a PIN; 🔒 locks now"],
+                    ["Your colours", "Settings → Appearance: background, accent colour and glass"],
                     ["Colleague missing?", "Peers → Connect by IP (their IP is in Settings → Network)"],
                     ["Quit LANX", "Right-click the tray icon near the clock → Quit"],
                   ].map(([t, d]) => (
-                    <div key={t} className="rounded-xl border border-slate-200 dark:border-slate-800 p-2.5">
+                    <div key={t} className="rounded-xl border lanx-line p-2.5">
                       <div className="font-semibold text-slate-800 dark:text-slate-100">{t}</div>
                       <div className="mt-0.5 text-slate-500">{d}</div>
                     </div>
@@ -655,80 +673,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {activeTab === "appearance" && (
-              <>
-                <div className="grid grid-cols-3 gap-3">
-                  {(
-                    [
-                      ["system", "Match Windows", Laptop],
-                      ["light", "Light", Sun],
-                      ["dark", "Dark", Moon],
-                    ] as const
-                  ).map(([key, label, Icon]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => handleThemeSelect(key)}
-                      className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
-                        form.theme === key
-                          ? "border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-400 ring-1 ring-sky-500"
-                          : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300"
-                      }`}
-                    >
-                      <Icon className="h-6 w-6" />
-                      <span className="text-xs font-semibold">{label}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="pt-2">
-                  <label className={labelCls}>Chat background</label>
-                  <div className="grid grid-cols-6 gap-2.5" data-bg-picker>
-                    {BACKGROUND_PRESETS.map((p) => {
-                      const selected = (form.chat_background || "default") === p.id;
-                      const preview = backgroundCss(p.id, false);
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          title={p.label}
-                          onClick={() => handleBackground(p.id)}
-                          className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition-all ${
-                            selected ? "ring-2 ring-sky-500 bg-sky-500/5" : "hover:bg-slate-100 dark:hover:bg-slate-800/60"
-                          }`}
-                        >
-                          <span
-                            className="h-10 w-full rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-center"
-                            style={{ background: preview ?? "#fcfcfd" }}
-                          >
-                            {selected && <Check className="h-4 w-4 text-slate-700" />}
-                          </span>
-                          <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300">{p.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <label
-                    className={`mt-3 flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer ${
-                      isCustomColor(form.chat_background || "")
-                        ? "border-sky-500 ring-1 ring-sky-500 bg-sky-500/5"
-                        : "border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                    }`}
-                  >
-                    <span>
-                      <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">Pick any colour</span>
-                      <span className="block text-[11px] text-slate-500">LANX softens it so messages stay easy to read.</span>
-                    </span>
-                    <input
-                      type="color"
-                      aria-label="Pick any background colour"
-                      value={isCustomColor(form.chat_background || "") ? form.chat_background : "#38bdf8"}
-                      onChange={(e) => handleBackground(e.target.value)}
-                      className="h-9 w-14 cursor-pointer rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent"
-                    />
-                  </label>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Theme and background are saved immediately.</p>
-              </>
+              <AppearancePanel form={form} onTheme={handleThemeSelect} onChange={handleAppearance} />
             )}
 
             {activeTab === "files" && (
@@ -745,7 +690,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <button
                       type="button"
                       onClick={handlePickFolder}
-                      className="shrink-0 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      className="shrink-0 px-3 py-2.5 rounded-xl lanx-btn text-xs font-semibold text-slate-700 dark:text-slate-200"
                     >
                       Change…
                     </button>
@@ -757,10 +702,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   title="Auto-accept files from trusted contacts"
                   description="Files from contacts you marked as trusted start downloading without asking. Everyone else still needs your OK."
                 />
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                <div className="rounded-xl lanx-group p-3 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                   There is no size limit. Every file is encrypted in transit and checked with SHA-256 when it arrives. If
-                  the network drops, press <b>Resume</b> and it continues from where it stopped. To send a folder, zip it
-                  first (right-click → Send to → Compressed folder).
+                  the network drops, press <b>Resume</b> and it continues from where it stopped. To send a whole folder, use
+                  the folder button next to the paperclip, or drag the folder into the chat.
                 </div>
               </>
             )}
@@ -817,7 +762,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`${inputCls} font-mono`}
                   />
                 </div>
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 text-xs text-slate-500 dark:text-slate-400">
+                <div className="rounded-xl lanx-group p-3 text-xs text-slate-500 dark:text-slate-400">
                   <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">This computer's IP addresses</p>
                   <div className="flex flex-wrap gap-1.5">
                     {(systemInfo?.local_ips ?? []).map((ip) => (
@@ -826,7 +771,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         type="button"
                         onClick={() => copy(ip, ip)}
                         title="Copy"
-                        className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-[11px] text-sky-600 dark:text-sky-400"
+                        className="px-2 py-0.5 rounded-md lanx-chip font-mono text-[11px] text-sky-600 dark:text-sky-400"
                       >
                         {copied === ip ? "copied" : ip}
                       </button>
@@ -842,17 +787,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {activeTab === "diagnostics" && (
               <>
                 <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40">
+                  <div className="p-3 rounded-xl lanx-group">
                     <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Receiving messages</div>
                     {status(systemInfo?.tcp_listening, `Listening on TCP ${settings.tcp_messaging_port}`, `TCP port ${settings.tcp_messaging_port} is in use`)}
                   </div>
-                  <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40">
+                  <div className="p-3 rounded-xl lanx-group">
                     <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Finding colleagues</div>
                     {status(systemInfo?.udp_listening, `Listening on UDP ${settings.udp_discovery_port}`, `UDP port ${settings.udp_discovery_port} is in use`)}
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40">
+                <div className="p-3 rounded-xl lanx-group">
                   <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                     <KeyRound className="h-3 w-3" /> Your security code
                   </div>
@@ -862,7 +807,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <button
                         type="button"
                         onClick={() => copy("fp", systemInfo.fingerprint)}
-                        className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200/60 dark:hover:bg-slate-800"
+                        className="p-1.5 rounded-lg text-slate-500 hover:bg-[var(--lanx-fill)]"
                       >
                         {copied === "fp" ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
@@ -873,7 +818,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-4">
+                <div className="rounded-xl lanx-group p-4">
                   <h4 className="text-xs font-bold text-slate-900 dark:text-white mb-1">Test a connection</h4>
                   <p className="text-xs text-slate-500 mb-3">
                     Checks that LANX on another computer can be reached and that encryption works.
@@ -885,13 +830,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       value={testIp}
                       onChange={(e) => setTestIp(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleRunTest()}
-                      className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono text-slate-900 dark:text-white select-text"
+                      className="flex-1 rounded-xl lanx-field px-3 py-2 text-xs font-mono text-slate-900 dark:text-white select-text"
                     />
                     <input
                       type="number"
                       value={testPort}
                       onChange={(e) => setTestPort(parseInt(e.target.value) || 52926)}
-                      className="w-24 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono text-slate-900 dark:text-white"
+                      className="w-24 rounded-xl lanx-field px-3 py-2 text-xs font-mono text-slate-900 dark:text-white"
                     />
                     <button
                       type="button"
@@ -944,13 +889,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between gap-2 px-6 py-3 border-t lanx-line">
             <span className="text-[11px] text-red-600 dark:text-red-400 truncate">{error}</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="lanx-btn px-4 py-1.5 rounded-full text-xs font-medium text-slate-700 dark:text-slate-200"
               >
                 Cancel
               </button>
@@ -958,7 +903,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 onClick={handleSave}
                 disabled={saving || !form.display_name.trim()}
-                className="px-5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-md shadow-sky-500/20 transition-all disabled:opacity-50"
+                className="px-5 py-1.5 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-[0.97] text-white text-xs font-semibold shadow-md shadow-sky-500/25 transition-all disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save changes"}
               </button>

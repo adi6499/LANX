@@ -60,8 +60,8 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ update, progress, bu
     <div
       className={`shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 border-b lanx-fade ${
         failed
-          ? "bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-900"
-          : "bg-sky-50 border-sky-200 dark:bg-sky-950/40 dark:border-sky-900"
+          ? "lanx-bar lanx-line bg-gradient-to-r from-amber-500/15 to-amber-500/5"
+          : "lanx-bar lanx-line bg-gradient-to-r from-sky-500/12 to-sky-500/[0.03]"
       }`}
       role="status"
     >
@@ -98,7 +98,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ update, progress, bu
             type="button"
             onClick={onInstall}
             disabled={busy}
-            className="shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-sm whitespace-nowrap disabled:opacity-60"
+            className="shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-[0.97] text-white text-xs font-semibold shadow-sm shadow-sky-500/25 whitespace-nowrap transition-all disabled:opacity-60"
           >
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {action}
@@ -109,7 +109,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ update, progress, bu
             type="button"
             onClick={onLater}
             title="Hide this until tomorrow"
-            className="shrink-0 px-2 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 whitespace-nowrap hover:bg-slate-200/60 dark:hover:bg-slate-800"
+            className="shrink-0 px-2.5 py-1.5 rounded-full text-[11px] font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap hover:bg-[var(--lanx-fill)]"
           >
             Remind me tomorrow
           </button>

@@ -178,3 +178,28 @@ fn settings_round_trip_including_new_fields() {
     assert!(!s2.close_to_tray);
     assert_eq!(s2.discovery_interval_secs, 60, "clamped");
 }
+
+#[test]
+fn appearance_settings_round_trip_and_are_cleaned() {
+    let db = Database::new_in_memory().unwrap();
+    let mut s = db.get_settings().unwrap();
+    assert_eq!((s.chat_background.as_str(), s.accent_color.as_str()), ("default", "default"));
+    assert_eq!((s.glass_level, s.frost_level), (55, 60), "glass is on by default");
+    s.chat_background = "ocean".into();
+    s.accent_color = "#FF8800".into();
+    s.glass_level = 0;
+    s.frost_level = 250;
+    db.save_settings(&s).unwrap();
+    let s2 = db.get_settings().unwrap();
+    assert_eq!(s2.chat_background, "ocean");
+    assert_eq!(s2.accent_color, "#ff8800");
+    assert_eq!((s2.glass_level, s2.frost_level), (0, 100), "solid allowed, frost clamped");
+    s.chat_background = "url(evil)".into();
+    s.accent_color = "purple; x".into();
+    db.save_settings(&s).unwrap();
+    let s3 = db.get_settings().unwrap();
+    assert_eq!((s3.chat_background.as_str(), s3.accent_color.as_str()), ("default", "default"));
+    s.accent_color = "purple".into();
+    db.save_settings(&s).unwrap();
+    assert_eq!(db.get_settings().unwrap().accent_color, "purple");
+}

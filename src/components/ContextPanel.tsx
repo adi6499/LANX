@@ -61,7 +61,7 @@ function SpeedTestCard({ peer, busy: sending }: { peer: Peer; busy: boolean }) {
   const best = res ? Math.max(res.single_mbps, res.multi_mbps) : 0;
   const bar = (v: number) => `${Math.max(4, Math.min(100, (v / Math.max(best, 1)) * 100))}%`;
   return (
-    <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+    <div className="p-4 border-b lanx-line">
       <div className="flex items-center justify-between mb-2">
         <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
           <Gauge className="h-3.5 w-3.5 text-sky-500" /> Connection speed
@@ -202,11 +202,11 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   };
 
   const hideBlock = (
-    <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+    <div className="p-4 border-b lanx-line">
       <button
         type="button"
         onClick={() => onSetHidden(!conversation.is_hidden)}
-        className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+        className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 lanx-group hover:bg-[var(--lanx-fill)]"
       >
         <span className="flex items-center gap-2">
           {conversation.is_hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
@@ -221,15 +221,15 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   );
 
   return (
-    <aside className="w-72 h-full border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c111c] flex flex-col overflow-y-auto select-none shrink-0 lanx-slide-left">
-      <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+    <aside className="w-72 m-2 ml-0 rounded-[20px] lanx-glass flex flex-col overflow-y-auto select-none shrink-0 lanx-slide-left">
+      <div className="p-4 border-b lanx-line flex items-center justify-between">
         <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{isGroup ? "Group" : "Contact"}</span>
-        <button type="button" onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+        <button type="button" onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-[var(--lanx-fill)] transition-colors">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="p-6 text-center border-b border-slate-100 dark:border-slate-800">
+      <div className="p-6 text-center border-b lanx-line">
         <div
           className="mx-auto h-16 w-16 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-md mb-3"
           style={{ backgroundColor: conversation.peer_avatar_color }}
@@ -249,7 +249,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                   refreshGroup(api.updateGroup(conversation.id, newName.trim(), [], []));
                 }
               }}
-              className="flex-1 min-w-0 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2 py-1 text-xs text-slate-900 dark:text-white select-text"
+              className="flex-1 min-w-0 rounded-lg lanx-field px-2 py-1 text-xs text-slate-900 dark:text-white select-text"
             />
             <button
               type="button"
@@ -293,7 +293,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       </div>
 
       {isGroup && group && (
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="p-4 border-b lanx-line">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Members</span>
             {iAmAdmin && !adding && (
@@ -311,7 +311,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                 disabledReason={groupPickReason}
               />
               <div className="mt-2 flex justify-end gap-1.5">
-                <button type="button" onClick={() => { setAdding(false); setToAdd([]); }} className="px-2.5 py-1 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <button type="button" onClick={() => { setAdding(false); setToAdd([]); }} className="px-2.5 py-1 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 hover:bg-[var(--lanx-fill)]">
                   Cancel
                 </button>
                 <button
@@ -332,7 +332,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
           )}
           <div className="space-y-1">
             {group.members.map((m) => (
-              <div key={m.device_id} className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-50 dark:hover:bg-slate-900/50 group/member">
+              <div key={m.device_id} className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-[var(--lanx-fill)] group/member">
                 <span className={`h-2 w-2 rounded-full shrink-0 ${m.status === "online" ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`} />
                 <span className="flex-1 min-w-0 truncate text-xs text-slate-700 dark:text-slate-200">
                   {m.display_name}
@@ -373,7 +373,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                 >
                   Leave
                 </button>
-                <button type="button" onClick={() => setConfirmLeave(false)} className="px-2 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <button type="button" onClick={() => setConfirmLeave(false)} className="px-2 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-[var(--lanx-fill)]">
                   Stay
                 </button>
               </div>
@@ -391,7 +391,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       )}
 
       {!isGroup && (
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="p-4 border-b lanx-line">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Identity & trust</span>
             {trust === "trusted" ? (
@@ -404,7 +404,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
           </div>
 
           {code ? (
-            <div className="rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 p-2.5 mb-3">
+            <div className="rounded-xl lanx-group p-2.5 mb-3">
               <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
                 <KeyRound className="h-3 w-3" /> Security code
               </div>
@@ -425,12 +425,12 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                 </button>
               )}
               {trust === "trusted" && (
-                <button type="button" onClick={() => onUpdateTrust(peer.id, "unverified")} className="w-full py-2 px-3 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <button type="button" onClick={() => onUpdateTrust(peer.id, "unverified")} className="w-full py-2 px-3 rounded-xl text-xs font-semibold lanx-btn text-slate-700 dark:text-slate-300">
                   Remove trust
                 </button>
               )}
               {trust === "blocked" ? (
-                <button type="button" onClick={() => onUpdateTrust(peer.id, "unverified")} className="w-full py-2 px-3 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <button type="button" onClick={() => onUpdateTrust(peer.id, "unverified")} className="w-full py-2 px-3 rounded-xl text-xs font-semibold lanx-btn text-slate-700 dark:text-slate-300">
                   Unblock
                 </button>
               ) : (
@@ -469,7 +469,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                 onClick={() => onOpenTransfer(tx.id)}
                 disabled={tx.direction === "incoming" && tx.status !== "completed"}
                 title={tx.status === "completed" ? "Open" : tx.error_reason || ""}
-                className="w-full text-left p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 text-[11px] hover:border-sky-500/40 disabled:hover:border-slate-100 dark:disabled:hover:border-slate-800"
+                className="w-full text-left p-2.5 rounded-xl lanx-group text-[11px] hover:border-sky-500/40 disabled:hover:border-slate-100 dark:disabled:hover:border-slate-800"
               >
                 <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200">
                   <FileIcon name={tx.file_name} className="h-3.5 w-3.5 text-sky-500 shrink-0" />

@@ -50,9 +50,28 @@ pub struct UserSettings {
     /// 0–100
     #[serde(default = "default_volume")]
     pub sound_volume: u32,
-    /// LANX 1.2.4: chat background — "default", a preset name, or "#rrggbb".
+    /// LANX 1.2.4: background — "default", a preset name, or "#rrggbb".
+    /// Since 1.2.5 it colours the whole window, not only the chat.
     #[serde(default = "default_background")]
     pub chat_background: String,
+    /// LANX 1.2.5: accent colour for buttons, bubbles and highlights —
+    /// "default", a preset name, or "#rrggbb".
+    #[serde(default = "default_background")]
+    pub accent_color: String,
+    /// LANX 1.2.5: how see-through the glass panels are, 0 (solid) – 100 (clear).
+    #[serde(default = "default_glass")]
+    pub glass_level: u32,
+    /// LANX 1.2.5: how frosted (blurred) the glass is, 0 (clear) – 100 (heavy frost).
+    #[serde(default = "default_frost")]
+    pub frost_level: u32,
+}
+
+fn default_glass() -> u32 {
+    55
+}
+
+fn default_frost() -> u32 {
+    60
 }
 
 fn default_background() -> String {

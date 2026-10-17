@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import {
   Conversation,
   Message,
@@ -11,6 +11,7 @@ import {
 } from "../types";
 import {
   Send,
+  ArrowUp,
   Paperclip,
   Smile,
   Info,
@@ -91,6 +92,21 @@ function countdown(secs: number): string {
   return `${Math.ceil(secs / 86400)} days`;
 }
 
+/** A callback ref that keeps track of an element's height. */
+function useHeight(initial: number): [(el: HTMLElement | null) => void, number] {
+  const [height, setHeight] = useState(initial);
+  const observer = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: HTMLElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!el) return;
+    setHeight(el.offsetHeight);
+    observer.current = new ResizeObserver(() => setHeight(el.offsetHeight));
+    observer.current.observe(el);
+  }, []);
+  return [ref, height];
+}
+
 function nameColor(id: string): string {
   let h = 0;
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -134,6 +150,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const [, setTick] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [topRef, topH] = useHeight(92);
+  const [bottomRef, bottomH] = useHeight(96);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -171,11 +189,11 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 
   if (!conversation) {
     return (
-      <div className="flex-1 h-full flex flex-col items-center justify-center p-8 bg-slate-50/50 dark:bg-[#080c14] text-center select-none">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-500/10 dark:bg-sky-500/15 text-sky-500 mb-4 shadow-sm lanx-float">
-          <Send className="h-8 w-8" />
+      <div className="flex-1 h-full flex flex-col items-center justify-center p-8 text-center select-none">
+        <div className="flex h-20 w-20 items-center justify-center rounded-[24px] lanx-glass text-sky-500 mb-5 lanx-float">
+          <Send className="h-9 w-9" />
         </div>
-        <h3 className="text-lg font-bold text-slate-800 dark:text-white">No chat selected</h3>
+        <h3 className="text-xl font-semibold tracking-[-0.02em] text-slate-800 dark:text-white">No chat selected</h3>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-sm">
           Pick a colleague on the left, or open Peers to see every computer running LANX on your network.
         </p>
@@ -363,298 +381,293 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   let lastDay = "";
   let lastSender = "";
 
+  const toolCls = "lanx-tool p-2 text-slate-600 dark:text-slate-300 transition-colors disabled:opacity-40";
+
   return (
     <div
       data-hidden-chat={hidden ? "true" : undefined}
-      className={`flex-1 h-full flex flex-col overflow-hidden select-none relative ${
-        hidden ? "bg-violet-50/70 dark:bg-[#0f0b1d] lanx-hidden-bg" : "lanx-chat-bg"
-      } ${shaking ? "lanx-shake" : ""}`}
+      className={`flex-1 h-full relative overflow-hidden select-none ${hidden ? "lanx-hidden-bg" : ""} ${shaking ? "lanx-shake" : ""}`}
     >
-      {/* Header */}
-      <header
-        className={`h-16 px-6 border-b flex items-center justify-between shrink-0 ${
-          hidden
-            ? "border-violet-200 dark:border-violet-900/70 bg-gradient-to-r from-violet-100 via-white to-white dark:from-violet-950/60 dark:via-[#0c111c] dark:to-[#0c111c]"
-            : "border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0c111c]"
-        }`}
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="relative shrink-0">
-            <div
-              className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${
-                hidden ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-violet-100 dark:ring-offset-violet-950" : ""
-              }`}
-              style={{ backgroundColor: conversation.peer_avatar_color }}
-            >
-              {isGroup ? <Users className="h-5 w-5" /> : conversation.peer_name.charAt(0).toUpperCase()}
-            </div>
-            {hidden ? (
-              <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-violet-600 text-white flex items-center justify-center border-2 border-white dark:border-[#0c111c]">
-                <EyeOff className="h-2.5 w-2.5" />
-              </span>
-            ) : (
-              <span
-                className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0c111c] ${
-                  conversation.peer_status === "online" ? "bg-emerald-500" : "bg-slate-400"
-                }`}
-              />
-            )}
-          </div>
+      {/* Top: glass header that the messages scroll underneath */}
+      <div ref={topRef} className="absolute top-0 inset-x-0 z-20">
+        <div className={`lanx-bar border-b lanx-line ${hidden ? "bg-gradient-to-r from-violet-500/20 via-violet-500/5 to-transparent" : ""}`}>
+          <header className="h-16 px-5 flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative shrink-0">
+                <div
+                  className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${
+                    hidden ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-transparent" : ""
+                  }`}
+                  style={{ backgroundColor: conversation.peer_avatar_color }}
+                >
+                  {isGroup ? <Users className="h-5 w-5" /> : conversation.peer_name.charAt(0).toUpperCase()}
+                </div>
+                {hidden ? (
+                  <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-violet-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-[#1c1e24]">
+                    <EyeOff className="h-2.5 w-2.5" />
+                  </span>
+                ) : (
+                  <span
+                    className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-white dark:ring-[#1c1e24] ${
+                      conversation.peer_status === "online" ? "bg-emerald-500" : "bg-slate-400"
+                    }`}
+                  />
+                )}
+              </div>
 
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate min-w-[5rem]" title={conversation.peer_name}>
-                {conversation.peer_name}
-              </h2>
-              {isGroup ? (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[10px] font-semibold border border-indigo-500/20">
-                  <Users className="h-3 w-3" /> {conversation.member_count} members
-                </span>
-              ) : peer?.trust_state === "trusted" ? (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold border border-emerald-500/20">
-                  <Shield className="h-3 w-3" /> Trusted
-                </span>
-              ) : blocked ? (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 text-[10px] font-semibold border border-red-500/20">
-                  <ShieldBan className="h-3 w-3" /> Blocked
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold border border-amber-500/20">
-                  <ShieldAlert className="h-3 w-3" /> Unverified
-                </span>
-              )}
-              {secret && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-300 text-[10px] font-semibold border border-violet-500/20">
-                  <Timer className="h-3 w-3" /> Secret
-                </span>
-              )}
-              {hidden && (
-                <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-semibold shadow-sm shadow-violet-500/30">
-                  <EyeOff className="h-3 w-3" /> Hidden
-                </span>
-              )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-slate-900 dark:text-white truncate min-w-[5rem]" title={conversation.peer_name}>
+                    {conversation.peer_name}
+                  </h2>
+                  {isGroup ? (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[10px] font-semibold">
+                      <Users className="h-3 w-3" /> {conversation.member_count} members
+                    </span>
+                  ) : peer?.trust_state === "trusted" ? (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">
+                      <Shield className="h-3 w-3" /> Trusted
+                    </span>
+                  ) : blocked ? (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 text-[10px] font-semibold">
+                      <ShieldBan className="h-3 w-3" /> Blocked
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
+                      <ShieldAlert className="h-3 w-3" /> Unverified
+                    </span>
+                  )}
+                  {secret && (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-300 text-[10px] font-semibold">
+                      <Timer className="h-3 w-3" /> Secret
+                    </span>
+                  )}
+                  {hidden && (
+                    <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-violet-600 text-white text-[10px] font-semibold shadow-sm shadow-violet-500/30">
+                      <EyeOff className="h-3 w-3" /> Hidden
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-0">
+                  {typingName ? (
+                    <span className="text-sky-600 dark:text-sky-400 font-medium inline-flex items-center gap-1">
+                      {isGroup ? `${typingName} is typing` : "typing"}
+                      <span className="lanx-typing"><i /><i /><i /></span>
+                    </span>
+                  ) : conversation.peer_status === "online" ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">{isGroup ? "Members online" : "Online"}</span>
+                  ) : (
+                    <span className="truncate" title="Messages and files wait and are delivered when they come back online">
+                      Offline · messages will wait
+                    </span>
+                  )}
+                  {!isGroup && (
+                    <>
+                      <span>•</span>
+                      <span className="font-mono text-[11px] text-slate-400">{conversation.peer_ip}</span>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-0">
-              {typingName ? (
-                <span className="text-sky-600 dark:text-sky-400 font-medium inline-flex items-center gap-1">
-                  {isGroup ? `${typingName} is typing` : "typing"}
-                  <span className="lanx-typing"><i /><i /><i /></span>
-                </span>
-              ) : conversation.peer_status === "online" ? (
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium">{isGroup ? "Members online" : "Online"}</span>
-              ) : (
-                <span className="truncate" title="Messages and files wait and are delivered when they come back online">
-                  Offline · messages will wait
-                </span>
-              )}
+
+            <div className="flex items-center gap-0.5 shrink-0">
               {!isGroup && (
                 <>
-                  <span>•</span>
-                  <span className="font-mono text-[11px] text-slate-400">{conversation.peer_ip}</span>
+                  <button
+                    type="button"
+                    onClick={() => onCall(false)}
+                    disabled={blocked}
+                    title={`Voice call ${conversation.peer_name}`}
+                    className={`${toolCls} hover:text-emerald-600`}
+                  >
+                    <Phone className="h-[17px] w-[17px]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onCall(true)}
+                    disabled={blocked}
+                    title={`Video call ${conversation.peer_name}`}
+                    className={`${toolCls} hover:text-emerald-600`}
+                  >
+                    <Video className="h-[17px] w-[17px]" />
+                  </button>
                 </>
               )}
-            </div>
-          </div>
-        </div>
+              <button
+                type="button"
+                onClick={onRing}
+                disabled={blocked || outOfGroup}
+                title={isGroup ? "Ring everyone online in this group" : `Ring ${conversation.peer_name} to get their attention`}
+                className={`${toolCls} hover:text-amber-600`}
+              >
+                <Bell className="h-[17px] w-[17px]" />
+              </button>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {!isGroup && (
-            <>
-              <button
-                type="button"
-                onClick={() => onCall(false)}
-                disabled={blocked}
-                title={`Voice call ${conversation.peer_name}`}
-                className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors disabled:opacity-40"
-              >
-                <Phone className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onCall(true)}
-                disabled={blocked}
-                title={`Video call ${conversation.peer_name}`}
-                className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors disabled:opacity-40"
-              >
-                <Video className="h-4 w-4" />
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={onRing}
-            disabled={blocked || outOfGroup}
-            title={isGroup ? "Ring everyone online in this group" : `Ring ${conversation.peer_name} to get their attention`}
-            className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors disabled:opacity-40"
-          >
-            <Bell className="h-4 w-4" />
-          </button>
+              {!isGroup && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setSecretMenu(!secretMenu)}
+                    disabled={blocked}
+                    title="Secret messages (disappear after reading)"
+                    className={`${toolCls} ${secret ? "!bg-violet-500/15 !text-violet-600 dark:!text-violet-300" : "hover:text-slate-900 dark:hover:text-white"}`}
+                  >
+                    <Timer className="h-[17px] w-[17px]" />
+                  </button>
+                  {secretMenu && (
+                    <div className="absolute right-0 top-11 z-30 w-60 rounded-[14px] lanx-menu p-1.5 lanx-rise">
+                      <div className="px-2.5 py-2 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                        New messages disappear for both of you this long after they are read. Screenshots of LANX are blocked while a secret chat is open.
+                      </div>
+                      {SECRET_TIMERS.map((t) => (
+                        <button
+                          key={t.secs}
+                          type="button"
+                          onClick={() => {
+                            setSecretMenu(false);
+                            onSetSecret(t.secs);
+                          }}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs ${
+                            conversation.secret_ttl === t.secs ? "bg-violet-500/15 text-violet-700 dark:text-violet-300 font-semibold" : "text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]"
+                          }`}
+                        >
+                          {t.label} after reading
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSecretMenu(false);
+                          onSetSecret(0);
+                        }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs ${
+                          !secret ? "bg-[var(--lanx-fill)] font-semibold" : "hover:bg-[var(--lanx-fill)]"
+                        } text-slate-700 dark:text-slate-200`}
+                      >
+                        Off — keep messages
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
-          {!isGroup && (
-            <div className="relative">
               <button
                 type="button"
-                onClick={() => setSecretMenu(!secretMenu)}
-                disabled={blocked}
-                title="Secret messages (disappear after reading)"
-                className={`p-2 rounded-xl transition-colors disabled:opacity-40 ${
-                  secret
-                    ? "bg-violet-500/10 text-violet-600 dark:text-violet-300"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
+                onClick={() => onSetHidden(!hidden)}
+                title={hidden ? "Unhide this chat (back to the normal list)" : "Hide this chat (only shows after your PIN)"}
+                className={`${toolCls} ${hidden ? "!bg-violet-600 !text-white hover:!bg-violet-700" : "hover:text-violet-600"}`}
               >
-                <Timer className="h-4 w-4" />
+                {hidden ? <Eye className="h-[17px] w-[17px]" /> : <EyeOff className="h-[17px] w-[17px]" />}
               </button>
-              {secretMenu && (
-                <div className="absolute right-0 top-11 z-30 w-60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] shadow-xl p-1.5 lanx-rise">
-                  <div className="px-2.5 py-2 text-[11px] text-slate-500 leading-snug">
-                    New messages disappear for both of you this long after they are read. Screenshots of LANX are blocked while a secret chat is open.
-                  </div>
-                  {SECRET_TIMERS.map((t) => (
-                    <button
-                      key={t.secs}
-                      type="button"
-                      onClick={() => {
-                        setSecretMenu(false);
-                        onSetSecret(t.secs);
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs ${
-                        conversation.secret_ttl === t.secs ? "bg-violet-500/10 text-violet-700 dark:text-violet-300 font-semibold" : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-                      }`}
-                    >
-                      {t.label} after reading
-                    </button>
-                  ))}
+
+              {confirmDelete ? (
+                <div className="flex items-center gap-1 rounded-full bg-red-500/10 border border-red-500/20 pl-3 pr-1 py-1 text-[11px]">
+                  <span className="text-red-700 dark:text-red-300 font-medium">Delete this chat?</span>
                   <button
                     type="button"
                     onClick={() => {
-                      setSecretMenu(false);
-                      onSetSecret(0);
+                      setConfirmDelete(false);
+                      onDeleteConversation();
                     }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs ${
-                      !secret ? "bg-slate-100 dark:bg-slate-800 font-semibold" : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                    } text-slate-700 dark:text-slate-200`}
+                    className="px-2.5 py-0.5 rounded-full bg-red-500 text-white font-semibold hover:bg-red-600"
                   >
-                    Off — keep messages
+                    Delete
+                  </button>
+                  <button type="button" onClick={() => setConfirmDelete(false)} className="px-2.5 py-0.5 rounded-full text-slate-600 dark:text-slate-300 hover:bg-[var(--lanx-fill)]">
+                    Keep
                   </button>
                 </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  title="Delete chat history"
+                  className={`${toolCls} hover:text-red-500`}
+                >
+                  <Trash2 className="h-[17px] w-[17px]" />
+                </button>
               )}
-            </div>
-          )}
 
-          <button
-            type="button"
-            onClick={() => onSetHidden(!hidden)}
-            title={hidden ? "Unhide this chat (back to the normal list)" : "Hide this chat (only shows after your PIN)"}
-            className={`p-2 rounded-xl transition-colors ${
-              hidden
-                ? "bg-violet-600 text-white hover:bg-violet-700"
-                : "text-slate-600 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30"
-            }`}
-          >
-            {hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-          </button>
-
-          {confirmDelete ? (
-            <div className="flex items-center gap-1 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 px-2 py-1 text-[11px]">
-              <span className="text-red-700 dark:text-red-300 font-medium">Delete this chat?</span>
               <button
                 type="button"
-                onClick={() => {
-                  setConfirmDelete(false);
-                  onDeleteConversation();
-                }}
-                className="px-2 py-0.5 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600"
+                onClick={onToggleContext}
+                title={isGroup ? "Group details" : "Contact details"}
+                className={`${toolCls} ${isContextOpen ? "!bg-sky-500/15 !text-sky-600 dark:!text-sky-400" : "hover:text-slate-900 dark:hover:text-white"}`}
               >
-                Delete
-              </button>
-              <button type="button" onClick={() => setConfirmDelete(false)} className="px-2 py-0.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800">
-                Keep
+                <Info className="h-[17px] w-[17px]" />
               </button>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              title="Delete chat history"
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
+          </header>
 
-          <button
-            type="button"
-            onClick={onToggleContext}
-            title={isGroup ? "Group details" : "Contact details"}
-            className={`p-2 rounded-xl transition-colors ${
-              isContextOpen
-                ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+          {/* Security strip */}
+          <div
+            className={`px-5 py-1 flex items-center justify-between text-[11px] ${
+              secret ? "bg-violet-500/10 text-violet-700 dark:text-violet-300" : "text-slate-500 dark:text-slate-400"
             }`}
           >
-            <Info className="h-4 w-4" />
-          </button>
+            <div className="flex items-center gap-1.5">
+              {secret ? <Timer className="h-3 w-3" /> : <Lock className="h-3 w-3 text-emerald-500" />}
+              <span>
+                {secret
+                  ? `Secret chat · new messages disappear ${secretLabel(conversation.secret_ttl)} after they're read · screenshots blocked`
+                  : isGroup
+                    ? "End-to-end encrypted · sent directly to each member's computer"
+                    : "End-to-end encrypted · goes straight to their computer, never through the internet"}
+              </span>
+            </div>
+            {!isGroup && <span className="font-mono text-[10px] opacity-70">TCP :{peer?.tcp_port || 52926}</span>}
+          </div>
         </div>
-      </header>
 
-      {/* Security strip */}
-      <div
-        className={`px-6 py-1.5 border-b flex items-center justify-between text-[11px] ${
-          secret
-            ? "bg-violet-50 dark:bg-violet-950/30 border-violet-200/60 dark:border-violet-900/50 text-violet-700 dark:text-violet-300"
-            : "bg-slate-100/60 dark:bg-slate-900/60 border-slate-200/50 dark:border-slate-800/50 text-slate-500 dark:text-slate-400"
-        }`}
-      >
-        <div className="flex items-center gap-1.5">
-          {secret ? <Timer className="h-3 w-3" /> : <Lock className="h-3 w-3 text-emerald-500" />}
-          <span>
-            {secret
-              ? `Secret chat · new messages disappear ${secretLabel(conversation.secret_ttl)} after they're read · screenshots blocked`
-              : isGroup
-                ? "End-to-end encrypted · sent directly to each member's computer"
-                : "End-to-end encrypted · goes straight to their computer, never through the internet"}
-          </span>
-        </div>
-        {!isGroup && <span className="font-mono text-[10px] opacity-70">TCP :{peer?.tcp_port || 52926}</span>}
+        {hidden && (
+          <div className="px-5 py-2 flex items-center gap-3 bg-violet-600/95 backdrop-blur-xl text-white text-[11px] shadow-sm lanx-fade">
+            <EyeOff className="h-4 w-4 shrink-0" />
+            <span className="flex-1 leading-snug">
+              <b>You're in a hidden chat.</b> It isn't in your normal chat list and only shows after your PIN. It hides again when you press
+              “Hide again” or LANX locks.
+            </span>
+            <button
+              type="button"
+              onClick={() => onSetHidden(false)}
+              className="shrink-0 px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 font-semibold"
+            >
+              Unhide chat
+            </button>
+          </div>
+        )}
+
+        {notice && (
+          <div className="mx-6 mt-3 flex items-start gap-2 rounded-2xl border border-amber-300/60 bg-amber-50/90 dark:bg-amber-950/70 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 shadow-lg backdrop-blur-xl lanx-rise">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-px" />
+            <span className="flex-1 whitespace-pre-line">{notice}</span>
+            <button type="button" onClick={onDismissNotice} className="p-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-900/50">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {hidden && (
-        <div className="px-6 py-2 flex items-center gap-3 bg-violet-600 text-white text-[11px] shadow-sm lanx-fade">
-          <EyeOff className="h-4 w-4 shrink-0" />
-          <span className="flex-1 leading-snug">
-            <b>You're in a hidden chat.</b> It isn't in your normal chat list and only shows after your PIN. It hides again when you press
-            “Hide again” or LANX locks.
-          </span>
-          <button
-            type="button"
-            onClick={() => onSetHidden(false)}
-            className="shrink-0 px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 font-semibold"
-          >
-            Unhide chat
-          </button>
-        </div>
-      )}
-
-      {notice && (
-        <div className="mx-6 mt-3 flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 lanx-rise">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-px" />
-          <span className="flex-1 whitespace-pre-line">{notice}</span>
-          <button type="button" onClick={onDismissNotice} className="p-0.5 rounded hover:bg-amber-100 dark:hover:bg-amber-900/50">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3" onClick={() => setSecretMenu(false)}>
+      {/* Messages: run the full height, under the glass header and message box */}
+      <div
+        className="absolute inset-0 overflow-y-auto px-6 space-y-2.5 lanx-under"
+        style={
+          {
+            paddingTop: topH + 14,
+            paddingBottom: bottomH + 14,
+            "--lanx-top": `${topH}px`,
+            "--lanx-bottom": `${bottomH}px`,
+          } as React.CSSProperties
+        }
+        onClick={() => setSecretMenu(false)}
+      >
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-8 text-xs text-slate-400">
-            <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800/80 flex items-center justify-center text-slate-400 mb-3 lanx-float">
+            <div className="h-14 w-14 rounded-full lanx-card flex items-center justify-center text-slate-400 mb-3 lanx-float">
               {isGroup ? <Users className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
             </div>
-            <p className="font-semibold text-slate-700 dark:text-slate-300">Say hello to {conversation.peer_name}</p>
-            <p className="mt-1 text-slate-500 max-w-xs">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Say hello to {conversation.peer_name}</p>
+            <p className="mt-1 text-slate-500 dark:text-slate-400 max-w-xs">
               Messages and files go directly across your office network, encrypted. Drag files here, or paste a screenshot with Ctrl+V.
             </p>
           </div>
@@ -671,7 +684,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 <React.Fragment key={msg.id}>
                   {showDay && <DaySeparator day={day} />}
                   <div className="flex justify-center lanx-fade">
-                    <span className="max-w-md text-center px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400">
+                    <span className="max-w-md text-center px-3 py-1 rounded-full lanx-chip text-[11px] text-slate-500 dark:text-slate-300">
                       {line}
                     </span>
                   </div>
@@ -694,14 +707,14 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>
                   )}
                   <div
-                    className={`relative max-w-lg rounded-2xl px-4 py-2.5 text-xs shadow-sm ${
+                    className={`relative max-w-lg rounded-[18px] px-3.5 py-2 text-[13px] ${
                       isSecret
                         ? isOut
-                          ? "bg-violet-600 text-white rounded-br-sm"
-                          : "bg-violet-50 dark:bg-violet-950/40 text-slate-900 dark:text-slate-100 border border-violet-200 dark:border-violet-900 rounded-bl-sm"
+                          ? "bg-violet-600 text-white rounded-br-[6px] shadow-sm"
+                          : "bg-violet-50 dark:bg-violet-950/60 text-slate-900 dark:text-slate-100 border border-violet-200 dark:border-violet-900 rounded-bl-[6px]"
                         : isOut
-                          ? "bg-sky-500 text-white rounded-br-sm"
-                          : "bg-white dark:bg-[#162032] text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-800 rounded-bl-sm"
+                          ? "bg-sky-500 text-white rounded-br-[6px] shadow-sm shadow-sky-500/20"
+                          : "lanx-bubble-in text-slate-900 dark:text-slate-100 rounded-bl-[6px]"
                     }`}
                   >
                     {groupCopies ? (
@@ -719,8 +732,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     )}
 
                     <div
-                      className={`mt-1 flex items-center justify-end gap-1.5 text-[10px] ${
-                        isOut ? (isSecret ? "text-violet-100/90" : "text-sky-100/80") : "text-slate-400"
+                      className={`mt-0.5 flex items-center justify-end gap-1.5 text-[10px] ${
+                        isOut ? (isSecret ? "text-violet-100/90" : "text-white/75") : "text-slate-400"
                       }`}
                     >
                       {isSecret && (
@@ -738,14 +751,14 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                         type="button"
                         onClick={() => navigator.clipboard.writeText(msg.content).catch(() => {})}
                         title="Copy text"
-                        className={`absolute top-2 ${isOut ? "-left-7" : "-right-7"} opacity-0 group-hover:opacity-100 p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 transition-opacity`}
+                        className={`absolute top-2 ${isOut ? "-left-8" : "-right-8"} opacity-0 group-hover:opacity-100 p-1.5 rounded-full lanx-menu text-slate-500 hover:text-slate-800 dark:hover:text-white transition-opacity`}
                       >
                         <Copy className="h-3 w-3" />
                       </button>
                     )}
                   </div>
                   {isOut && msg.status === "queued" && msg.error_reason && !isFile && !isGroup && (
-                    <span className="mt-0.5 text-[10px] text-slate-400">{msg.error_reason}</span>
+                    <span className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{msg.error_reason}</span>
                   )}
                   {isOut && msg.status === "failed" && msg.error_reason && !isFile && (
                     <span className="mt-0.5 text-[10px] text-red-500">{msg.error_reason}</span>
@@ -757,7 +770,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         )}
         {typingName && (
           <div className="flex items-start lanx-fade">
-            <div className="rounded-2xl rounded-bl-sm bg-white dark:bg-[#162032] border border-slate-200/80 dark:border-slate-800 px-4 py-3 shadow-sm">
+            <div className="rounded-[18px] rounded-bl-[6px] lanx-bubble-in px-4 py-3">
               <span className="lanx-typing lanx-typing-lg"><i /><i /><i /></span>
             </div>
           </div>
@@ -765,106 +778,111 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {showEmojiPicker && (
-        <div className="px-6 py-2 bg-white dark:bg-[#0c111c] border-t border-slate-200/70 dark:border-slate-800/70 flex items-center gap-1.5 overflow-x-auto">
-          {QUICK_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => setInputText((prev) => prev + emoji)}
-              className="h-8 w-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-sm transition-transform active:scale-125"
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Composer */}
+      {/* Bottom: glass message box */}
       <div
-        className={`p-4 border-t ${
-          hidden ? "bg-violet-50 dark:bg-[#140f26] border-violet-200 dark:border-violet-900/70" : "bg-white dark:bg-[#0c111c] border-slate-200 dark:border-slate-800"
-        }`}
+        ref={bottomRef}
+        className={`absolute bottom-0 inset-x-0 z-20 lanx-bar border-t lanx-line ${hidden ? "bg-gradient-to-r from-violet-500/15 to-transparent" : ""}`}
       >
-        {blocked ? (
-          <div className="flex items-center justify-between rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-xs text-red-700 dark:text-red-300">
-            <span>You blocked {conversation.peer_name}. They can't message you or send you files.</span>
-            <button type="button" onClick={onUnblock} className="px-3 py-1 rounded-lg bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900 font-semibold hover:bg-red-100 dark:hover:bg-red-950">
-              Unblock
-            </button>
+        {showEmojiPicker && (
+          <div className="px-5 pt-2 flex items-center gap-1 overflow-x-auto">
+            {QUICK_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => setInputText((prev) => prev + emoji)}
+                className="h-8 w-8 rounded-full hover:bg-[var(--lanx-fill)] flex items-center justify-center text-base transition-transform active:scale-125"
+              >
+                {emoji}
+              </button>
+            ))}
           </div>
-        ) : outOfGroup ? (
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 px-4 py-3 text-xs text-slate-500 text-center">
-            {conversation.membership === "removed" ? "You were removed from this group." : "You left this group."} You can still read the history.
-          </div>
-        ) : (
-          <>
-            <div
-              className={`relative flex items-end gap-2 rounded-2xl border p-2 shadow-inner ${
-                secret || hidden ? "border-violet-300 dark:border-violet-800 bg-violet-50/60 dark:bg-violet-950/20" : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70"
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                title="Emoji"
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-xl transition-colors"
-              >
-                <Smile className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onPickFiles}
-                title="Send files (any size)"
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-xl transition-colors"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onPickFolder}
-                title="Send a whole folder"
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-xl transition-colors"
-              >
-                <FolderUp className="h-4 w-4" />
-              </button>
-
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={inputText}
-                onChange={(e) => {
-                  setInputText(e.target.value);
-                  if (e.target.value.trim()) onTyping();
-                }}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                placeholder={secret ? `Secret message to ${conversation.peer_name}…` : `Message ${conversation.peer_name}…`}
-                className="flex-1 bg-transparent text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none resize-none py-2 leading-relaxed select-text"
-              />
-
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={!inputText.trim()}
-                title="Send (Enter)"
-                className={`p-2.5 rounded-xl text-white shadow-md disabled:opacity-40 disabled:shadow-none transition-all active:scale-90 ${
-                  secret ? "bg-violet-600 hover:bg-violet-700 shadow-violet-500/20" : "bg-sky-500 hover:bg-sky-600 shadow-sky-500/20"
-                }`}
-              >
-                <Send className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 px-1">
-              <span>Enter to send · Shift + Enter for a new line · drag files or folders in · Ctrl+V pastes a screenshot</span>
-              <span>Works without internet</span>
-            </div>
-          </>
         )}
+
+        <div className="px-4 pt-3 pb-2.5">
+          {blocked ? (
+            <div className="flex items-center justify-between rounded-2xl border border-red-200 dark:border-red-900 bg-red-50/90 dark:bg-red-950/40 px-4 py-3 text-xs text-red-700 dark:text-red-300">
+              <span>You blocked {conversation.peer_name}. They can't message you or send you files.</span>
+              <button type="button" onClick={onUnblock} className="px-3 py-1 rounded-full bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900 font-semibold hover:bg-red-100 dark:hover:bg-red-950">
+                Unblock
+              </button>
+            </div>
+          ) : outOfGroup ? (
+            <div className="rounded-2xl lanx-group px-4 py-3 text-xs text-slate-500 dark:text-slate-400 text-center">
+              {conversation.membership === "removed" ? "You were removed from this group." : "You left this group."} You can still read the history.
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  title="Emoji"
+                  className={`lanx-tool p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 ${showEmojiPicker ? "!bg-[var(--lanx-fill)]" : ""}`}
+                >
+                  <Smile className="h-[18px] w-[18px]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onPickFiles}
+                  title="Send files (any size)"
+                  className="lanx-tool p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+                >
+                  <Paperclip className="h-[18px] w-[18px]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onPickFolder}
+                  title="Send a whole folder"
+                  className="lanx-tool p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+                >
+                  <FolderUp className="h-[18px] w-[18px]" />
+                </button>
+
+                <div
+                  className={`flex-1 flex items-end gap-2 rounded-[20px] pl-4 pr-1 py-1 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-sky-500)_30%,transparent)] ${
+                    secret || hidden
+                      ? "bg-violet-500/10 shadow-[inset_0_0_0_1px_rgb(139_92_246/0.35)]"
+                      : "bg-[color-mix(in_srgb,var(--lanx-surface)_70%,transparent)] shadow-[inset_0_0_0_1px_var(--lanx-line)]"
+                  }`}
+                >
+                  <textarea
+                    ref={textareaRef}
+                    rows={1}
+                    value={inputText}
+                    onChange={(e) => {
+                      setInputText(e.target.value);
+                      if (e.target.value.trim()) onTyping();
+                    }}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
+                    placeholder={secret ? `Secret message to ${conversation.peer_name}…` : `Message ${conversation.peer_name}…`}
+                    className="flex-1 bg-transparent text-[13px] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus-visible:outline-none resize-none py-1.5 leading-relaxed select-text"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={!inputText.trim()}
+                    title="Send (Enter)"
+                    className={`mb-0.5 h-7 w-7 shrink-0 flex items-center justify-center rounded-full text-white shadow-sm disabled:opacity-30 disabled:shadow-none transition-all duration-200 active:scale-90 ${
+                      secret ? "bg-violet-600 hover:bg-violet-700" : "bg-sky-500 hover:bg-sky-600"
+                    } ${inputText.trim() ? "scale-100" : "scale-90"}`}
+                  >
+                    <ArrowUp className="h-4 w-4" strokeWidth={2.6} />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 px-1">
+                <span>Enter to send · Shift + Enter for a new line · drag files or folders in · Ctrl+V pastes a screenshot</span>
+                <span>Works without internet</span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {isDraggingFiles && !blocked && !outOfGroup && (
-        <div className="absolute inset-3 z-20 rounded-3xl border-2 border-dashed border-sky-500 bg-sky-500/10 backdrop-blur-[2px] flex flex-col items-center justify-center pointer-events-none lanx-fade">
+        <div className="absolute inset-3 z-30 rounded-[28px] border-2 border-dashed border-sky-500 bg-sky-500/10 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none lanx-fade">
           <CloudUpload className="h-12 w-12 text-sky-500 mb-2 lanx-float" />
           <p className="text-sm font-bold text-sky-700 dark:text-sky-300">Drop to send to {conversation.peer_name}</p>
           <p className="text-xs text-sky-700/70 dark:text-sky-300/70">Any size · encrypted · resumes if interrupted</p>
@@ -875,8 +893,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 };
 
 const DaySeparator: React.FC<{ day: string }> = ({ day }) => (
-  <div className="flex justify-center py-1">
-    <span className="px-2.5 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-800 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+  <div className="flex justify-center py-1.5">
+    <span className="px-2.5 py-0.5 rounded-full lanx-chip text-[10px] font-semibold text-slate-500 dark:text-slate-300">
       {day}
     </span>
   </div>

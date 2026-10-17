@@ -91,7 +91,7 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3">
+      <div className="flex items-center gap-3 rounded-xl lanx-group p-3">
         <ArrowUpCircle className="h-5 w-5 text-sky-500 shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">This PC runs LANX {status.current_version}</div>
@@ -120,7 +120,7 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+      <div className="rounded-xl border lanx-line p-3">
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
             <Users className="h-4 w-4 text-sky-500" /> Everyone's version
@@ -183,7 +183,7 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3">
+      <div className="rounded-xl border lanx-line p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
             <Share2 className="h-4 w-4 text-sky-500" /> Share an update with colleagues
@@ -194,7 +194,7 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
         </div>
         {sharing ? (
           <>
-            <div className="mt-2 flex items-center gap-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 px-3 py-2">
+            <div className="mt-2 flex items-center gap-2.5 rounded-lg lanx-group px-3 py-2">
               <FileCheck2 className="h-4 w-4 text-emerald-600 shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
@@ -219,10 +219,10 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
               Also send it once as a chat file to colleagues on LANX 1.1 or older
             </label>
             <div className="mt-2 flex gap-1.5">
-              <button type="button" disabled={busy} onClick={chooseInstaller} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+              <button type="button" disabled={busy} onClick={chooseInstaller} className="px-2.5 py-1 rounded-lg lanx-btn text-[11px] font-semibold text-slate-700 dark:text-slate-200">
                 Choose another…
               </button>
-              <button type="button" disabled={busy} onClick={() => run(async () => { await api.stopSharingUpdate(); return "Stopped sharing."; })} className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300">
+              <button type="button" disabled={busy} onClick={() => run(async () => { await api.stopSharingUpdate(); return "Stopped sharing."; })} className="px-2.5 py-1 rounded-lg lanx-btn text-[11px] text-slate-600 dark:text-slate-300">
                 Stop sharing
               </button>
             </div>

@@ -40,9 +40,21 @@ pub fn clean_background(v: &str) -> String {
     const PRESETS: [&str; 12] = [
         "default", "sky", "mint", "peach", "lavender", "rose", "sand", "slate", "sunrise", "ocean", "forest", "candy",
     ];
+    clean_choice(v, &PRESETS)
+}
+
+/// An accent colour the UI knows: a preset name or "#rrggbb" (else "default").
+pub fn clean_accent(v: &str) -> String {
+    const PRESETS: [&str; 10] = [
+        "default", "blue", "indigo", "purple", "pink", "red", "orange", "green", "teal", "graphite",
+    ];
+    clean_choice(v, &PRESETS)
+}
+
+fn clean_choice(v: &str, presets: &[&str]) -> String {
     let v = v.trim();
     let hex = v.len() == 7 && v.starts_with('#') && v[1..].chars().all(|c| c.is_ascii_hexdigit());
-    if PRESETS.contains(&v) || hex {
+    if presets.contains(&v) || hex {
         v.to_ascii_lowercase()
     } else {
         "default".to_string()
@@ -342,6 +354,17 @@ impl Database {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(80),
             chat_background: clean_background(map.get("chat_background").map(|s| s.as_str()).unwrap_or("")),
+            accent_color: clean_accent(map.get("accent_color").map(|s| s.as_str()).unwrap_or("")),
+            glass_level: map
+                .get("glass_level")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(55)
+                .min(100),
+            frost_level: map
+                .get("frost_level")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(60)
+                .min(100),
         })
     }
 
@@ -389,6 +412,9 @@ impl Database {
             ("custom_sound_path", settings.custom_sound_path.clone()),
             ("sound_volume", settings.sound_volume.min(100).to_string()),
             ("chat_background", clean_background(&settings.chat_background)),
+            ("accent_color", clean_accent(&settings.accent_color)),
+            ("glass_level", settings.glass_level.min(100).to_string()),
+            ("frost_level", settings.frost_level.min(100).to_string()),
         ];
 
         for (k, v) in pairs {

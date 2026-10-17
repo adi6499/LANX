@@ -36,8 +36,8 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ peers, onDone, o
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl p-6 lanx-rise">
+    <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
+      <div className="w-full max-w-lg rounded-[22px] lanx-sheet p-6 lanx-rise">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <div className="h-9 w-9 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
@@ -48,7 +48,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ peers, onDone, o
               <p className="text-[11px] text-slate-500">Each person gets it in their own private chat. Offline colleagues get it later.</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-[var(--lanx-fill)]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -74,7 +74,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ peers, onDone, o
           onChange={(e) => setText(e.target.value)}
           rows={3}
           placeholder="e.g. Office will be closed tomorrow for maintenance."
-          className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none select-text"
+          className="w-full rounded-xl lanx-field px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none select-text"
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
@@ -87,7 +87,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ peers, onDone, o
                 setError(errorText(err));
               }
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg lanx-btn text-xs text-slate-700 dark:text-slate-300"
           >
             <Paperclip className="h-3.5 w-3.5" /> Attach files
           </button>
@@ -104,7 +104,7 @@ export const BroadcastModal: React.FC<BroadcastModalProps> = ({ peers, onDone, o
 
         {error && <div className="mt-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 px-3 py-2 text-xs text-red-700 dark:text-red-300">{error}</div>}
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl lanx-btn text-xs font-medium text-slate-700 dark:text-slate-200">
             Cancel
           </button>
           <button

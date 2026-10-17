@@ -106,6 +106,9 @@ let mockSettings: UserSettings = {
   custom_sound_path: "",
   sound_volume: 80,
   chat_background: "default",
+  accent_color: "default",
+  glass_level: 55,
+  frost_level: 60,
 };
 
 let mockLock: LockStatus = { pin_set: false, locked: false, hidden_unlocked: false, retry_after_secs: 0 };

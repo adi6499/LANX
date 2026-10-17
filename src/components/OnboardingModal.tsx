@@ -51,8 +51,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden transition-all duration-300">
+    <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
+      <div className="w-full max-w-lg rounded-[22px] lanx-sheet overflow-hidden transition-all duration-300">
         {/* Header bar */}
         <div className="relative px-8 pt-8 pb-4 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-500 dark:bg-sky-500/20 shadow-inner">
@@ -94,7 +94,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="Enter your name or handle..."
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 pl-11 pr-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all"
+                    className="w-full rounded-xl lanx-field pl-11 pr-4 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all"
                   />
                 </div>
                 <p className="mt-1.5 text-xs text-slate-500">
@@ -131,7 +131,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 </div>
               </div>
 
-              <div className="rounded-xl bg-slate-50 dark:bg-slate-900/60 p-4 border border-slate-200/60 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-3">
+              <div className="rounded-xl lanx-group p-4 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-3">
                 <Sparkles className="h-5 w-5 text-sky-500 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-semibold text-slate-900 dark:text-white">
@@ -192,7 +192,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 </div>
               </div>
 
-              <label className="flex items-start gap-3 rounded-xl border border-slate-200 dark:border-slate-800 p-3 text-xs cursor-pointer">
+              <label className="flex items-start gap-3 rounded-xl border lanx-line p-3 text-xs cursor-pointer">
                 <input
                   type="checkbox"
                   checked={launchAtStartup}
@@ -211,7 +211,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setStep(1)}
-                  className="rounded-xl border border-slate-200 dark:border-slate-700 py-3 px-5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="rounded-xl lanx-btn py-3 px-5 text-sm font-medium text-slate-700 dark:text-slate-300 transition-colors"
                 >
                   Back
                 </button>

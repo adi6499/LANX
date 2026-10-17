@@ -80,7 +80,7 @@ export const PinPad: React.FC<PinPadProps> = ({ onSubmit, submitLabel = "Unlock"
             key={d}
             type="button"
             onClick={() => press(d)}
-            className="h-12 w-12 rounded-full bg-white/70 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-lg font-semibold text-slate-800 dark:text-slate-100 hover:bg-sky-50 dark:hover:bg-slate-700 active:scale-90 transition-transform"
+            className="h-12 w-12 rounded-full lanx-card text-lg font-medium text-slate-800 dark:text-slate-100 hover:bg-white/90 dark:hover:bg-white/20 active:scale-90 transition-all"
           >
             {d}
           </button>
@@ -88,7 +88,7 @@ export const PinPad: React.FC<PinPadProps> = ({ onSubmit, submitLabel = "Unlock"
         <button
           type="button"
           onClick={() => setPin((p) => p.slice(0, -1))}
-          className="h-12 w-12 rounded-full flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="h-12 w-12 rounded-full flex items-center justify-center text-slate-500 hover:bg-[var(--lanx-fill)]"
           aria-label="Delete"
         >
           <Delete className="h-5 w-5" />
@@ -96,7 +96,7 @@ export const PinPad: React.FC<PinPadProps> = ({ onSubmit, submitLabel = "Unlock"
         <button
           type="button"
           onClick={() => press("0")}
-          className="h-12 w-12 rounded-full bg-white/70 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-lg font-semibold text-slate-800 dark:text-slate-100 hover:bg-sky-50 dark:hover:bg-slate-700 active:scale-90 transition-transform"
+          className="h-12 w-12 rounded-full lanx-card text-lg font-medium text-slate-800 dark:text-slate-100 hover:bg-white/90 dark:hover:bg-white/20 active:scale-90 transition-all"
         >
           0
         </button>
@@ -130,10 +130,8 @@ interface LockScreenProps {
 export const LockScreen: React.FC<LockScreenProps> = ({ displayName, avatarColor, onUnlock }) => {
   const [showHelp, setShowHelp] = useState(false);
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-gradient-to-br from-sky-100 via-slate-50 to-indigo-100 dark:from-[#0b1324] dark:via-[#080c14] dark:to-[#140f2e]">
-      <div className="lanx-orb lanx-orb-a" />
-      <div className="lanx-orb lanx-orb-b" />
-      <div className="relative flex flex-col items-center lanx-rise">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden lanx-window">
+      <div className="relative flex flex-col items-center rounded-[28px] lanx-glass px-10 pt-8 pb-6 lanx-rise">
         <img src="/lanx-logo.png" alt="" className="h-14 w-14 rounded-2xl shadow-xl shadow-sky-500/30 mb-5" />
         <div
           className="h-16 w-16 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg ring-4 ring-white/60 dark:ring-slate-900/60"
@@ -175,12 +173,12 @@ interface NewPinDialogProps {
 export const NewPinDialog: React.FC<NewPinDialogProps> = ({ title, description, onDone, onClose }) => {
   const [first, setFirst] = useState<string | null>(null);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl p-6 lanx-rise relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
+      <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-6 lanx-rise relative">
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:bg-[var(--lanx-fill)]"
         >
           <X className="h-4 w-4" />
         </button>
@@ -224,12 +222,12 @@ interface PinDialogProps {
 }
 
 export const PinDialog: React.FC<PinDialogProps> = ({ title, description, submitLabel, onSubmit, onClose }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-    <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 shadow-2xl p-6 lanx-rise relative">
+  <div className="fixed inset-0 z-50 flex items-center justify-center lanx-scrim p-4">
+    <div className="w-full max-w-sm rounded-[22px] lanx-sheet p-6 lanx-rise relative">
       <button
         type="button"
         onClick={onClose}
-        className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+        className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:bg-[var(--lanx-fill)]"
       >
         <X className="h-4 w-4" />
       </button>

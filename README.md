@@ -44,6 +44,19 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.2.5: a new look, your colours everywhere
+- **Glass design** — the chat list, details panel, top bars, message box and Settings are now
+  see-through "glass" panels floating over a soft background, like on a Mac or iPhone.
+- **Your background colours the whole app** — Settings → **Appearance** → Background: 11 ready-made
+  colours or pick any colour. The chat list, chats, Peers, Files, History, Settings and the lock screen
+  all follow it, in light and dark mode.
+- **Accent colour** — choose the colour of your message bubbles, buttons and switches (10 colours or any colour).
+- **Glass sliders** — **Transparency** (solid ↔ clear) and **Frost** (clear ↔ frosted), plus one-tap
+  **Solid / Frosted / Crystal**. Everything changes live while you drag. On an older or slower PC,
+  choose **Solid**.
+- Messages scroll softly underneath the frosted top bar and message box; Settings has a Mac-style
+  list with coloured icons and a live preview of your choices.
+
 ### New in 1.2.4: even faster
 - **Compression while sending** — documents, spreadsheets, text, code and database files are squeezed
   on the fly (often 2–5× less data on the network). Photos, videos and zip files are sent as they are.
