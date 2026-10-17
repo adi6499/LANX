@@ -38,6 +38,9 @@ fn new_service(name: &str) -> (NetworkService, tempfile::TempDir) {
     s.display_name = name.to_string();
     s.default_download_dir = dir.path().join("Downloads").to_string_lossy().to_string();
     s.onboarding_completed = true;
+    // Never LANX's real port (a service that isn't serving would advertise
+    // it, and the LANX installed on this PC would be contacted).
+    s.tcp_messaging_port = 9;
     db.save_settings(&s).unwrap();
     (NetworkService::new(db, identity, Events::default()), dir)
 }

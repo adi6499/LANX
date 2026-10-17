@@ -626,6 +626,9 @@ mod tests {
         let identity = DeviceIdentity::load_or_create(&db.conn.lock()).unwrap();
         let mut s = db.get_settings().unwrap();
         s.display_name = name.to_string();
+        // Never advertise LANX's real port: a test peer "seen" on 127.0.0.1
+        // would otherwise be contacted at the LANX installed on this PC.
+        s.tcp_messaging_port = 9;
         db.save_settings(&s).unwrap();
         Arc::new(DiscoveryService::new(NetworkService::new(db, identity, Events::default())))
     }
