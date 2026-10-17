@@ -35,3 +35,11 @@ const isIsland = windowLabel === "island" || location.hash === "#island";
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>{isIsland ? <IslandApp /> : <App />}</React.StrictMode>,
 );
+
+// LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
+// WebView2 folder if a window stays blank).
+if (!isIsland && "__TAURI_INTERNALS__" in window) {
+  requestAnimationFrame(() => {
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("ui_ready")).catch(() => {});
+  });
+}

@@ -297,6 +297,14 @@ const previewOnly = () =>
   Promise.reject("This needs the LANX desktop app — the browser preview cannot open network connections.");
 
 export const api = {
+  /** LANX 1.3.0: say hello to every computer on the local network; returns
+   *  how many colleagues are online a few seconds later. */
+  searchNetwork: async (): Promise<number> => {
+    if (isTauri) return invoke("search_network");
+    await new Promise((r) => setTimeout(r, 1500));
+    return mockPeers.filter((p) => p.status === "online").length;
+  },
+
   /** LANX 1.2.9: colleagues' profiles by device id. */
   getPeerProfiles: async (): Promise<Record<string, Profile>> => {
     if (isTauri) return invoke("get_peer_profiles");

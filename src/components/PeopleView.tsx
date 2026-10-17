@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Peer } from "../types";
-import { errorText } from "../lib/api";
+import { api, errorText } from "../lib/api";
 import { stagger } from "../lib/motion";
 import { Avatar } from "./Avatar";
 import { roleLine, statusLine } from "../lib/profile";
@@ -13,6 +13,7 @@ import {
   ShieldBan,
   MessageSquare,
   Laptop,
+  Radar,
 } from "lucide-react";
 
 function lastSeenText(ts: number): string {
@@ -48,6 +49,21 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
   onUpdateTrust,
 }) => {
   const [filter, setFilter] = useState<"all" | "online" | "trusted">("all");
+  const [searching, setSearching] = useState(false);
+  const [searchNote, setSearchNote] = useState<string | null>(null);
+  const searchNetwork = async () => {
+    setSearching(true);
+    setSearchNote(null);
+    try {
+      const n = await api.searchNetwork();
+      setSearchNote(n === 0 ? "Nobody found. Is LANX open on their PCs, on the same Wi-Fi?" : `${n} ${n === 1 ? "colleague" : "colleagues"} online`);
+    } catch (e) {
+      setSearchNote(errorText(e));
+    } finally {
+      setSearching(false);
+      window.setTimeout(() => setSearchNote(null), 6000);
+    }
+  };
   const [showAddModal, setShowAddModal] = useState(false);
   const [manualIp, setManualIp] = useState("");
   const [manualPort, setManualPort] = useState(52926);
@@ -136,6 +152,18 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
 
           <button
             type="button"
+            onClick={() => void searchNetwork()}
+            disabled={searching}
+            title="Look for every colleague running LANX on this network"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl lanx-btn text-xs font-semibold text-slate-700 dark:text-slate-200 disabled:opacity-70"
+            data-search-network
+          >
+            <Radar className={`h-4 w-4 ${searching ? "animate-spin" : ""}`} />
+            <span>{searching ? "Searching…" : searchNote ?? "Search the network"}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-semibold shadow-md shadow-sky-500/20 transition-all"
           >
@@ -154,8 +182,8 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
               No Peers Found
             </p>
             <p className="mt-1 text-slate-500 max-w-sm">
-              Colleagues running LANX on the same network appear here within a few seconds. If someone is on a
-              different subnet (or the Wi-Fi blocks discovery), use "Connect by IP".
+              Colleagues running LANX on the same network appear here within a few seconds. Press "Search the
+              network" to look again; if someone is on a different network, use "Connect by IP".
             </p>
             <button
               type="button"

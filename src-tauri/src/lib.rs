@@ -8,6 +8,7 @@ pub mod security;
 pub mod sound;
 pub mod storage;
 pub mod testmode;
+pub mod webview_folder;
 
 use commands::AppState;
 use discovery::DiscoveryService;
@@ -22,6 +23,45 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Manager, WindowEvent};
 
 static TRAY_HINT_SHOWN: AtomicBool = AtomicBool::new(false);
+/// LANX 1.3.0: the main window's page has loaded (see webview_folder.rs).
+static UI_READY: AtomicBool = AtomicBool::new(false);
+
+/// The main window's page calls this once it has drawn itself.
+#[tauri::command]
+fn ui_ready(window: tauri::Window) {
+    if window.label() == "main" {
+        UI_READY.store(true, Ordering::SeqCst);
+    }
+}
+
+/// If the window is shown but its page never loads (a blank window), WebView2
+/// can't use its folder: move to a fresh one and restart LANX once.
+fn watch_for_blank_window(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut waited = 0u64;
+        let mut visible_for = 0u64;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            if UI_READY.load(Ordering::SeqCst) {
+                return;
+            }
+            waited += 2;
+            let visible = app
+                .get_webview_window("main")
+                .map(|w| w.is_visible().unwrap_or(false))
+                .unwrap_or(false);
+            visible_for = if visible { visible_for + 2 } else { 0 };
+            if waited >= 40 && visible_for >= 20 {
+                if webview_folder::switch_to_fresh() {
+                    eprintln!("[WebView] the window did not load; restarting with a fresh WebView2 folder");
+                    relaunch(&app);
+                }
+                return;
+            }
+        }
+    });
+}
 
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -150,6 +190,9 @@ fn fatal_startup_error(app: &tauri::App, message: String) -> ! {
 pub fn run() {
     wait_for_previous_instance();
     let profile = testmode::profile();
+    if profile.is_none() || testmode::webview_base().is_some() {
+        webview_folder::choose();
+    }
     let mut builder = tauri::Builder::default();
 
     if profile.is_none() {
@@ -237,6 +280,10 @@ pub fn run() {
                 discovery,
                 identity,
             });
+
+            if profile.is_none() || testmode::webview_base().is_some() {
+                watch_for_blank_window(app.handle());
+            }
 
             if let Err(e) = build_tray(app) {
                 eprintln!("[Tray] Could not create tray icon: {}", e);
@@ -378,8 +425,10 @@ pub fn run() {
             commands::get_lock_status,
             commands::unlock,
             commands::lock_app,
+            ui_ready,
             commands::island_take,
             commands::get_peer_profiles,
+            commands::search_network,
             commands::refresh_peer_profile,
             commands::island_hide,
             commands::island_open,

@@ -44,6 +44,23 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.3.0: everyone sees everyone
+- **More reliable discovery.** Before, LANX found colleagues only by broadcasting on the network, and
+  Wi-Fi routers (and laptops saving power) often lose those broadcasts — so one PC could see another
+  without being seen back. Now every PC also says hello **directly** to each colleague it knows.
+- **Colleagues introduce each other.** Each PC shares where it sees the others; if you can see jines and
+  jines can see Noopur, you and Noopur meet directly — even if the router drops the broadcasts between you.
+- **Network search.** At start-up, and every 2 minutes while someone you know is missing (for example
+  after the router gave their PC a new address), LANX looks for LANX on your local network. Peers has a
+  **Search the network** button to look right away.
+- Less flicker: a colleague counts as offline after 30 seconds without any sign (was 15).
+- Works together with older versions (they are found and introduced too).
+- **No more blank window at start-up.** If LANX couldn't use its WebView2 folder (for example after it
+  was once run as administrator), the window stayed blank unless started as administrator. Now an
+  administrator run uses its own folder, a folder LANX can't write is replaced by a fresh one, and if
+  the window still hasn't loaded after 40 seconds LANX restarts itself once with a fresh folder.
+  Chats and settings are not affected.
+
 ### New in 1.2.9: profiles — photo, status and about me
 - **Avatar** — Settings → Profile: your **photo** (zoom and drag to frame it), a fun **character**
   (🐱 🦊 🐼 🦁 🚀 …) on your colour, or your initials. Colleagues see it in their chat list, chats,

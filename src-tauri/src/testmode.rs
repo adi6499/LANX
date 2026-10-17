@@ -12,6 +12,8 @@
 //!   `Updates\install-dry-run.txt` in the data folder instead of starting it
 //! - `LANX_BACKUP_DELAY=5`   seconds before the first automatic-backup check
 //! - `LANX_RING_SECS=8`      how long a call rings before it counts as missed
+//! - `LANX_WEBVIEW_BASE=dir` pick the WebView2 folder in `dir` the way a normal
+//!   installation picks it in %LOCALAPPDATA% (tests the blank-window fix)
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -57,6 +59,10 @@ pub fn backup_delay_secs() -> u64 {
     var("LANX_BACKUP_DELAY")
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(90)
+}
+
+pub fn webview_base() -> Option<std::path::PathBuf> {
+    var("LANX_WEBVIEW_BASE").map(std::path::PathBuf::from)
 }
 
 /// How long an unanswered call rings (45 s normally).

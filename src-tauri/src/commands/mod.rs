@@ -458,6 +458,23 @@ pub fn unlock(state: State<AppState>, pin: String) -> Result<crate::privacy::Loc
     }
 }
 
+// ------------------------------------------------- discovery (1.3.0)
+
+/// "Search the network" in Peers: says hello to every computer on the local
+/// network and reports how many colleagues are online a few seconds later.
+#[tauri::command]
+pub async fn search_network(state: State<'_, AppState>) -> Result<usize, String> {
+    state.discovery.search();
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    Ok(state
+        .db
+        .list_peers()
+        .map_err(err)?
+        .iter()
+        .filter(|p| p.status == "online")
+        .count())
+}
+
 // ------------------------------------------------- profiles (1.2.9)
 
 /// Colleagues' profiles (avatar, status, about me), by device id.
