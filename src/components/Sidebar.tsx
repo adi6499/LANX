@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Conversation,
   Peer,
@@ -23,11 +23,18 @@ import {
   Timer,
 } from "lucide-react";
 import { stagger } from "../lib/motion";
+import { Avatar } from "./Avatar";
+import { CLEAR_AFTER, EMPTY_PROFILE, STATUS_PRESETS, effective, statusLine, statusPreset } from "../lib/profile";
+import type { Profile } from "../types";
 
 interface SidebarProps {
   settings: UserSettings;
   conversations: Conversation[];
   peers: Peer[];
+  /** LANX 1.2.9: colleagues' profiles (avatars and statuses). */
+  profiles: Record<string, Profile>;
+  /** Quick status from the menu at the bottom. */
+  onSetProfile: (profile: Profile) => void;
   activeConversationId: string | null;
   activeTab: NavTab;
   searchQuery: string;
@@ -67,7 +74,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onBroadcast,
   onLock,
   onToggleHidden,
+  profiles,
+  onSetProfile,
 }) => {
+  const [statusMenu, setStatusMenu] = useState(false);
+  const mine = effective(settings.profile);
+  const myLine = statusLine(mine);
   const onlineCount = peers.filter((p) => p.status === "online").length;
   const totalUnread = conversations.reduce((acc, c) => acc + c.unread_count, 0);
 
@@ -114,14 +126,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Avatar with status dot */}
         <div className="relative shrink-0">
-          <div
-            className={`h-10 w-10 flex items-center justify-center text-white font-bold text-xs shadow-sm ${
-              conv.kind === "group" ? "rounded-[12px]" : "rounded-full"
-            } ${hidden && !isSelected ? "ring-2 ring-violet-400/80" : ""} ${isSelected ? "ring-2 ring-white/70" : ""}`}
-            style={{ backgroundColor: conv.peer_avatar_color }}
+          <Avatar
+            name={conv.peer_name}
+            color={conv.peer_avatar_color}
+            profile={conv.kind === "group" ? null : profiles[conv.peer_id]}
+            size={40}
+            square={conv.kind === "group"}
+            className={`${conv.kind === "group" ? "rounded-[12px]" : "rounded-full"} ${hidden && !isSelected ? "ring-2 ring-violet-400/80" : ""} ${
+              isSelected ? "ring-2 ring-white/70" : ""
+            }`}
           >
-            {conv.kind === "group" ? <Users className="h-4 w-4" /> : conv.peer_name.charAt(0).toUpperCase()}
-          </div>
+            {conv.kind === "group" ? <Users className="h-4 w-4" /> : undefined}
+          </Avatar>
           {hidden ? (
             <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-[#1c1e24]">
               <EyeOff className="h-2 w-2" />
@@ -140,6 +156,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between mb-0.5">
             <span className={`font-semibold text-[13px] tracking-[-0.01em] truncate flex items-center gap-1 ${isSelected ? "text-white" : "text-slate-900 dark:text-white"}`}>
               <span className="truncate">{conv.peer_name}</span>
+              {conv.kind !== "group" && statusPreset(effective(profiles[conv.peer_id])?.status) && (
+                <span className="text-[11px] shrink-0" title={statusLine(profiles[conv.peer_id])?.text} data-row-status>
+                  {statusPreset(effective(profiles[conv.peer_id])?.status)?.emoji}
+                </span>
+              )}
               {conv.is_pinned && <Pin className={`h-3 w-3 shrink-0 ${isSelected ? "text-white fill-white" : "text-amber-500 fill-amber-500"}`} />}
               {conv.secret_ttl > 0 && <Timer className={`h-3 w-3 shrink-0 ${isSelected ? "text-white" : "text-violet-500"}`} aria-label="Secret chat" />}
             </span>
@@ -389,23 +410,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* User Profile Footer */}
-      <div className="px-3 py-2.5 border-t lanx-line flex items-center justify-between">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div
-            className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0"
-            style={{ backgroundColor: settings.avatar_color }}
-          >
-            {settings.display_name.charAt(0).toUpperCase()}
-          </div>
+      <div className="relative px-3 py-2.5 border-t lanx-line flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setStatusMenu((v) => !v)}
+          title="Set your status"
+          className="flex items-center gap-2.5 min-w-0 rounded-[10px] -ml-1 pl-1 pr-2 py-0.5 hover:bg-[var(--lanx-fill)] transition-colors text-left"
+          data-my-status
+        >
+          <Avatar name={settings.display_name} color={settings.avatar_color} profile={mine} size={32} showStatus />
           <div className="min-w-0">
-            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-              {settings.display_name}
-            </div>
-            <div className="text-[10px] text-slate-400 truncate">
-              {settings.hostname}
-            </div>
+            <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{settings.display_name}</div>
+            <div className="text-[10px] text-slate-400 truncate">{myLine ? `${myLine.emoji} ${myLine.text}` : "Set a status"}</div>
           </div>
-        </div>
+        </button>
+        {statusMenu && (
+          <div className="absolute bottom-full left-2 mb-2 z-40 w-64 rounded-[14px] lanx-menu p-1.5 lanx-menu-in origin-bottom-left" data-status-menu>
+            <div className="px-2.5 pt-1.5 pb-1 text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">Your status</div>
+            {STATUS_PRESETS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => {
+                  setStatusMenu(false);
+                  onSetProfile({
+                    ...EMPTY_PROFILE,
+                    ...settings.profile,
+                    status: s.id,
+                    status_text: "",
+                    status_until: s.id === "dnd" ? CLEAR_AFTER.find((c) => c.id === "1h")!.until() : s.id === "lunch" ? CLEAR_AFTER.find((c) => c.id === "1h")!.until() : 0,
+                  });
+                }}
+                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left ${
+                  mine?.status === s.id ? "bg-[var(--lanx-fill)] font-semibold" : "hover:bg-[var(--lanx-fill)]"
+                } text-slate-700 dark:text-slate-200`}
+              >
+                <span className="w-5 text-center">{s.emoji}</span> {s.label}
+                {(s.id === "dnd" || s.id === "lunch") && <span className="ml-auto text-[10px] text-slate-400">1 hour</span>}
+              </button>
+            ))}
+            {mine?.status && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusMenu(false);
+                  onSetProfile({ ...EMPTY_PROFILE, ...settings.profile, status: "", status_text: "", status_until: 0 });
+                }}
+                className="w-full mt-1 border-t lanx-line pt-1.5 px-2.5 py-1.5 rounded-lg text-xs text-left text-slate-500 hover:bg-[var(--lanx-fill)]"
+              >
+                Clear status
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setStatusMenu(false);
+                onOpenSettings();
+              }}
+              className="w-full px-2.5 py-1.5 rounded-lg text-xs text-left text-sky-600 dark:text-sky-400 hover:bg-[var(--lanx-fill)]"
+            >
+              Edit profile…
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-1 shrink-0">
           {settings.pin_enabled && (

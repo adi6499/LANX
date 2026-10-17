@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   UserSettings,
+  Profile,
   Peer,
   Conversation,
   Message,
@@ -111,6 +112,57 @@ let mockSettings: UserSettings = {
   frost_level: 60,
   reduce_motion: false,
   cat_alerts: true,
+  profile: {
+    avatar: "emoji:🦊",
+    photo: "",
+    status: "available",
+    status_text: "",
+    status_until: 0,
+    title: "Operations",
+    department: "Head office",
+    phone: "Ext. 204",
+    email: "preview@company.local",
+    bio: "Happy to help with shipping and stock questions.",
+  },
+};
+
+const mockProfiles: Record<string, Profile> = {
+  "peer-sarah": {
+    avatar: "emoji:🐼",
+    photo: "",
+    status: "meeting",
+    status_text: "Quarter close",
+    status_until: Math.floor(Date.now() / 1000) + 3600,
+    title: "Accountant",
+    department: "Accounts",
+    phone: "Ext. 112",
+    email: "sarah@company.local",
+    bio: "Invoices, payments and the monthly close.",
+  },
+  "peer-marcus": {
+    avatar: "initials",
+    photo: "",
+    status: "road",
+    status_text: "Dolvi site visit",
+    status_until: 0,
+    title: "Store keeper",
+    department: "Stores",
+    phone: "",
+    email: "",
+    bio: "",
+  },
+  "peer-elena": {
+    avatar: "emoji:🌸",
+    photo: "",
+    status: "leave",
+    status_text: "Back on Monday",
+    status_until: 0,
+    title: "Sales lead",
+    department: "Sales",
+    phone: "+91 98 0000 0000",
+    email: "elena@company.local",
+    bio: "",
+  },
 };
 
 let mockLock: LockStatus = { pin_set: false, locked: false, hidden_unlocked: false, retry_after_secs: 0 };
@@ -245,6 +297,18 @@ const previewOnly = () =>
   Promise.reject("This needs the LANX desktop app — the browser preview cannot open network connections.");
 
 export const api = {
+  /** LANX 1.2.9: colleagues' profiles by device id. */
+  getPeerProfiles: async (): Promise<Record<string, Profile>> => {
+    if (isTauri) return invoke("get_peer_profiles");
+    return { ...mockProfiles };
+  },
+
+  refreshPeerProfile: async (peerId: string): Promise<Profile> => {
+    if (isTauri) return invoke("refresh_peer_profile", { peerId });
+    if (mockProfiles[peerId]) return mockProfiles[peerId];
+    throw new Error("No profile");
+  },
+
   getSettings: async (): Promise<UserSettings> => {
     if (isTauri) return invoke("get_settings");
     return { ...mockSettings, pin_enabled: mockLock.pin_set };
@@ -786,6 +850,9 @@ export const events = {
   onLockChanged: (cb: (s: LockStatus) => void) => on<LockStatus>("lanx://lock-changed", cb),
   onOpenPrivacySettings: (cb: () => void) => on<null>("lanx://open-privacy-settings", () => cb()),
   /** LANX 1.2.7: the desktop island was clicked; open that chat. */
+  /** LANX 1.2.9: a colleague's profile arrived or changed. */
+  onPeerProfile: (cb: (p: { peer_id: string; profile: Profile }) => void) =>
+    on<{ peer_id: string; profile: Profile }>("lanx://peer-profile", cb),
   onOpenConversation: (cb: (p: { conversation_id: string }) => void) =>
     on<{ conversation_id: string }>("lanx://open-conversation", cb),
   onUpdateChanged: (cb: () => void) => on<null>("lanx://update-changed", () => cb()),

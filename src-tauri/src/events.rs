@@ -27,6 +27,8 @@ pub struct IslandAlert {
     pub body: String,
     pub conversation_id: Option<String>,
     pub avatar_color: Option<String>,
+    /// LANX 1.2.9: their character ("🐱") or photo (data URL), if any.
+    pub avatar: Option<String>,
     /// Group name, for group messages.
     pub group: Option<String>,
     pub transfer_id: Option<String>,
@@ -150,6 +152,15 @@ impl Events {
         self.emit("lanx://update-changed", ());
     }
 
+    /// The user's status is "Do not disturb" (and hasn't expired).
+    fn do_not_disturb(db: &Database) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        db.get_settings().map(|s| s.profile.effective(now).status == "dnd").unwrap_or(false)
+    }
+
     fn main_window_focused(app: &AppHandle) -> bool {
         app.get_webview_window("main")
             .map(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false))
@@ -182,6 +193,9 @@ impl Events {
     /// taskbar until the user looks.
     pub fn notify(&self, db: &Database, kind: AlertKind, title: &str, body: &str) {
         let Some(app) = &self.app else { return };
+        if Self::do_not_disturb(db) {
+            return; // LANX 1.2.9: "Do not disturb" — no sound, no pop-up
+        }
         let settings = db.get_settings().ok();
         let focused = Self::main_window_focused(app);
         if focused && kind != AlertKind::Ring {
@@ -214,6 +228,9 @@ impl Events {
     /// replaces the Windows notification. Otherwise as `notify`.
     pub fn notify_island(&self, db: &Database, kind: AlertKind, title: &str, body: &str, alert: IslandAlert) {
         let Some(app) = &self.app else { return };
+        if Self::do_not_disturb(db) {
+            return;
+        }
         let notifications = db.get_settings().map(|s| s.notifications_enabled).unwrap_or(true);
         if notifications && !Self::main_window_focused(app) && self.show_island(app, alert) {
             self.play_sound(db, kind);

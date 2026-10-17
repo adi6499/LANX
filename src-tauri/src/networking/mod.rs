@@ -3,6 +3,7 @@ pub mod lanes;
 pub mod extras;
 pub mod folders;
 pub mod groups;
+pub mod profiles;
 pub mod protocol;
 pub mod session;
 pub mod transfer;
@@ -88,6 +89,8 @@ pub struct Inner {
     /// Peers whose outbox is being flushed: id -> "run again when done".
     flushing: Mutex<HashMap<String, bool>>,
     last_failure: Mutex<HashMap<String, Instant>>,
+    /// LANX 1.2.9: last time we asked each colleague for their profile.
+    pub(crate) profile_tries: Mutex<HashMap<String, Instant>>,
     /// "Share LANX update" settings and state (see update.rs).
     pub(crate) update_cfg: Mutex<update::UpdateConfig>,
     pub(crate) updates: Mutex<update::UpdateRuntime>,
@@ -125,6 +128,7 @@ impl NetworkService {
                 bytes_saved: std::sync::atomic::AtomicU64::new(0),
                 flushing: Mutex::new(HashMap::new()),
                 last_failure: Mutex::new(HashMap::new()),
+                profile_tries: Mutex::new(HashMap::new()),
                 update_cfg: Mutex::new(update::UpdateConfig::default()),
                 updates: Mutex::new(update::UpdateRuntime::default()),
             }),
@@ -889,6 +893,9 @@ impl NetworkService {
                 PacketPayload::UpdateOffer(o) => {
                     Some(PacketPayload::FileOfferAck(self.handle_update_offer(&peer, o)))
                 }
+                PacketPayload::ProfileRequest => {
+                    Some(PacketPayload::ProfileReply(self.profile_reply(peer.trust_state == "blocked")))
+                }
                 PacketPayload::Disconnect => break,
                 _ => None,
             };
@@ -991,6 +998,7 @@ impl NetworkService {
             body: body.clone(),
             conversation_id: (!private).then(|| msg.conversation_id.clone()),
             avatar_color: (!private).then(|| peer.avatar_color.clone()),
+            avatar: if private { None } else { self.island_avatar(&peer.id) },
             private,
             ..Default::default()
         };

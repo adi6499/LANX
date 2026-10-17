@@ -293,6 +293,7 @@ impl NetworkService {
             body: if private || conv.kind != "group" { "is ringing you".to_string() } else { format!("is ringing {}", conv.peer_name) },
             conversation_id: (!private).then(|| conv.id.clone()),
             avatar_color: (!private).then(|| peer.avatar_color.clone()),
+            avatar: if private { None } else { self.island_avatar(&peer.id) },
             private,
             ..Default::default()
         };

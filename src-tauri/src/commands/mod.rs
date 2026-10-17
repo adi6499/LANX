@@ -458,6 +458,20 @@ pub fn unlock(state: State<AppState>, pin: String) -> Result<crate::privacy::Loc
     }
 }
 
+// ------------------------------------------------- profiles (1.2.9)
+
+/// Colleagues' profiles (avatar, status, about me), by device id.
+#[tauri::command]
+pub fn get_peer_profiles(state: State<AppState>) -> Result<std::collections::HashMap<String, Profile>, String> {
+    state.db.peer_profiles().map_err(err)
+}
+
+/// Asks a colleague for their profile now (e.g. when their details open).
+#[tauri::command]
+pub async fn refresh_peer_profile(state: State<'_, AppState>, peer_id: String) -> Result<Profile, String> {
+    state.network.fetch_peer_profile(&peer_id).await
+}
+
 // ------------------------------------------------- desktop island (1.2.7)
 
 /// The island window collects the alerts waiting for it.

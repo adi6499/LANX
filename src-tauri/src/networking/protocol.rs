@@ -46,6 +46,17 @@ pub const FEATURES_FAST: &str = "1.2.3";
 /// (`compress` in file requests, compressed data frames).
 pub const FEATURES_COMPRESS: &str = "1.2.4";
 
+/// Oldest app version with profiles (`ProfileRequest` / `ProfileReply`, and
+/// `profile_rev` in discovery beacons).
+pub const FEATURES_PROFILE: &str = "1.2.9";
+
+/// LANX 1.2.9: a colleague's profile, with its fingerprint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileReplyPayload {
+    pub rev: u64,
+    pub profile: crate::storage::models::Profile,
+}
+
 /// A plain "major.minor.patch" version (what LANX installers are named after).
 pub fn valid_version(v: &str) -> bool {
     let parts: Vec<&str> = v.split('.').collect();
@@ -299,6 +310,9 @@ pub enum PacketPayload {
     // LANX 1.2 (only sent to peers reporting app_version >= 1.2.0)
     UpdateOffer(UpdateOfferPayload),
     Call(CallPayload),
+    // LANX 1.2.9 (only sent to peers reporting app_version >= 1.2.9)
+    ProfileRequest,
+    ProfileReply(ProfileReplyPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -385,6 +385,11 @@ impl Database {
                 .min(100),
             reduce_motion: flag("reduce_motion", false),
             cat_alerts: flag("cat_alerts", true),
+            profile: map
+                .get("profile")
+                .and_then(|v| serde_json::from_str::<Profile>(v).ok())
+                .map(|p| p.cleaned())
+                .unwrap_or_default(),
         })
     }
 
@@ -437,6 +442,7 @@ impl Database {
             ("frost_level", settings.frost_level.min(100).to_string()),
             ("reduce_motion", settings.reduce_motion.to_string()),
             ("cat_alerts", settings.cat_alerts.to_string()),
+            ("profile", serde_json::to_string(&settings.profile.cleaned()).unwrap_or_default()),
         ];
 
         for (k, v) in pairs {
@@ -1141,6 +1147,42 @@ impl Database {
         );
         conn.execute(&sql, params![status, reason, finished, now_secs(), transfer_id, now_ms()])?;
         Ok(())
+    }
+
+    // ------------------------------------------------- colleagues' profiles (1.2.9)
+
+    pub fn peer_profile_rev(&self, peer_id: &str) -> Option<u64> {
+        let conn = self.conn.lock();
+        conn.query_row("SELECT rev FROM peer_profiles WHERE peer_id = ?1", params![peer_id], |r| r.get::<_, i64>(0))
+            .ok()
+            .map(|v| v as u64)
+    }
+
+    pub fn set_peer_profile(&self, peer_id: &str, rev: u64, profile: &Profile) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO peer_profiles (peer_id, rev, profile, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            params![peer_id, rev as i64, serde_json::to_string(profile).unwrap_or_default(), now_secs()],
+        )?;
+        Ok(())
+    }
+
+    pub fn peer_profile(&self, peer_id: &str) -> Option<Profile> {
+        let conn = self.conn.lock();
+        conn.query_row("SELECT profile FROM peer_profiles WHERE peer_id = ?1", params![peer_id], |r| r.get::<_, String>(0))
+            .ok()
+            .and_then(|v| serde_json::from_str::<Profile>(&v).ok())
+    }
+
+    /// Every colleague's profile we know, by device id.
+    pub fn peer_profiles(&self) -> Result<std::collections::HashMap<String, Profile>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT peer_id, profile FROM peer_profiles")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        Ok(rows
+            .flatten()
+            .filter_map(|(id, v)| serde_json::from_str::<Profile>(&v).ok().map(|p| (id, p)))
+            .collect())
     }
 
     /// Removes finished transfers from the Files list (the files stay on disk).

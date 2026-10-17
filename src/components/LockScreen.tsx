@@ -1,3 +1,5 @@
+import { Avatar } from "./Avatar";
+import type { Profile } from "../types";
 import React, { useEffect, useRef, useState } from "react";
 import { Lock, Delete, X, KeyRound } from "lucide-react";
 import { errorText } from "../lib/api";
@@ -124,23 +126,25 @@ export const PinPad: React.FC<PinPadProps> = ({ onSubmit, submitLabel = "Unlock"
 interface LockScreenProps {
   displayName: string;
   avatarColor: string;
+  profile?: Profile;
   /** Right PIN: the card zooms away before the app appears. */
   leaving?: boolean;
   onUnlock: (pin: string) => Promise<void>;
 }
 
-export const LockScreen: React.FC<LockScreenProps> = ({ displayName, avatarColor, leaving, onUnlock }) => {
+export const LockScreen: React.FC<LockScreenProps> = ({ displayName, avatarColor, profile, leaving, onUnlock }) => {
   const [showHelp, setShowHelp] = useState(false);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden lanx-window">
       <div className={`relative flex flex-col items-center rounded-[28px] lanx-glass px-10 pt-8 pb-6 ${leaving ? "lanx-unlock-out" : "lanx-sheet-in"}`}>
         <img src="/lanx-logo.png" alt="" className="h-14 w-14 rounded-2xl shadow-xl shadow-sky-500/30 mb-5" />
-        <div
-          className="h-16 w-16 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg ring-4 ring-white/60 dark:ring-slate-900/60"
-          style={{ backgroundColor: avatarColor }}
-        >
-          {displayName.charAt(0).toUpperCase()}
-        </div>
+        <Avatar
+          name={displayName}
+          color={avatarColor}
+          profile={profile}
+          size={64}
+          className="rounded-full ring-4 ring-white/60 dark:ring-slate-900/60 shadow-lg"
+        />
         <h2 className="mt-3 text-lg font-bold text-slate-900 dark:text-white">{displayName}</h2>
         <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-5">
           <Lock className="h-3 w-3" /> LANX is locked — messages still arrive in the background

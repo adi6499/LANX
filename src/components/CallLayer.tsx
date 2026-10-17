@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
-import { CallEvent, CallInfo, Conversation } from "../types";
+import { CallEvent, CallInfo, Conversation, Profile } from "../types";
+import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
 import {
   Phone,
@@ -28,6 +29,7 @@ export interface CallLayerHandle {
 /** What the Dynamic Island shows about the current call. */
 export interface IslandCall {
   status: "starting" | "outgoing" | "incoming" | "connecting" | "active";
+  peerId: string;
   name: string;
   color: string;
   video: boolean;
@@ -40,6 +42,8 @@ interface CallLayerProps {
   onOpenChat: (conversationId: string) => void;
   /** The call changed (null: no call). */
   onIslandChange?: (call: IslandCall | null) => void;
+  /** LANX 1.2.9: colleagues' profiles (for the caller's avatar). */
+  profiles?: Record<string, Profile>;
 }
 
 type Status = "starting" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
@@ -123,7 +127,7 @@ function clock(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError, onOpenChat, onIslandChange }, ref) => {
+export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError, onOpenChat, onIslandChange, profiles = {} }, ref) => {
   const [call, setCall] = useState<CallState | null>(null);
   const [, setTick] = useState(0);
 
@@ -430,6 +434,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     }
     onIslandChange({
       status: call.status,
+      peerId: call.info.peer_id,
       name: call.info.peer_name,
       color: call.info.avatar_color,
       video: call.info.video,
@@ -595,14 +600,24 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const remoteTrack = remoteStreamRef.current.getVideoTracks()[0];
   const showRemoteVideo = (call.remoteVideo || call.remoteScreen) && !!remoteTrack && status === "active";
 
-  const avatar = (size: string, text: string) => (
-    <div
-      className={`${size} rounded-full flex items-center justify-center text-white font-bold shadow-xl`}
-      style={{ backgroundColor: info.avatar_color }}
-    >
-      {info.private ? <Phone className="h-1/3 w-1/3" /> : text}
-    </div>
-  );
+  const avatarPx = (size: string) => (size.includes("h-28") ? 112 : size.includes("h-20") ? 80 : 48);
+  const avatar = (size: string, text: string) =>
+    info.private ? (
+      <div
+        className={`${size} rounded-full flex items-center justify-center text-white font-bold shadow-xl`}
+        style={{ backgroundColor: info.avatar_color }}
+      >
+        <Phone className="h-1/3 w-1/3" />
+      </div>
+    ) : (
+      <Avatar
+        name={text}
+        color={info.avatar_color}
+        profile={profiles[info.peer_id]}
+        size={avatarPx(size)}
+        className={`${size.includes("relative") ? "relative" : ""} shadow-xl rounded-full`}
+      />
+    );
 
   const roundBtn = (
     label: string,

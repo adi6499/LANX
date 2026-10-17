@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import { BackupPanel } from "./BackupPanel";
 import { AppearancePanel } from "./AppearancePanel";
+import { ProfilePanel } from "./ProfilePanel";
+import { Avatar } from "./Avatar";
 import { Origin, revealChange, usePresence } from "../lib/motion";
 
 export type SettingsTab =
@@ -161,7 +163,6 @@ function PinManager({ pinSet, onChanged }: { pinSet: boolean; onChanged: () => v
   );
 }
 
-const AVATAR_COLORS = ["#0284c7", "#6366f1", "#8b5cf6", "#ec4899", "#10b981", "#06b6d4", "#f59e0b", "#ef4444"];
 
 const inputCls =
   "w-full rounded-xl lanx-field px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 select-text";
@@ -397,12 +398,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               />
             )}
             <div className="flex items-center gap-2.5 px-2 pt-1.5 pb-3">
-              <span
-                className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm"
-                style={{ backgroundColor: form.avatar_color }}
-              >
-                {form.display_name.charAt(0).toUpperCase()}
-              </span>
+              <Avatar name={form.display_name} color={form.avatar_color} profile={form.profile} size={32} />
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold text-slate-900 dark:text-white truncate">{form.display_name}</span>
                 <span className="block text-[10px] text-slate-500 dark:text-slate-400">Settings</span>
@@ -443,53 +439,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div key={activeTab} className="flex-1 overflow-y-auto px-6 py-5 space-y-4 lanx-tab-in">
             {activeTab === "profile" && (
-              <>
-                <div>
-                  <label className={labelCls}>Your name (what colleagues see)</label>
-                  <input
-                    type="text"
-                    value={form.display_name}
-                    maxLength={60}
-                    onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-                    className={inputCls}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>Avatar colour</label>
-                  <div className="flex items-center gap-2">
-                    {AVATAR_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setForm({ ...form, avatar_color: c })}
-                        className={`h-7 w-7 rounded-full transition-transform ${
-                          form.avatar_color === c
-                            ? "ring-2 ring-offset-2 ring-sky-500 scale-110 dark:ring-offset-slate-900"
-                            : "opacity-80 hover:opacity-100"
-                        }`}
-                        style={{ backgroundColor: c }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className={labelCls}>Computer name</label>
-                  <input type="text" readOnly value={form.hostname} className={`${inputCls} text-slate-500 dark:text-slate-400`} />
-                </div>
-                <div>
-                  <label className={labelCls}>Device ID</label>
-                  <div className="flex items-center gap-2">
-                    <input type="text" readOnly value={form.device_id} className={`${inputCls} font-mono text-slate-500 dark:text-slate-400`} />
-                    <button
-                      type="button"
-                      onClick={() => copy("id", form.device_id)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl lanx-btn text-xs text-slate-700 dark:text-slate-300"
-                    >
-                      {copied === "id" ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                </div>
-              </>
+              <ProfilePanel form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} copied={copied} onCopy={copy} />
             )}
 
             {activeTab === "general" && (

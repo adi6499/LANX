@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Bell, Check, ExternalLink, Folder, Phone, PhoneOff, Video, X } from "lucide-react";
-import { TransferActions, TransferProgress, TransferRecord } from "../types";
+import { Profile, TransferActions, TransferProgress, TransferRecord } from "../types";
+import { Avatar } from "./Avatar";
 import { formatEta, formatSize, formatSpeed, transferTiming } from "../lib/format";
 import { FileIcon, displayName, isFolderTransfer } from "./FileCard";
 import { CatMood, DeliveryCat } from "./DeliveryCat";
@@ -10,6 +11,8 @@ import type { IslandCall } from "./CallLayer";
 export interface IslandMessage {
   id: string;
   conversationId: string;
+  /** The sender, for their avatar. */
+  peerId?: string | null;
   from: string;
   color: string;
   /** Already made private where needed ("🔒 Secret message"). */
@@ -21,6 +24,7 @@ export interface IslandMessage {
 /** Someone rang (or you rang someone). */
 export interface IslandRing {
   id: string;
+  peerId?: string | null;
   name: string;
   color: string;
   conversationId?: string | null;
@@ -40,6 +44,8 @@ interface DynamicIslandProps {
   actions: TransferActions;
   /** Settings → Appearance → Delivery cat. */
   catEnabled: boolean;
+  /** LANX 1.2.9: colleagues' profiles (for their avatars). */
+  profiles?: Record<string, Profile>;
   onOpenChat: (conversationId: string) => void;
 }
 
@@ -108,6 +114,7 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
   actions,
   catEnabled,
   onOpenChat,
+  profiles = {},
 }) => {
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [expanded, setExpanded] = useState(false);
@@ -324,12 +331,13 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
         <div className="flex items-center gap-3 min-w-0">
           <span className="relative h-11 w-11 shrink-0">
             <span className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
-            <span
-              className="relative h-11 w-11 rounded-full flex items-center justify-center text-white text-[15px] font-bold ring-2 ring-white/20"
-              style={{ backgroundColor: call.private && incoming ? "#64748b" : call.color }}
-            >
-              {callName.charAt(0).toUpperCase()}
-            </span>
+            <Avatar
+              name={callName}
+              color={call.private && incoming ? "#64748b" : call.color}
+              profile={call.private ? null : call.peerId ? profiles[call.peerId] : null}
+              size={44}
+              className="relative ring-2 ring-white/20 rounded-full"
+            />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-[13px] font-semibold truncate">{callName}</span>
@@ -397,8 +405,11 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
   } else if (mode === "ring" && ring) {
     content = (
       <div className="flex h-full items-center gap-3 px-3.5">
-        <span className="h-10 w-10 shrink-0 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center lanx-bell">
-          <Bell className="h-5 w-5 text-amber-950" />
+        <span className="relative shrink-0">
+          <Avatar name={ring.name} color={ring.color} profile={ring.peerId ? profiles[ring.peerId] : null} size={40} />
+          <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center lanx-bell ring-2 ring-black">
+            <Bell className="h-3 w-3 text-amber-950" />
+          </span>
         </span>
         <button
           type="button"
@@ -418,12 +429,13 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
   } else if (mode === "message" && message) {
     content = (
       <div className="flex h-full items-center gap-3 px-3.5">
-        <span
-          className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-white text-[15px] font-bold shadow-inner ring-2 ring-white/15"
-          style={{ backgroundColor: message.color }}
-        >
-          {message.from.charAt(0).toUpperCase()}
-        </span>
+        <Avatar
+          name={message.from}
+          color={message.color}
+          profile={message.peerId ? profiles[message.peerId] : null}
+          size={44}
+          className="ring-2 ring-white/15 rounded-full"
+        />
         <button type="button" onClick={() => openMessage(message)} className="min-w-0 flex-1 text-left" title="Open the chat">
           <span className="block text-[12.5px] font-semibold truncate">
             {message.from}
@@ -524,7 +536,7 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
 
   return (
     <div
-      className={`fixed top-[98px] left-1/2 ${mode === "call" || mode === "callActive" ? "z-[75]" : "z-[65]"} -translate-x-1/2 flex flex-col items-center pointer-events-none`}
+      className={`fixed top-[98px] left-1/2 ${mode === "call" || mode === "callActive" ? "z-[75]" : "z-[45]"} -translate-x-1/2 flex flex-col items-center pointer-events-none`}
       data-island={mode}
     >
       <div

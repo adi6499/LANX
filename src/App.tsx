@@ -12,6 +12,7 @@ import {
   TrustState,
   LockStatus,
   UpdateStatus,
+  Profile,
 } from "./types";
 import { api, events, errorText, isTauri } from "./lib/api";
 import { applyAppearance } from "./lib/background";
@@ -30,6 +31,7 @@ import { BroadcastModal } from "./components/BroadcastModal";
 import { WelcomeTour } from "./components/WelcomeTour";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { DynamicIsland, IslandMessage, IslandRing } from "./components/DynamicIsland";
+import { effective } from "./lib/profile";
 import type { IslandCall } from "./components/CallLayer";
 import { CallLayer, CallLayerHandle } from "./components/CallLayer";
 import { AlertCircle, X } from "lucide-react";
@@ -118,6 +120,12 @@ export default function App() {
   const [islandCall, setIslandCall] = useState<IslandCall | null>(null);
   const conversationsRef = useRef<Conversation[]>([]);
   conversationsRef.current = conversations;
+  /** LANX 1.2.9: colleagues' profiles (avatar, status, about me) by device id. */
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  /** Your status is "Do not disturb": no sounds or pop-ups in LANX either. */
+  const dnd = effective(settings?.profile)?.status === "dnd";
+  const dndRef = useRef(false);
+  dndRef.current = dnd;
   const peersRef = useRef<Peer[]>([]);
   peersRef.current = peers;
   const hiddenUnlockedRef = useRef(false);
@@ -170,6 +178,7 @@ export default function App() {
     if (lockedRef.current) return [];
     loadUpdateStatus();
     const [p, c, t] = await Promise.all([api.listPeers(), api.getConversations(), api.listTransfers()]);
+    api.getPeerProfiles().then(setProfiles).catch(() => {});
     setPeers(p);
     setConversations(c);
     setTransfers(t);
@@ -298,6 +307,12 @@ export default function App() {
       p.then((u) => (disposed ? u() : unlisteners.push(u))).catch(console.error);
 
     add(
+      events.onPeerProfile(({ peer_id, profile }) => {
+        setProfiles((prev) => ({ ...prev, [peer_id]: profile }));
+      })
+    );
+
+    add(
       events.onOpenConversation(({ conversation_id }) => {
         if (lockedRef.current) return;
         setActiveConversationId(conversation_id);
@@ -377,14 +392,15 @@ export default function App() {
           // LANX is in front but this chat isn't open: a soft sound, and the
           // message (with the cat) in the Dynamic Island. Hidden chats stay
           // out of sight unless they are shown.
-          api.playSound().catch(() => {});
+          if (!dndRef.current) api.playSound().catch(() => {});
           // (Files have their own island card: Accept / progress / done.)
-          if (message.message_type === "text" && conversation && (!conversation.is_hidden || hiddenUnlockedRef.current)) {
+          if (!dndRef.current && message.message_type === "text" && conversation && (!conversation.is_hidden || hiddenUnlockedRef.current)) {
             const group = conversation.kind === "group";
             const sender = group ? peersRef.current.find((p) => p.id === message.sender_id) : null;
             setIslandMsg({
               id: message.id,
               conversationId: message.conversation_id,
+              peerId: group ? message.sender_id : conversation.peer_id,
               from: group ? sender?.display_name ?? "Someone" : conversation.peer_name,
               color: group ? sender?.avatar_color ?? conversation.peer_avatar_color : conversation.peer_avatar_color,
               text: message.ttl_secs ? "🔒 Secret message" : message.content,
@@ -434,12 +450,13 @@ export default function App() {
     add(
       events.onRing(({ conversation_id, peer_name }) => {
         if (conversation_id === activeConversationIdRef.current) setRingPulse((n) => n + 1);
-        if (lockedRef.current) return;
+        if (lockedRef.current || dndRef.current) return;
         // The cat rings a bell in the Dynamic Island (hidden chats stay out of sight).
         const conv = conversationsRef.current.find((c) => c.id === conversation_id);
         if (conv?.is_hidden && !hiddenUnlockedRef.current) return;
         setIslandRing({
           id: `ring-${Date.now()}`,
+          peerId: conv?.peer_id || null,
           name: peer_name || conv?.peer_name || "Someone",
           color: conv?.peer_avatar_color ?? "#f59e0b",
           conversationId: conversation_id,
@@ -676,6 +693,7 @@ export default function App() {
       if (conv) {
         setIslandRing({
           id: `ring-out-${Date.now()}`,
+          peerId: conv.peer_id || null,
           name: conv.peer_name,
           color: conv.peer_avatar_color,
           conversationId: conv.id,
@@ -853,6 +871,7 @@ export default function App() {
       ref={callRef}
       onError={(text) => setNotice(text)}
       onIslandChange={setIslandCall}
+      profiles={profiles}
       onOpenChat={(id) => {
         if (lockedRef.current) return;
         setActiveConversationId(id);
@@ -868,6 +887,7 @@ export default function App() {
         <LockScreen
           displayName={settings.display_name}
           avatarColor={settings.avatar_color}
+          profile={settings.profile}
           leaving={unlocking}
           onUnlock={async (pin) => {
             unlockingRef.current = true;
@@ -900,6 +920,12 @@ export default function App() {
         settings={settings}
         conversations={conversations}
         peers={peers}
+        profiles={profiles}
+        onSetProfile={(profile) => {
+          const updated = { ...settings, profile };
+          setSettings(updated);
+          api.saveSettings(updated).then(setSettings).catch(showError);
+        }}
         activeConversationId={activeConversationId}
         activeTab={activeTab}
         searchQuery={searchQuery}
@@ -939,6 +965,7 @@ export default function App() {
           <ConversationPanel
             conversation={activeConversation}
             peer={activePeer}
+            peerProfile={activePeer ? profiles[activePeer.id] ?? null : null}
             peers={peers}
             messages={messages}
             transfers={transfersById}
@@ -970,6 +997,7 @@ export default function App() {
         {activeTab === "people" && (
           <PeopleView
             peers={peers}
+            profiles={profiles}
             versions={peerVersions}
             latestVersion={updateStatus?.latest_version ?? null}
             searchQuery={searchQuery}
@@ -1020,6 +1048,7 @@ export default function App() {
           closing={contextPresence.closing}
           conversation={activeConversation}
           peer={activePeer}
+          profiles={profiles}
           peers={peers}
           transfers={transfers}
           pinEnabled={settings.pin_enabled}
@@ -1046,7 +1075,8 @@ export default function App() {
         }}
         progress={progress}
         actions={transferActions}
-        catEnabled={settings.cat_alerts}
+        catEnabled={settings.cat_alerts && !dnd}
+        profiles={profiles}
         onOpenChat={(id) => {
           setActiveConversationId(id);
           setActiveTab("messages");

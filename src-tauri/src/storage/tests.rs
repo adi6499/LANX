@@ -255,3 +255,44 @@ fn appearance_settings_round_trip_and_are_cleaned() {
     db.save_settings(&s).unwrap();
     assert_eq!(db.get_settings().unwrap().accent_color, "purple");
 }
+
+#[test]
+fn profiles_are_cleaned_expire_and_round_trip() {
+    use crate::storage::models::Profile;
+    let p = Profile {
+        avatar: "photo".into(),
+        photo: "javascript:alert(1)".into(),
+        status: "partying".into(),
+        status_text: "x".repeat(200),
+        title: "  Accounts Manager  ".into(),
+        email: "a@b.c\u{7}".into(),
+        ..Default::default()
+    }
+    .cleaned();
+    assert_eq!(p.avatar, "initials", "a bad photo is dropped");
+    assert!(p.photo.is_empty());
+    assert_eq!(p.status, "", "unknown status dropped");
+    assert_eq!(p.status_text.chars().count(), 80);
+    assert_eq!(p.title, "Accounts Manager");
+    assert_eq!(p.email, "a@b.c", "control characters removed");
+    assert_eq!(Profile { avatar: "emoji:🐱".into(), ..Default::default() }.cleaned().avatar, "emoji:🐱");
+    assert_eq!(Profile { avatar: "emoji:<b>".into(), ..Default::default() }.cleaned().avatar, "initials");
+    let good = Profile { avatar: "photo".into(), photo: "data:image/webp;base64,UklGRg==".into(), ..Default::default() }.cleaned();
+    assert_eq!(good.avatar, "photo");
+
+    let busy = Profile { status: "meeting".into(), status_text: "Budget".into(), status_until: 100, ..Default::default() };
+    assert_eq!(busy.effective(99).status, "meeting");
+    let later = busy.effective(100);
+    assert!(later.status.is_empty() && later.status_text.is_empty(), "expired status clears");
+    assert_ne!(busy.effective(99).rev(), later.rev(), "fingerprint changes with what colleagues see");
+
+    let db = Database::new_in_memory().unwrap();
+    let mut s = db.get_settings().unwrap();
+    s.profile = Profile { avatar: "emoji:🦊".into(), status: "dnd".into(), title: "Stores".into(), ..Default::default() };
+    db.save_settings(&s).unwrap();
+    let back = db.get_settings().unwrap().profile;
+    assert_eq!((back.avatar.as_str(), back.status.as_str(), back.title.as_str()), ("emoji:🦊", "dnd", "Stores"));
+    db.set_peer_profile("peer-1", 42, &back).unwrap();
+    assert_eq!(db.peer_profile_rev("peer-1"), Some(42));
+    assert_eq!(db.peer_profiles().unwrap().get("peer-1"), Some(&back));
+}

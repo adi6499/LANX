@@ -38,6 +38,26 @@ export interface UserSettings {
   reduce_motion: boolean;
   /** The cartoon cat that asks you to accept incoming files. */
   cat_alerts: boolean;
+  /** LANX 1.2.9: avatar, status and "about me" (what colleagues see). */
+  profile: Profile;
+}
+
+/** LANX 1.2.9: what colleagues see besides the name and colour. */
+export interface Profile {
+  /** "initials", "emoji:<character>" or "photo". */
+  avatar: string;
+  /** data:image/...;base64 when avatar is "photo". */
+  photo: string;
+  /** "" | "available" | "busy" | "meeting" | "lunch" | "wfh" | "road" | "leave" | "dnd" */
+  status: string;
+  status_text: string;
+  /** Unix seconds when the status clears itself (0 = never). */
+  status_until: number;
+  title: string;
+  department: string;
+  phone: string;
+  email: string;
+  bio: string;
 }
 
 export type TrustState = "unverified" | "trusted" | "blocked";

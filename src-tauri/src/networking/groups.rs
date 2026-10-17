@@ -594,6 +594,7 @@ impl NetworkService {
                 body: crate::storage::preview_text(&msg.content),
                 conversation_id: Some(gid.clone()),
                 avatar_color: Some(sender.avatar_color.clone()),
+                avatar: self.island_avatar(&sender.id),
                 group: Some(g.name.clone()),
                 ..Default::default()
             }

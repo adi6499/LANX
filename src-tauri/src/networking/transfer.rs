@@ -784,6 +784,7 @@ impl NetworkService {
             body: if private { body.clone() } else { name.clone() },
             conversation_id: (!private).then(|| msg.conversation_id.clone()),
             avatar_color: (!private).then(|| peer.avatar_color.clone()),
+            avatar: if private { None } else { self.island_avatar(&peer.id) },
             transfer_id: (!private).then(|| msg.transfer_id.clone()).flatten(),
             file_name: (!private).then(|| name.clone()),
             file_size: Some(o.file_size as i64),

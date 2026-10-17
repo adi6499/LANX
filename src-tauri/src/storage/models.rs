@@ -70,7 +70,106 @@ pub struct UserSettings {
     /// LANX 1.2.7: the cartoon cat that asks you to accept incoming files.
     #[serde(default = "default_true")]
     pub cat_alerts: bool,
+    /// LANX 1.2.9: avatar, status and "about me" (what colleagues see).
+    #[serde(default)]
+    pub profile: Profile,
 }
+
+/// LANX 1.2.9: what colleagues see about you besides your name and colour.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Profile {
+    /// "initials" (default), "emoji:<character>", or "photo".
+    #[serde(default)]
+    pub avatar: String,
+    /// The picture when avatar == "photo": a small data:image/...;base64 URL.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub photo: String,
+    /// "" | "available" | "busy" | "meeting" | "lunch" | "wfh" | "road" | "leave" | "dnd"
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub status_text: String,
+    /// Unix seconds when the status clears itself (0 = never).
+    #[serde(default)]
+    pub status_until: i64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub department: String,
+    #[serde(default)]
+    pub phone: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub bio: String,
+}
+
+pub const STATUS_PRESETS: [&str; 8] = ["available", "busy", "meeting", "lunch", "wfh", "road", "leave", "dnd"];
+
+/// Largest photo (as a data URL) — keeps a profile well inside one packet.
+pub const MAX_PHOTO_LEN: usize = 48_000;
+
+impl Profile {
+    /// Keeps only what LANX knows how to show, within sensible lengths
+    /// (used for our own profile and for anything a colleague sends).
+    pub fn cleaned(&self) -> Profile {
+        fn cut(s: &str, n: usize) -> String {
+            s.trim().chars().filter(|c| !c.is_control()).take(n).collect()
+        }
+        let photo_ok = self.photo.len() <= MAX_PHOTO_LEN
+            && ["data:image/webp;base64,", "data:image/jpeg;base64,", "data:image/png;base64,"]
+                .iter()
+                .any(|p| self.photo.starts_with(p))
+            && self
+                .photo
+                .split_once(',')
+                .is_some_and(|(_, b)| !b.is_empty() && b.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'='));
+        let avatar = if self.avatar == "photo" && photo_ok {
+            "photo".to_string()
+        } else if let Some(e) = self.avatar.strip_prefix("emoji:") {
+            let e = cut(e, 8);
+            if e.is_empty() || e.chars().any(|c| c.is_ascii_alphanumeric()) {
+                "initials".to_string()
+            } else {
+                format!("emoji:{e}")
+            }
+        } else {
+            "initials".to_string()
+        };
+        let status = if STATUS_PRESETS.contains(&self.status.as_str()) { self.status.clone() } else { String::new() };
+        Profile {
+            photo: if avatar == "photo" { self.photo.clone() } else { String::new() },
+            avatar,
+            status_text: if status.is_empty() && self.status_text.trim().is_empty() { String::new() } else { cut(&self.status_text, 80) },
+            status,
+            status_until: self.status_until.max(0),
+            title: cut(&self.title, 60),
+            department: cut(&self.department, 60),
+            phone: cut(&self.phone, 30),
+            email: cut(&self.email, 80),
+            bio: cut(&self.bio, 160),
+        }
+    }
+
+    /// The profile with an expired status cleared.
+    pub fn effective(&self, now: i64) -> Profile {
+        let mut p = self.cleaned();
+        if p.status_until > 0 && now >= p.status_until {
+            p.status.clear();
+            p.status_text.clear();
+            p.status_until = 0;
+        }
+        p
+    }
+
+    /// Short fingerprint: when it changes, colleagues fetch the profile again.
+    pub fn rev(&self) -> u64 {
+        use sha2::{Digest, Sha256};
+        let d = Sha256::digest(serde_json::to_vec(self).unwrap_or_default());
+        u64::from_le_bytes(d[..8].try_into().unwrap_or([0; 8]))
+    }
+}
+
 
 fn default_glass() -> u32 {
     55

@@ -44,6 +44,19 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.2.9: profiles — photo, status and about me
+- **Avatar** — Settings → Profile: your **photo** (zoom and drag to frame it), a fun **character**
+  (🐱 🦊 🐼 🦁 🚀 …) on your colour, or your initials. Colleagues see it in their chat list, chats,
+  Peers, calls and the Dynamic Island.
+- **Status** — Available, Busy, In a meeting, At lunch, Working from home, On the road, On leave or
+  Do not disturb, plus your own words ("At Dolvi site till 4 pm"), clearing itself after 30 min,
+  1 h, 4 h, today or this week. Click your name at the bottom of the chat list to change it quickly.
+- **About me** — job title, department, phone/extension, email and a line about you, shown in your
+  contact details (with copy buttons).
+- **🌙 Do not disturb** — no sounds, pop-ups or cat while it's on; messages still arrive.
+- A small copy of the photo travels only to colleagues on your network, and only when it changes.
+  Colleagues on older versions keep seeing your initials until they update.
+
 ### New in 1.2.8: the cat rings bells and answers calls
 - **Rings 🔔** — when someone rings you, the Dynamic Island opens and the cat rings a little bell
   (also on the desktop when LANX is hidden, instead of the Windows pop-up). When you ring someone,

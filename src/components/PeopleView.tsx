@@ -2,6 +2,9 @@ import React, { useState } from "react";
 import { Peer } from "../types";
 import { errorText } from "../lib/api";
 import { stagger } from "../lib/motion";
+import { Avatar } from "./Avatar";
+import { roleLine, statusLine } from "../lib/profile";
+import type { Profile } from "../types";
 import {
   Users,
   Plus,
@@ -23,6 +26,8 @@ function lastSeenText(ts: number): string {
 
 interface PeopleViewProps {
   peers: Peer[];
+  /** LANX 1.2.9: colleagues' profiles. */
+  profiles?: Record<string, Profile>;
   /** LANX version each colleague last reported, and whether it is behind. */
   versions: Record<string, { version?: string | null; behind: boolean }>;
   latestVersion: string | null;
@@ -34,6 +39,7 @@ interface PeopleViewProps {
 
 export const PeopleView: React.FC<PeopleViewProps> = ({
   peers,
+  profiles = {},
   versions,
   latestVersion,
   searchQuery,
@@ -175,12 +181,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                   <div>
                     <div className="flex items-start justify-between mb-3">
                       <div className="relative">
-                        <div
-                          className="h-12 w-12 rounded-full flex items-center justify-center text-white font-bold text-base shadow-sm"
-                          style={{ backgroundColor: peer.avatar_color }}
-                        >
-                          {peer.display_name.charAt(0).toUpperCase()}
-                        </div>
+                        <Avatar name={peer.display_name} color={peer.avatar_color} profile={profiles[peer.id]} size={48} />
                         <span
                           className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-[#111827] ${
                             isOnline ? "bg-emerald-500 online-pulse" : "bg-slate-400"
@@ -211,6 +212,14 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
                     <h4 className="text-sm font-bold text-slate-900 dark:text-white">
                       {peer.display_name}
                     </h4>
+                    {roleLine(profiles[peer.id]) && (
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mt-0.5 truncate">{roleLine(profiles[peer.id])}</p>
+                    )}
+                    {statusLine(profiles[peer.id]) && (
+                      <p className="mt-1 text-[11px] font-semibold truncate" style={{ color: statusLine(profiles[peer.id])!.color }} data-card-status>
+                        {statusLine(profiles[peer.id])!.emoji} {statusLine(profiles[peer.id])!.text}
+                      </p>
+                    )}
                     <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                       <Laptop className="h-3.5 w-3.5" />
                       <span>{peer.hostname || "LAN Workstation"}</span>

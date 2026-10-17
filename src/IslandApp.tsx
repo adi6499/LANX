@@ -13,6 +13,8 @@ import { setMotion } from "./lib/motion";
 import { formatSize } from "./lib/format";
 import { FileIcon } from "./components/FileCard";
 import { CatMood, DeliveryCat } from "./components/DeliveryCat";
+import { Avatar } from "./components/Avatar";
+import { EMPTY_PROFILE } from "./lib/profile";
 
 interface IslandAlert {
   id: string;
@@ -21,6 +23,8 @@ interface IslandAlert {
   body: string;
   conversation_id?: string | null;
   avatar_color?: string | null;
+  /** LANX 1.2.9: their character ("🐱") or photo (data URL). */
+  avatar?: string | null;
   group?: string | null;
   transfer_id?: string | null;
   file_name?: string | null;
@@ -163,12 +167,25 @@ export default function IslandApp() {
   if (a && mode === "message") {
     content = (
       <div className="flex h-full items-center gap-3 px-3.5">
-        <span
-          className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-white text-[15px] font-bold shadow-inner ring-2 ring-white/15"
-          style={{ backgroundColor: a.private ? "#64748b" : a.avatar_color || "#0ea5e9" }}
-        >
-          {a.private ? <Lock className="h-5 w-5" /> : a.title.charAt(0).toUpperCase()}
-        </span>
+        {a.private ? (
+          <span className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-white bg-slate-500 shadow-inner ring-2 ring-white/15">
+            <Lock className="h-5 w-5" />
+          </span>
+        ) : (
+          <Avatar
+            name={a.title}
+            color={a.avatar_color || "#0ea5e9"}
+            profile={
+              a.avatar
+                ? a.avatar.startsWith("data:")
+                  ? { ...EMPTY_PROFILE, avatar: "photo", photo: a.avatar }
+                  : { ...EMPTY_PROFILE, avatar: `emoji:${a.avatar}` }
+                : null
+            }
+            size={44}
+            className="rounded-full ring-2 ring-white/15"
+          />
+        )}
         <button type="button" onClick={() => open(a)} className="min-w-0 flex-1 text-left" title="Open in LANX">
           <span className="block text-[12.5px] font-semibold truncate">
             {a.title}

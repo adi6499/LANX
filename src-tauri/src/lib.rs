@@ -379,6 +379,8 @@ pub fn run() {
             commands::unlock,
             commands::lock_app,
             commands::island_take,
+            commands::get_peer_profiles,
+            commands::refresh_peer_profile,
             commands::island_hide,
             commands::island_open,
             commands::set_pin,

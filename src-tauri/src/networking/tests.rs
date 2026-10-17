@@ -1641,3 +1641,38 @@ async fn bench_compression_and_transfer_speed() {
         );
     }
 }
+
+// ================================================= LANX 1.2.9: profiles
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn colleagues_fetch_each_others_profiles() {
+    use crate::storage::models::Profile;
+    let a = node("Alice").await;
+    let b = node("Bob").await;
+    link(&a, &b).await;
+    link(&b, &a).await;
+    let mut s = a.db().get_settings().unwrap();
+    s.profile = Profile {
+        avatar: "emoji:🐼".into(),
+        status: "meeting".into(),
+        status_text: "Quarter close".into(),
+        title: "Accountant".into(),
+        department: "Accounts".into(),
+        ..Default::default()
+    };
+    a.db().save_settings(&s).unwrap();
+    let rev = a.svc.local_profile_rev();
+    // Bob sees Alice's new fingerprint (as in her beacon) and asks for it.
+    b.svc.check_peer_profile(&a.id(), rev);
+    assert!(wait_for(|| b.db().peer_profile_rev(&a.id()) == Some(rev), 10).await);
+    let got = b.db().peer_profile(&a.id()).unwrap();
+    assert_eq!((got.avatar.as_str(), got.status.as_str(), got.title.as_str()), ("emoji:🐼", "meeting", "Accountant"));
+    assert_eq!(b.svc.island_avatar(&a.id()).as_deref(), Some("🐼"));
+    // Same fingerprint: nothing is fetched again.
+    assert!(a.svc.local_profile_full().rev() == rev);
+    // Alice's status expires by itself.
+    s.profile.status_until = now_secs() - 1;
+    a.db().save_settings(&s).unwrap();
+    assert!(a.svc.local_profile_full().status.is_empty());
+    assert_ne!(a.svc.local_profile_rev(), rev);
+}

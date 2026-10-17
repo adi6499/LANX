@@ -41,10 +41,15 @@ import {
 } from "lucide-react";
 import { FileCard, GroupFileCard } from "./FileCard";
 import { lessMotion } from "../lib/motion";
+import { Avatar } from "./Avatar";
+import { statusLine } from "../lib/profile";
+import type { Profile } from "../types";
 
 interface ConversationPanelProps {
   conversation: Conversation | null;
   peer: Peer | null;
+  /** LANX 1.2.9: the colleague's avatar, status and about me. */
+  peerProfile?: Profile | null;
   peers: Peer[];
   messages: Message[];
   transfers: Record<string, TransferRecord>;
@@ -117,6 +122,7 @@ function nameColor(id: string): string {
 export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   conversation,
   peer,
+  peerProfile = null,
   peers,
   messages,
   transfers,
@@ -425,14 +431,15 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           <header className="h-16 px-5 flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
               <div className="relative shrink-0">
-                <div
-                  className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${
-                    hidden ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-transparent" : ""
-                  }`}
-                  style={{ backgroundColor: conversation.peer_avatar_color }}
+                <Avatar
+                  name={conversation.peer_name}
+                  color={conversation.peer_avatar_color}
+                  profile={isGroup ? null : peerProfile}
+                  size={40}
+                  className={`rounded-full ${hidden ? "ring-2 ring-violet-500 ring-offset-2 ring-offset-transparent" : ""}`}
                 >
-                  {isGroup ? <Users className="h-5 w-5" /> : conversation.peer_name.charAt(0).toUpperCase()}
-                </div>
+                  {isGroup ? <Users className="h-5 w-5" /> : undefined}
+                </Avatar>
                 {hidden ? (
                   <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-violet-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-[#1c1e24]">
                     <EyeOff className="h-2.5 w-2.5" />
@@ -484,6 +491,11 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     <span className="text-sky-600 dark:text-sky-400 font-medium inline-flex items-center gap-1">
                       {isGroup ? `${typingName} is typing` : "typing"}
                       <span className="lanx-typing"><i /><i /><i /></span>
+                    </span>
+                  ) : !isGroup && statusLine(peerProfile) ? (
+                    <span className="truncate font-medium" style={{ color: statusLine(peerProfile)!.color }} data-header-status>
+                      {statusLine(peerProfile)!.emoji} {statusLine(peerProfile)!.text}
+                      {conversation.peer_status !== "online" && <span className="text-slate-400 font-normal"> · offline</span>}
                     </span>
                   ) : conversation.peer_status === "online" ? (
                     <span className="text-emerald-600 dark:text-emerald-400 font-medium">{isGroup ? "Members online" : "Online"}</span>

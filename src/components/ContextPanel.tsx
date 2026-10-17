@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Conversation, GroupInfo, Peer, SpeedTestResult, TransferRecord, TrustState, secretLabel } from "../types";
 import {
+  Copy,
   X,
   Shield,
   ShieldAlert,
@@ -22,12 +23,17 @@ import { FileIcon } from "./FileCard";
 import { PeerPicker, groupPickReason } from "./NewGroupModal";
 import { api, errorText } from "../lib/api";
 import { formatSize, keyFingerprint } from "../lib/format";
+import { Avatar } from "./Avatar";
+import { roleLine, statusLine } from "../lib/profile";
+import type { Profile } from "../types";
 
 interface ContextPanelProps {
   /** Sliding out (it goes away when the animation ends). */
   closing?: boolean;
   conversation: Conversation | null;
   peer: Peer | null;
+  /** LANX 1.2.9: colleagues' profiles. */
+  profiles?: Record<string, Profile>;
   peers: Peer[];
   transfers: TransferRecord[];
   pinEnabled: boolean;
@@ -134,6 +140,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   closing,
   conversation,
   peer,
+  profiles = {},
   peers,
   transfers,
   pinEnabled,
@@ -233,12 +240,17 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       </div>
 
       <div className="p-6 text-center border-b lanx-line">
-        <div
-          className="mx-auto h-16 w-16 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-md mb-3"
-          style={{ backgroundColor: conversation.peer_avatar_color }}
+        <Avatar
+          name={conversation.peer_name}
+          color={conversation.peer_avatar_color}
+          profile={isGroup ? null : profiles[conversation.peer_id]}
+          size={80}
+          square={isGroup}
+          showStatus={!isGroup}
+          className="mx-auto mb-3 shadow-md rounded-full"
         >
-          {isGroup ? <Users className="h-7 w-7" /> : conversation.peer_name.charAt(0).toUpperCase()}
-        </div>
+          {isGroup ? <Users className="h-8 w-8" /> : undefined}
+        </Avatar>
         {renaming ? (
           <div className="flex items-center gap-1">
             <input
@@ -285,8 +297,23 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
           </h3>
         )}
         <p className="text-xs text-slate-400 mt-0.5">
-          {isGroup ? `${group?.members.length ?? conversation.member_count} members` : peer?.hostname || "Computer on your network"}
+          {isGroup
+            ? `${group?.members.length ?? conversation.member_count} members`
+            : roleLine(profiles[conversation.peer_id]) || peer?.hostname || "Computer on your network"}
         </p>
+        {!isGroup && statusLine(profiles[conversation.peer_id]) && (
+          <div
+            className="mt-2 inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${statusLine(profiles[conversation.peer_id])!.color} 14%, transparent)`,
+              color: statusLine(profiles[conversation.peer_id])!.color,
+            }}
+            data-panel-status
+          >
+            <span>{statusLine(profiles[conversation.peer_id])!.emoji}</span>
+            <span className="truncate">{statusLine(profiles[conversation.peer_id])!.text}</span>
+          </div>
+        )}
         <div className="mt-3 flex items-center justify-center gap-1.5">
           <span className={`h-2 w-2 rounded-full ${conversation.peer_status === "online" ? "bg-emerald-500 online-pulse" : "bg-slate-400"}`} />
           <span className="text-xs font-semibold capitalize text-slate-600 dark:text-slate-300">
@@ -294,6 +321,42 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
           </span>
         </div>
       </div>
+
+      {!isGroup && profiles[conversation.peer_id] && (profiles[conversation.peer_id].bio || profiles[conversation.peer_id].phone || profiles[conversation.peer_id].email || profiles[conversation.peer_id].title) && (
+        <div className="p-4 border-b lanx-line" data-about>
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">About</span>
+          {profiles[conversation.peer_id].bio && (
+            <p className="mt-1.5 text-[12px] text-slate-600 dark:text-slate-300 leading-snug select-text">{profiles[conversation.peer_id].bio}</p>
+          )}
+          <dl className="mt-2 space-y-1.5 text-[11.5px]">
+            {[
+              ["Job title", profiles[conversation.peer_id].title],
+              ["Department", profiles[conversation.peer_id].department],
+              ["Phone", profiles[conversation.peer_id].phone],
+              ["Email", profiles[conversation.peer_id].email],
+            ]
+              .filter(([, v]) => v)
+              .map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-2">
+                  <dt className="text-slate-400">{k}</dt>
+                  <dd className="flex items-center gap-1 min-w-0 text-slate-700 dark:text-slate-200 font-medium">
+                    <span className="truncate select-text">{v}</span>
+                    {(k === "Phone" || k === "Email") && (
+                      <button
+                        type="button"
+                        title={`Copy ${k.toLowerCase()}`}
+                        onClick={() => navigator.clipboard.writeText(v).catch(() => {})}
+                        className="lanx-tool p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    )}
+                  </dd>
+                </div>
+              ))}
+          </dl>
+        </div>
+      )}
 
       {isGroup && group && (
         <div className="p-4 border-b lanx-line">

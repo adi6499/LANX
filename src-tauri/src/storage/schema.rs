@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 5;
+pub const LATEST_SCHEMA_VERSION: i64 = 6;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -253,6 +253,26 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (5, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 6 {
+        // v6 (LANX 1.2.9): colleagues' profiles (avatar, status, about me).
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS peer_profiles (
+                peer_id TEXT PRIMARY KEY,
+                rev INTEGER NOT NULL,
+                profile TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (6, now),
         )?;
         tx.commit()?;
     }

@@ -28,6 +28,11 @@ pub struct DiscoveryBeacon {
     pub status: String,
     pub timestamp: i64,
     pub signature: String,
+    /// LANX 1.2.9: fingerprint of the sender's profile (not signed: it only
+    /// prompts a fetch over the authenticated connection). Older versions
+    /// ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_rev: Option<u64>,
 }
 
 impl DiscoveryBeacon {
@@ -153,6 +158,7 @@ impl DiscoveryService {
             status: status.to_string(),
             timestamp: now_secs(),
             signature: String::new(),
+            profile_rev: Some(self.network.local_profile_rev()),
         };
         beacon.signature = identity.sign_bytes(&beacon.signing_bytes());
         serde_json::to_vec(&beacon).ok()
@@ -268,6 +274,7 @@ impl DiscoveryService {
             }
             return;
         }
+        let profile_rev = beacon.profile_rev;
         let seen = SeenPeer {
             device_id: beacon.device_id,
             display_name: beacon.display_name,
@@ -277,7 +284,11 @@ impl DiscoveryService {
             public_key: beacon.public_key,
             avatar_color: beacon.avatar_color,
         };
-        if self.network.peer_seen(&seen) {
+        let newly_online = self.network.peer_seen(&seen);
+        if let Some(rev) = profile_rev {
+            self.network.check_peer_profile(&seen.device_id, rev);
+        }
+        if newly_online {
             // Newly online: answer directly so it sees us without waiting.
             if let Some(reply) = self.build_beacon("online") {
                 let _ = socket.send_to(&reply, src).await;
