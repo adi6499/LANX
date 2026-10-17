@@ -265,6 +265,26 @@ pub fn run() {
                 });
             }
 
+            // LANX 1.2.7: the desktop Dynamic Island, a small see-through window
+            // at the top of the screen for alerts while LANX is hidden.
+            match tauri::WebviewWindowBuilder::new(app, "island", tauri::WebviewUrl::App("index.html".into()))
+                .title("LANX alerts")
+                .inner_size(events::ISLAND_W, events::ISLAND_H)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .focused(false)
+                .visible(false)
+                .disable_drag_drop_handler()
+                .build()
+            {
+                Ok(w) => events::place_island(app.handle(), &w),
+                Err(e) => eprintln!("[Island] Could not create the alert window: {}", e),
+            }
+
             let start_hidden = std::env::args().any(|a| a == "--minimized");
             if let Some(w) = app.get_webview_window("main") {
                 if profile.is_some() {
@@ -278,6 +298,19 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "island" {
+                // The alert window only ever hides.
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                return;
+            }
+            if let WindowEvent::Focused(true) = event {
+                // LANX came to the front: its own island takes over.
+                use tauri::Emitter;
+                let _ = window.app_handle().emit_to("island", "lanx://island-dismiss", ());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 let keep_running = app
@@ -337,6 +370,9 @@ pub fn run() {
             commands::get_lock_status,
             commands::unlock,
             commands::lock_app,
+            commands::island_take,
+            commands::island_hide,
+            commands::island_open,
             commands::set_pin,
             commands::unlock_hidden,
             commands::hide_hidden_chats,

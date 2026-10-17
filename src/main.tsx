@@ -8,6 +8,7 @@ import "@fontsource/plus-jakarta-sans/700.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import App from "./App";
+import IslandApp from "./IslandApp";
 import "./App.css";
 
 // The desktop app has no use for the browser's right-click menu (Reload,
@@ -19,8 +20,18 @@ document.addEventListener("contextmenu", (e) => {
   if (!import.meta.env.DEV && !editable && !hasSelection) e.preventDefault();
 });
 
+// LANX 1.2.7: the same page also runs in the small "island" window at the
+// top of the screen (alerts while LANX is hidden).
+const windowLabel = (() => {
+  try {
+    return (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } })
+      .__TAURI_INTERNALS__?.metadata?.currentWindow?.label;
+  } catch {
+    return undefined;
+  }
+})();
+const isIsland = windowLabel === "island" || location.hash === "#island";
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <React.StrictMode>{isIsland ? <IslandApp /> : <App />}</React.StrictMode>,
 );

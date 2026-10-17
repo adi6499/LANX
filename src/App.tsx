@@ -29,6 +29,7 @@ import { NewGroupModal } from "./components/NewGroupModal";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { WelcomeTour } from "./components/WelcomeTour";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { DynamicIsland, IslandMessage } from "./components/DynamicIsland";
 import { CallLayer, CallLayerHandle } from "./components/CallLayer";
 import { AlertCircle, X } from "lucide-react";
 
@@ -109,6 +110,12 @@ export default function App() {
   const activeConversationIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<NavTab>("messages");
   const lockedRef = useRef(false);
+  /** New message from another chat, shown in the Dynamic Island. */
+  const [islandMsg, setIslandMsg] = useState<IslandMessage | null>(null);
+  const peersRef = useRef<Peer[]>([]);
+  peersRef.current = peers;
+  const hiddenUnlockedRef = useRef(false);
+  hiddenUnlockedRef.current = !!lock?.hidden_unlocked;
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
@@ -285,6 +292,14 @@ export default function App() {
       p.then((u) => (disposed ? u() : unlisteners.push(u))).catch(console.error);
 
     add(
+      events.onOpenConversation(({ conversation_id }) => {
+        if (lockedRef.current) return;
+        setActiveConversationId(conversation_id);
+        setActiveTab("messages");
+      })
+    );
+
+    add(
       events.onLockChanged((s) => {
         // Unlocked from the lock screen: the lock screen shows the app itself
         // once its zoom-out animation has played.
@@ -353,8 +368,23 @@ export default function App() {
             })
             .catch(() => {});
         } else if (!message.is_outgoing && document.hasFocus() && ["text", "file"].includes(message.message_type)) {
-          // LANX is in front but this chat isn't open: a soft sound.
+          // LANX is in front but this chat isn't open: a soft sound, and the
+          // message (with the cat) in the Dynamic Island. Hidden chats stay
+          // out of sight unless they are shown.
           api.playSound().catch(() => {});
+          // (Files have their own island card: Accept / progress / done.)
+          if (message.message_type === "text" && conversation && (!conversation.is_hidden || hiddenUnlockedRef.current)) {
+            const group = conversation.kind === "group";
+            const sender = group ? peersRef.current.find((p) => p.id === message.sender_id) : null;
+            setIslandMsg({
+              id: message.id,
+              conversationId: message.conversation_id,
+              from: group ? sender?.display_name ?? "Someone" : conversation.peer_name,
+              color: group ? sender?.avatar_color ?? conversation.peer_avatar_color : conversation.peer_avatar_color,
+              text: message.ttl_secs ? "🔒 Secret message" : message.content,
+              group: group ? conversation.peer_name : null,
+            });
+          }
         }
 
         setConversations((prev) => {
@@ -973,6 +1003,19 @@ export default function App() {
           onError={showError}
         />
       )}
+
+      <DynamicIsland
+        transfers={transfers}
+        message={islandMsg}
+        onMessageClose={() => setIslandMsg(null)}
+        progress={progress}
+        actions={transferActions}
+        catEnabled={settings.cat_alerts}
+        onOpenChat={(id) => {
+          setActiveConversationId(id);
+          setActiveTab("messages");
+        }}
+      />
 
       <SettingsModal
         settings={settings}

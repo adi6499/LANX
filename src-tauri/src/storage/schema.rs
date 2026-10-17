@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 4;
+pub const LATEST_SCHEMA_VERSION: i64 = 5;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -234,6 +234,25 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (4, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 5 {
+        // v5 (LANX 1.2.7): how long each transfer took. started_ms/started_bytes
+        // are set whenever bytes start flowing (again, after a resume);
+        // duration_ms when it completes.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE transfers ADD COLUMN started_ms INTEGER;
+            ALTER TABLE transfers ADD COLUMN started_bytes INTEGER;
+            ALTER TABLE transfers ADD COLUMN duration_ms INTEGER;
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (5, now),
         )?;
         tx.commit()?;
     }

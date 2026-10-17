@@ -17,9 +17,10 @@ import {
   Hourglass,
   ShieldCheck,
   AlertCircle,
+  Zap,
 } from "lucide-react";
 import { TransferActions, TransferProgress, TransferRecord } from "../types";
-import { fileExtension, formatEta, formatSize, formatSpeed } from "../lib/format";
+import { fileExtension, formatEta, formatSize, formatSpeed, transferTiming } from "../lib/format";
 
 export function FileIcon({ name, className }: { name: string; className?: string }) {
   const ext = fileExtension(name);
@@ -237,6 +238,7 @@ export const FileCard: React.FC<FileCardProps> = ({
   }
 
   const showPreview = isImageFile(t.file_name) && (t.status === "completed" || !incoming);
+  const timing = transferTiming(t);
 
   return (
     <div className="min-w-[240px] max-w-[340px]">
@@ -272,6 +274,17 @@ export const FileCard: React.FC<FileCardProps> = ({
       )}
 
       {status && <div className={`mt-1.5 text-[11px] leading-snug ${muted}`}>{status}</div>}
+      {timing && (
+        <div
+          data-transfer-time
+          title={incoming ? "How long receiving took" : "How long sending took"}
+          className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold tabular-nums ${
+            onAccent ? "bg-white/15 text-white" : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          }`}
+        >
+          <Zap className="h-3 w-3" /> {timing}
+        </div>
+      )}
       {buttons && <div className="mt-2 flex flex-wrap items-center gap-1.5">{buttons}</div>}
     </div>
   );
@@ -333,7 +346,7 @@ export const GroupFileCard: React.FC<GroupFileCardProps> = ({ transfers, fallbac
         {transfers.map((t) => (
           <span
             key={t.id}
-            title={t.error_reason || STATUS_WORD[t.status]}
+            title={t.error_reason || transferTiming(t) || STATUS_WORD[t.status]}
             className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
               t.status === "completed" ? "bg-white/25 text-white" : t.status === "failed" ? "bg-red-400/40 text-white" : "bg-white/10 text-sky-50"
             }`}

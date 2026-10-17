@@ -110,6 +110,7 @@ let mockSettings: UserSettings = {
   glass_level: 55,
   frost_level: 60,
   reduce_motion: false,
+  cat_alerts: true,
 };
 
 let mockLock: LockStatus = { pin_set: false, locked: false, hidden_unlocked: false, retry_after_secs: 0 };
@@ -166,7 +167,7 @@ let mockGroups: Record<string, GroupInfo> = {
 let mockTransfers: TransferRecord[] = [
   { id: "tx-1", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", conversation_id: "conv-sarah", file_name: "Vendor-Payments-Oct.xlsx", file_size: 1_485_760, file_hash: "", direction: "incoming", status: "pending", transferred_bytes: 0, local_path: null, error_reason: null, created_at: now() - 120 },
   { id: "tx-2", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", conversation_id: "conv-sarah", file_name: "Site-Photos-Dolvi.zip", file_size: 2_400_000_000, file_hash: "", direction: "outgoing", status: "transferring", transferred_bytes: 1_150_000_000, local_path: "D:\\Projects\\Site-Photos-Dolvi.zip", error_reason: null, created_at: now() - 300 },
-  { id: "tx-3", peer_id: "peer-elena", peer_name: "Elena (Sales)", conversation_id: "conv-elena", file_name: "Price List 2026.pdf", file_size: 840_000, file_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", direction: "incoming", status: "completed", transferred_bytes: 840_000, local_path: "C:\\Users\\Public\\Downloads\\Price List 2026.pdf", error_reason: null, created_at: now() - 4000, completed_at: now() - 3990 },
+  { id: "tx-3", peer_id: "peer-elena", peer_name: "Elena (Sales)", conversation_id: "conv-elena", file_name: "Price List 2026.pdf", file_size: 840_000, file_hash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", direction: "incoming", status: "completed", transferred_bytes: 840_000, local_path: "C:\\Users\\Public\\Downloads\\Price List 2026.pdf", error_reason: null, created_at: now() - 4000, completed_at: now() - 3990, duration_ms: 1840, started_bytes: 0 },
   { id: "tx-g1", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", conversation_id: "grp-accounts", file_name: "Q3-Closing.xlsx", file_size: 240_000, file_hash: "", direction: "outgoing", status: "completed", transferred_bytes: 240_000, local_path: "D:\\Q3-Closing.xlsx", error_reason: null, created_at: now() - 50, parent_id: "pg-1" },
   { id: "tx-g2", peer_id: "peer-marcus", peer_name: "Marcus (Stores)", conversation_id: "grp-accounts", file_name: "Q3-Closing.xlsx", file_size: 240_000, file_hash: "", direction: "outgoing", status: "pending", transferred_bytes: 0, local_path: "D:\\Q3-Closing.xlsx", error_reason: null, created_at: now() - 50, parent_id: "pg-1" },
   { id: "tx-g3", peer_id: "peer-elena", peer_name: "Elena (Sales)", conversation_id: "grp-accounts", file_name: "Q3-Closing.xlsx", file_size: 240_000, file_hash: "", direction: "outgoing", status: "queued", transferred_bytes: 0, local_path: "D:\\Q3-Closing.xlsx", error_reason: "Waiting for Elena (Sales) to come online", created_at: now() - 50, parent_id: "pg-1" },
@@ -784,6 +785,9 @@ export const events = {
     on<MessagesDeletedPayload>("lanx://messages-deleted", cb),
   onLockChanged: (cb: (s: LockStatus) => void) => on<LockStatus>("lanx://lock-changed", cb),
   onOpenPrivacySettings: (cb: () => void) => on<null>("lanx://open-privacy-settings", () => cb()),
+  /** LANX 1.2.7: the desktop island was clicked; open that chat. */
+  onOpenConversation: (cb: (p: { conversation_id: string }) => void) =>
+    on<{ conversation_id: string }>("lanx://open-conversation", cb),
   onUpdateChanged: (cb: () => void) => on<null>("lanx://update-changed", () => cb()),
   onUpdateProblem: (cb: (p: UpdateProblemPayload) => void) =>
     on<UpdateProblemPayload>("lanx://update-problem", cb),

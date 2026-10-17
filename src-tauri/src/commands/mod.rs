@@ -458,6 +458,41 @@ pub fn unlock(state: State<AppState>, pin: String) -> Result<crate::privacy::Loc
     }
 }
 
+// ------------------------------------------------- desktop island (1.2.7)
+
+/// The island window collects the alerts waiting for it.
+#[tauri::command]
+pub fn island_take(state: State<AppState>) -> Vec<crate::events::IslandAlert> {
+    state.network.events.island_take()
+}
+
+/// The island has nothing left to show: hide its window.
+#[tauri::command]
+pub fn island_hide(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("island") {
+        let _ = w.hide();
+    }
+}
+
+/// Clicked in the island: bring LANX to the front, on that chat.
+#[tauri::command]
+pub fn island_open(app: AppHandle, state: State<AppState>, conversation_id: Option<String>) {
+    if let Some(w) = app.get_webview_window("island") {
+        let _ = w.hide();
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    if let Some(id) = conversation_id {
+        state
+            .network
+            .events
+            .emit_json("lanx://open-conversation", serde_json::json!({ "conversation_id": id }));
+    }
+}
+
 #[tauri::command]
 pub fn lock_app(state: State<AppState>) -> crate::privacy::LockStatus {
     if crate::privacy::pin_is_set(&state.db) {

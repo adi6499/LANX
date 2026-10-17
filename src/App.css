@@ -488,3 +488,109 @@
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
 }
+
+/* ======================================================== Dynamic Island
+ * LANX 1.2.7: the black capsule at the top (components/DynamicIsland.tsx).
+ * Size changes spring a little past their target, like the iPhone's.
+ */
+.lanx-island {
+  position: relative;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+  pointer-events: auto;
+  box-shadow: 0 12px 34px -10px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.07) inset;
+  transition:
+    width 0.55s cubic-bezier(0.32, 1.28, 0.5, 1),
+    height 0.55s cubic-bezier(0.32, 1.28, 0.5, 1),
+    border-radius 0.55s cubic-bezier(0.32, 1.28, 0.5, 1),
+    opacity 0.3s ease,
+    transform 0.5s cubic-bezier(0.32, 1.28, 0.5, 1);
+}
+.lanx-island-hidden {
+  opacity: 0;
+  transform: translateY(-14px) scale(0.6);
+  pointer-events: none;
+}
+.lanx-island button { color: inherit; }
+@keyframes lanx-island-content { from { opacity: 0; filter: blur(6px); transform: scale(0.96); } to { opacity: 1; filter: none; transform: none; } }
+.lanx-island-content { animation: lanx-island-content 0.38s 0.1s ease-out backwards; }
+
+/* ======================================================== delivery cat */
+.lanx-cat {
+  position: relative;
+  width: 150px;
+  margin-top: -2px;
+  pointer-events: none;
+  transform-origin: 50% 0;
+}
+.lanx-cat-svg { filter: drop-shadow(0 12px 12px rgb(0 0 0 / 0.28)) drop-shadow(0 2px 2px rgb(0 0 0 / 0.15)); }
+@keyframes lanx-cat-drop {
+  0% { transform: translateY(-115%) scale(0.5); opacity: 0; }
+  55% { transform: translateY(8%) scale(1.02); opacity: 1; }
+  75% { transform: translateY(-3%) scale(0.99); }
+  100% { transform: none; }
+}
+@keyframes lanx-cat-climb {
+  0% { transform: none; opacity: 1; }
+  30% { transform: translateY(-10%); }
+  100% { transform: translateY(-120%) scale(0.45); opacity: 0; }
+}
+@keyframes lanx-cat-hop {
+  0%, 100% { transform: none; }
+  30% { transform: translateY(-14px) rotate(-4deg); }
+  55% { transform: translateY(0) rotate(3deg); }
+  75% { transform: translateY(-6px); }
+}
+.lanx-cat-drop { animation: lanx-cat-drop 0.95s cubic-bezier(0.3, 0.8, 0.3, 1) backwards; }
+.lanx-cat-happy { animation: lanx-cat-hop 0.6s ease-in-out, lanx-cat-climb 0.6s 0.65s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+.lanx-cat-bye { animation: lanx-cat-climb 0.7s 0.35s cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+
+/* gentle swing on the strings (from the top) */
+@keyframes lanx-cat-swing { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+.lanx-cat-swing { position: relative; transform-origin: 50% 0; animation: lanx-cat-swing 2.6s ease-in-out infinite; }
+.lanx-cat-happy .lanx-cat-swing, .lanx-cat-bye .lanx-cat-swing { animation-duration: 0.9s; }
+
+/* SVG parts: transform-box makes origins relative to each part */
+.lanx-cat svg g { transform-box: fill-box; }
+@keyframes lanx-cat-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.08); } }
+.lanx-cat-eyes { transform-origin: 50% 55%; animation: lanx-cat-blink 3.6s infinite; }
+@keyframes lanx-cat-look { 0%, 40%, 100% { transform: translate(0, 0); } 50%, 70% { transform: translate(-2.5px, 0.5px); } 80%, 90% { transform: translate(2.5px, 0); } }
+.lanx-cat-look { animation: lanx-cat-look 5s ease-in-out infinite; }
+@keyframes lanx-cat-wave { 0%, 100% { transform: rotate(0deg); } 20% { transform: rotate(-24deg); } 40% { transform: rotate(10deg); } 60% { transform: rotate(-20deg); } 80% { transform: rotate(6deg); } }
+.lanx-cat-wave { transform-origin: 0% 100%; animation: lanx-cat-wave 1.6s ease-in-out infinite; }
+.lanx-cat-bye .lanx-cat-wave { animation-duration: 0.6s; }
+@keyframes lanx-cat-tail { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-16deg); } }
+.lanx-cat-tail { transform-origin: 0% 100%; animation: lanx-cat-tail 1.1s ease-in-out infinite; }
+.lanx-cat-happy .lanx-cat-tail { animation-duration: 0.35s; }
+@keyframes lanx-cat-ears { 0%, 88%, 100% { transform: none; } 92% { transform: rotate(-3deg) translateY(-1px); } 96% { transform: rotate(2deg); } }
+.lanx-cat-head { transform-origin: 50% 100%; animation: lanx-cat-ears 4.2s ease-in-out infinite; }
+
+/* speech bubble */
+@keyframes lanx-say-in { from { opacity: 0; transform: translateY(6px) scale(0.85); } to { opacity: 1; transform: none; } }
+.lanx-cat-bubble {
+  position: absolute;
+  left: calc(100% - 14px);
+  top: 70px;
+  width: max-content;
+  max-width: 190px;
+  padding: 8px 12px;
+  border-radius: 16px 16px 16px 4px;
+  background: #fff;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  box-shadow: 0 10px 24px -10px rgb(0 0 0 / 0.35), 0 0 0 0.5px rgb(0 0 0 / 0.08);
+  transform-origin: 0 100%;
+  animation: lanx-say-in 0.4s 0.75s cubic-bezier(0.2, 0.9, 0.3, 1.3) backwards;
+}
+.dark .lanx-cat-bubble { background: #2a2c33; color: #f1f5f9; box-shadow: 0 10px 24px -10px rgb(0 0 0 / 0.7), 0 0 0 0.5px rgb(255 255 255 / 0.08); }
+.lanx-cat-happy .lanx-cat-bubble, .lanx-cat-bye .lanx-cat-bubble { animation: lanx-say-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.3) backwards; }
+
+/* hearts after Accept */
+@keyframes lanx-heart { 0% { opacity: 0; transform: translateY(0) scale(0.4); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-46px) scale(1.15); } }
+.lanx-cat-hearts { position: absolute; left: 50%; top: 22px; display: flex; gap: 14px; transform: translateX(-50%); font-size: 16px; }
+.lanx-cat-hearts span { animation: lanx-heart 0.9s ease-out backwards; }
+.lanx-cat-hearts span:nth-child(2) { animation-delay: 0.12s; }
+.lanx-cat-hearts span:nth-child(3) { animation-delay: 0.22s; }

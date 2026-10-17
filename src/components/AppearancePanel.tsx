@@ -12,7 +12,7 @@ import {
 } from "../lib/background";
 import { Origin, originOf, revealChange, setMotion } from "../lib/motion";
 
-type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion">>;
+type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion" | "cat_alerts">>;
 
 interface AppearancePanelProps {
   form: UserSettings;
@@ -340,6 +340,35 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             <span
               className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow-[0_2px_4px_rgb(0_0_0/0.2),0_0_0_0.5px_rgb(0_0_0/0.04)] transition-all duration-200 ease-[cubic-bezier(.3,.7,.3,1)] ${
                 !form.reduce_motion ? "left-[18px]" : "left-[2px]"
+              }`}
+            />
+          </button>
+        </label>
+        <label className="mt-3 pt-3 border-t lanx-line flex items-start justify-between gap-4 cursor-pointer" data-cat-toggle>
+          <span className="flex items-start gap-2.5">
+            <span className="mt-0.5 h-7 w-7 shrink-0 rounded-[8px] bg-gradient-to-br from-amber-300 to-orange-500 text-[15px] flex items-center justify-center shadow-sm">
+              🐱
+            </span>
+            <span>
+              <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">Delivery cat</span>
+              <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                When someone sends you a file, a cat in a parcel box drops down from the top to ask you to accept it.
+              </span>
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.cat_alerts}
+            aria-label="Delivery cat"
+            onClick={() => onChange({ cat_alerts: !form.cat_alerts })}
+            className={`relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 ${
+              form.cat_alerts ? "bg-sky-500" : "bg-[var(--lanx-fill-2)]"
+            }`}
+          >
+            <span
+              className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow-[0_2px_4px_rgb(0_0_0/0.2),0_0_0_0.5px_rgb(0_0_0/0.04)] transition-all duration-200 ease-[cubic-bezier(.3,.7,.3,1)] ${
+                form.cat_alerts ? "left-[18px]" : "left-[2px]"
               }`}
             />
           </button>

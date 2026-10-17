@@ -24,6 +24,22 @@ fn now_secs() -> i64 {
         .as_secs() as i64
 }
 
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+/// SQL kept in one place: while a transfer's status changes, note when bytes
+/// start flowing and, on completion, how long it took. In an UPDATE, column
+/// names are the old values; ?S is the new status, ?B the new byte count,
+/// ?N now in milliseconds.
+const TIMING_SET: &str = "started_ms = CASE WHEN ?S = 'transferring' AND status <> 'transferring' THEN ?N ELSE started_ms END,
+        started_bytes = CASE WHEN ?S = 'transferring' AND status <> 'transferring' THEN COALESCE(?B, transferred_bytes) ELSE started_bytes END,
+        duration_ms = CASE WHEN ?S = 'completed' AND status <> 'completed' AND started_ms IS NOT NULL
+                           THEN MAX(1, ?N - started_ms) ELSE duration_ms END";
+
 /// `%APPDATA%\LANX` (or `LANX-<profile>` for side-by-side test profiles).
 pub fn data_dir(profile: Option<&str>) -> PathBuf {
     let name = match profile {
@@ -88,7 +104,7 @@ const CONV_SELECT: &str = "SELECT c.id, COALESCE(c.peer_id, ''), COALESCE(p.disp
 const MSG_COLS: &str = "id, conversation_id, sender_id, receiver_id, content, message_type, timestamp, status, error_reason, is_outgoing, transfer_id, ttl_secs, expire_at";
 const TRANSFER_SELECT: &str = "SELECT t.id, t.peer_id, p.display_name, t.conversation_id, t.file_name, t.file_size, t.file_hash,
         t.direction, t.status, t.transferred_bytes, t.local_path, t.error_reason, t.created_at, t.completed_at, t.temp_path,
-        t.parent_id, t.kind
+        t.parent_id, t.kind, t.duration_ms, t.started_bytes
      FROM transfers t LEFT JOIN peers p ON t.peer_id = p.id";
 
 /// Messages from secret chats that were never read still disappear after a week.
@@ -168,6 +184,8 @@ fn row_to_transfer(row: &Row) -> Result<TransferRecord> {
         temp_path: row.get(14)?,
         parent_id: row.get(15)?,
         kind: row.get(16)?,
+        duration_ms: row.get(17)?,
+        started_bytes: row.get(18)?,
     })
 }
 
@@ -366,6 +384,7 @@ impl Database {
                 .unwrap_or(60)
                 .min(100),
             reduce_motion: flag("reduce_motion", false),
+            cat_alerts: flag("cat_alerts", true),
         })
     }
 
@@ -417,6 +436,7 @@ impl Database {
             ("glass_level", settings.glass_level.min(100).to_string()),
             ("frost_level", settings.frost_level.min(100).to_string()),
             ("reduce_motion", settings.reduce_motion.to_string()),
+            ("cat_alerts", settings.cat_alerts.to_string()),
         ];
 
         for (k, v) in pairs {
@@ -1044,8 +1064,9 @@ impl Database {
         conn.execute(
             "INSERT INTO transfers (id, peer_id, conversation_id, file_name, file_size, file_hash, direction, status,
                                     transferred_bytes, local_path, error_reason, created_at, completed_at, temp_path,
-                                    parent_id, kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                                    parent_id, kind, started_ms, started_bytes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                     CASE WHEN ?8 = 'transferring' THEN ?17 END, CASE WHEN ?8 = 'transferring' THEN ?9 END)",
             params![
                 t.id,
                 t.peer_id,
@@ -1063,6 +1084,7 @@ impl Database {
                 t.temp_path,
                 t.parent_id,
                 t.kind,
+                now_ms(),
             ],
         )?;
         Ok(())
@@ -1071,10 +1093,14 @@ impl Database {
     /// Writes every mutable field of a transfer.
     pub fn save_transfer(&self, t: &TransferRecord) -> Result<()> {
         let conn = self.conn.lock();
-        conn.execute(
-            "UPDATE transfers SET status = ?1, transferred_bytes = ?2, local_path = ?3, error_reason = ?4,
+        let sql = format!(
+            "UPDATE transfers SET {}, status = ?1, transferred_bytes = ?2, local_path = ?3, error_reason = ?4,
                     completed_at = ?5, temp_path = ?6, file_hash = ?7
              WHERE id = ?8",
+            TIMING_SET.replace("?S", "?1").replace("?B", "?2").replace("?N", "?9")
+        );
+        conn.execute(
+            &sql,
             params![
                 t.status,
                 t.transferred_bytes,
@@ -1084,6 +1110,7 @@ impl Database {
                 t.temp_path,
                 t.file_hash,
                 t.id,
+                now_ms(),
             ],
         )?;
         Ok(())
@@ -1106,12 +1133,13 @@ impl Database {
     ) -> Result<()> {
         let conn = self.conn.lock();
         let finished = matches!(status, "completed" | "failed" | "cancelled" | "declined");
-        conn.execute(
-            "UPDATE transfers SET status = ?1, error_reason = ?2,
+        let sql = format!(
+            "UPDATE transfers SET {}, status = ?1, error_reason = ?2,
                     completed_at = CASE WHEN ?3 THEN ?4 ELSE completed_at END
              WHERE id = ?5",
-            params![status, reason, finished, now_secs(), transfer_id],
-        )?;
+            TIMING_SET.replace("?S", "?1").replace("?B", "NULL").replace("?N", "?6")
+        );
+        conn.execute(&sql, params![status, reason, finished, now_secs(), transfer_id, now_ms()])?;
         Ok(())
     }
 
@@ -1207,7 +1235,7 @@ impl Database {
         let mut stmt = conn.prepare(&format!(
             "SELECT t.id, t.peer_id, p.display_name, t.conversation_id, t.file_name, t.file_size, t.file_hash,
                     t.direction, t.status, t.transferred_bytes, t.local_path, t.error_reason, t.created_at,
-                    t.completed_at, t.temp_path, t.parent_id, t.kind,
+                    t.completed_at, t.temp_path, t.parent_id, t.kind, t.duration_ms, t.started_bytes,
                     u.version, u.sha256, u.file_size, u.signature
              FROM transfers t JOIN update_offers u ON u.transfer_id = t.id
                               LEFT JOIN peers p ON t.peer_id = p.id
@@ -1218,10 +1246,10 @@ impl Database {
             Ok((
                 row_to_transfer(r)?,
                 ReleaseInfo {
-                    version: r.get(17)?,
-                    sha256: r.get(18)?,
-                    size: r.get::<_, i64>(19)?.max(0) as u64,
-                    signature: r.get(20)?,
+                    version: r.get(19)?,
+                    sha256: r.get(20)?,
+                    size: r.get::<_, i64>(21)?.max(0) as u64,
+                    signature: r.get(22)?,
                 },
             ))
         })?;

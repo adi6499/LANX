@@ -151,6 +151,8 @@ fn outbox_and_restart_recovery() {
         error_reason: None,
         created_at: now(),
         completed_at: None,
+        duration_ms: None,
+        started_bytes: None,
         parent_id: None,
         temp_path: Some("x.lanxpart".into()),
         kind: "file".into(),
@@ -162,6 +164,50 @@ fn outbox_and_restart_recovery() {
     let t = db.get_transfer("t1").unwrap().unwrap();
     assert_eq!(t.status, "failed");
     assert_eq!(t.temp_path.as_deref(), Some("x.lanxpart"));
+}
+
+#[test]
+fn transfers_remember_how_long_they_took() {
+    let db = Database::new_in_memory().unwrap();
+    let mut t = TransferRecord {
+        id: "tt".into(),
+        peer_id: "p".into(),
+        peer_name: None,
+        conversation_id: None,
+        file_name: "a.bin".into(),
+        file_size: 1000,
+        file_hash: String::new(),
+        direction: "incoming".into(),
+        status: "pending".into(),
+        transferred_bytes: 0,
+        local_path: None,
+        error_reason: None,
+        created_at: now(),
+        completed_at: None,
+        duration_ms: None,
+        started_bytes: None,
+        parent_id: None,
+        temp_path: None,
+        kind: "file".into(),
+    };
+    db.insert_transfer(&t).unwrap();
+    t.status = "transferring".into();
+    db.save_transfer(&t).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    db.save_transfer(&t).unwrap(); // still running: the start time is kept
+    t.status = "failed".into();
+    t.transferred_bytes = 400;
+    db.save_transfer(&t).unwrap();
+    t.status = "transferring".into(); // resumed at 400 bytes
+    db.save_transfer(&t).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(25));
+    db.update_transfer_status("tt", "completed", None).unwrap();
+    let got = db.get_transfer("tt").unwrap().unwrap();
+    assert_eq!(got.started_bytes, Some(400), "speed counts from the resume point");
+    let d = got.duration_ms.expect("duration recorded");
+    assert!((20..5000).contains(&d), "last run only: {d} ms");
+    db.update_transfer_status("tt", "completed", None).unwrap();
+    assert_eq!(db.get_transfer("tt").unwrap().unwrap().duration_ms, Some(d), "kept once completed");
 }
 
 #[test]
@@ -186,17 +232,20 @@ fn appearance_settings_round_trip_and_are_cleaned() {
     assert_eq!((s.chat_background.as_str(), s.accent_color.as_str()), ("default", "default"));
     assert_eq!((s.glass_level, s.frost_level), (55, 60), "glass is on by default");
     assert!(!s.reduce_motion, "animations are on by default");
+    assert!(s.cat_alerts, "the delivery cat is on by default");
     s.chat_background = "ocean".into();
     s.accent_color = "#FF8800".into();
     s.glass_level = 0;
     s.frost_level = 250;
     s.reduce_motion = true;
+    s.cat_alerts = false;
     db.save_settings(&s).unwrap();
     let s2 = db.get_settings().unwrap();
     assert_eq!(s2.chat_background, "ocean");
     assert_eq!(s2.accent_color, "#ff8800");
     assert_eq!((s2.glass_level, s2.frost_level), (0, 100), "solid allowed, frost clamped");
     assert!(s2.reduce_motion);
+    assert!(!s2.cat_alerts);
     s.chat_background = "url(evil)".into();
     s.accent_color = "purple; x".into();
     db.save_settings(&s).unwrap();

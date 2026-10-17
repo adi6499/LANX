@@ -46,3 +46,23 @@ export function fileExtension(name: string): string {
   const i = name.lastIndexOf(".");
   return i > 0 ? name.slice(i + 1).toLowerCase() : "";
 }
+
+/** "0.8 s", "3.2 s", "1 min 12 s", "1 h 3 min". */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 10_000) return `${Math.max(0.1, ms / 1000).toFixed(1)} s`;
+  const secs = Math.round(ms / 1000);
+  if (secs < 60) return `${secs} s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min ${secs % 60} s`;
+  return `${Math.floor(mins / 60)} h ${mins % 60} min`;
+}
+
+/** How long a finished transfer took: "40.1 MB in 3.2 s · 12.5 MB/s" (LANX 1.2.7+). */
+export function transferTiming(t: { status: string; file_size: number; duration_ms?: number | null; started_bytes?: number | null }): string | null {
+  if (t.status !== "completed" || !t.duration_ms || t.duration_ms <= 0) return null;
+  const moved = Math.max(0, t.file_size - (t.started_bytes ?? 0));
+  const speed = moved > 0 ? (moved * 1000) / t.duration_ms : 0;
+  const resumed = (t.started_bytes ?? 0) > 0;
+  return `${formatSize(t.file_size)} in ${formatDuration(t.duration_ms)}${speed > 0 ? ` · ${formatSpeed(speed)}` : ""}${resumed ? " (after resuming)" : ""}`;
+}

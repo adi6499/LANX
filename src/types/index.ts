@@ -36,6 +36,8 @@ export interface UserSettings {
   frost_level: number;
   /** Animations off (for slower computers). */
   reduce_motion: boolean;
+  /** The cartoon cat that asks you to accept incoming files. */
+  cat_alerts: boolean;
 }
 
 export type TrustState = "unverified" | "trusted" | "blocked";
@@ -133,6 +135,10 @@ export interface TransferRecord {
   parent_id?: string | null;
   /** "file" | "folder" (LANX 1.2.3, sent as a zip) | "update". */
   kind?: string;
+  /** LANX 1.2.7: how long the transfer took (last run, if it was resumed). */
+  duration_ms?: number | null;
+  /** LANX 1.2.7: bytes already there when that run started. */
+  started_bytes?: number | null;
 }
 
 export interface TransferProgress {

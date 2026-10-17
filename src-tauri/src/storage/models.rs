@@ -67,6 +67,9 @@ pub struct UserSettings {
     /// LANX 1.2.6: turn the animations off (for slower computers).
     #[serde(default)]
     pub reduce_motion: bool,
+    /// LANX 1.2.7: the cartoon cat that asks you to accept incoming files.
+    #[serde(default = "default_true")]
+    pub cat_alerts: bool,
 }
 
 fn default_glass() -> u32 {
@@ -198,6 +201,13 @@ pub struct TransferRecord {
     /// Updates; never shown in chats or the Files list).
     #[serde(default = "default_transfer_kind")]
     pub kind: String,
+    /// LANX 1.2.7: how long the (last run of the) transfer took, once completed.
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    /// LANX 1.2.7: bytes already there when that run started (resume), so the
+    /// speed is (file_size - started_bytes) / duration.
+    #[serde(default)]
+    pub started_bytes: Option<i64>,
 }
 
 pub fn default_transfer_kind() -> String {

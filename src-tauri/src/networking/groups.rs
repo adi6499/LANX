@@ -568,7 +568,8 @@ impl NetworkService {
         let conv = self.db.get_conversation(&gid).ok().flatten();
         self.events.message_received(&msg, conv.as_ref());
         let hidden = conv.as_ref().is_some_and(|c| c.is_hidden);
-        let (title, body) = if hidden || self.privacy.is_locked() {
+        let private = hidden || self.privacy.is_locked();
+        let (title, body) = if private {
             ("LANX".to_string(), "You have a new message".to_string())
         } else {
             (
@@ -576,7 +577,28 @@ impl NetworkService {
                 format!("{}: {}", sender.display_name, crate::storage::preview_text(&msg.content)),
             )
         };
-        self.events.notify(&self.db, AlertKind::Message, &title, &body);
+        let alert = if private {
+            crate::events::IslandAlert {
+                id: msg.id.clone(),
+                kind: "message".into(),
+                title: title.clone(),
+                body: body.clone(),
+                private,
+                ..Default::default()
+            }
+        } else {
+            crate::events::IslandAlert {
+                id: msg.id.clone(),
+                kind: "message".into(),
+                title: sender.display_name.clone(),
+                body: crate::storage::preview_text(&msg.content),
+                conversation_id: Some(gid.clone()),
+                avatar_color: Some(sender.avatar_color.clone()),
+                group: Some(g.name.clone()),
+                ..Default::default()
+            }
+        };
+        self.events.notify_island(&self.db, AlertKind::Message, &title, &body, alert);
         self.events.update_tray(&self.db);
         ack(true, None)
     }

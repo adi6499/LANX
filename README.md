@@ -44,6 +44,19 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.2.7: Dynamic Island, the delivery cat, and how long files took
+- **How long it took** — finished files show it, e.g. "⚡ 40.1 MB in 3.2 s · 12.5 MB/s", on both computers.
+- **Dynamic Island** — a black capsule at the top of LANX, like the iPhone: it shows a file someone
+  wants to send you (Accept / Later), what is being received or sent (click it for speed and time
+  left), and "Received in 3.2 s" when it's done. New messages from other chats show there too.
+- **The delivery cat 🐱** — a cartoon cat in a parcel box (files) or holding a letter (messages) drops
+  down from the island on two strings, swings, blinks and waves; it cheers when you accept and climbs
+  back up. Turn it off in Settings → Appearance → Delivery cat.
+- **Even when LANX is hidden** (closed to the tray or behind other programs) the island appears at the
+  top of the screen, with the cat. Click it to open the chat; files can be accepted right there. It
+  never takes the keyboard away from what you're typing. Hidden chats, secret messages and a locked
+  LANX show only "You have a new message". (If LANX is quit from the tray, nothing runs.)
+
 ### New in 1.2.6: smooth animations
 - **Glass reveal** — switching Light/Dark, or picking a background, makes the new look grow as a soft
   circle from what you clicked while the old one frosts over.

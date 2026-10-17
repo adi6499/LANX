@@ -203,6 +203,10 @@ impl NetworkService {
     /// files: the UI hears about them as an update change).
     pub(crate) fn save_and_emit(&self, t: &TransferRecord) {
         let _ = self.db.save_transfer(t);
+        // Re-read: the database adds the timing (start, how long it took) as
+        // the status changes, and the screen should show it right away.
+        let fresh = self.db.get_transfer(&t.id).ok().flatten();
+        let t = fresh.as_ref().unwrap_or(t);
         if t.kind == "update" {
             self.events.update_changed();
         } else {
@@ -318,6 +322,8 @@ impl NetworkService {
                     error_reason: None,
                     created_at: now,
                     completed_at: None,
+                    duration_ms: None,
+                    started_bytes: None,
                     parent_id: parent.clone(),
                     temp_path: None,
                     kind: kind.to_string(),
@@ -706,6 +712,8 @@ impl NetworkService {
             error_reason: None,
             created_at: now,
             completed_at: None,
+            duration_ms: None,
+            started_bytes: None,
             parent_id: None,
             temp_path: None,
             kind: if o.folder == Some(true) { "folder" } else { "file" }.to_string(),
@@ -768,7 +776,22 @@ impl NetworkService {
                 format!("{} ({}) — open LANX to accept", name, format_size(o.file_size)),
             )
         };
-        self.events.notify(&self.db, crate::events::AlertKind::File, &title, &body);
+        let private = hidden || self.privacy.is_locked();
+        let alert = crate::events::IslandAlert {
+            id: msg.transfer_id.clone().unwrap_or_else(|| msg.id.clone()),
+            kind: "file".into(),
+            title: if private { title.clone() } else { where_from.clone() },
+            body: if private { body.clone() } else { name.clone() },
+            conversation_id: (!private).then(|| msg.conversation_id.clone()),
+            avatar_color: (!private).then(|| peer.avatar_color.clone()),
+            transfer_id: (!private).then(|| msg.transfer_id.clone()).flatten(),
+            file_name: (!private).then(|| name.clone()),
+            file_size: Some(o.file_size as i64),
+            needs_accept: !private && !auto,
+            private,
+            ..Default::default()
+        };
+        self.events.notify_island(&self.db, crate::events::AlertKind::File, &title, &body, alert);
         ack(true, None)
     }
 
