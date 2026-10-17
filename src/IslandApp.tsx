@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Check, ExternalLink, Lock } from "lucide-react";
+import { Bell, Check, ExternalLink, Lock } from "lucide-react";
 import { UserSettings } from "./types";
 import { applyAppearance } from "./lib/background";
 import { setMotion } from "./lib/motion";
@@ -16,7 +16,7 @@ import { CatMood, DeliveryCat } from "./components/DeliveryCat";
 
 interface IslandAlert {
   id: string;
-  kind: "message" | "file";
+  kind: "message" | "file" | "ring";
   title: string;
   body: string;
   conversation_id?: string | null;
@@ -29,7 +29,7 @@ interface IslandAlert {
   private: boolean;
 }
 
-type Mode = "hidden" | "message" | "request" | "file" | "accepted";
+type Mode = "hidden" | "message" | "request" | "file" | "accepted" | "ring";
 
 const SIZE: Record<Mode, { w: number; h: number; r: number }> = {
   hidden: { w: 120, h: 30, r: 15 },
@@ -37,10 +37,11 @@ const SIZE: Record<Mode, { w: number; h: number; r: number }> = {
   request: { w: 420, h: 110, r: 30 },
   file: { w: 400, h: 70, r: 30 },
   accepted: { w: 330, h: 54, r: 27 },
+  ring: { w: 380, h: 66, r: 33 },
 };
 
 /** How long an alert stays (ms); the mouse on the island pauses it. */
-const STAY: Record<Mode, number> = { hidden: 0, message: 7000, request: 25000, file: 7000, accepted: 1600 };
+const STAY: Record<Mode, number> = { hidden: 0, message: 7000, request: 25000, file: 7000, accepted: 1600, ring: 8000 };
 
 export default function IslandApp() {
   const [queue, setQueue] = useState<IslandAlert[]>([]);
@@ -94,7 +95,7 @@ export default function IslandApp() {
   useEffect(() => {
     if (!current) return;
     leaving.current = false;
-    setMode(current.kind === "message" ? "message" : current.needs_accept ? "request" : "file");
+    setMode(current.kind === "message" ? "message" : current.kind === "ring" ? "ring" : current.needs_accept ? "request" : "file");
     setCat(catOn ? { id: current.id, mood: "hello" } : null);
   }, [current?.id, catOn]);
 
@@ -184,6 +185,27 @@ export default function IslandApp() {
         </button>
       </div>
     );
+  } else if (a && mode === "ring") {
+    content = (
+      <div className="flex h-full items-center gap-3 px-3.5">
+        <span className="h-10 w-10 shrink-0 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center lanx-bell">
+          <Bell className="h-5 w-5 text-amber-950" />
+        </span>
+        <button type="button" onClick={() => open(a)} className="min-w-0 flex-1 text-left" title="Open in LANX">
+          <span className="block text-[12.5px] font-semibold truncate">
+            {a.title} {a.body}
+          </span>
+          <span className="block text-[11px] text-white/60 truncate">They want your attention</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => open(a)}
+          className="shrink-0 px-3 py-1 rounded-full bg-amber-400 hover:bg-amber-300 text-amber-950 text-[11px] font-bold shadow-md shadow-amber-500/30"
+        >
+          Open
+        </button>
+      </div>
+    );
   } else if (a && mode === "request") {
     content = (
       <div className="flex h-full flex-col justify-between px-4 py-3">
@@ -264,7 +286,8 @@ export default function IslandApp() {
         <DeliveryCat
           key={cat.id}
           alertId={cat.id}
-          variant={a.kind === "file" ? "box" : "letter"}
+          variant={a.kind === "file" ? "box" : a.kind === "ring" ? "bell" : "letter"}
+          say={a.kind === "ring" ? `${a.private ? "Someone" : a.title.split(" ")[0]} is ringing you! 🔔` : undefined}
           from={a.private ? "Someone" : a.title}
           fileName={a.file_name ?? ""}
           fileSize={a.file_size ?? 0}

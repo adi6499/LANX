@@ -18,11 +18,28 @@ import {
 /** Imperative handle: the chat header's call buttons start calls here. */
 export interface CallLayerHandle {
   start: (conversation: Conversation, video: boolean) => void;
+  /** LANX 1.2.8: the Dynamic Island's buttons. */
+  accept: (video: boolean) => void;
+  decline: () => void;
+  hangup: () => void;
+  toggleSize: () => void;
+}
+
+/** What the Dynamic Island shows about the current call. */
+export interface IslandCall {
+  status: "starting" | "outgoing" | "incoming" | "connecting" | "active";
+  name: string;
+  color: string;
+  video: boolean;
+  connectedAt: number | null;
+  private: boolean;
 }
 
 interface CallLayerProps {
   onError: (text: string) => void;
   onOpenChat: (conversationId: string) => void;
+  /** The call changed (null: no call). */
+  onIslandChange?: (call: IslandCall | null) => void;
 }
 
 type Status = "starting" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
@@ -106,7 +123,7 @@ function clock(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError, onOpenChat }, ref) => {
+export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError, onOpenChat, onIslandChange }, ref) => {
   const [call, setCall] = useState<CallState | null>(null);
   const [, setTick] = useState(0);
 
@@ -403,7 +420,23 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     [finish, newPeer]
   );
 
-  useImperativeHandle(ref, () => ({ start: (c, v) => void start(c, v) }), [start]);
+  // Tell the Dynamic Island about the call (ringing, connecting, live, over).
+  const islandKey = call && call.status !== "ended" ? `${call.info.call_id}|${call.status}|${call.connectedAt ?? ""}` : "";
+  useEffect(() => {
+    if (!onIslandChange) return;
+    if (!call || call.status === "ended") {
+      onIslandChange(null);
+      return;
+    }
+    onIslandChange({
+      status: call.status,
+      name: call.info.peer_name,
+      color: call.info.avatar_color,
+      video: call.info.video,
+      connectedAt: call.connectedAt,
+      private: call.info.private,
+    });
+  }, [islandKey]);
 
   const accept = async (withVideo: boolean) => {
     const id = callIdRef.current;
@@ -445,6 +478,18 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     finish(null);
     if (id) await api.callDecline(id).catch(() => {});
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      start: (c, v) => void start(c, v),
+      accept: (v) => void accept(v),
+      decline: () => void decline(),
+      hangup: () => void cancelStarting(),
+      toggleSize: () => setCall((c) => (c ? { ...c, expanded: !c.expanded } : c)),
+    }),
+    [start, accept, decline]
+  );
 
   const cancelStarting = () => {
     if (startingRef.current && !callIdRef.current) {

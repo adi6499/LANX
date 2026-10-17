@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Check, ExternalLink, Folder, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bell, Check, ExternalLink, Folder, Phone, PhoneOff, Video, X } from "lucide-react";
 import { TransferActions, TransferProgress, TransferRecord } from "../types";
 import { formatEta, formatSize, formatSpeed, transferTiming } from "../lib/format";
 import { FileIcon, displayName, isFolderTransfer } from "./FileCard";
 import { CatMood, DeliveryCat } from "./DeliveryCat";
+import type { IslandCall } from "./CallLayer";
 
 /** A new message to show (LANX is in front, but that chat isn't open). */
 export interface IslandMessage {
@@ -17,10 +18,24 @@ export interface IslandMessage {
   group?: string | null;
 }
 
+/** Someone rang (or you rang someone). */
+export interface IslandRing {
+  id: string;
+  name: string;
+  color: string;
+  conversationId?: string | null;
+  /** You rang them. */
+  outgoing?: boolean;
+}
+
 interface DynamicIslandProps {
   transfers: TransferRecord[];
   message: IslandMessage | null;
   onMessageClose: () => void;
+  ring: IslandRing | null;
+  onRingClose: () => void;
+  call: IslandCall | null;
+  callActions: { accept: (video: boolean) => void; decline: () => void; hangup: () => void; toggleSize: () => void };
   progress: Record<string, TransferProgress>;
   actions: TransferActions;
   /** Settings → Appearance → Delivery cat. */
@@ -28,7 +43,7 @@ interface DynamicIslandProps {
   onOpenChat: (conversationId: string) => void;
 }
 
-type Mode = "hidden" | "request" | "message" | "active" | "detail" | "done";
+type Mode = "hidden" | "request" | "message" | "ring" | "call" | "callActive" | "active" | "detail" | "done";
 
 const SIZE: Record<Mode, { w: number; h: number; r: number }> = {
   hidden: { w: 120, h: 30, r: 15 },
@@ -36,6 +51,9 @@ const SIZE: Record<Mode, { w: number; h: number; r: number }> = {
   detail: { w: 400, h: 128, r: 30 },
   request: { w: 420, h: 110, r: 30 },
   message: { w: 400, h: 78, r: 30 },
+  ring: { w: 380, h: 66, r: 33 },
+  call: { w: 420, h: 112, r: 30 },
+  callActive: { w: 210, h: 36, r: 18 },
   done: { w: 380, h: 62, r: 31 },
 };
 
@@ -64,13 +82,15 @@ const Ring: React.FC<{ pct: number; size?: number }> = ({ pct, size = 22 }) => {
   );
 };
 
-/** iPhone-style "Dynamic Island" at the top of the window: a black capsule
- *  that grows to show a file someone wants to send you (with the delivery
- *  cat), what is being received or sent, and how long it took. */
+/** iPhone-style "Dynamic Island": a black capsule just under the chat's top
+ *  bar (so it never covers its buttons) that grows to show a file someone
+ *  wants to send you (with the delivery cat), what is being received or
+ *  sent and how long it took, messages, rings and calls. */
 type CatState = {
   id: string;
-  variant: "box" | "letter";
+  variant: "box" | "letter" | "bell" | "phone";
   from: string;
+  say?: string;
   fileName?: string;
   fileSize?: number;
   mood: CatMood;
@@ -80,6 +100,10 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
   transfers,
   message,
   onMessageClose,
+  ring,
+  onRingClose,
+  call,
+  callActions,
   progress,
   actions,
   catEnabled,
@@ -131,42 +155,96 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
     return () => window.clearTimeout(t);
   }, [message?.id, hover]);
 
-  // The cat drops in for each new request (with the parcel) or message (with
-  // a letter); it stays a moment after Accept/Later to animate out.
-  const letterKey = message ? `msg-${message.conversationId}` : null;
+  // A ring shows for a few seconds too.
+  useEffect(() => {
+    if (!ring || hover) return;
+    const t = window.setTimeout(onRingClose, 5000);
+    return () => window.clearTimeout(t);
+  }, [ring?.id, hover]);
+
+  // While a call lasts, the small green pill counts the time.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (call?.status !== "active") return;
+    const t = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [call?.status]);
+
+  const callRinging = !!call && call.status !== "active";
+  const callName = call ? (call.private && call.status === "incoming" ? "Someone" : call.name) : "";
+
+  // The cat drops in with a parcel (files), a letter (messages), a bell
+  // (rings) or a phone (calls); it stays a moment afterwards to animate out.
+  const want: Omit<CatState, "mood"> | null = !catEnabled
+    ? null
+    : callRinging && call
+      ? {
+          id: "call",
+          variant: "phone",
+          from: callName,
+          say:
+            call.status === "incoming"
+              ? `${callName.split(" ")[0]} is calling you! Pick up? 📞`
+              : call.status === "connecting"
+                ? "Connecting… 📞"
+                : `Calling ${callName.split(" ")[0]}… 📞`,
+        }
+      : request
+        ? { id: request.id, variant: "box", from: request.peer_name || "Someone", fileName: displayName(request), fileSize: request.file_size }
+        : ring
+          ? {
+              id: ring.id,
+              variant: "bell",
+              from: ring.name,
+              say: ring.outgoing ? `Ding ding! Ringing ${ring.name.split(" ")[0]} 🔔` : `${ring.name.split(" ")[0]} is ringing you! 🔔`,
+            }
+          : message
+            ? { id: `msg-${message.conversationId}`, variant: "letter", from: message.from }
+            : null;
   useEffect(() => {
     if (!catEnabled) {
       if (cat) setCat(null);
       return;
     }
-    if (request) {
-      if (!cat || (cat.mood === "hello" && cat.id !== request.id)) {
-        setCat({
-          id: request.id,
-          variant: "box",
-          from: request.peer_name || "Someone",
-          fileName: displayName(request),
-          fileSize: request.file_size,
-          mood: "hello",
-        });
+    if (want) {
+      if (!cat || (cat.mood === "hello" && (cat.id !== want.id || cat.say !== want.say))) {
+        setCat({ ...want, mood: cat && cat.id === want.id ? cat.mood : "hello" });
       }
-    } else if (cat?.mood === "hello" && cat.variant === "box") {
-      // Answered somewhere else (the chat's Accept/Decline buttons).
-      const now = transfers.find((t) => t.id === cat.id);
-      setCat({ ...cat, mood: now && ["declined", "cancelled"].includes(now.status) ? "bye" : "happy" });
-    } else if (message && letterKey && (!cat || (cat.mood === "hello" && cat.id !== letterKey))) {
-      setCat({ id: letterKey, variant: "letter", from: message.from, mood: "hello" });
-    } else if (!message && cat?.mood === "hello" && cat.variant === "letter") {
-      setCat({ ...cat, mood: "bye" });
+    } else if (cat?.mood === "hello") {
+      let mood: CatMood = "bye";
+      if (cat.variant === "box") {
+        // Answered somewhere else (the chat's Accept/Decline buttons).
+        const now = transfers.find((t) => t.id === cat.id);
+        mood = now && ["declined", "cancelled"].includes(now.status) ? "bye" : "happy";
+      } else if (cat.variant === "phone") {
+        mood = call?.status === "active" ? "happy" : "bye";
+      }
+      setCat({ ...cat, mood });
     }
-  }, [request?.id, letterKey, catEnabled, cat]);
+  }, [want?.id, want?.say, catEnabled, cat, call?.status]);
   useEffect(() => {
     if (!cat || cat.mood === "hello") return;
     const t = window.setTimeout(() => setCat(null), cat.mood === "happy" ? 1300 : 1100);
     return () => window.clearTimeout(t);
   }, [cat]);
 
-  const mode: Mode = request ? "request" : message ? "message" : done ? "done" : active.length ? (expanded ? "detail" : "active") : "hidden";
+  const mode: Mode = callRinging
+    ? "call"
+    : request
+      ? "request"
+      : ring
+        ? "ring"
+        : message
+          ? "message"
+          : done
+            ? "done"
+            : call?.status === "active"
+              ? "callActive"
+              : active.length
+                ? expanded
+                  ? "detail"
+                  : "active"
+                : "hidden";
   useEffect(() => {
     if (!active.length) setExpanded(false);
   }, [active.length]);
@@ -237,6 +315,104 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
             </button>
           </span>
         </div>
+      </div>
+    );
+  } else if (mode === "call" && call) {
+    const incoming = call.status === "incoming";
+    content = (
+      <div className="flex h-full flex-col justify-between px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="relative h-11 w-11 shrink-0">
+            <span className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
+            <span
+              className="relative h-11 w-11 rounded-full flex items-center justify-center text-white text-[15px] font-bold ring-2 ring-white/20"
+              style={{ backgroundColor: call.private && incoming ? "#64748b" : call.color }}
+            >
+              {callName.charAt(0).toUpperCase()}
+            </span>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold truncate">{callName}</span>
+            <span className="block text-[11px] text-white/60 truncate" data-island-call={call.status}>
+              {incoming
+                ? `${call.video ? "Video" : "Voice"} call for you…`
+                : call.status === "connecting"
+                  ? "Connecting…"
+                  : `Calling… (${call.video ? "video" : "voice"})`}
+            </span>
+          </span>
+          {call.video ? <Video className="h-5 w-5 text-emerald-400" /> : <Phone className="h-5 w-5 text-emerald-400" />}
+        </div>
+        <div className="flex items-center justify-end gap-1.5">
+          {incoming ? (
+            <>
+              <button
+                type="button"
+                onClick={callActions.decline}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-red-500 hover:bg-red-400 text-[11px] font-bold"
+              >
+                <PhoneOff className="h-3.5 w-3.5" /> Decline
+              </button>
+              {call.video && (
+                <button
+                  type="button"
+                  onClick={() => callActions.accept(true)}
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500 hover:bg-emerald-400 text-[11px] font-bold"
+                >
+                  <Video className="h-3.5 w-3.5" /> Video
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => callActions.accept(false)}
+                className="inline-flex items-center gap-1 px-3.5 py-1 rounded-full bg-emerald-500 hover:bg-emerald-400 text-[11px] font-bold shadow-md shadow-emerald-500/30"
+              >
+                <Phone className="h-3.5 w-3.5" /> {call.video ? "Voice" : "Answer"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={callActions.hangup}
+              className="inline-flex items-center gap-1 px-3.5 py-1 rounded-full bg-red-500 hover:bg-red-400 text-[11px] font-bold"
+            >
+              <PhoneOff className="h-3.5 w-3.5" /> Cancel
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  } else if (mode === "callActive" && call) {
+    const secs = call.connectedAt ? Math.max(0, Math.floor((Date.now() - call.connectedAt) / 1000)) : 0;
+    content = (
+      <button type="button" onClick={callActions.toggleSize} className="flex h-full w-full items-center gap-2 px-3" title="Show the call">
+        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+        {call.video ? <Video className="h-4 w-4 text-emerald-400" /> : <Phone className="h-4 w-4 text-emerald-400" />}
+        <span className="min-w-0 flex-1 truncate text-left text-[12px] font-semibold">{call.name.split(" ")[0]}</span>
+        <span className="text-[12px] font-bold tabular-nums text-emerald-400" data-island-call="active">
+          {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+        </span>
+      </button>
+    );
+  } else if (mode === "ring" && ring) {
+    content = (
+      <div className="flex h-full items-center gap-3 px-3.5">
+        <span className="h-10 w-10 shrink-0 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center lanx-bell">
+          <Bell className="h-5 w-5 text-amber-950" />
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (ring.conversationId) onOpenChat(ring.conversationId);
+            onRingClose();
+          }}
+          className="min-w-0 flex-1 text-left"
+          title="Open the chat"
+          data-island-ring
+        >
+          <span className="block text-[12.5px] font-semibold truncate">{ring.outgoing ? `Ringing ${ring.name}…` : `${ring.name} is ringing you`}</span>
+          <span className="block text-[11px] text-white/60 truncate">{ring.outgoing ? "Their LANX rings and flashes" : "They want your attention"}</span>
+        </button>
       </div>
     );
   } else if (mode === "message" && message) {
@@ -347,7 +523,10 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
   }
 
   return (
-    <div className="fixed top-2 left-1/2 z-[65] -translate-x-1/2 flex flex-col items-center pointer-events-none" data-island={mode}>
+    <div
+      className={`fixed top-[98px] left-1/2 ${mode === "call" || mode === "callActive" ? "z-[75]" : "z-[65]"} -translate-x-1/2 flex flex-col items-center pointer-events-none`}
+      data-island={mode}
+    >
       <div
         role="status"
         aria-live="polite"
@@ -356,7 +535,7 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
         className={`lanx-island ${mode === "hidden" ? "lanx-island-hidden" : ""}`}
         style={{ width: size.w, height: size.h, borderRadius: size.r }}
       >
-        <div key={mode + (request?.id ?? message?.id ?? done?.id ?? "")} className="lanx-island-content h-full">
+        <div key={mode + (request?.id ?? ring?.id ?? message?.id ?? done?.id ?? (mode === "call" ? call?.status : ""))} className="lanx-island-content h-full">
           {content}
         </div>
       </div>
@@ -368,6 +547,7 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
           from={cat.from}
           fileName={cat.fileName}
           fileSize={cat.fileSize}
+          say={cat.say}
           mood={cat.mood}
         />
       )}

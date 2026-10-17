@@ -28,8 +28,11 @@ export type CatMood = "hello" | "happy" | "bye";
 interface DeliveryCatProps {
   /** Changes the funny line. */
   alertId: string;
-  /** "box": a file in a parcel; "letter": a message in an envelope. */
-  variant?: "box" | "letter";
+  /** "box": a file in a parcel; "letter": a message in an envelope;
+   *  "bell": someone rang; "phone": a call. */
+  variant?: "box" | "letter" | "bell" | "phone";
+  /** What the cat says while waiting (instead of a funny line). */
+  say?: string;
   from: string;
   fileName?: string;
   fileSize?: number;
@@ -41,21 +44,20 @@ interface DeliveryCatProps {
  *  Island on two strings, in a parcel box (files) or holding an envelope
  *  (messages). It drops in, swings, blinks, looks around, waves and wags;
  *  after Accept it cheers and climbs back up, after Later it waves bye. */
-export const DeliveryCat: React.FC<DeliveryCatProps> = ({ alertId, variant = "box", from, fileName = "", fileSize = 0, mood }) => {
+export const DeliveryCat: React.FC<DeliveryCatProps> = ({ alertId, variant = "box", say, from, fileName = "", fileSize = 0, mood }) => {
   const who = from.split(" ")[0] || "Someone";
   const ext = (fileExtension(fileName) || "file").slice(0, 4).toUpperCase();
+  const basket = variant === "bell" || variant === "phone";
   const line =
     mood === "happy"
-      ? variant === "box"
-        ? "Yay! Bringing it in… 🐾"
-        : "Opening it for you… 😺"
+      ? { box: "Yay! Bringing it in… 🐾", letter: "Opening it for you… 😺", bell: "Ding ding! 🔔", phone: "Connecting you… 😺" }[variant]
       : mood === "bye"
         ? variant === "box"
           ? "Okay, later! It's waiting in your chat 👋"
-          : "Okay, later! 👋"
-        : pick(variant === "box" ? FILE_LINES : MESSAGE_LINES, alertId)(who);
-  const anchorL = variant === "box" ? "26 88" : "22 98";
-  const anchorR = variant === "box" ? "136 86" : "138 98";
+          : "Okay! 👋"
+        : say ?? pick(variant === "box" ? FILE_LINES : MESSAGE_LINES, alertId)(who);
+  const anchorL = variant === "box" ? "26 88" : basket ? "22 94" : "22 98";
+  const anchorR = variant === "box" ? "136 86" : basket ? "138 94" : "138 98";
 
   return (
     <div
@@ -105,6 +107,15 @@ export const DeliveryCat: React.FC<DeliveryCatProps> = ({ alertId, variant = "bo
               <stop offset="0" stopColor="#ff8aa5" />
               <stop offset="1" stopColor="#e11d48" />
             </radialGradient>
+            <radialGradient id="lanxcat-gold" cx="0.35" cy="0.3" r="0.85">
+              <stop offset="0" stopColor="#fff3b0" />
+              <stop offset="0.5" stopColor="#fbbf24" />
+              <stop offset="1" stopColor="#c27c0e" />
+            </radialGradient>
+            <linearGradient id="lanxcat-basket" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#c9915a" />
+              <stop offset="1" stopColor="#8f5a2c" />
+            </linearGradient>
           </defs>
 
           {/* strings up to the island */}
@@ -161,14 +172,45 @@ export const DeliveryCat: React.FC<DeliveryCatProps> = ({ alertId, variant = "bo
             </g>
           </g>
 
-          {/* waving paw */}
-          <g className="lanx-cat-wave">
+          {/* waving paw (ringing a bell, or holding a ringing phone) */}
+          <g className={`lanx-cat-wave ${variant === "bell" ? "lanx-cat-ding" : variant === "phone" ? "lanx-cat-buzz" : ""}`}>
             <path d="M108 94 Q 116 76 124 62" stroke="url(#lanxcat-fur)" strokeWidth="14" strokeLinecap="round" fill="none" />
+            {variant === "bell" && (
+              <g>
+                <path d="M125 58 v6" stroke="#8a5a14" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M113 84 q0 -20 12 -20 q12 0 12 20 l4 5 h-32 z" fill="url(#lanxcat-gold)" stroke="#b07312" strokeWidth="1" />
+                <ellipse cx="121" cy="72" rx="3" ry="5" fill="#fff" opacity="0.55" />
+                <circle cx="125" cy="92" r="4" fill="#b07312" />
+                <path d="M104 70 q-5 6 0 12 M146 70 q5 6 0 12 M99 66 q-8 10 0 20 M151 66 q8 10 0 20" stroke="#fbbf24" strokeWidth="2.2" strokeLinecap="round" fill="none" className="lanx-cat-waves" />
+              </g>
+            )}
+            {variant === "phone" && (
+              <g>
+                <rect x="114" y="38" width="22" height="38" rx="5" fill="#1f2937" stroke="#4b5563" strokeWidth="1.2" />
+                <rect x="117" y="42" width="16" height="28" rx="2.5" fill="#22c55e" />
+                <path d="M121 53 c0 4 4 8 8 8 l1.5 -2 c0.5 -0.7 0.3 -1.5 -0.4 -1.9 l-2 -1 c-0.6 -0.3 -1.3 -0.1 -1.6 0.4 l-0.6 0.9 c-1.6 -0.8 -2.9 -2.1 -3.7 -3.7 l0.9 -0.6 c0.5 -0.3 0.7 -1 0.4 -1.6 l-1 -2 c-0.4 -0.7 -1.2 -0.9 -1.9 -0.4 z" fill="#fff" />
+                <path d="M108 44 q-5 8 0 16 M142 44 q5 8 0 16 M103 40 q-8 12 0 24 M147 40 q8 12 0 24" stroke="#22c55e" strokeWidth="2.2" strokeLinecap="round" fill="none" className="lanx-cat-waves" />
+              </g>
+            )}
             <circle cx="125" cy="58" r="10" fill="url(#lanxcat-paw)" />
             <path d="M120 53 v4 M125 51 v4 M130 53 v4" stroke="#c97a2f" strokeWidth="1.6" strokeLinecap="round" />
           </g>
 
-          {variant === "box" ? (
+          {basket ? (
+            <>
+              {/* a round wicker basket */}
+              <path d="M16 94 h128 v28 q0 52 -64 52 q-64 0 -64 -52 z" fill="url(#lanxcat-basket)" />
+              <path d="M22 112 h116 M24 128 h112 M30 144 h100 M42 158 h76" stroke="#6f431e" strokeWidth="2" opacity="0.45" />
+              <path d="M40 96 v70 M64 96 v78 M96 96 v78 M120 96 v70" stroke="#6f431e" strokeWidth="1.6" opacity="0.3" />
+              <rect x="12" y="88" width="136" height="12" rx="6" fill="#a8703c" />
+              <rect x="12" y="88" width="136" height="4" rx="2" fill="#e0b07a" opacity="0.7" />
+              <ellipse cx="50" cy="91" rx="12" ry="8" fill="url(#lanxcat-paw)" />
+              <path d="M45 88 v4 M50 87 v4 M55 88 v4" stroke="#c97a2f" strokeWidth="1.5" strokeLinecap="round" />
+              <text x="80" y="146" textAnchor="middle" fontSize="22">
+                {variant === "bell" ? "🔔" : "📞"}
+              </text>
+            </>
+          ) : variant === "box" ? (
             <>
               {/* parcel: front, side and rim, shaded like a real box */}
               <path d="M126 92 L142 84 L142 168 L126 176 Z" fill="url(#lanxcat-side)" />

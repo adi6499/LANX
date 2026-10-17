@@ -285,7 +285,18 @@ impl NetworkService {
         } else {
             format!("🔔 {} is ringing you", peer.display_name)
         };
-        self.events.notify(&self.db, AlertKind::Ring, &title, "Open LANX to reply");
+        // LANX 1.2.8: on the desktop island, with the cat ringing a bell.
+        let alert = crate::events::IslandAlert {
+            id: format!("ring-{}-{}", conv.id, crate::networking::now_secs()),
+            kind: "ring".into(),
+            title: if private { "Someone".to_string() } else { peer.display_name.clone() },
+            body: if private || conv.kind != "group" { "is ringing you".to_string() } else { format!("is ringing {}", conv.peer_name) },
+            conversation_id: (!private).then(|| conv.id.clone()),
+            avatar_color: (!private).then(|| peer.avatar_color.clone()),
+            private,
+            ..Default::default()
+        };
+        self.events.notify_island(&self.db, AlertKind::Ring, &title, "Open LANX to reply", alert);
         self.events.emit_json(
             "lanx://ring",
             RingEvent {

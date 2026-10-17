@@ -21,7 +21,7 @@ pub struct Events {
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct IslandAlert {
     pub id: String,
-    /// "message" | "file"
+    /// "message" | "file" | "ring"
     pub kind: String,
     pub title: String,
     pub body: String,
@@ -218,7 +218,12 @@ impl Events {
         if notifications && !Self::main_window_focused(app) && self.show_island(app, alert) {
             self.play_sound(db, kind);
             if let Some(w) = app.get_webview_window("main") {
-                let _ = w.request_user_attention(Some(tauri::UserAttentionType::Informational));
+                let attention = if kind == AlertKind::Ring {
+                    tauri::UserAttentionType::Critical
+                } else {
+                    tauri::UserAttentionType::Informational
+                };
+                let _ = w.request_user_attention(Some(attention));
             }
             return;
         }
@@ -325,21 +330,18 @@ pub fn place_island(app: &AppHandle, w: &tauri::WebviewWindow) {
     }
 }
 
-/// Shows a window on top of everything without activating it, so typing in
-/// another program is never interrupted.
+/// Shows the island on top of everything. Shown through Tauri (which also
+/// removes the title bar of a frameless window as it appears); the window is
+/// not focusable, so typing in another program is never interrupted.
 #[cfg(windows)]
 fn show_without_focus(w: &tauri::WebviewWindow) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, ShowWindow, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE,
-    };
-    match w.hwnd() {
-        Ok(h) => unsafe {
-            let hwnd = h.0 as _;
-            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-        },
-        Err(_) => {
-            let _ = w.show();
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE};
+    let _ = w.unminimize();
+    let _ = w.show();
+    if let Ok(h) = w.hwnd() {
+        // SAFETY: raises our own window; never activates it.
+        unsafe {
+            SetWindowPos(h.0 as _, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
         }
     }
 }

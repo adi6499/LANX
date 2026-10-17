@@ -29,7 +29,8 @@ import { NewGroupModal } from "./components/NewGroupModal";
 import { BroadcastModal } from "./components/BroadcastModal";
 import { WelcomeTour } from "./components/WelcomeTour";
 import { UpdateBanner } from "./components/UpdateBanner";
-import { DynamicIsland, IslandMessage } from "./components/DynamicIsland";
+import { DynamicIsland, IslandMessage, IslandRing } from "./components/DynamicIsland";
+import type { IslandCall } from "./components/CallLayer";
 import { CallLayer, CallLayerHandle } from "./components/CallLayer";
 import { AlertCircle, X } from "lucide-react";
 
@@ -112,6 +113,11 @@ export default function App() {
   const lockedRef = useRef(false);
   /** New message from another chat, shown in the Dynamic Island. */
   const [islandMsg, setIslandMsg] = useState<IslandMessage | null>(null);
+  /** Rings and calls in the Dynamic Island (LANX 1.2.8). */
+  const [islandRing, setIslandRing] = useState<IslandRing | null>(null);
+  const [islandCall, setIslandCall] = useState<IslandCall | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
+  conversationsRef.current = conversations;
   const peersRef = useRef<Peer[]>([]);
   peersRef.current = peers;
   const hiddenUnlockedRef = useRef(false);
@@ -426,8 +432,18 @@ export default function App() {
     );
 
     add(
-      events.onRing(({ conversation_id }) => {
+      events.onRing(({ conversation_id, peer_name }) => {
         if (conversation_id === activeConversationIdRef.current) setRingPulse((n) => n + 1);
+        if (lockedRef.current) return;
+        // The cat rings a bell in the Dynamic Island (hidden chats stay out of sight).
+        const conv = conversationsRef.current.find((c) => c.id === conversation_id);
+        if (conv?.is_hidden && !hiddenUnlockedRef.current) return;
+        setIslandRing({
+          id: `ring-${Date.now()}`,
+          name: peer_name || conv?.peer_name || "Someone",
+          color: conv?.peer_avatar_color ?? "#f59e0b",
+          conversationId: conversation_id,
+        });
       })
     );
 
@@ -656,6 +672,16 @@ export default function App() {
     if (!activeConversationId) return;
     try {
       await api.ring(activeConversationId);
+      const conv = conversations.find((c) => c.id === activeConversationId);
+      if (conv) {
+        setIslandRing({
+          id: `ring-out-${Date.now()}`,
+          name: conv.peer_name,
+          color: conv.peer_avatar_color,
+          conversationId: conv.id,
+          outgoing: true,
+        });
+      }
     } catch (err) {
       showError(err);
     }
@@ -826,6 +852,7 @@ export default function App() {
       key="call-layer"
       ref={callRef}
       onError={(text) => setNotice(text)}
+      onIslandChange={setIslandCall}
       onOpenChat={(id) => {
         if (lockedRef.current) return;
         setActiveConversationId(id);
@@ -1008,6 +1035,15 @@ export default function App() {
         transfers={transfers}
         message={islandMsg}
         onMessageClose={() => setIslandMsg(null)}
+        ring={islandRing}
+        onRingClose={() => setIslandRing(null)}
+        call={islandCall}
+        callActions={{
+          accept: (video) => callRef.current?.accept(video),
+          decline: () => callRef.current?.decline(),
+          hangup: () => callRef.current?.hangup(),
+          toggleSize: () => callRef.current?.toggleSize(),
+        }}
         progress={progress}
         actions={transferActions}
         catEnabled={settings.cat_alerts}

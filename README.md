@@ -44,6 +44,15 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.2.8: the cat rings bells and answers calls
+- **Rings 🔔** — when someone rings you, the Dynamic Island opens and the cat rings a little bell
+  (also on the desktop when LANX is hidden, instead of the Windows pop-up). When you ring someone,
+  the cat rings it for you.
+- **Calls 📞** — while a voice or video call is ringing, the island shows who it is and the cat holds a
+  buzzing phone, with **Answer / Decline** (or **Cancel** for your own call). During the call the island
+  becomes a small green pill with the call time; click it to show the call.
+- The desktop island now appears without a title bar, fully see-through around the island and the cat.
+
 ### New in 1.2.7: Dynamic Island, the delivery cat, and how long files took
 - **How long it took** — finished files show it, e.g. "⚡ 40.1 MB in 3.2 s · 12.5 MB/s", on both computers.
 - **Dynamic Island** — a black capsule at the top of LANX, like the iPhone: it shows a file someone

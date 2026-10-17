@@ -276,12 +276,20 @@ pub fn run() {
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .resizable(false)
+                .maximizable(false)
+                .minimizable(false)
                 .focused(false)
+                // Like a Windows notification: showing or clicking it never
+                // takes the keyboard away from what the user is typing in.
+                .focusable(false)
                 .visible(false)
                 .disable_drag_drop_handler()
                 .build()
             {
-                Ok(w) => events::place_island(app.handle(), &w),
+                Ok(w) => {
+                    let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+                    events::place_island(app.handle(), &w);
+                }
                 Err(e) => eprintln!("[Island] Could not create the alert window: {}", e),
             }
 
