@@ -1,4 +1,5 @@
 pub mod calls;
+pub mod chat;
 pub mod lanes;
 pub mod extras;
 pub mod folders;
@@ -176,6 +177,19 @@ impl NetworkService {
                     _ = this.cancel_token.cancelled() => break,
                     _ = tokio::time::sleep(Duration::from_secs(2)) => {
                         this.delete_expired_messages();
+                    }
+                }
+            }
+        });
+
+        // LANX 1.5.0: "remind me" and "send later".
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                        this.run_chat_timers().await;
                     }
                 }
             }
@@ -428,6 +442,18 @@ impl NetworkService {
         conversation_id: &str,
         content: &str,
     ) -> Result<Message, String> {
+        self.send_message_full(conversation_id, content, None, Vec::new()).await
+    }
+
+    /// LANX 1.5.0: a message that may answer another one (`reply_to`) and
+    /// @mention group members.
+    pub async fn send_message_full(
+        &self,
+        conversation_id: &str,
+        content: &str,
+        reply_to: Option<String>,
+        mentions: Vec<String>,
+    ) -> Result<Message, String> {
         let trimmed = content.trim();
         if trimmed.is_empty() {
             return Err("Message content cannot be empty".to_string());
@@ -444,8 +470,10 @@ impl NetworkService {
             .get_conversation(conversation_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Conversation not found".to_string())?;
+        let reply = self.reply_for(&conv.id, reply_to.as_deref());
         if conv.kind == "group" {
-            return self.send_group_message(&conv, trimmed);
+            let mentions = self.valid_mentions(&conv.id, &mentions);
+            return self.send_group_message(&conv, trimmed, reply, mentions);
         }
         let peer = self
             .db
@@ -473,6 +501,9 @@ impl NetworkService {
             ttl_secs: ttl,
             expire_at: ttl.map(|_| now + SECRET_UNREAD_MAX_SECS),
             deliveries: None,
+            reply_to: reply.as_ref().map(|r| r.0.clone()),
+            reply_preview: reply.map(|r| r.1),
+            ..Default::default()
         };
         self.db.insert_message(&msg).map_err(|e| e.to_string())?;
         self.kick_outbox(&peer.id, true);
@@ -613,11 +644,13 @@ impl NetworkService {
         let group_msgs = self.db.pending_group_deliveries(peer_id).unwrap_or_default();
         let offers = self.db.queued_offers_for_peer(peer_id).unwrap_or_default();
         let receipts = self.db.pending_receipts(peer_id).unwrap_or_default();
+        let actions = self.db.pending_actions(peer_id).unwrap_or_default();
         if syncs.is_empty()
             && messages.is_empty()
             && group_msgs.is_empty()
             && offers.is_empty()
             && receipts.is_empty()
+            && actions.is_empty()
         {
             return;
         }
@@ -665,6 +698,9 @@ impl NetworkService {
         };
         self.last_failure.lock().remove(peer_id);
         let modern = version_at_least(&chan.remote.app_version, FEATURES_V11);
+        // LANX 1.5.0 extras only go to copies that understand them (every
+        // copy re-checks signatures on the fields it knows).
+        let chat = version_at_least(&chan.remote.app_version, FEATURES_CHAT);
         let needs_update = format!("Waiting for {} to update to LANX 1.1", peer.display_name);
         let mut connection_lost = false;
 
@@ -695,6 +731,9 @@ impl NetworkService {
                     message_type: m.message_type.clone(),
                     ttl_secs: m.ttl_secs,
                     group_id: None,
+                    reply_to: if chat { m.reply_to.clone() } else { None },
+                    reply_preview: if chat { m.reply_preview.clone() } else { None },
+                    mentions: Vec::new(),
                 };
                 match Self::send_message_packet(&mut chan, payload).await {
                     Ok(Ok(())) => self.set_message_status(m, "delivered", None),
@@ -721,6 +760,9 @@ impl NetworkService {
                     message_type: m.message_type.clone(),
                     ttl_secs: None,
                     group_id: Some(m.conversation_id.clone()),
+                    reply_to: if chat { m.reply_to.clone() } else { None },
+                    reply_preview: if chat { m.reply_preview.clone() } else { None },
+                    mentions: if chat { m.mentions.clone() } else { Vec::new() },
                 };
                 match Self::send_message_packet(&mut chan, payload).await {
                     Ok(Ok(())) => {
@@ -762,6 +804,26 @@ impl NetworkService {
                 match Self::send_acked(&mut chan, payload).await {
                     Ok(_) => {
                         let _ = self.db.clear_receipts(&ids);
+                    }
+                    Err(()) => {
+                        connection_lost = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 6. LANX 1.5.0: reactions, edits, deletes for everyone, pins (they
+        // wait while the colleague is on an older version).
+        if !connection_lost && chat {
+            for (id, json) in actions {
+                let Ok(a) = serde_json::from_str::<MessageActionPayload>(&json) else {
+                    let _ = self.db.delete_action(&id);
+                    continue;
+                };
+                match Self::send_acked(&mut chan, PacketPayload::MessageAction(a)).await {
+                    Ok(_) => {
+                        let _ = self.db.delete_action(&id);
                     }
                     Err(()) => {
                         connection_lost = true;
@@ -889,6 +951,7 @@ impl NetworkService {
                 PacketPayload::Ring(r) => Some(PacketPayload::Ack(self.handle_ring(&peer, r))),
                 PacketPayload::Call(c) => Some(PacketPayload::Ack(self.handle_call(&peer, c))),
                 PacketPayload::Meeting(m) => Some(self.handle_meeting(&peer, m)),
+                PacketPayload::MessageAction(a) => Some(PacketPayload::Ack(self.handle_message_action(&peer, a))),
                 PacketPayload::GroupUpdate(g) => {
                     Some(PacketPayload::Ack(self.handle_group_update(&peer, g)))
                 }
@@ -951,6 +1014,7 @@ impl NetworkService {
                 ttl_secs: None,
                 expire_at: None,
                 deliveries: None,
+                ..Default::default()
             };
             if self.db.insert_message(&msg).is_err() {
                 return ack(false, Some("Recipient database error"));
@@ -979,6 +1043,9 @@ impl NetworkService {
             ttl_secs: ttl,
             expire_at: ttl.map(|_| now + SECRET_UNREAD_MAX_SECS),
             deliveries: None,
+            reply_to: m.reply_to.clone().filter(|r| r.len() <= 64),
+            reply_preview: m.reply_preview.as_deref().map(chat::clip_preview),
+            ..Default::default()
         };
         if let Err(e) = self.db.insert_message(&msg) {
             eprintln!("[Network] Failed to store incoming message: {}", e);

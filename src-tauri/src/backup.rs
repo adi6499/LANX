@@ -567,6 +567,7 @@ mod tests {
             ttl_secs: ttl,
             expire_at: None,
             deliveries: None,
+            ..Default::default()
         }
     }
 

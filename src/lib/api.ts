@@ -28,6 +28,7 @@ import {
   MeetingInfo,
   MeetingEvent,
   MeetingChatLine,
+  ScheduledMessage,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -115,6 +116,7 @@ let mockSettings: UserSettings = {
   frost_level: 60,
   reduce_motion: false,
   cat_alerts: true,
+  quick_replies: ["On my way 🚶", "Give me 5 minutes, please.", "In a meeting — I'll get back to you soon.", "Received, thanks 👍", "Can you call me?", "Done ✅"],
   profile: {
     avatar: "emoji:🦊",
     photo: "",
@@ -869,6 +871,110 @@ export const api = {
       });
   },
 
+  // ---------------------------------------------------- 1.5.0: chatting
+  /** A message that may answer another one and @mention group members. */
+  sendMessageEx: async (conversationId: string, content: string, replyTo?: string | null, mentions?: string[]): Promise<Message> => {
+    if (isTauri) return invoke("send_message_ex", { conversationId, content, replyTo: replyTo ?? null, mentions: mentions ?? [] });
+    // Browser preview: pretend it was sent.
+    const orig = replyTo ? (mockMessages[conversationId] || []).find((x) => x.id === replyTo) : undefined;
+    const m = msg({
+      id: `local-${Date.now()}`,
+      conversation_id: conversationId,
+      content,
+      reply_to: replyTo ?? null,
+      reply_preview: orig ? `${orig.is_outgoing ? "You" : "Colleague"}: ${orig.content}` : null,
+      mentions: mentions ?? [],
+    });
+    mockMessages[conversationId] = [...(mockMessages[conversationId] || []), m];
+    return m;
+  },
+  reactMessage: async (messageId: string, emoji: string): Promise<Message> => {
+    if (isTauri) return invoke("react_message", { messageId, emoji });
+    return mockPatch(messageId, (m) => {
+      const list = [...(m.reactions ?? [])].map((r) => ({ ...r, names: [...r.names] }));
+      const mine = list.find((r) => r.mine);
+      if (mine) {
+        mine.count -= 1;
+        mine.mine = false;
+        mine.names = mine.names.filter((n) => n !== "You");
+      }
+      if (!mine || mine.emoji !== emoji) {
+        const r = list.find((x) => x.emoji === emoji);
+        if (r) {
+          r.count += 1;
+          r.mine = true;
+          r.names.push("You");
+        } else list.push({ emoji, count: 1, mine: true, names: ["You"] });
+      }
+      return { ...m, reactions: list.filter((r) => r.count > 0) };
+    });
+  },
+  editMessage: async (messageId: string, content: string, mentions?: string[]): Promise<Message> => {
+    if (isTauri) return invoke("edit_message", { messageId, content, mentions: mentions ?? [] });
+    return mockPatch(messageId, (m) => ({ ...m, content, edited_at: now() }));
+  },
+  deleteMessageEveryone: async (messageId: string): Promise<Message> => {
+    if (isTauri) return invoke("delete_message_everyone", { messageId });
+    return mockPatch(messageId, (m) => ({ ...m, content: "", deleted: true, reactions: [] }));
+  },
+  deleteMessageLocal: async (messageId: string): Promise<void> => {
+    if (isTauri) return invoke("delete_message_local", { messageId });
+    for (const k of Object.keys(mockMessages)) mockMessages[k] = mockMessages[k].filter((m) => m.id !== messageId);
+  },
+  pinMessage: async (messageId: string, pinned: boolean): Promise<Message> => {
+    if (isTauri) return invoke("pin_message", { messageId, pinned });
+    return mockPatch(messageId, (m) => ({ ...m, pinned_at: pinned ? now() : null, pinned_by: pinned ? "me" : null }));
+  },
+  starMessage: async (messageId: string, starred: boolean): Promise<Message> => {
+    if (isTauri) return invoke("star_message", { messageId, starred });
+    return mockPatch(messageId, (m) => ({ ...m, starred }));
+  },
+  listStarred: async (): Promise<SearchHit[]> => {
+    if (isTauri) return invoke("list_starred");
+    return Object.values(mockMessages)
+      .flat()
+      .filter((m) => m.starred)
+      .map((m) => {
+        const c = mockConversations.find((x) => x.id === m.conversation_id);
+        return { message: m, peer_name: c?.peer_name ?? "", peer_avatar_color: c?.peer_avatar_color ?? "#6366f1" };
+      });
+  },
+  setReminder: async (messageId: string, remindAt: number): Promise<Message> => {
+    if (isTauri) return invoke("set_reminder", { messageId, remindAt });
+    return mockPatch(messageId, (m) => ({ ...m, remind_at: remindAt }));
+  },
+  cancelReminder: async (messageId: string): Promise<Message> => {
+    if (isTauri) return invoke("cancel_reminder", { messageId });
+    return mockPatch(messageId, (m) => ({ ...m, remind_at: null }));
+  },
+  scheduleMessage: async (conversationId: string, content: string, sendAt: number, replyTo?: string | null, mentions?: string[]): Promise<ScheduledMessage> => {
+    if (isTauri) return invoke("schedule_message", { conversationId, content, sendAt, replyTo: replyTo ?? null, mentions: mentions ?? [] });
+    const s = { id: `s-${Date.now()}`, conversation_id: conversationId, content, reply_to: replyTo ?? null, mentions: mentions ?? [], send_at: sendAt, created_at: now() };
+    mockScheduled.push(s);
+    return s;
+  },
+  cancelScheduled: async (id: string, conversationId: string): Promise<void> => {
+    if (isTauri) return invoke("cancel_scheduled", { id, conversationId });
+    mockScheduled = mockScheduled.filter((s) => s.id !== id);
+  },
+  listScheduled: async (conversationId: string): Promise<ScheduledMessage[]> => {
+    if (isTauri) return invoke("list_scheduled", { conversationId });
+    return mockScheduled.filter((s) => s.conversation_id === conversationId);
+  },
+  /** A recorded voice note (raw bytes). */
+  sendVoiceNote: async (conversationId: string, data: Uint8Array, durationMs: number, ext: string): Promise<SentFile[]> => {
+    if (isTauri)
+      return invoke("send_voice_note", data, {
+        headers: { "x-conversation": conversationId, "x-duration-ms": String(Math.round(durationMs)), "x-ext": ext },
+      });
+    return previewOnly();
+  },
+  /** The sound of a voice note on this computer. */
+  readVoiceNote: async (transferId: string): Promise<ArrayBuffer> => {
+    if (isTauri) return invoke("read_voice_note", { transferId });
+    return previewOnly();
+  },
+
   // ------------------------------------------------------ 1.4.0: meetings
   meetingStart: async (conversationId: string, video: boolean, title?: string): Promise<MeetingInfo> => {
     if (isTauri) return invoke("meeting_start", { conversationId, video, title: title ?? null });
@@ -1011,7 +1117,28 @@ export const events = {
   onCall: (cb: (e: CallEvent) => void) => on<CallEvent>("lanx://call", cb),
   /** LANX 1.4.0: meetings (invitations, who joins/leaves, signals, chat…). */
   onMeeting: (cb: (e: MeetingEvent) => void) => on<MeetingEvent>("lanx://meeting", cb),
+  /** LANX 1.5.0: a "remind me" went off. */
+  onReminder: (cb: (e: { message: Message; conversation_id: string; title: string; text: string }) => void) =>
+    on<{ message: Message; conversation_id: string; title: string; text: string }>("lanx://reminder", cb),
+  /** LANX 1.5.0: the "send later" list of a chat changed. */
+  onScheduledChanged: (cb: (e: { conversation_id: string; problem: string | null }) => void) =>
+    on<{ conversation_id: string; problem: string | null }>("lanx://scheduled-changed", cb),
 };
+
+let mockScheduled: ScheduledMessage[] = [];
+
+/** Browser preview: changes a pretend message. */
+function mockPatch(messageId: string, f: (m: Message) => Message): Message {
+  for (const k of Object.keys(mockMessages)) {
+    const i = mockMessages[k].findIndex((m) => m.id === messageId);
+    if (i >= 0) {
+      const next = f(mockMessages[k][i]);
+      mockMessages[k] = mockMessages[k].map((m, j) => (j === i ? next : m));
+      return next;
+    }
+  }
+  throw new Error("Message not found");
+}
 
 /** Browser preview: a pretend meeting with a few colleagues. */
 function mockMeeting(conversationId: string, video: boolean): MeetingInfo {

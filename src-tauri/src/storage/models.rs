@@ -73,6 +73,9 @@ pub struct UserSettings {
     /// LANX 1.2.9: avatar, status and "about me" (what colleagues see).
     #[serde(default)]
     pub profile: Profile,
+    /// LANX 1.5.0: ready-made answers ("/" in the message box).
+    #[serde(default = "default_quick_replies")]
+    pub quick_replies: Vec<String>,
 }
 
 /// LANX 1.2.9: what colleagues see about you besides your name and colour.
@@ -179,6 +182,36 @@ fn default_frost() -> u32 {
     60
 }
 
+/// LANX 1.5.0: ready-made answers offered when you type "/" in a chat.
+pub fn default_quick_replies() -> Vec<String> {
+    [
+        "On my way 🚶",
+        "Give me 5 minutes, please.",
+        "In a meeting — I'll get back to you soon.",
+        "Received, thanks 👍",
+        "Can you call me?",
+        "Done ✅",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// Quick replies as stored: trimmed, no empties or duplicates, at most 30.
+pub fn clean_quick_replies(list: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for s in list {
+        let t: String = s.trim().chars().filter(|c| !c.is_control() || *c == '\n').take(300).collect();
+        if !t.is_empty() && !out.contains(&t) {
+            out.push(t);
+        }
+        if out.len() >= 30 {
+            break;
+        }
+    }
+    out
+}
+
 fn default_background() -> String {
     "default".to_string()
 }
@@ -243,7 +276,17 @@ pub struct DeliverySummary {
     pub waiting_for: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// LANX 1.5.0: one emoji under a message, with who chose it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Reaction {
+    pub emoji: String,
+    pub count: u32,
+    /// You chose this one.
+    pub mine: bool,
+    pub names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
     pub conversation_id: String,
@@ -268,6 +311,55 @@ pub struct Message {
     /// Outgoing group messages only.
     #[serde(default)]
     pub deliveries: Option<DeliverySummary>,
+    // ---- LANX 1.5.0
+    /// The message this one answers.
+    #[serde(default)]
+    pub reply_to: Option<String>,
+    /// "Asha: the text…" of that message (shown if the original is gone).
+    #[serde(default)]
+    pub reply_preview: Option<String>,
+    /// Device ids @mentioned (group chats).
+    #[serde(default)]
+    pub mentions: Vec<String>,
+    #[serde(default)]
+    pub edited_at: Option<i64>,
+    /// Deleted for everyone (the text is gone).
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub pinned_at: Option<i64>,
+    #[serde(default)]
+    pub pinned_by: Option<String>,
+    /// Starred (saved) on this computer only.
+    #[serde(default)]
+    pub starred: bool,
+    /// Emoji reactions (filled in when messages are loaded).
+    #[serde(default)]
+    pub reactions: Vec<Reaction>,
+    /// A "remind me" set on this computer (filled in when loaded).
+    #[serde(default)]
+    pub remind_at: Option<i64>,
+}
+
+/// LANX 1.5.0: a message waiting to be sent at a chosen time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledMessage {
+    pub id: String,
+    pub conversation_id: String,
+    pub content: String,
+    pub reply_to: Option<String>,
+    pub mentions: Vec<String>,
+    pub send_at: i64,
+    pub created_at: i64,
+}
+
+/// LANX 1.5.0: a "remind me about this message" that is due.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reminder {
+    pub id: String,
+    pub message_id: String,
+    pub conversation_id: String,
+    pub remind_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

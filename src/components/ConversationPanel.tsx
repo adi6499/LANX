@@ -22,7 +22,6 @@ import {
   Check,
   CheckCheck,
   AlertCircle,
-  Copy,
   Trash2,
   Lock,
   CloudUpload,
@@ -38,13 +37,30 @@ import {
   PhoneOutgoing,
   PhoneMissed,
   Video,
+  Mic,
+  CalendarClock,
+  Star,
+  AlarmClock,
+  Pin,
+  Ban,
 } from "lucide-react";
 import { FileCard, GroupFileCard } from "./FileCard";
 import { MeetingCard, RecordingCard } from "./MeetingCards";
 import { lessMotion } from "../lib/motion";
 import { Avatar } from "./Avatar";
 import { statusLine } from "../lib/profile";
-import type { Profile } from "../types";
+import type { Profile, ScheduledMessage } from "../types";
+import { api, errorText, events } from "../lib/api";
+import { MessageTools, ReactionChips, type MessageActions } from "./chat/MessageTools";
+import { VoiceNote, VoiceRecorder, voiceMsFromLabel } from "./chat/VoiceNote";
+import { MentionPicker, PinnedBar, QuickReplyPicker, ReplyEditBar, ScheduledStrip, SendLaterMenu, type MentionCandidate } from "./chat/ComposerExtras";
+import { MessageText, whenText } from "./chat/chatUtils";
+
+/** LANX 1.5.0: what a send can carry besides the text. */
+export interface SendOptions {
+  replyTo?: string | null;
+  mentions?: string[];
+}
 
 interface ConversationPanelProps {
   conversation: Conversation | null;
@@ -64,7 +80,7 @@ interface ConversationPanelProps {
   ringPulse: number;
   onDismissNotice: () => void;
   onToggleContext: () => void;
-  onSendMessage: (content: string) => Promise<boolean>;
+  onSendMessage: (content: string, opts?: SendOptions) => Promise<boolean>;
   onRetryMessage: (messageId: string) => void;
   onDeleteConversation: () => void;
   onPickFiles: () => void;
@@ -81,6 +97,19 @@ interface ConversationPanelProps {
   onMeeting?: (video: boolean) => void;
   onRejoinMeeting?: (messageId: string) => void;
   onError?: (text: string) => void;
+  // ---- LANX 1.5.0
+  myName?: string;
+  profiles?: Record<string, Profile>;
+  /** A recorded voice note to send. */
+  onSendVoice?: (data: Blob, durationMs: number, ext: string) => Promise<void>;
+  quickReplies?: string[];
+  onSaveQuickReplies?: (list: string[]) => void;
+  /** A message changed or went away here (instant feedback). */
+  onMessageChanged?: (m: Message) => void;
+  onMessageRemoved?: (id: string) => void;
+  /** Scroll to this message once it is shown (from Starred). */
+  jumpTo?: string | null;
+  onJumped?: () => void;
 }
 
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
@@ -158,8 +187,28 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onRejoinMeeting,
   onError,
   onUnblock,
+  myName = "",
+  profiles = {},
+  onSendVoice,
+  quickReplies = [],
+  onSaveQuickReplies,
+  onMessageChanged,
+  onMessageRemoved,
+  jumpTo = null,
+  onJumped,
 }) => {
   const [inputText, setInputText] = useState("");
+  // LANX 1.5.0
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
+  const [members, setMembers] = useState<MentionCandidate[]>([]);
+  const [mention, setMention] = useState<{ start: number; text: string } | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const [quickIdx, setQuickIdx] = useState(0);
+  const [quickClosed, setQuickClosed] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [sendLater, setSendLater] = useState(false);
+  const [scheduled, setScheduled] = useState<ScheduledMessage[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [secretMenu, setSecretMenu] = useState(false);
@@ -187,8 +236,76 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     setConfirmDelete(false);
     setSecretMenu(false);
     setInputText("");
+    setReplyTo(null);
+    setEditing(null);
+    setMention(null);
+    setRecording(false);
+    setSendLater(false);
     textareaRef.current?.focus();
   }, [conversation?.id]);
+
+  // LANX 1.5.0: group members (for @mentions) and this chat's "send later" list.
+  const convId = conversation?.id ?? null;
+  const convIsGroup = conversation?.kind === "group";
+  useEffect(() => {
+    setMembers([]);
+    if (!convId || !convIsGroup) return;
+    let gone = false;
+    api
+      .getGroup(convId)
+      .then((g) => {
+        if (gone || !g) return;
+        setMembers(
+          g.members
+            .filter((m) => !m.is_me)
+            .map((m) => ({ id: m.device_id, name: m.display_name, color: peers.find((p) => p.id === m.device_id)?.avatar_color ?? "#64748b" }))
+        );
+      })
+      .catch(() => {});
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, convIsGroup]);
+  const loadScheduled = useCallback(() => {
+    if (!convId) return;
+    api
+      .listScheduled(convId)
+      .then((l) => setScheduled(l))
+      .catch(() => setScheduled([]));
+  }, [convId]);
+  useEffect(() => {
+    setScheduled([]);
+    loadScheduled();
+  }, [loadScheduled]);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    events
+      .onScheduledChanged((e) => {
+        if (e.problem) onErrorRef.current?.(e.problem);
+        if (e.conversation_id === convId) loadScheduled();
+      })
+      .then((u) => (un = u));
+    return () => un?.();
+  }, [convId, loadScheduled]);
+
+  /** Scrolls to a message and makes it glow for a moment. */
+  const jumpToMessage = useCallback((id: string) => {
+    const el = rootRef.current?.querySelector(`[data-msg="${CSS.escape(id)}"]`) as HTMLElement | null;
+    if (!el) return false;
+    el.scrollIntoView({ block: "center", behavior: lessMotion() ? "auto" : "smooth" });
+    el.animate([{ backgroundColor: "rgba(250, 204, 21, 0.35)" }, { backgroundColor: "rgba(250, 204, 21, 0)" }], { duration: 1800, easing: "ease-out" });
+    return true;
+  }, []);
+  useEffect(() => {
+    if (!jumpTo) return;
+    const t = window.setTimeout(() => {
+      if (jumpToMessage(jumpTo)) onJumped?.();
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [jumpTo, messages.length, jumpToMessage, onJumped]);
 
   // A ring arrived for this chat: shake the panel.
   useEffect(() => {
@@ -216,11 +333,20 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     return () => clearInterval(t);
   }, [hasTimers]);
 
+  /** Where the cursor goes after the text was changed for you (a picked
+   *  @mention) — set in the same frame, so fast typing never lands elsewhere. */
+  const caretRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
+    if (caretRef.current !== null) {
+      const pos = Math.min(caretRef.current, ta.value.length);
+      caretRef.current = null;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    }
   }, [inputText]);
 
   if (!conversation) {
@@ -245,21 +371,163 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const nowSecs = Math.floor(Date.now() / 1000);
   const peerName = (id: string) => peers.find((p) => p.id === id)?.display_name ?? "Someone";
 
+  // ---- LANX 1.5.0: replies, edits, @mentions, quick replies, send later
+  const senderName = (m: Message) => (m.is_outgoing ? "You" : isGroup ? peerName(m.sender_id) : conversation.peer_name);
+  const previewOf = (m: Message) => (m.deleted ? "Deleted message" : m.ttl_secs ? "🔒 Secret message" : m.content);
+  /** Group members whose "@Name" is in the text. */
+  const mentionsIn = (text: string) => members.filter((m) => text.includes(`@${m.name}`)).map((m) => m.id);
+  const mentionCandidates = mention
+    ? members.filter((m) => m.name.toLowerCase().includes(mention.text.toLowerCase())).slice(0, 6)
+    : [];
+  const quickFilter = !quickClosed && !editing && /^\/[^\n]*$/.test(inputText) ? inputText.slice(1) : null;
+  const quickShown = quickFilter === null ? [] : quickReplies.filter((r) => r.toLowerCase().includes(quickFilter.toLowerCase()));
+  const run = async (f: () => Promise<Message | void>) => {
+    try {
+      const m = await f();
+      if (m) onMessageChanged?.(m);
+    } catch (err) {
+      onError?.(errorText(err));
+    }
+  };
+  const focusInput = () => window.setTimeout(() => textareaRef.current?.focus(), 0);
+
+  const actions: MessageActions = {
+    reply: (m) => {
+      setEditing(null);
+      setReplyTo(m);
+      focusInput();
+    },
+    edit: (m) => {
+      setReplyTo(null);
+      setEditing(m);
+      setInputText(m.content);
+      focusInput();
+    },
+    react: (m, e) => void run(() => api.reactMessage(m.id, e)),
+    pin: (m, p) => void run(() => api.pinMessage(m.id, p)),
+    star: (m, s) => void run(() => api.starMessage(m.id, s)),
+    remind: (m, at) => void run(() => (at ? api.setReminder(m.id, at) : api.cancelReminder(m.id))),
+    deleteMe: (m) =>
+      void run(async () => {
+        await api.deleteMessageLocal(m.id);
+        onMessageRemoved?.(m.id);
+      }),
+    deleteEveryone: (m) => void run(() => api.deleteMessageEveryone(m.id)),
+  };
+
+  const pickMention = (c: MentionCandidate) => {
+    if (!mention) return;
+    const ta = textareaRef.current;
+    const caret = ta?.selectionStart ?? inputText.length;
+    const next = `${inputText.slice(0, mention.start)}@${c.name} ${inputText.slice(caret)}`;
+    caretRef.current = mention.start + c.name.length + 2;
+    setInputText(next);
+    setMention(null);
+  };
+
+  const pickQuick = (text: string) => {
+    setInputText(text);
+    setQuickClosed(true);
+    focusInput();
+  };
+
   const handleSend = async () => {
     const text = inputText;
     if (!text.trim()) return;
+    if (editing) {
+      try {
+        const m = await api.editMessage(editing.id, text, mentionsIn(text));
+        onMessageChanged?.(m);
+        setEditing(null);
+        setInputText("");
+      } catch (err) {
+        onError?.(errorText(err));
+      }
+      return;
+    }
     setInputText("");
     setShowEmojiPicker(false);
-    const ok = await onSendMessage(text);
-    if (!ok) setInputText(text);
+    setMention(null);
+    const reply = replyTo;
+    setReplyTo(null);
+    const ok = await onSendMessage(text, { replyTo: reply?.id ?? null, mentions: isGroup ? mentionsIn(text) : [] });
+    if (!ok) {
+      setInputText(text);
+      setReplyTo(reply);
+    }
+    setQuickClosed(false);
     textareaRef.current?.focus();
   };
 
+  const scheduleAt = async (at: number) => {
+    const text = inputText;
+    setSendLater(false);
+    if (!text.trim()) return;
+    try {
+      await api.scheduleMessage(conversation.id, text, at, replyTo?.id ?? null, isGroup ? mentionsIn(text) : []);
+      setInputText("");
+      setReplyTo(null);
+      loadScheduled();
+    } catch (err) {
+      onError?.(errorText(err));
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionCandidates.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIdx((i) => (i + (e.key === "ArrowDown" ? 1 : mentionCandidates.length - 1)) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickMention(mentionCandidates[Math.min(mentionIdx, mentionCandidates.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        setMention(null);
+        return;
+      }
+    }
+    if (quickShown.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setQuickIdx((i) => (i + (e.key === "ArrowDown" ? 1 : quickShown.length - 1)) % quickShown.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickQuick(quickShown[Math.min(quickIdx, quickShown.length - 1)]);
+        return;
+      }
+    }
+    if (e.key === "Escape") {
+      if (quickFilter !== null) setQuickClosed(true);
+      else if (editing) {
+        setEditing(null);
+        setInputText("");
+      } else if (replyTo) setReplyTo(null);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleInput = (value: string, caret: number) => {
+    setInputText(value);
+    if (!value.startsWith("/")) setQuickClosed(false);
+    setQuickIdx(0);
+    if (value.trim()) onTyping();
+    if (!isGroup) return;
+    const before = value.slice(0, caret);
+    const m = /(^|\s)@([^\s@]{0,30})$/.exec(before);
+    if (m) {
+      setMention({ start: before.length - m[2].length - 1, text: m[2] });
+      setMentionIdx(0);
+    } else if (mention) setMention(null);
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -684,6 +952,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             </div>
             {!isGroup && <span className="font-mono text-[10px] opacity-70">TCP :{peer?.tcp_port || 52926}</span>}
           </div>
+          <PinnedBar
+            pinned={messages.filter((m) => m.pinned_at && !m.deleted).sort((a, b) => (b.pinned_at ?? 0) - (a.pinned_at ?? 0))}
+            label={(m) => `${senderName(m)}: ${previewOf(m)}`}
+            onJump={(m) => jumpToMessage(m.id)}
+            onUnpin={(m) => actions.pin(m, false)}
+          />
         </div>
 
         {hidden && (
@@ -781,15 +1055,41 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             const isSecret = !!msg.ttl_secs;
             const left = msg.expire_at ? msg.expire_at - nowSecs : null;
             const timerRunning = isSecret && left !== null && left <= (msg.ttl_secs ?? 0) + 2;
+            // LANX 1.5.0
+            const isVoice = isFile && (transfer?.kind === "voice" || (groupCopies?.[0]?.kind === "voice") || msg.content.startsWith("🎤 Voice note"));
+            const voiceT = groupCopies?.[0] ?? transfer;
+            const mentionsMe = !isOut && !!myId && !!msg.mentions?.includes(myId);
+            const original = msg.reply_to ? messages.find((x) => x.id === msg.reply_to) : undefined;
+            const quote = msg.reply_to ? (original ? `${senderName(original)}: ${previewOf(original)}` : msg.reply_preview || "Original message") : null;
+            const mentionNames = (msg.mentions ?? []).map((id) => (id === myId ? myName : members.find((m) => m.id === id)?.name ?? peerName(id)));
+            if (msg.deleted) {
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDay && <DaySeparator day={day} />}
+                  <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${isOut ? "items-end" : "items-start"}`}>
+                    {showSender && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
+                    <div data-deleted className="relative rounded-[18px] px-3.5 py-2 text-[12.5px] italic text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700 inline-flex items-center gap-1.5">
+                      <Ban className="h-3.5 w-3.5" /> {isOut ? "You deleted this message" : "This message was deleted"}
+                      <span className="not-italic text-[10px] ml-1">{formatMessageTime(msg.timestamp)}</span>
+                      <button type="button" title="Remove from this computer" onClick={() => actions.deleteMe(msg)} className="opacity-0 group-hover:opacity-100 ml-1 text-slate-400 hover:text-red-500">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            }
             return (
               <React.Fragment key={msg.id}>
                 {showDay && <DaySeparator day={day} />}
-                <div className={`flex flex-col group ${enterClass(msg)} ${isOut ? "items-end" : "items-start"}`}>
+                <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${isOut ? "items-end" : "items-start"}`}>
                   {showSender && (
                     <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>
                   )}
                   <div
-                    className={`relative max-w-lg rounded-[18px] px-3.5 py-2 text-[13px] ${
+                    data-bubble
+                    data-mentions-me={mentionsMe ? "1" : undefined}
+                    className={`relative max-w-lg rounded-[18px] px-3.5 py-2 text-[13px] ${mentionsMe ? "ring-2 ring-amber-400/70" : ""} ${
                       isSecret
                         ? isOut
                           ? "bg-violet-600 text-white rounded-br-[6px] shadow-sm"
@@ -799,7 +1099,35 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                           : "lanx-bubble-in text-slate-900 dark:text-slate-100 rounded-bl-[6px]"
                     }`}
                   >
-                    {groupCopies ? (
+                    {quote && (
+                      <button
+                        type="button"
+                        data-reply-quote
+                        onClick={() => msg.reply_to && jumpToMessage(msg.reply_to)}
+                        className={`mb-1.5 block w-full max-w-sm text-left rounded-lg border-l-[3px] px-2 py-1 text-[11.5px] ${
+                          isOut ? "border-white/70 bg-white/15 text-white/90" : "border-sky-500 bg-sky-500/10 text-slate-600 dark:text-slate-300"
+                        }`}
+                      >
+                        <span className="line-clamp-2 break-words">{quote}</span>
+                      </button>
+                    )}
+                    {isVoice ? (
+                      <VoiceNote
+                        transferId={voiceT?.id ?? null}
+                        durationMs={voiceMsFromLabel(msg.content)}
+                        state={
+                          !voiceT
+                            ? "arriving"
+                            : voiceT.direction === "outgoing" || voiceT.status === "completed"
+                              ? "ready"
+                              : ["failed", "cancelled", "declined"].includes(voiceT.status)
+                                ? "failed"
+                                : "arriving"
+                        }
+                        progress={voiceT ? (progress[voiceT.id] ? (progress[voiceT.id].transferred_bytes / Math.max(1, progress[voiceT.id].file_size)) * 100 : undefined) : undefined}
+                        onAccent={isOut}
+                      />
+                    ) : groupCopies ? (
                       <GroupFileCard transfers={groupCopies} fallbackName={msg.content.replace(/^(📎|📁)\s*/u, "")} progress={progress} actions={transferActions} />
                     ) : isFile ? (
                       <FileCard
@@ -810,7 +1138,9 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                         onAccent={isOut}
                       />
                     ) : (
-                      <p className={`whitespace-pre-wrap break-words leading-relaxed ${isSecret ? "select-none" : "select-text"}`}>{msg.content}</p>
+                      <p className={`whitespace-pre-wrap break-words leading-relaxed ${isSecret ? "select-none" : "select-text"}`}>
+                        <MessageText text={msg.content} names={mentionNames} myName={myName} onAccent={isOut} />
+                      </p>
                     )}
 
                     <div
@@ -824,21 +1154,21 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                           {timerRunning ? countdown(Math.max(0, left!)) : "secret"}
                         </span>
                       )}
+                      {msg.pinned_at && <Pin className="h-3 w-3 rotate-45" aria-label="Pinned" />}
+                      {msg.starred && <Star className="h-3 w-3 fill-current" aria-label="Starred" data-starred-mark />}
+                      {msg.remind_at && (
+                        <span className="inline-flex items-center gap-0.5" title={`Reminder: ${whenText(msg.remind_at)}`} data-reminder-mark>
+                          <AlarmClock className="h-3 w-3" />
+                        </span>
+                      )}
+                      {msg.edited_at && <span data-edited>edited</span>}
                       <span>{formatMessageTime(msg.timestamp)}</span>
                       {isOut && !isFile && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
                     </div>
 
-                    {!isFile && !isSecret && (
-                      <button
-                        type="button"
-                        onClick={() => navigator.clipboard.writeText(msg.content).catch(() => {})}
-                        title="Copy text"
-                        className={`absolute top-2 ${isOut ? "-left-8" : "-right-8"} opacity-0 group-hover:opacity-100 p-1.5 rounded-full lanx-menu text-slate-500 hover:text-slate-800 dark:hover:text-white transition-opacity`}
-                      >
-                        <Copy className="h-3 w-3" />
-                      </button>
-                    )}
+                    <MessageTools msg={msg} isOut={isOut} actions={actions} canAct={!blocked && !outOfGroup} />
                   </div>
+                  <ReactionChips reactions={msg.reactions ?? []} isOut={isOut} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
                   {isOut && msg.status === "queued" && msg.error_reason && !isFile && !isGroup && (
                     <span className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{msg.error_reason}</span>
                   )}
@@ -895,6 +1225,44 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             </div>
           ) : (
             <>
+              <ScheduledStrip
+                items={scheduled}
+                onCancel={(s) =>
+                  void api
+                    .cancelScheduled(s.id, conversation.id)
+                    .then(loadScheduled)
+                    .catch((err) => onError?.(errorText(err)))
+                }
+                onSendNow={(s) =>
+                  void api
+                    .cancelScheduled(s.id, conversation.id)
+                    .then(() => onSendMessage(s.content, { replyTo: s.reply_to, mentions: s.mentions }))
+                    .then(loadScheduled)
+                    .catch((err) => onError?.(errorText(err)))
+                }
+              />
+              {replyTo && <ReplyEditBar mode="reply" text={`${senderName(replyTo)}: ${previewOf(replyTo)}`} onCancel={() => setReplyTo(null)} />}
+              {editing && (
+                <ReplyEditBar
+                  mode="edit"
+                  text={editing.content}
+                  onCancel={() => {
+                    setEditing(null);
+                    setInputText("");
+                  }}
+                />
+              )}
+              {mentionCandidates.length > 0 && <MentionPicker candidates={mentionCandidates} active={mentionIdx} profiles={profiles} onPick={pickMention} />}
+              {quickFilter !== null && !mentionCandidates.length && (
+                <QuickReplyPicker
+                  replies={quickReplies}
+                  filter={quickFilter}
+                  active={quickIdx}
+                  onPick={pickQuick}
+                  onSave={(l) => onSaveQuickReplies?.(l)}
+                  onClose={() => setQuickClosed(true)}
+                />
+              )}
               <div className="flex items-end gap-1.5">
                 <button
                   type="button"
@@ -921,8 +1289,19 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   <FolderUp className="h-[18px] w-[18px]" />
                 </button>
 
+                {recording ? (
+                  <VoiceRecorder
+                    key={conversation.id}
+                    onCancel={() => setRecording(false)}
+                    onError={(t) => onError?.(t)}
+                    onSend={(data, ms, ext) => {
+                      setRecording(false);
+                      void onSendVoice?.(data, ms, ext);
+                    }}
+                  />
+                ) : (
                 <div
-                  className={`flex-1 flex items-end gap-2 rounded-[20px] pl-4 pr-1 py-1 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-sky-500)_30%,transparent)] ${
+                  className={`relative flex-1 flex items-end gap-2 rounded-[20px] pl-4 pr-1 py-1 transition-shadow focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-sky-500)_30%,transparent)] ${
                     secret || hidden
                       ? "bg-violet-500/10 shadow-[inset_0_0_0_1px_rgb(139_92_246/0.35)]"
                       : "bg-[color-mix(in_srgb,var(--lanx-surface)_70%,transparent)] shadow-[inset_0_0_0_1px_var(--lanx-line)]"
@@ -932,31 +1311,66 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     ref={textareaRef}
                     rows={1}
                     value={inputText}
-                    onChange={(e) => {
-                      setInputText(e.target.value);
-                      if (e.target.value.trim()) onTyping();
-                    }}
+                    onChange={(e) => handleInput(e.target.value, e.target.selectionStart ?? e.target.value.length)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder={secret ? `Secret message to ${conversation.peer_name}…` : `Message ${conversation.peer_name}…`}
+                    onBlur={() => window.setTimeout(() => setMention(null), 150)}
+                    placeholder={
+                      editing
+                        ? "Edit your message…"
+                        : secret
+                          ? `Secret message to ${conversation.peer_name}…`
+                          : `Message ${conversation.peer_name}…${isGroup ? " (@ to mention, / for quick replies)" : " (/ for quick replies)"}`
+                    }
                     className="flex-1 bg-transparent text-[13px] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus-visible:outline-none resize-none py-1.5 leading-relaxed select-text"
                   />
 
-                  <button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={!inputText.trim()}
-                    title="Send (Enter)"
-                    className={`mb-0.5 h-7 w-7 shrink-0 flex items-center justify-center rounded-full text-white shadow-sm disabled:opacity-30 disabled:shadow-none transition-all duration-200 active:scale-90 ${
-                      secret ? "bg-violet-600 hover:bg-violet-700" : "bg-sky-500 hover:bg-sky-600"
-                    } ${inputText.trim() ? "scale-100" : "scale-90"}`}
-                  >
-                    <ArrowUp className="h-4 w-4" strokeWidth={2.6} />
-                  </button>
+                  {inputText.trim() && !editing && !secret && (
+                    <button
+                      type="button"
+                      data-send-later-btn
+                      onClick={() => setSendLater((v) => !v)}
+                      title="Send later…"
+                      className={`mb-0.5 h-7 w-7 shrink-0 flex items-center justify-center rounded-full text-slate-500 hover:text-violet-600 hover:bg-[var(--lanx-fill)] ${sendLater ? "!text-violet-600 bg-violet-500/10" : ""}`}
+                    >
+                      <CalendarClock className="h-4 w-4" />
+                    </button>
+                  )}
+                  {!inputText.trim() && !editing && onSendVoice ? (
+                    <button
+                      type="button"
+                      data-voice-record
+                      onClick={() => setRecording(true)}
+                      title="Record a voice note"
+                      className="mb-0.5 h-7 w-7 shrink-0 flex items-center justify-center rounded-full text-white bg-sky-500 hover:bg-sky-600 shadow-sm active:scale-90 transition-transform"
+                    >
+                      <Mic className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSend}
+                      disabled={!inputText.trim()}
+                      title={editing ? "Save the change (Enter)" : "Send (Enter)"}
+                      className={`mb-0.5 h-7 w-7 shrink-0 flex items-center justify-center rounded-full text-white shadow-sm disabled:opacity-30 disabled:shadow-none transition-all duration-200 active:scale-90 ${
+                        secret ? "bg-violet-600 hover:bg-violet-700" : "bg-sky-500 hover:bg-sky-600"
+                      } ${inputText.trim() ? "scale-100" : "scale-90"}`}
+                    >
+                      {editing ? <Check className="h-4 w-4" strokeWidth={2.6} /> : <ArrowUp className="h-4 w-4" strokeWidth={2.6} />}
+                    </button>
+                  )}
+                  {sendLater && <SendLaterMenu onPick={(at) => void scheduleAt(at)} onClose={() => setSendLater(false)} />}
                 </div>
+                )}
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 px-1">
-                <span>Enter to send · Shift + Enter for a new line · drag files or folders in · Ctrl+V pastes a screenshot</span>
+                <span>
+                  {editing
+                    ? "Enter saves · Esc cancels"
+                    : replyTo
+                      ? "Enter sends your reply · Esc cancels"
+                      : "Enter to send · Shift + Enter for a new line · drag files or folders in · Ctrl+V pastes a screenshot"}
+                </span>
                 <span>Works without internet</span>
               </div>
             </>

@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod calls;
+pub mod chat;
 pub mod meetings;
 
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};

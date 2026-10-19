@@ -98,6 +98,7 @@ impl NetworkService {
             ttl_secs: None,
             expire_at: None,
             deliveries: None,
+            ..Default::default()
         };
         self.db.insert_message(&msg).ok()?;
         Some(msg)
@@ -348,6 +349,7 @@ impl NetworkService {
             ttl_secs: None,
             expire_at: None,
             deliveries: None,
+            ..Default::default()
         };
         self.db.insert_message(&msg).map_err(|e| e.to_string())?;
         self.kick_outbox(&peer.id, true);

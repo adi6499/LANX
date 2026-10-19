@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 6;
+pub const LATEST_SCHEMA_VERSION: i64 = 7;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -273,6 +273,60 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (6, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 7 {
+        // v7 (LANX 1.5.0): replies, mentions, edit / delete for everyone,
+        // pins, stars, reactions, reminders, send later.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE messages ADD COLUMN reply_to TEXT;
+            ALTER TABLE messages ADD COLUMN reply_preview TEXT;
+            ALTER TABLE messages ADD COLUMN mentions TEXT;
+            ALTER TABLE messages ADD COLUMN edited_at INTEGER;
+            ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE messages ADD COLUMN pinned_at INTEGER;
+            ALTER TABLE messages ADD COLUMN pinned_by TEXT;
+            ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0;
+            CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(starred) WHERE starred = 1;
+            CREATE INDEX IF NOT EXISTS idx_messages_pinned ON messages(conversation_id, pinned_at) WHERE pinned_at IS NOT NULL;
+            CREATE TABLE IF NOT EXISTS reactions (
+                message_id TEXT NOT NULL,
+                peer_id TEXT NOT NULL,
+                emoji TEXT NOT NULL,
+                at INTEGER NOT NULL,
+                PRIMARY KEY (message_id, peer_id)
+            );
+            CREATE TABLE IF NOT EXISTS reminders (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL UNIQUE,
+                conversation_id TEXT NOT NULL,
+                remind_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS scheduled_messages (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                reply_to TEXT,
+                mentions TEXT,
+                send_at INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS pending_actions (
+                id TEXT PRIMARY KEY,
+                peer_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_pending_actions_peer ON pending_actions(peer_id, created_at);
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (7, now),
         )?;
         tx.commit()?;
     }

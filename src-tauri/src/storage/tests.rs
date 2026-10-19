@@ -30,6 +30,7 @@ fn text_message(id: &str, conv: &str, content: &str, outgoing: bool, status: &st
         ttl_secs: None,
         expire_at: None,
         deliveries: None,
+        ..Default::default()
     }
 }
 

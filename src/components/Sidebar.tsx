@@ -18,6 +18,7 @@ import {
   Pin,
   UsersRound,
   Megaphone,
+  Star,
   Lock,
   EyeOff,
   Timer,
@@ -49,6 +50,8 @@ interface SidebarProps {
   onNewChat: () => void;
   onNewGroup: () => void;
   onBroadcast: () => void;
+  /** LANX 1.5.0: starred messages from all chats. */
+  onOpenStarred?: () => void;
   onLock: () => void;
   onToggleHidden: () => void;
 }
@@ -72,6 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onNewGroup,
   onBroadcast,
+  onOpenStarred,
   onLock,
   onToggleHidden,
   profiles,
@@ -221,6 +225,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center gap-0.5">
+            {onOpenStarred && (
+              <button
+                type="button"
+                data-open-starred
+                onClick={onOpenStarred}
+                title="Starred messages"
+                className="lanx-tool flex h-8 w-8 items-center justify-center text-amber-500"
+              >
+                <Star className="h-[17px] w-[17px]" />
+              </button>
+            )}
             <button
               type="button"
               onClick={onBroadcast}

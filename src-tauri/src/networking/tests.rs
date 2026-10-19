@@ -119,6 +119,7 @@ fn signature_detects_tampering() {
             message_type: "text".into(),
             ttl_secs: None,
             group_id: None,
+            ..Default::default()
         }),
     );
     assert_eq!(packet.verify_signature(), Ok(true));
@@ -499,6 +500,7 @@ fn plain_messages_keep_the_1_0_wire_format() {
         message_type: "text".into(),
         ttl_secs: None,
         group_id: None,
+        ..Default::default()
     }))
     .unwrap();
     let data = m["data"].as_object().unwrap();
@@ -509,6 +511,8 @@ fn plain_messages_keep_the_1_0_wire_format() {
         file_size: 1,
         group_id: None,
         folder: None,
+        kind: None,
+        media_ms: None,
     }))
     .unwrap();
     assert!(!o["data"].as_object().unwrap().contains_key("group_id"));
@@ -1876,4 +1880,218 @@ fn meeting_packets_keep_old_fields_optional() {
         "🎥 Meeting · 25 min · 4 people"
     );
     assert_eq!(crate::storage::meeting_preview(r#"{"outcome":"missed"}"#), "🎥 Missed meeting");
+}
+
+// ------------------------------------------------------- chat features (1.5.0)
+
+fn msg_in(db: &Database, conv: &str, id: &str) -> Option<Message> {
+    messages_in(db, conv).into_iter().find(|m| m.id == id)
+}
+
+/// A group of three with one message from Bharat; returns (group id, message id).
+async fn group_with_message(a: &Node, b: &Node, c: &Node) -> (String, String) {
+    let conv = a.svc.create_group("Site Team", &[b.id(), c.id()]).unwrap();
+    let gid = conv.id.clone();
+    assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
+    let m = b.svc.send_direct_message(&gid, "Truck arrives at 4").await.unwrap();
+    assert!(wait_for(|| msg_in(a.db(), &gid, &m.id).is_some() && msg_in(c.db(), &gid, &m.id).is_some(), 10).await);
+    (gid, m.id)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn replies_and_mentions_reach_the_group() {
+    let (a, b, c) = trio().await;
+    let (gid, mid) = group_with_message(&a, &b, &c).await;
+    let r = a
+        .svc
+        .send_message_full(&gid, "@Chetan can you receive it?", Some(mid.clone()), vec![c.id(), "not-a-member".into(), a.id()])
+        .await
+        .unwrap();
+    assert_eq!(r.reply_to.as_deref(), Some(mid.as_str()));
+    assert_eq!(r.reply_preview.as_deref(), Some("Bharat: Truck arrives at 4"));
+    assert_eq!(r.mentions, vec![c.id()], "only other members can be mentioned");
+    assert!(wait_for(|| msg_in(c.db(), &gid, &r.id).is_some() && msg_in(b.db(), &gid, &r.id).is_some(), 10).await);
+    let at_c = msg_in(c.db(), &gid, &r.id).unwrap();
+    assert_eq!(at_c.reply_to.as_deref(), Some(mid.as_str()));
+    assert_eq!(at_c.reply_preview.as_deref(), Some("Bharat: Truck arrives at 4"));
+    assert_eq!(at_c.mentions, vec![c.id()]);
+    // Direct chats carry replies but no mentions.
+    let ab = a.db().get_or_create_conversation(&b.id()).unwrap().id;
+    let first = a.svc.send_direct_message(&ab, "Invoice sent").await.unwrap();
+    let ba = b.db().get_or_create_conversation(&a.id()).unwrap().id;
+    assert!(wait_for(|| msg_in(b.db(), &ba, &first.id).is_some(), 10).await);
+    let reply = b
+        .svc
+        .send_message_full(&b.db().get_or_create_conversation(&a.id()).unwrap().id, "Got it", Some(first.id.clone()), vec![a.id()])
+        .await
+        .unwrap();
+    assert!(reply.mentions.is_empty());
+    assert!(wait_for(|| msg_in(a.db(), &ab, &reply.id).is_some_and(|m| m.reply_preview.as_deref() == Some("Asha: Invoice sent")), 10).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reactions_edits_deletes_and_pins_reach_everyone() {
+    let (a, b, c) = trio().await;
+    let (gid, mid) = group_with_message(&a, &b, &c).await;
+
+    // Reactions add up; the same emoji again takes yours back.
+    a.svc.react_to_message(&mid, "👍").unwrap();
+    c.svc.react_to_message(&mid, "👍").unwrap();
+    let both = |n: &Node| msg_in(n.db(), &gid, &mid).is_some_and(|m| m.reactions.iter().any(|r| r.emoji == "👍" && r.count == 2));
+    assert!(wait_for(|| both(&a) && both(&b) && both(&c), 10).await);
+    let at_b = msg_in(b.db(), &gid, &mid).unwrap();
+    let mut names = at_b.reactions[0].names.clone();
+    names.sort();
+    assert_eq!(names, vec!["Asha", "Chetan"]);
+    assert!(!at_b.reactions[0].mine);
+    assert!(msg_in(a.db(), &gid, &mid).unwrap().reactions[0].mine);
+    let undone = c.svc.react_to_message(&mid, "👍").unwrap();
+    assert_eq!(undone.reactions[0].count, 1);
+    assert!(wait_for(|| msg_in(b.db(), &gid, &mid).is_some_and(|m| m.reactions[0].count == 1), 10).await);
+    assert!(a.svc.react_to_message(&mid, "lol").is_err(), "only emoji");
+
+    // Only the sender can edit; everyone sees the new text and "edited".
+    assert!(a.svc.edit_message(&mid, "Truck arrives at 5", &[]).unwrap_err().contains("own"));
+    let edited = b.svc.edit_message(&mid, "Truck arrives at 5", &[]).unwrap();
+    assert!(edited.edited_at.is_some());
+    assert!(wait_for(|| msg_in(a.db(), &gid, &mid).is_some_and(|m| m.content == "Truck arrives at 5" && m.edited_at.is_some()), 10).await);
+    assert!(wait_for(|| msg_in(c.db(), &gid, &mid).is_some_and(|m| m.content == "Truck arrives at 5"), 10).await);
+    assert_eq!(conv_of(c.db(), &gid).unwrap().last_message_preview.as_deref(), Some("Truck arrives at 5"));
+    // A forged edit from someone else is refused.
+    let asha_at_c = c.db().get_peer(&a.id()).unwrap().unwrap();
+    let forged = MessageActionPayload {
+        action_id: "x".into(),
+        message_id: mid.clone(),
+        action: "edit".into(),
+        group_id: Some(gid.clone()),
+        content: Some("hacked".into()),
+        at: now_secs() + 100,
+        ..Default::default()
+    };
+    assert!(!c.svc.handle_message_action(&asha_at_c, forged).ok);
+    assert_eq!(msg_in(c.db(), &gid, &mid).unwrap().content, "Truck arrives at 5");
+
+    // Pin for everyone, then unpin.
+    c.svc.pin_message(&mid, true).unwrap();
+    assert!(wait_for(|| msg_in(a.db(), &gid, &mid).is_some_and(|m| m.pinned_at.is_some() && m.pinned_by.as_deref() == Some(c.id().as_str())), 10).await);
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    a.svc.pin_message(&mid, false).unwrap();
+    assert!(wait_for(|| msg_in(b.db(), &gid, &mid).is_some_and(|m| m.pinned_at.is_none()) && msg_in(c.db(), &gid, &mid).is_some_and(|m| m.pinned_at.is_none()), 10).await);
+
+    // Delete for everyone: the sender only; the text is gone everywhere.
+    let asha_at_b = b.db().get_peer(&a.id()).unwrap().unwrap();
+    let forged = MessageActionPayload {
+        action_id: "y".into(),
+        message_id: mid.clone(),
+        action: "delete".into(),
+        group_id: Some(gid.clone()),
+        at: now_secs(),
+        ..Default::default()
+    };
+    assert!(!b.svc.handle_message_action(&asha_at_b, forged).ok);
+    let gone = b.svc.delete_for_everyone(&mid).await.unwrap();
+    assert!(gone.deleted && gone.content.is_empty() && gone.reactions.is_empty());
+    for n in [&a, &c] {
+        assert!(wait_for(|| msg_in(n.db(), &gid, &mid).is_some_and(|m| m.deleted && m.content.is_empty()), 10).await);
+    }
+    assert_eq!(conv_of(a.db(), &gid).unwrap().last_message_preview.as_deref(), Some("🚫 Message deleted"));
+    assert!(a.svc.react_to_message(&mid, "👍").is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stars_reminders_send_later_and_delete_for_me_stay_local_or_arrive() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let ab = link(&a, &b).await;
+    let ba = b.db().get_or_create_conversation(&a.id()).unwrap().id;
+    let m = a.svc.send_direct_message(&ab, "Quote for Dolvi attached").await.unwrap();
+    assert!(wait_for(|| msg_in(b.db(), &ba, &m.id).is_some(), 10).await);
+
+    // Star: only on this computer.
+    assert!(b.svc.star_message(&m.id, true).unwrap().starred);
+    let starred = b.db().starred_messages(false).unwrap();
+    assert_eq!(starred.len(), 1);
+    assert_eq!(starred[0].peer_name, "Asha");
+    assert!(!msg_in(a.db(), &ab, &m.id).unwrap().starred);
+
+    // Remind me: shows on the message, goes off when due.
+    let soon = now_secs() + 2;
+    assert_eq!(b.svc.set_reminder(&m.id, soon).unwrap().remind_at, Some(soon));
+    assert!(b.svc.set_reminder(&m.id, now_secs() - 5).is_err());
+    tokio::time::sleep(Duration::from_millis(2300)).await;
+    b.svc.run_chat_timers().await;
+    assert!(msg_in(b.db(), &ba, &m.id).unwrap().remind_at.is_none(), "a reminder goes off once");
+
+    // Send later: waits, then goes out like a normal message.
+    assert!(b.svc.schedule_message(&ba, "Approved", now_secs() + 1, None, vec![]).is_err(), "too soon");
+    let s = b.svc.schedule_message(&ba, "Approved — go ahead", now_secs() + 6, Some(m.id.clone()), vec![]).unwrap();
+    assert_eq!(b.svc.list_scheduled(&ba).len(), 1);
+    b.svc.run_chat_timers().await;
+    assert!(!texts(a.db(), &ab).contains(&"Approved — go ahead".to_string()), "not before its time");
+    tokio::time::sleep(Duration::from_millis(6500)).await;
+    b.svc.run_chat_timers().await;
+    assert!(b.svc.list_scheduled(&ba).is_empty());
+    assert!(wait_for(|| texts(a.db(), &ab).contains(&"Approved — go ahead".to_string()), 10).await);
+    let sent = messages_in(a.db(), &ab).into_iter().find(|x| x.content == "Approved — go ahead").unwrap();
+    assert_eq!(sent.reply_to.as_deref(), Some(m.id.as_str()));
+    // A cancelled one never goes.
+    let s2 = b.svc.schedule_message(&ba, "Never", now_secs() + 6, None, vec![]).unwrap();
+    b.svc.cancel_scheduled(&s2.id, &ba).unwrap();
+    assert!(b.svc.list_scheduled(&ba).is_empty());
+    let _ = s;
+
+    // Delete for me: gone here only.
+    b.svc.delete_for_me(&m.id).unwrap();
+    assert!(msg_in(b.db(), &ba, &m.id).is_none());
+    assert!(msg_in(a.db(), &ab, &m.id).is_some());
+    assert!(b.db().starred_messages(false).unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn voice_notes_download_by_themselves_and_play_on_both_sides() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let ab = link(&a, &b).await;
+    let ba = b.db().get_or_create_conversation(&a.id()).unwrap().id;
+    let mut sound = vec![0u8; 40_000];
+    rand::thread_rng().fill_bytes(&mut sound);
+    let sent = a.svc.send_voice_note(&ab, &sound, 3_400, "webm").await.unwrap();
+    assert_eq!(sent[0].message.content, "🎤 Voice note · 0:03");
+    assert_eq!(sent[0].transfers[0].kind, "voice");
+    // No "Accept" needed: it arrives by itself.
+    let incoming = || {
+        messages_in(b.db(), &ba)
+            .into_iter()
+            .find(|m| m.message_type == "file")
+            .and_then(|m| m.transfer_id)
+            .and_then(|t| b.db().get_transfer(&t).ok().flatten())
+    };
+    assert!(wait_for(|| incoming().is_some_and(|t| t.status == "completed"), 20).await);
+    let t = incoming().unwrap();
+    assert_eq!(t.kind, "voice");
+    assert_eq!(messages_in(b.db(), &ba).iter().find(|m| m.message_type == "file").unwrap().content, "🎤 Voice note · 0:03");
+    assert_eq!(b.svc.voice_note_bytes(&t.id).unwrap(), sound);
+    // Still there after LANX restarts (the window reloads the transfer list).
+    assert!(b.db().list_transfers(false).unwrap().iter().any(|x| x.id == t.id));
+    b.db().clear_finished_transfers().unwrap();
+    assert!(b.db().get_transfer(&t.id).unwrap().is_some(), "clearing the Files list keeps voice notes playable");
+    assert_eq!(a.svc.voice_note_bytes(&sent[0].transfers[0].id).unwrap(), sound);
+    assert!(a.svc.send_voice_note(&ab, &[], 1000, "webm").await.is_err());
+}
+
+#[test]
+fn chat_extras_stay_off_plain_messages_and_old_style_packets_read() {
+    let m = serde_json::to_value(MessagePayload {
+        message_id: "m".into(),
+        conversation_id: "c".into(),
+        content: "hi".into(),
+        message_type: "text".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    let keys: Vec<&String> = m.as_object().unwrap().keys().collect();
+    assert_eq!(keys.len(), 4, "{:?}", keys);
+    let a: MessageActionPayload = serde_json::from_str(r#"{"action_id":"x","message_id":"m","action":"react","emoji":"👍","at":5}"#).unwrap();
+    assert_eq!(a.emoji.as_deref(), Some("👍"));
+    assert!(a.group_id.is_none() && a.mentions.is_empty());
 }

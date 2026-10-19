@@ -69,7 +69,8 @@ const SIZE: Record<Mode, { w: number; h: number; r: number }> = {
   done: { w: 380, h: 62, r: 31 },
 };
 
-const isChatFile = (t: TransferRecord) => t.kind !== "update";
+// (Voice notes play in the chat; they need no island card.)
+const isChatFile = (t: TransferRecord) => t.kind !== "update" && t.kind !== "voice";
 
 /** Progress ring for the small island. */
 const Ring: React.FC<{ pct: number; size?: number }> = ({ pct, size = 22 }) => {

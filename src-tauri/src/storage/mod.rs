@@ -1,3 +1,4 @@
+mod chat;
 pub mod models;
 pub mod schema;
 #[cfg(test)]
@@ -101,7 +102,7 @@ const CONV_SELECT: &str = "SELECT c.id, COALESCE(c.peer_id, ''), COALESCE(p.disp
         (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.group_id = c.id),
         COALESCE(g.membership, '')
      FROM conversations c LEFT JOIN peers p ON c.peer_id = p.id LEFT JOIN groups g ON g.id = c.id";
-const MSG_COLS: &str = "id, conversation_id, sender_id, receiver_id, content, message_type, timestamp, status, error_reason, is_outgoing, transfer_id, ttl_secs, expire_at";
+const MSG_COLS: &str = "id, conversation_id, sender_id, receiver_id, content, message_type, timestamp, status, error_reason, is_outgoing, transfer_id, ttl_secs, expire_at, reply_to, reply_preview, mentions, edited_at, deleted, pinned_at, pinned_by, starred";
 const TRANSFER_SELECT: &str = "SELECT t.id, t.peer_id, p.display_name, t.conversation_id, t.file_name, t.file_size, t.file_hash,
         t.direction, t.status, t.transferred_bytes, t.local_path, t.error_reason, t.created_at, t.completed_at, t.temp_path,
         t.parent_id, t.kind, t.duration_ms, t.started_bytes
@@ -162,7 +163,25 @@ fn row_to_message(row: &Row) -> Result<Message> {
         ttl_secs: row.get::<_, Option<i64>>(11)?.map(|v| v.max(0) as u32),
         expire_at: row.get(12)?,
         deliveries: None,
+        reply_to: row.get(13)?,
+        reply_preview: row.get(14)?,
+        mentions: row
+            .get::<_, Option<String>>(15)?
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
+        edited_at: row.get(16)?,
+        deleted: row.get::<_, i64>(17)? != 0,
+        pinned_at: row.get(18)?,
+        pinned_by: row.get(19)?,
+        starred: row.get::<_, i64>(20)? != 0,
+        reactions: Vec::new(),
+        remind_at: None,
     })
+}
+
+/// JSON for a mentions list (NULL when empty).
+fn mentions_json(m: &[String]) -> Option<String> {
+    (!m.is_empty()).then(|| serde_json::to_string(m).unwrap_or_default())
 }
 
 fn row_to_transfer(row: &Row) -> Result<TransferRecord> {
@@ -385,6 +404,11 @@ impl Database {
                 .min(100),
             reduce_motion: flag("reduce_motion", false),
             cat_alerts: flag("cat_alerts", true),
+            quick_replies: map
+                .get("quick_replies")
+                .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
+                .map(|l| clean_quick_replies(&l))
+                .unwrap_or_else(default_quick_replies),
             profile: map
                 .get("profile")
                 .and_then(|v| serde_json::from_str::<Profile>(v).ok())
@@ -443,6 +467,10 @@ impl Database {
             ("reduce_motion", settings.reduce_motion.to_string()),
             ("cat_alerts", settings.cat_alerts.to_string()),
             ("profile", serde_json::to_string(&settings.profile.cleaned()).unwrap_or_default()),
+            (
+                "quick_replies",
+                serde_json::to_string(&clean_quick_replies(&settings.quick_replies)).unwrap_or_default(),
+            ),
         ];
 
         for (k, v) in pairs {
@@ -795,6 +823,7 @@ impl Database {
                 }
             }
         }
+        self.fill_extras(conversation_id, &mut messages)?;
         Ok(messages)
     }
 
@@ -882,7 +911,7 @@ impl Database {
         let tx = conn.transaction()?;
         tx.execute(
             &format!(
-                "INSERT INTO messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                "INSERT INTO messages ({}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                 MSG_COLS
             ),
             params![
@@ -899,6 +928,14 @@ impl Database {
                 msg.transfer_id,
                 msg.ttl_secs.map(|v| v as i64),
                 msg.expire_at,
+                msg.reply_to,
+                msg.reply_preview,
+                mentions_json(&msg.mentions),
+                msg.edited_at,
+                if msg.deleted { 1 } else { 0 },
+                msg.pinned_at,
+                msg.pinned_by,
+                if msg.starred { 1 } else { 0 },
             ],
         )?;
         tx.execute(
@@ -925,25 +962,25 @@ impl Database {
         let escaped = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
         let pattern = format!("%{}%", escaped);
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT m.id, m.conversation_id, m.sender_id, m.receiver_id, m.content, m.message_type, m.timestamp,
-                    m.status, m.error_reason, m.is_outgoing, m.transfer_id, m.ttl_secs, m.expire_at,
-                    COALESCE(p.display_name, g.name, ''), COALESCE(p.avatar_color, g.avatar_color, '#6366f1')
+        let cols = MSG_COLS.split(", ").map(|c| format!("m.{}", c)).collect::<Vec<_>>().join(", ");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {}, COALESCE(p.display_name, g.name, ''), COALESCE(p.avatar_color, g.avatar_color, '#6366f1')
              FROM messages m
              JOIN conversations c ON m.conversation_id = c.id
              LEFT JOIN peers p ON c.peer_id = p.id
              LEFT JOIN groups g ON g.id = c.id
              WHERE m.content LIKE ?1 ESCAPE '\\'
-               AND m.message_type IN ('text', 'file') AND m.ttl_secs IS NULL
+               AND m.message_type IN ('text', 'file') AND m.ttl_secs IS NULL AND m.deleted = 0
                AND (?3 OR c.is_hidden = 0)
              ORDER BY m.timestamp DESC
              LIMIT ?2",
-        )?;
+            cols
+        ))?;
         let rows = stmt.query_map(params![pattern, limit as i64, include_hidden], |row| {
             Ok(SearchHit {
                 message: row_to_message(row)?,
-                peer_name: row.get(13)?,
-                peer_avatar_color: row.get(14)?,
+                peer_name: row.get(21)?,
+                peer_avatar_color: row.get(22)?,
             })
         })?;
         Ok(rows.flatten().collect())
@@ -1028,7 +1065,7 @@ impl Database {
     pub fn list_transfers(&self, include_hidden: bool) -> Result<Vec<TransferRecord>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
-            "{} WHERE t.kind = 'file'
+            "{} WHERE t.kind IN ('file', 'folder', 'voice')
                AND (?1 OR t.conversation_id IS NULL OR t.conversation_id NOT IN
                         (SELECT id FROM conversations WHERE is_hidden = 1))
              ORDER BY t.created_at DESC",
@@ -1189,7 +1226,7 @@ impl Database {
     pub fn clear_finished_transfers(&self) -> Result<usize> {
         let conn = self.conn.lock();
         conn.execute(
-            "DELETE FROM transfers WHERE kind = 'file' AND status IN ('completed', 'cancelled', 'declined')",
+            "DELETE FROM transfers WHERE kind IN ('file', 'folder') AND status IN ('completed', 'cancelled', 'declined')",
             [],
         )
     }
@@ -1594,6 +1631,9 @@ impl Database {
 pub fn message_preview(msg: &Message) -> String {
     if msg.ttl_secs.is_some() {
         return "🔒 Secret message".to_string();
+    }
+    if msg.deleted {
+        return "🚫 Message deleted".to_string();
     }
     match msg.message_type.as_str() {
         "secret_setting" => {

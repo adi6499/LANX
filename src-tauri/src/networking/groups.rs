@@ -63,6 +63,7 @@ impl NetworkService {
             ttl_secs: None,
             expire_at: None,
             deliveries: None,
+            ..Default::default()
         };
         if self.db.insert_message(&msg).is_ok() {
             let conv = self.db.get_conversation(group_id).ok().flatten();
@@ -241,7 +242,13 @@ impl NetworkService {
         Ok(())
     }
 
-    pub(super) fn send_group_message(&self, conv: &Conversation, text: &str) -> Result<Message, String> {
+    pub(super) fn send_group_message(
+        &self,
+        conv: &Conversation,
+        text: &str,
+        reply: Option<(String, String)>,
+        mentions: Vec<String>,
+    ) -> Result<Message, String> {
         let g = self.get_group(&conv.id).ok_or("Group not found")?;
         if g.membership != "member" {
             return Err("You are no longer in this group.".to_string());
@@ -270,6 +277,10 @@ impl NetworkService {
             ttl_secs: None,
             expire_at: None,
             deliveries: None,
+            reply_to: reply.as_ref().map(|r| r.0.clone()),
+            reply_preview: reply.map(|r| r.1),
+            mentions,
+            ..Default::default()
         };
         self.db.insert_message(&msg).map_err(|e| e.to_string())?;
         self.db
@@ -560,10 +571,21 @@ impl NetworkService {
             ttl_secs: None,
             expire_at: None,
             deliveries: None,
+            reply_to: m.reply_to.clone().filter(|r| r.len() <= 64),
+            reply_preview: m.reply_preview.as_deref().map(super::chat::clip_preview),
+            mentions: m
+                .mentions
+                .iter()
+                .filter(|id| id.len() <= 64 && g.members.iter().any(|x| &x.device_id == *id))
+                .take(50)
+                .cloned()
+                .collect(),
+            ..Default::default()
         };
         if self.db.insert_message(&msg).is_err() {
             return ack(false, Some("Recipient database error"));
         }
+        let mentioned = msg.mentions.iter().any(|id| id == self.my_id());
         let _ = self.db.increment_unread(&gid);
         let conv = self.db.get_conversation(&gid).ok().flatten();
         self.events.message_received(&msg, conv.as_ref());
@@ -571,6 +593,11 @@ impl NetworkService {
         let private = hidden || self.privacy.is_locked();
         let (title, body) = if private {
             ("LANX".to_string(), "You have a new message".to_string())
+        } else if mentioned {
+            (
+                format!("{} mentioned you in {}", sender.display_name, g.name),
+                crate::storage::preview_text(&msg.content),
+            )
         } else {
             (
                 g.name.clone(),
@@ -590,7 +617,7 @@ impl NetworkService {
             crate::events::IslandAlert {
                 id: msg.id.clone(),
                 kind: "message".into(),
-                title: sender.display_name.clone(),
+                title: if mentioned { format!("{} mentioned you", sender.display_name) } else { sender.display_name.clone() },
                 body: crate::storage::preview_text(&msg.content),
                 conversation_id: Some(gid.clone()),
                 avatar_color: Some(sender.avatar_color.clone()),

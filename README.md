@@ -44,6 +44,23 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.5.0: better chatting
+Point at any message to get a small bar: quick reactions, **Reply** and **⋯** for everything else.
+- **Reactions** — 👍 ❤️ 😂 😮 and more under any message; everyone sees who reacted. Click yours again to take it back.
+- **Reply** — answer a specific message; the reply shows a quote you can click to jump to the original.
+- **@mentions** — in group chats type **@** and pick a colleague. They get a "mentioned you" alert and the message is highlighted for them.
+- **Edit** your messages (for 24 hours) — everyone sees the new text and "edited".
+- **Delete for everyone** (for 2 days) or **Delete for me**.
+- **Pin** important messages at the top of a chat, for everyone.
+- **Star** messages to keep them: the ⭐ button at the top of the chat list shows all starred messages from every chat.
+- **Remind me** about a message (in 20 minutes, 1 hour, tomorrow morning, next Monday or a time you pick) — it pops up with the cat island when due.
+- **Send later** — type a message, press the calendar button and choose when; it waits above the message box (send now or cancel) and goes out by itself.
+- **Quick replies** — type **/** to pick a ready-made answer ("On my way", "Received, thanks 👍"…); edit the list right there.
+- **Voice notes** — when the message box is empty, press the microphone, talk, press send. Colleagues get it automatically and
+  play it in the chat (with a waveform and 1×/1.5×/2× speed).
+- Works with older versions: colleagues on 1.4 or earlier still get your messages and voice notes (as audio files); reactions,
+  edits and the rest reach them once they update.
+
 ### New in 1.4.0: group meetings, recording, best-quality voice and video
 - **Group video meetings.** Open a group chat and press **Meet**: everyone online in the group is
   invited (their LANX rings, with the cat on the Dynamic Island). Join with video or voice only.

@@ -35,6 +35,8 @@ import { effective } from "./lib/profile";
 import type { IslandCall } from "./components/CallLayer";
 import { CallLayer, CallLayerHandle } from "./components/CallLayer";
 import { MeetingLayer, MeetingLayerHandle, type IslandMeeting } from "./components/MeetingLayer";
+import { StarredModal } from "./components/chat/StarredModal";
+import type { SendOptions } from "./components/ConversationPanel";
 import { AlertCircle, X } from "lucide-react";
 
 // v2: shown once more after the 1.2 update, which added calls, backups and the new hidden chats.
@@ -114,6 +116,9 @@ export default function App() {
   /** LANX 1.4.0: group meetings. */
   const meetingRef = useRef<MeetingLayerHandle>(null);
   const [islandMeeting, setIslandMeeting] = useState<IslandMeeting | null>(null);
+  /** LANX 1.5.0: starred messages; a message to scroll to once its chat opens. */
+  const [showStarred, setShowStarred] = useState(false);
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
   const activeConversationIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<NavTab>("messages");
   const lockedRef = useRef(false);
@@ -438,6 +443,16 @@ export default function App() {
       })
     );
 
+    // LANX 1.5.0: a "remind me" went off — show it in the Dynamic Island.
+    add(
+      events.onReminder(({ message, conversation_id, title, text }) => {
+        if (lockedRef.current || dndRef.current) return;
+        api.playSound().catch(() => {});
+        setIslandMsg({ id: `reminder-${message.id}-${Date.now()}`, conversationId: conversation_id, from: title, color: "#f59e0b", text });
+        if (conversation_id === activeConversationIdRef.current) setMessages((prev) => upsertMessage(prev, message));
+      })
+    );
+
     add(
       events.onMessagesDeleted(({ message_ids }) => {
         const gone = new Set(message_ids);
@@ -630,11 +645,11 @@ export default function App() {
     api.sendTyping(conv).catch(() => {});
   };
 
-  const handleSendMessage = async (content: string): Promise<boolean> => {
+  const handleSendMessage = async (content: string, opts?: SendOptions): Promise<boolean> => {
     const conv = activeConversationId;
     if (!conv) return false;
     try {
-      const newMsg = await api.sendMessage(conv, content);
+      const newMsg = await api.sendMessageEx(conv, content, opts?.replyTo ?? null, opts?.mentions ?? []);
       setMessages((prev) => (prev.some((m) => m.id === newMsg.id) ? prev : upsertMessage(prev, newMsg)));
       setConversations((prev) => {
         const c = prev.find((x) => x.id === conv);
@@ -648,6 +663,17 @@ export default function App() {
     } catch (err) {
       showError(err);
       return false;
+    }
+  };
+
+  /** LANX 1.5.0: a recorded voice note goes out like a file. */
+  const handleSendVoice = async (data: Blob, durationMs: number, ext: string) => {
+    const conv = activeConversationIdRef.current;
+    if (!conv) return;
+    try {
+      addSentFiles(await api.sendVoiceNote(conv, new Uint8Array(await data.arrayBuffer()), durationMs, ext));
+    } catch (err) {
+      showError(err);
     }
   };
 
@@ -966,6 +992,7 @@ export default function App() {
         onNewChat={() => setActiveTab("people")}
         onNewGroup={() => setShowNewGroup(true)}
         onBroadcast={() => setShowBroadcast(true)}
+        onOpenStarred={() => setShowStarred(true)}
         onLock={() => api.lockApp().then(setLock).catch(showError)}
         onToggleHidden={handleToggleHidden}
       />
@@ -1018,6 +1045,19 @@ export default function App() {
             onMeeting={(video) => activeConversation && meetingRef.current?.start(activeConversation, video)}
             onRejoinMeeting={(id) => meetingRef.current?.rejoin(id)}
             onError={(text) => setNotice(text)}
+            myName={settings.display_name}
+            profiles={profiles}
+            onSendVoice={handleSendVoice}
+            quickReplies={settings.quick_replies ?? []}
+            onSaveQuickReplies={(list) => {
+              const updated = { ...settings, quick_replies: list };
+              setSettings(updated);
+              api.saveSettings(updated).then(setSettings).catch(showError);
+            }}
+            onMessageChanged={(m) => setMessages((prev) => (m.conversation_id === activeConversationIdRef.current ? upsertMessage(prev, m) : prev))}
+            onMessageRemoved={(id) => setMessages((prev) => prev.filter((m) => m.id !== id))}
+            jumpTo={jumpTo}
+            onJumped={() => setJumpTo(null)}
             onUnblock={() => activePeer && handleUpdateTrust(activePeer.id, "unverified")}
           />
         )}
@@ -1133,6 +1173,19 @@ export default function App() {
         onInstallUpdate={handleInstallUpdate}
         onUpdateChanged={loadUpdateStatus}
       />
+
+      {showStarred && (
+        <StarredModal
+          onClose={() => setShowStarred(false)}
+          onError={showError}
+          onOpen={(conversationId, messageId) => {
+            setShowStarred(false);
+            setActiveConversationId(conversationId);
+            setActiveTab("messages");
+            setJumpTo(messageId);
+          }}
+        />
+      )}
 
       {showNewGroup && (
         <NewGroupModal

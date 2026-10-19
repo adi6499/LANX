@@ -229,6 +229,16 @@ impl NetworkService {
         conversation_id: &str,
         paths: Vec<String>,
     ) -> Result<Vec<SentFile>, String> {
+        self.send_files_as(conversation_id, paths, None).await
+    }
+
+    /// `voice_ms`: LANX 1.5.0 — the file is a voice note this long.
+    pub async fn send_files_as(
+        &self,
+        conversation_id: &str,
+        paths: Vec<String>,
+        voice_ms: Option<u64>,
+    ) -> Result<Vec<SentFile>, String> {
         let conv = self
             .db
             .get_conversation(conversation_id)
@@ -294,6 +304,8 @@ impl NetworkService {
                         continue;
                     }
                 }
+            } else if voice_ms.is_some() {
+                (p, meta, "voice")
             } else {
                 (p, meta, "file")
             };
@@ -336,7 +348,10 @@ impl NetworkService {
                 conversation_id: conv.id.clone(),
                 sender_id: self.identity.device_id.clone(),
                 receiver_id: if is_group { conv.id.clone() } else { recipients[0].id.clone() },
-                content: file_label(&file_name, kind == "folder"),
+                content: match voice_ms {
+                    Some(ms) => super::chat::voice_label(ms),
+                    None => file_label(&file_name, kind == "folder"),
+                },
                 message_type: "file".to_string(),
                 timestamp: now,
                 status: "sending".to_string(),
@@ -346,6 +361,7 @@ impl NetworkService {
                 ttl_secs: None,
                 expire_at: None,
                 deliveries: None,
+                ..Default::default()
             };
             self.db.insert_message(&message).map_err(|e| e.to_string())?;
             sent.push(SentFile { transfers, message });
@@ -386,12 +402,15 @@ impl NetworkService {
             return true;
         }
         let folder = (t.kind == "folder" && version_at_least(&chan.remote.app_version, FEATURES_FAST)).then_some(true);
+        let voice = t.kind == "voice" && version_at_least(&chan.remote.app_version, FEATURES_CHAT);
         let offer = PacketPayload::FileOffer(FileOfferPayload {
             transfer_id: t.id.clone(),
             file_name: t.file_name.clone(),
             file_size: t.file_size.max(0) as u64,
             group_id,
             folder,
+            kind: voice.then(|| "voice".to_string()),
+            media_ms: if voice { self.voice_ms_of(&t) } else { None },
         });
         let sent = match chan.send(offer, None).await {
             Ok(p) => p,
@@ -697,6 +716,9 @@ impl NetworkService {
         };
         let name = sanitize_file_name(&o.file_name);
         let now = now_secs();
+        // LANX 1.5.0: voice notes download by themselves and play in the chat.
+        let voice = o.kind.as_deref() == Some("voice") && o.file_size <= super::chat::VOICE_MAX_BYTES && o.folder != Some(true);
+        let voice_ms = o.media_ms.unwrap_or(0).min(60 * 60 * 1000);
         let t = TransferRecord {
             id: o.transfer_id.clone(),
             peer_id: peer.id.clone(),
@@ -716,7 +738,7 @@ impl NetworkService {
             started_bytes: None,
             parent_id: None,
             temp_path: None,
-            kind: if o.folder == Some(true) { "folder" } else { "file" }.to_string(),
+            kind: if voice { "voice" } else if o.folder == Some(true) { "folder" } else { "file" }.to_string(),
         };
         if self.db.insert_transfer(&t).is_err() {
             return ack(false, Some("Recipient database error"));
@@ -726,7 +748,7 @@ impl NetworkService {
             conversation_id: conv.id.clone(),
             sender_id: peer.id.clone(),
             receiver_id: self.identity.device_id.clone(),
-            content: file_label(&name, o.folder == Some(true)),
+            content: if voice { super::chat::voice_label(voice_ms) } else { file_label(&name, o.folder == Some(true)) },
             message_type: "file".to_string(),
             timestamp: now,
             status: "delivered".to_string(),
@@ -736,6 +758,7 @@ impl NetworkService {
             ttl_secs: None,
             expire_at: None,
             deliveries: None,
+            ..Default::default()
         };
         let _ = self.db.insert_message(&msg);
         let _ = self.db.increment_unread(&conv.id);
@@ -750,7 +773,7 @@ impl NetworkService {
         let image_auto = settings.as_ref().is_some_and(|s| s.auto_download_images)
             && is_image_name(&name)
             && o.file_size <= AUTO_IMAGE_MAX_BYTES;
-        let auto = trusted_auto || image_auto;
+        let auto = trusted_auto || image_auto || voice;
         if auto {
             let this = self.clone();
             let id = t.id.clone();
@@ -765,6 +788,8 @@ impl NetworkService {
         };
         let (title, body) = if hidden || self.privacy.is_locked() {
             ("LANX".to_string(), "You have a new file".to_string())
+        } else if voice {
+            (where_from.clone(), super::chat::voice_label(voice_ms))
         } else if auto {
             (
                 format!("Receiving a file from {}", where_from),

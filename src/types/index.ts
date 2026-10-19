@@ -38,6 +38,8 @@ export interface UserSettings {
   reduce_motion: boolean;
   /** The cartoon cat that asks you to accept incoming files. */
   cat_alerts: boolean;
+  /** LANX 1.5.0: ready-made answers ("/" in the message box). */
+  quick_replies: string[];
   /** LANX 1.2.9: avatar, status and "about me" (what colleagues see). */
   profile: Profile;
 }
@@ -117,6 +119,23 @@ export interface Message {
   receiver_id: string;
   content: string;
   message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call" | "meeting" | "recording";
+  // ---- LANX 1.5.0
+  /** The message this one answers. */
+  reply_to?: string | null;
+  /** "Asha: the text…" of that message. */
+  reply_preview?: string | null;
+  /** Device ids @mentioned (group chats). */
+  mentions?: string[];
+  edited_at?: number | null;
+  /** Deleted for everyone. */
+  deleted?: boolean;
+  pinned_at?: number | null;
+  pinned_by?: string | null;
+  /** Starred on this computer. */
+  starred?: boolean;
+  reactions?: Reaction[];
+  /** "Remind me" time set on this computer. */
+  remind_at?: number | null;
   timestamp: number;
   status: MessageStatus;
   error_reason?: string | null;
@@ -379,6 +398,25 @@ export interface CallEvent {
   reason: string | null;
   /** LANX 1.4.0: the other side started / stopped recording. */
   recording?: boolean | null;
+}
+
+/** LANX 1.5.0: an emoji under a message. */
+export interface Reaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+  names: string[];
+}
+
+/** LANX 1.5.0: a message waiting to be sent later. */
+export interface ScheduledMessage {
+  id: string;
+  conversation_id: string;
+  content: string;
+  reply_to: string | null;
+  mentions: string[];
+  send_at: number;
+  created_at: number;
 }
 
 /** LANX 1.4.0: someone in a meeting. */

@@ -54,6 +54,34 @@ pub const FEATURES_PROFILE: &str = "1.2.9";
 /// `CallPayload.recording`).
 pub const FEATURES_MEETINGS: &str = "1.4.0";
 
+/// Oldest app version with the 1.5.0 chat features: replies and @mentions on
+/// messages (`MessagePayload.reply_to / reply_preview / mentions`), voice notes
+/// (`FileOfferPayload.kind / media_ms`) and `MessageAction` (reactions, edit,
+/// delete for everyone, pin). Older peers get plain messages and files.
+pub const FEATURES_CHAT: &str = "1.5.0";
+
+/// LANX 1.5.0: something done to an existing message, sent to everyone in
+/// the chat. Answered with `Ack`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MessageActionPayload {
+    pub action_id: String,
+    pub message_id: String,
+    /// react | edit | delete | pin | unpin
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// react: the emoji ("" takes the reaction back).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+    /// edit: the new text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<String>,
+    /// When it was done (unix seconds) — the newest change wins.
+    pub at: i64,
+}
+
 /// LANX 1.4.0: someone in a meeting, as the others see them. The address and
 /// key let a newcomer reach people it has never met (like group members).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -163,7 +191,7 @@ pub fn version_at_least(version: &str, min: &str) -> bool {
 
 // New optional fields are skipped when empty so that ordinary messages keep
 // the exact 1.0 wire format (1.0 re-serialises payloads to check signatures).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MessagePayload {
     pub message_id: String,
     pub conversation_id: String,
@@ -175,6 +203,15 @@ pub struct MessagePayload {
     /// Set for group messages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
+    /// LANX 1.5.0 (only sent to 1.5.0 or newer): the message this answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// "Asha: the text…" of that message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_preview: Option<String>,
+    /// Device ids @mentioned (group chats).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +295,12 @@ pub struct FileOfferPayload {
     /// LANX 1.2.3: the file is a folder packed as a zip; unpack it on arrival.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<bool>,
+    /// LANX 1.5.0 (only sent to 1.5.0 or newer): "voice" for a voice note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// LANX 1.5.0: a voice note's length in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_ms: Option<u64>,
 }
 
 /// LANX 1.2: "I have the official installer of LANX `version`; pull it with
@@ -391,6 +434,8 @@ pub enum PacketPayload {
     ProfileReply(ProfileReplyPayload),
     // LANX 1.4.0 (only sent to peers reporting app_version >= 1.4.0)
     Meeting(MeetingPayload),
+    // LANX 1.5.0 (only sent to peers reporting app_version >= 1.5.0)
+    MessageAction(MessageActionPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
