@@ -19,6 +19,7 @@ import {
   UsersRound,
   Megaphone,
   Star,
+  ClipboardList,
   Lock,
   EyeOff,
   Timer,
@@ -52,6 +53,9 @@ interface SidebarProps {
   onBroadcast: () => void;
   /** LANX 1.5.0: starred messages from all chats. */
   onOpenStarred?: () => void;
+  /** LANX 1.6.0: the Organiser, and how many cards wait for you. */
+  onOpenOrganiser?: () => void;
+  organiserCount?: number;
   onLock: () => void;
   onToggleHidden: () => void;
 }
@@ -76,6 +80,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewGroup,
   onBroadcast,
   onOpenStarred,
+  onOpenOrganiser,
+  organiserCount = 0,
   onLock,
   onToggleHidden,
   profiles,
@@ -225,6 +231,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center gap-0.5">
+            {onOpenOrganiser && (
+              <button
+                type="button"
+                data-open-organiser
+                onClick={onOpenOrganiser}
+                title="Organiser: notices, tasks, approvals, polls, meetings"
+                className="lanx-tool relative flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-400"
+              >
+                <ClipboardList className="h-[17px] w-[17px]" />
+                {organiserCount > 0 && (
+                  <span data-organiser-count className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9.5px] font-bold flex items-center justify-center">
+                    {organiserCount > 99 ? "99+" : organiserCount}
+                  </span>
+                )}
+              </button>
+            )}
             {onOpenStarred && (
               <button
                 type="button"

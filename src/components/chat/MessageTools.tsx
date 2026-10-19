@@ -4,6 +4,7 @@ import {
   Bell,
   BellOff,
   ChevronLeft,
+  ClipboardCheck,
   Copy,
   MoreHorizontal,
   Pencil,
@@ -31,6 +32,8 @@ export interface MessageActions {
   remind: (m: Message, at: number | null) => void;
   deleteMe: (m: Message) => void;
   deleteEveryone: (m: Message) => void;
+  /** LANX 1.6.0: turn a message into a task. */
+  makeTask?: (m: Message) => void;
 }
 
 const EDIT_WINDOW = 24 * 3600;
@@ -155,6 +158,7 @@ export function MessageTools({
           {menu === "main" ? (
             <>
               {canAct && item(<Reply className="h-4 w-4" />, "Reply", done(() => actions.reply(msg)))}
+              {canAct && isText && !secret && actions.makeTask && item(<ClipboardCheck className="h-4 w-4" />, "Make a task…", done(() => actions.makeTask!(msg)), false, "make-task")}
               {isText && !secret && item(<Copy className="h-4 w-4" />, "Copy text", done(() => navigator.clipboard.writeText(msg.content).catch(() => {})))}
               {canEdit && item(<Pencil className="h-4 w-4" />, "Edit", done(() => actions.edit(msg)), false, "edit")}
               {canAct && !secret &&

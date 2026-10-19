@@ -36,6 +36,7 @@ import type { IslandCall } from "./components/CallLayer";
 import { CallLayer, CallLayerHandle } from "./components/CallLayer";
 import { MeetingLayer, MeetingLayerHandle, type IslandMeeting } from "./components/MeetingLayer";
 import { StarredModal } from "./components/chat/StarredModal";
+import { OrganiserPanel, countNeedsMe } from "./components/org/OrganiserPanel";
 import type { SendOptions } from "./components/ConversationPanel";
 import { AlertCircle, X } from "lucide-react";
 
@@ -119,6 +120,22 @@ export default function App() {
   /** LANX 1.5.0: starred messages; a message to scroll to once its chat opens. */
   const [showStarred, setShowStarred] = useState(false);
   const [jumpTo, setJumpTo] = useState<string | null>(null);
+  /** LANX 1.6.0: the Organiser and its badge. */
+  const [showOrganiser, setShowOrganiser] = useState(false);
+  const [organiserCount, setOrganiserCount] = useState(0);
+  const organiserTimer = useRef<number | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const refreshOrganiserCount = useCallback(() => {
+    if (organiserTimer.current) window.clearTimeout(organiserTimer.current);
+    organiserTimer.current = window.setTimeout(() => {
+      if (lockedRef.current) return;
+      api
+        .listCards()
+        .then((h) => setOrganiserCount(countNeedsMe(h, settingsRef.current?.device_id ?? "")))
+        .catch(() => {});
+    }, 600);
+  }, []);
   const activeConversationIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<NavTab>("messages");
   const lockedRef = useRef(false);
@@ -188,6 +205,7 @@ export default function App() {
     loadUpdateStatus();
     const [p, c, t] = await Promise.all([api.listPeers(), api.getConversations(), api.listTransfers()]);
     api.getPeerProfiles().then(setProfiles).catch(() => {});
+    refreshOrganiserCount();
     setPeers(p);
     setConversations(c);
     setTransfers(t);
@@ -440,6 +458,18 @@ export default function App() {
         if (message.conversation_id === activeConversationIdRef.current) {
           setMessages((prev) => upsertMessage(prev, message));
         }
+      })
+    );
+
+    // LANX 1.6.0: cards change → the Organiser badge follows.
+    add(
+      events.onMessageReceived(({ message }) => {
+        if (message.message_type === "card") refreshOrganiserCount();
+      })
+    );
+    add(
+      events.onMessageStatusUpdated(({ message }) => {
+        if (message.message_type === "card") refreshOrganiserCount();
       })
     );
 
@@ -993,6 +1023,8 @@ export default function App() {
         onNewGroup={() => setShowNewGroup(true)}
         onBroadcast={() => setShowBroadcast(true)}
         onOpenStarred={() => setShowStarred(true)}
+        onOpenOrganiser={() => setShowOrganiser(true)}
+        organiserCount={organiserCount}
         onLock={() => api.lockApp().then(setLock).catch(showError)}
         onToggleHidden={handleToggleHidden}
       />
@@ -1058,6 +1090,10 @@ export default function App() {
             onMessageRemoved={(id) => setMessages((prev) => prev.filter((m) => m.id !== id))}
             jumpTo={jumpTo}
             onJumped={() => setJumpTo(null)}
+            onCardPosted={() => {
+              api.getConversations().then(setConversations).catch(() => {});
+              refreshOrganiserCount();
+            }}
             onUnblock={() => activePeer && handleUpdateTrust(activePeer.id, "unverified")}
           />
         )}
@@ -1173,6 +1209,30 @@ export default function App() {
         onInstallUpdate={handleInstallUpdate}
         onUpdateChanged={loadUpdateStatus}
       />
+
+      {showOrganiser && (
+        <OrganiserPanel
+          myId={settings.device_id}
+          nameOf={(id) => (id === settings.device_id ? "You" : peers.find((p) => p.id === id)?.display_name ?? "Someone")}
+          onClose={() => {
+            setShowOrganiser(false);
+            refreshOrganiserCount();
+          }}
+          onError={showError}
+          onCount={setOrganiserCount}
+          onOpen={(conversationId, messageId) => {
+            setShowOrganiser(false);
+            setActiveConversationId(conversationId);
+            setActiveTab("messages");
+            setJumpTo(messageId);
+          }}
+          onStartMeeting={(conversationId) => {
+            const conv = conversations.find((c) => c.id === conversationId);
+            setShowOrganiser(false);
+            if (conv) meetingRef.current?.start(conv, true);
+          }}
+        />
+      )}
 
       {showStarred && (
         <StarredModal

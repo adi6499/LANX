@@ -55,6 +55,10 @@ import { MessageTools, ReactionChips, type MessageActions } from "./chat/Message
 import { VoiceNote, VoiceRecorder, voiceMsFromLabel } from "./chat/VoiceNote";
 import { MentionPicker, PinnedBar, QuickReplyPicker, ReplyEditBar, ScheduledStrip, SendLaterMenu, type MentionCandidate } from "./chat/ComposerExtras";
 import { MessageText, whenText } from "./chat/chatUtils";
+import { CardView } from "./org/CardView";
+import { CreateCardModal, type Person } from "./org/CreateCardModal";
+import type { CardKind } from "./org/cardModel";
+import { BarChart3, CalendarDays, ClipboardCheck, FileSignature, ListChecks, Megaphone, Plus } from "lucide-react";
 
 /** LANX 1.5.0: what a send can carry besides the text. */
 export interface SendOptions {
@@ -110,6 +114,8 @@ interface ConversationPanelProps {
   /** Scroll to this message once it is shown (from Starred). */
   jumpTo?: string | null;
   onJumped?: () => void;
+  /** LANX 1.6.0: a card was posted here. */
+  onCardPosted?: (m: Message) => void;
 }
 
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
@@ -196,12 +202,18 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onMessageRemoved,
   jumpTo = null,
   onJumped,
+  onCardPosted,
 }) => {
   const [inputText, setInputText] = useState("");
   // LANX 1.5.0
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
-  const [members, setMembers] = useState<MentionCandidate[]>([]);
+  const [rawMembers, setMembers] = useState<MentionCandidate[]>([]);
+  // Current names and colours (a group remembers the names people had when they joined).
+  const members = rawMembers.map((m) => {
+    const p = peers.find((x) => x.id === m.id);
+    return p ? { ...m, name: p.display_name, color: p.avatar_color } : m;
+  });
   const [mention, setMention] = useState<{ start: number; text: string } | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
   const [quickIdx, setQuickIdx] = useState(0);
@@ -209,6 +221,9 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const [recording, setRecording] = useState(false);
   const [sendLater, setSendLater] = useState(false);
   const [scheduled, setScheduled] = useState<ScheduledMessage[]>([]);
+  // LANX 1.6.0
+  const [createCard, setCreateCard] = useState<{ kind: CardKind; title?: string; fromMessage?: string | null } | null>(null);
+  const [plusMenu, setPlusMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [secretMenu, setSecretMenu] = useState(false);
@@ -241,6 +256,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     setMention(null);
     setRecording(false);
     setSendLater(false);
+    setCreateCard(null);
+    setPlusMenu(false);
     textareaRef.current?.focus();
   }, [conversation?.id]);
 
@@ -280,6 +297,16 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   }, [loadScheduled]);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  // The "+" menu closes when you click anywhere else.
+  useEffect(() => {
+    if (!plusMenu) return;
+    const close = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t?.closest("[data-plus-options],[data-plus-menu]")) setPlusMenu(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [plusMenu]);
   useEffect(() => {
     let un: (() => void) | undefined;
     events
@@ -413,7 +440,15 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         onMessageRemoved?.(m.id);
       }),
     deleteEveryone: (m) => void run(() => api.deleteMessageEveryone(m.id)),
+    makeTask: (m) => setCreateCard({ kind: "task", title: m.content.slice(0, 200), fromMessage: m.id }),
   };
+  // LANX 1.6.0: names on cards, and who can be picked when making one.
+  const nameOf = (id: string) => (id === myId ? "You" : members.find((m) => m.id === id)?.name ?? (isGroup ? peerName(id) : conversation.peer_name));
+  const cardPeople: Person[] = isGroup
+    ? members
+    : conversation.peer_id
+      ? [{ id: conversation.peer_id, name: conversation.peer_name, color: conversation.peer_avatar_color }]
+      : [];
 
   const pickMention = (c: MentionCandidate) => {
     if (!mention) return;
@@ -1018,6 +1053,44 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             const day = dayLabel(msg.timestamp);
             const showDay = day !== lastDay;
             lastDay = day;
+            if (msg.message_type === "card" && !msg.deleted) {
+              const out = msg.is_outgoing;
+              const showName = isGroup && !out && (msg.sender_id !== lastSender || showDay);
+              lastSender = out ? "" : msg.sender_id;
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDay && <DaySeparator day={day} />}
+                  <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${out ? "items-end" : "items-start"}`}>
+                    {showName && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
+                    <div className="relative">
+                      <CardView
+                        msg={msg}
+                        myId={myId ?? ""}
+                        nameOf={nameOf}
+                        onChanged={(m) => onMessageChanged?.(m)}
+                        onError={(t) => onError?.(t)}
+                        onStartMeeting={() => onMeeting?.(true)}
+                        onJump={(id) => jumpToMessage(id)}
+                        canAct={!blocked && !outOfGroup}
+                      />
+                      <MessageTools msg={msg} isOut={out} actions={actions} canAct={!blocked && !outOfGroup} />
+                    </div>
+                    <div className={`mt-0.5 flex items-center gap-1.5 px-2 text-[10px] text-slate-400 ${out ? "justify-end" : ""}`}>
+                      {msg.pinned_at && <Pin className="h-3 w-3 rotate-45" />}
+                      {msg.starred && <Star className="h-3 w-3 fill-current" />}
+                      {msg.remind_at && (
+                        <span title={`Reminder: ${whenText(msg.remind_at)}`}>
+                          <AlarmClock className="h-3 w-3" />
+                        </span>
+                      )}
+                      <span>{formatMessageTime(msg.timestamp)}</span>
+                      {out && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
+                    </div>
+                    <ReactionChips reactions={msg.reactions ?? []} isOut={out} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
+                  </div>
+                </React.Fragment>
+              );
+            }
             if (msg.message_type === "meeting" || msg.message_type === "recording") {
               lastSender = "";
               return (
@@ -1263,7 +1336,43 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   onClose={() => setQuickClosed(true)}
                 />
               )}
-              <div className="flex items-end gap-1.5">
+              <div className="relative flex items-end gap-1.5">
+                <button
+                  type="button"
+                  data-plus-menu
+                  onClick={() => setPlusMenu((v) => !v)}
+                  title="Post a notice, poll, task, approval, checklist or meeting"
+                  className={`lanx-tool p-2 text-slate-500 hover:text-emerald-600 dark:text-slate-400 ${plusMenu ? "!bg-[var(--lanx-fill)] !text-emerald-600" : ""}`}
+                >
+                  <Plus className="h-[18px] w-[18px]" />
+                </button>
+                {plusMenu && (
+                  <div data-plus-options className="absolute bottom-full left-0 mb-2 w-64 rounded-2xl lanx-menu p-1.5 shadow-xl lanx-rise z-30">
+                    {(
+                      [
+                        ["notice", Megaphone, "Notice", "text-amber-600"],
+                        ["poll", BarChart3, "Poll", "text-violet-600"],
+                        ["task", ClipboardCheck, "Task", "text-emerald-600"],
+                        ["approval", FileSignature, "Approval", "text-sky-600"],
+                        ["checklist", ListChecks, "Checklist", "text-teal-600"],
+                        ["event", CalendarDays, "Schedule a meeting", "text-indigo-600"],
+                      ] as [CardKind, React.ElementType, string, string][]
+                    ).map(([k, I, label, tone]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        data-plus-kind={k}
+                        onClick={() => {
+                          setPlusMenu(false);
+                          setCreateCard({ kind: k });
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-[12.5px] rounded-lg hover:bg-[var(--lanx-fill)] text-slate-700 dark:text-slate-200"
+                      >
+                        <I className={`h-4 w-4 ${tone}`} /> {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowEmojiPicker(!showEmojiPicker)}
@@ -1377,6 +1486,29 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           )}
         </div>
       </div>
+
+      {createCard && (
+        <CreateCardModal
+          initialKind={createCard.kind}
+          initialTitle={createCard.title}
+          fromMessage={createCard.fromMessage ?? null}
+          people={cardPeople}
+          profiles={profiles}
+          chatName={conversation.peer_name}
+          onClose={() => setCreateCard(null)}
+          onCreate={async (card) => {
+            try {
+              const m = await api.sendCard(conversation.id, card);
+              onMessageChanged?.(m);
+              onCardPosted?.(m);
+              return true;
+            } catch (err) {
+              onError?.(errorText(err));
+              return false;
+            }
+          }}
+        />
+      )}
 
       {isDraggingFiles && !blocked && !outOfGroup && (
         <div className="absolute inset-3 z-30 rounded-[28px] border-2 border-dashed border-sky-500 bg-sky-500/10 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none lanx-fade">

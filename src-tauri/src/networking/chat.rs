@@ -143,6 +143,21 @@ impl NetworkService {
         Ok(())
     }
 
+    /// LANX 1.6.0: a change to a card, for everyone in the chat.
+    pub(super) fn queue_card_action(&self, conversation_id: &str, message_id: &str, key: &str, value: &str, at: i64) -> Result<(), String> {
+        self.queue_message_action(
+            conversation_id,
+            MessageActionPayload {
+                message_id: message_id.to_string(),
+                action: "card".to_string(),
+                key: Some(key.to_string()),
+                value: Some(value.to_string()),
+                at,
+                ..Default::default()
+            },
+        )
+    }
+
     /// Tells the window a message changed (and the chat list, if `preview`).
     fn emit_changed(&self, message_id: &str, preview: bool) -> Option<Message> {
         let m = self.db.get_message_full(message_id).ok().flatten()?;
@@ -164,7 +179,7 @@ impl NetworkService {
         if m.deleted {
             return Err("That message was deleted.".to_string());
         }
-        if m.message_type != "text" && m.message_type != "file" {
+        if m.message_type != "text" && m.message_type != "file" && m.message_type != "card" {
             return Err("You can't do that with this message.".to_string());
         }
         Ok(())
@@ -238,7 +253,7 @@ impl NetworkService {
     /// Deletes one of your messages for everyone ("This message was deleted").
     pub async fn delete_for_everyone(&self, message_id: &str) -> Result<Message, String> {
         let m = self.message(message_id)?;
-        if !m.is_outgoing || m.deleted || (m.message_type != "text" && m.message_type != "file") {
+        if !m.is_outgoing || m.deleted || !matches!(m.message_type.as_str(), "text" | "file" | "card") {
             return Err("Only your own messages can be deleted for everyone.".to_string());
         }
         if now_secs() - m.timestamp > DELETE_WINDOW_SECS {
@@ -396,6 +411,18 @@ impl NetworkService {
                 (self.db.mark_message_deleted(&m.id, at).unwrap_or(false), true)
             }
             "pin" | "unpin" => (self.db.set_pinned(&m.id, a.action == "pin", &peer.id, at).unwrap_or(false), false),
+            "card" => {
+                let (Some(key), Some(value)) = (a.key.as_deref(), a.value.as_deref()) else {
+                    return no("Empty card change");
+                };
+                if key.len() > 80 || value.len() > 2000 {
+                    return no("Card change too large");
+                }
+                match self.apply_remote_card_change(peer, &m, key, value, at) {
+                    Ok(changed) => (changed, false),
+                    Err(e) => return no(&e),
+                }
+            }
             _ => return no("Unknown action"),
         };
         if changed {

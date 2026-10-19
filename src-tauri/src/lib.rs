@@ -505,6 +505,9 @@ pub fn run() {
             commands::chat::list_scheduled,
             commands::chat::send_voice_note,
             commands::chat::read_voice_note,
+            commands::org::send_card,
+            commands::org::card_action,
+            commands::org::list_cards,
             commands::speed_test,
             commands::pick_folder_to_send,
         ])

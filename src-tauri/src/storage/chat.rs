@@ -59,11 +59,122 @@ impl Database {
             let rows = stmt.query_map(params![conversation_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
             rows.flatten().collect()
         };
+        let card_ids: Vec<&str> = messages.iter().filter(|m| m.message_type == "card").map(|m| m.id.as_str()).collect();
+        let mut cards = self.card_entries_for(&card_ids)?;
         for m in messages.iter_mut() {
             m.reactions = reactions.remove(&m.id).unwrap_or_default();
             m.remind_at = reminders.get(&m.id).copied();
+            m.card_state = cards.remove(&m.id).unwrap_or_default();
         }
         Ok(())
+    }
+
+    // ------------------------------------------------------------ 1.6.0 cards
+
+    fn card_entries_for(&self, ids: &[&str]) -> Result<HashMap<String, Vec<CardEntry>>> {
+        let mut out: HashMap<String, Vec<CardEntry>> = HashMap::new();
+        if ids.is_empty() {
+            return Ok(out);
+        }
+        let me = self.my_device_id();
+        let conn = self.conn.lock();
+        let marks = vec!["?"; ids.len()].join(",");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT s.card_id, s.key, s.peer_id, s.value, s.at, COALESCE(p.display_name, '')
+             FROM card_state s LEFT JOIN peers p ON p.id = s.peer_id
+             WHERE s.card_id IN ({}) ORDER BY s.at ASC",
+            marks
+        ))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })?;
+        for (card, key, peer, value, at, name) in rows.flatten() {
+            let name = if peer == me { "You".to_string() } else if name.is_empty() { "Someone".to_string() } else { name };
+            out.entry(card).or_default().push(CardEntry {
+                key,
+                peer_id: peer,
+                name,
+                value: serde_json::from_str(&value).unwrap_or(serde_json::Value::Null),
+                at,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Sets a card entry unless a newer one is stored. True when it changed.
+    pub fn set_card_state(&self, card_id: &str, key: &str, peer_id: &str, value: &str, at: i64) -> Result<bool> {
+        let conn = self.conn.lock();
+        let current: Option<(String, i64)> = conn
+            .query_row(
+                "SELECT value, at FROM card_state WHERE card_id = ?1 AND key = ?2",
+                params![card_id, key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((v, t)) = &current {
+            if *t > at || (*t == at && v == value) {
+                return Ok(false);
+            }
+        }
+        conn.execute(
+            "INSERT OR REPLACE INTO card_state (card_id, key, peer_id, value, at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![card_id, key, peer_id, value, at],
+        )?;
+        Ok(true)
+    }
+
+    /// When a card entry was last set.
+    pub fn card_entry_at(&self, card_id: &str, key: &str) -> Option<i64> {
+        let conn = self.conn.lock();
+        conn.query_row("SELECT at FROM card_state WHERE card_id = ?1 AND key = ?2", params![card_id, key], |r| r.get(0))
+            .ok()
+    }
+
+    /// Every card in every chat (newest first), for the Organiser.
+    pub fn list_cards(&self, include_hidden: bool) -> Result<Vec<SearchHit>> {
+        let cols = MSG_COLS.split(", ").map(|c| format!("m.{}", c)).collect::<Vec<_>>().join(", ");
+        let mut hits: Vec<SearchHit> = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {}, COALESCE(p.display_name, g.name, ''), COALESCE(p.avatar_color, g.avatar_color, '#6366f1')
+                 FROM messages m
+                 JOIN conversations c ON m.conversation_id = c.id
+                 LEFT JOIN peers p ON c.peer_id = p.id
+                 LEFT JOIN groups g ON g.id = c.id
+                 WHERE m.message_type = 'card' AND m.deleted = 0 AND (?1 OR c.is_hidden = 0)
+                 ORDER BY m.timestamp DESC LIMIT 1000",
+                cols
+            ))?;
+            let rows = stmt.query_map(params![include_hidden], |row| {
+                Ok(SearchHit {
+                    message: row_to_message(row)?,
+                    peer_name: row.get(21)?,
+                    peer_avatar_color: row.get(22)?,
+                })
+            })?;
+            rows.flatten().collect()
+        };
+        let ids: Vec<String> = hits.iter().map(|h| h.message.id.clone()).collect();
+        let refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let mut cards = self.card_entries_for(&refs)?;
+        let reminders: HashMap<String, i64> = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare("SELECT message_id, remind_at FROM reminders")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            rows.flatten().collect()
+        };
+        for h in hits.iter_mut() {
+            h.message.card_state = cards.remove(&h.message.id).unwrap_or_default();
+            h.message.remind_at = reminders.get(&h.message.id).copied();
+        }
+        Ok(hits)
     }
 
     /// One message with its reactions and reminder.
@@ -71,6 +182,10 @@ impl Database {
         let Some(mut m) = self.get_message_by_id(message_id)? else { return Ok(None) };
         let conv = m.conversation_id.clone();
         self.fill_extras(&conv, std::slice::from_mut(&mut m))?;
+        // Group messages keep their "delivered / seen by" summary.
+        if m.is_outgoing {
+            m.deliveries = self.delivery_summary(&m.id);
+        }
         Ok(Some(m))
     }
 

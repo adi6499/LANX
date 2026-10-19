@@ -5,6 +5,7 @@ pub mod extras;
 pub mod folders;
 pub mod groups;
 pub mod meetings;
+pub mod org;
 pub mod profiles;
 pub mod protocol;
 pub mod session;
@@ -454,6 +455,18 @@ impl NetworkService {
         reply_to: Option<String>,
         mentions: Vec<String>,
     ) -> Result<Message, String> {
+        self.send_typed(conversation_id, content, "text", reply_to, mentions).await
+    }
+
+    /// A text message or (LANX 1.6.0) a card.
+    pub(crate) async fn send_typed(
+        &self,
+        conversation_id: &str,
+        content: &str,
+        message_type: &str,
+        reply_to: Option<String>,
+        mentions: Vec<String>,
+    ) -> Result<Message, String> {
         let trimmed = content.trim();
         if trimmed.is_empty() {
             return Err("Message content cannot be empty".to_string());
@@ -473,7 +486,7 @@ impl NetworkService {
         let reply = self.reply_for(&conv.id, reply_to.as_deref());
         if conv.kind == "group" {
             let mentions = self.valid_mentions(&conv.id, &mentions);
-            return self.send_group_message(&conv, trimmed, reply, mentions);
+            return self.send_group_message(&conv, trimmed, message_type, reply, mentions);
         }
         let peer = self
             .db
@@ -485,14 +498,14 @@ impl NetworkService {
         }
 
         let now = now_secs();
-        let ttl = (conv.secret_ttl > 0).then_some(conv.secret_ttl);
+        let ttl = (conv.secret_ttl > 0 && message_type == "text").then_some(conv.secret_ttl);
         let msg = Message {
             id: uuid::Uuid::new_v4().to_string(),
             conversation_id: conversation_id.to_string(),
             sender_id: self.identity.device_id.clone(),
             receiver_id: peer.id.clone(),
             content: trimmed.to_string(),
-            message_type: "text".to_string(),
+            message_type: message_type.to_string(),
             timestamp: now,
             status: "sending".to_string(),
             error_reason: None,
@@ -701,6 +714,15 @@ impl NetworkService {
         // LANX 1.5.0 extras only go to copies that understand them (every
         // copy re-checks signatures on the fields it knows).
         let chat = version_at_least(&chan.remote.app_version, FEATURES_CHAT);
+        let org = version_at_least(&chan.remote.app_version, FEATURES_ORG);
+        // Cards go to older copies as plain text.
+        let wire = |m: &Message| -> (String, String) {
+            if m.message_type == "card" && !org {
+                (org::card_fallback(&m.content), "text".to_string())
+            } else {
+                (m.content.clone(), m.message_type.clone())
+            }
+        };
         let needs_update = format!("Waiting for {} to update to LANX 1.1", peer.display_name);
         let mut connection_lost = false;
 
@@ -724,11 +746,12 @@ impl NetworkService {
                     }
                     continue;
                 }
+                let (content, message_type) = wire(m);
                 let payload = MessagePayload {
                     message_id: m.id.clone(),
                     conversation_id: m.conversation_id.clone(),
-                    content: m.content.clone(),
-                    message_type: m.message_type.clone(),
+                    content,
+                    message_type,
                     ttl_secs: m.ttl_secs,
                     group_id: None,
                     reply_to: if chat { m.reply_to.clone() } else { None },
@@ -753,11 +776,12 @@ impl NetworkService {
                     let _ = self.db.set_delivery_status(&m.id, peer_id, "queued", Some(&needs_update));
                     continue;
                 }
+                let (content, message_type) = wire(m);
                 let payload = MessagePayload {
                     message_id: m.id.clone(),
                     conversation_id: m.conversation_id.clone(),
-                    content: m.content.clone(),
-                    message_type: m.message_type.clone(),
+                    content,
+                    message_type,
                     ttl_secs: None,
                     group_id: Some(m.conversation_id.clone()),
                     reply_to: if chat { m.reply_to.clone() } else { None },
@@ -821,6 +845,9 @@ impl NetworkService {
                     let _ = self.db.delete_action(&id);
                     continue;
                 };
+                if a.action == "card" && !org {
+                    continue; // waits until they update to 1.6.0
+                }
                 match Self::send_acked(&mut chan, PacketPayload::MessageAction(a)).await {
                     Ok(_) => {
                         let _ = self.db.delete_action(&id);
@@ -1027,14 +1054,23 @@ impl NetworkService {
         if m.content.trim().is_empty() || m.content.len() > MAX_MESSAGE_CONTENT_LEN {
             return ack(false, Some("Message rejected (empty or too long)"));
         }
-        let ttl = m.ttl_secs.filter(|t| *t > 0).map(|t| t.min(7 * 24 * 3600));
+        // LANX 1.6.0 cards are checked like everything else.
+        let (content, message_type) = if m.message_type == "card" {
+            match org::parse_card(&m.content).and_then(|c| org::clean_card(&c).ok()) {
+                Some(c) => (c.to_string(), "card".to_string()),
+                None => return ack(false, Some("Card rejected")),
+            }
+        } else {
+            (m.content.clone(), "text".to_string())
+        };
+        let ttl = m.ttl_secs.filter(|t| *t > 0 && message_type == "text").map(|t| t.min(7 * 24 * 3600));
         let msg = Message {
             id: m.message_id.clone(),
             conversation_id: conv.id.clone(),
             sender_id: peer.id.clone(),
             receiver_id: self.identity.device_id.clone(),
-            content: m.content.clone(),
-            message_type: "text".to_string(),
+            content,
+            message_type,
             timestamp: now,
             status: "delivered".to_string(),
             error_reason: None,
@@ -1052,6 +1088,9 @@ impl NetworkService {
             return ack(false, Some("Recipient database error"));
         }
         let _ = self.db.increment_unread(&conv.id);
+        if msg.message_type == "card" {
+            self.card_reminders(&msg);
+        }
         let conv = self.db.get_conversation(&conv.id).ok().flatten();
         self.events.message_received(&msg, conv.as_ref());
         let hidden = conv.as_ref().is_some_and(|c| c.is_hidden);
@@ -1061,7 +1100,7 @@ impl NetworkService {
         } else if ttl.is_some() {
             (peer.display_name.clone(), "🔒 Secret message".to_string())
         } else {
-            (peer.display_name.clone(), crate::storage::preview_text(&msg.content))
+            (peer.display_name.clone(), crate::storage::message_preview(&msg))
         };
         let alert = crate::events::IslandAlert {
             id: msg.id.clone(),

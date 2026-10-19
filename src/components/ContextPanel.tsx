@@ -401,7 +401,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
               <div key={m.device_id} className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-[var(--lanx-fill)] group/member">
                 <span className={`h-2 w-2 rounded-full shrink-0 ${m.status === "online" ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`} />
                 <span className="flex-1 min-w-0 truncate text-xs text-slate-700 dark:text-slate-200">
-                  {m.display_name}
+                  {(!m.is_me && peers.find((p) => p.id === m.device_id)?.display_name) || m.display_name}
                   {m.is_me && <span className="text-slate-400"> (you)</span>}
                 </span>
                 {m.is_admin && <Crown className="h-3 w-3 text-amber-500 shrink-0" aria-label="Admin" />}

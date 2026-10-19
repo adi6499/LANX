@@ -290,6 +290,40 @@ let mockMessages: Record<string, Message[]> = {
       timestamp: now() - 25,
       status: "delivered",
     }),
+    // LANX 1.6.0 preview cards from colleagues.
+    msg({
+      id: "g-7",
+      conversation_id: "grp-accounts",
+      message_type: "card",
+      content: JSON.stringify({ kind: "notice", title: "Office closed for Diwali", body: "The office is closed from 31 Oct to 2 Nov. Dispatch resumes on 3 Nov.", important: true, ack: true }),
+      sender_id: "peer-sarah",
+      is_outgoing: false,
+      timestamp: now() - 20,
+      card_state: [{ key: "ack:peer-marcus", peer_id: "peer-marcus", name: "Marcus (Stores)", value: true, at: now() - 10 }],
+    }),
+    msg({
+      id: "g-8",
+      conversation_id: "grp-accounts",
+      message_type: "card",
+      content: JSON.stringify({ kind: "approval", title: "Buy 20 bearings (SKF 6205)", details: "Stock is down to 4. Supplier quote attached in the chat.", amount: "₹18,400", approvers: [ME] }),
+      sender_id: "peer-marcus",
+      is_outgoing: false,
+      timestamp: now() - 15,
+      card_state: [],
+    }),
+    msg({
+      id: "g-9",
+      conversation_id: "grp-accounts",
+      message_type: "card",
+      content: JSON.stringify({ kind: "poll", question: "Stock count on which day?", options: ["Friday evening", "Saturday morning", "Monday morning"], multi: false }),
+      sender_id: "peer-sarah",
+      is_outgoing: false,
+      timestamp: now() - 12,
+      card_state: [
+        { key: "vote:peer-marcus", peer_id: "peer-marcus", name: "Marcus (Stores)", value: [1], at: now() - 8 },
+        { key: "vote:peer-elena", peer_id: "peer-elena", name: "Elena (Sales)", value: [1], at: now() - 6 },
+      ],
+    }),
   ],
   "conv-sarah": [
     msg({ id: "m-1", conversation_id: "conv-sarah", content: "Sending the Dolvi site photos now — it's a big one.", timestamp: now() - 320, status: "read" }),
@@ -973,6 +1007,35 @@ export const api = {
   readVoiceNote: async (transferId: string): Promise<ArrayBuffer> => {
     if (isTauri) return invoke("read_voice_note", { transferId });
     return previewOnly();
+  },
+
+  // -------------------------------------------------- 1.6.0: organising
+  /** Posts a card (notice, poll, task, approval, checklist, meeting). */
+  sendCard: async (conversationId: string, card: Record<string, unknown>): Promise<Message> => {
+    if (isTauri) return invoke("send_card", { conversationId, card });
+    const m = msg({ id: `card-${Date.now()}`, conversation_id: conversationId, content: JSON.stringify(card), message_type: "card", card_state: [] });
+    mockMessages[conversationId] = [...(mockMessages[conversationId] || []), m];
+    return m;
+  },
+  /** Vote, tick, decide, answer on a card. */
+  cardAction: async (messageId: string, key: string, value: unknown): Promise<Message> => {
+    if (isTauri) return invoke("card_action", { messageId, key, value });
+    return mockPatch(messageId, (m) => {
+      const rest = (m.card_state ?? []).filter((e) => e.key !== key);
+      return { ...m, card_state: [...rest, { key, peer_id: ME, name: "You", value, at: now() }] };
+    });
+  },
+  /** Every card in every chat, for the Organiser. */
+  listCards: async (): Promise<SearchHit[]> => {
+    if (isTauri) return invoke("list_cards");
+    return Object.values(mockMessages)
+      .flat()
+      .filter((m) => m.message_type === "card" && !m.deleted)
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .map((m) => {
+        const c = mockConversations.find((x) => x.id === m.conversation_id);
+        return { message: m, peer_name: c?.peer_name ?? "", peer_avatar_color: c?.peer_avatar_color ?? "#6366f1" };
+      });
   },
 
   // ------------------------------------------------------ 1.4.0: meetings

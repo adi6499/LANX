@@ -118,7 +118,9 @@ export interface Message {
   sender_id: string;
   receiver_id: string;
   content: string;
-  message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call" | "meeting" | "recording";
+  message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call" | "meeting" | "recording" | "card";
+  /** LANX 1.6.0 cards: votes, ticks, decisions… */
+  card_state?: CardEntry[];
   // ---- LANX 1.5.0
   /** The message this one answers. */
   reply_to?: string | null;
@@ -398,6 +400,15 @@ export interface CallEvent {
   reason: string | null;
   /** LANX 1.4.0: the other side started / stopped recording. */
   recording?: boolean | null;
+}
+
+/** LANX 1.6.0: one entry of a card's state ("vote:<id>" → [1]). */
+export interface CardEntry {
+  key: string;
+  peer_id: string;
+  name: string;
+  value: unknown;
+  at: number;
 }
 
 /** LANX 1.5.0: an emoji under a message. */

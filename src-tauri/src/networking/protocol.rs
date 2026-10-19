@@ -60,6 +60,11 @@ pub const FEATURES_MEETINGS: &str = "1.4.0";
 /// delete for everyone, pin). Older peers get plain messages and files.
 pub const FEATURES_CHAT: &str = "1.5.0";
 
+/// Oldest app version with 1.6.0 cards (notices, polls, tasks, approvals,
+/// checklists, meetings): `message_type = "card"` and `MessageAction
+/// { action: "card" }`. Older peers get the card as plain text.
+pub const FEATURES_ORG: &str = "1.6.0";
+
 /// LANX 1.5.0: something done to an existing message, sent to everyone in
 /// the chat. Answered with `Ack`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -80,6 +85,12 @@ pub struct MessageActionPayload {
     pub mentions: Vec<String>,
     /// When it was done (unix seconds) — the newest change wins.
     pub at: i64,
+    /// LANX 1.6.0 card: which entry changed ("vote:<id>", "status"…)…
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// …and its new value (JSON).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 /// LANX 1.4.0: someone in a meeting, as the others see them. The address and

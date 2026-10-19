@@ -176,6 +176,7 @@ fn row_to_message(row: &Row) -> Result<Message> {
         starred: row.get::<_, i64>(20)? != 0,
         reactions: Vec::new(),
         remind_at: None,
+        card_state: Vec::new(),
     })
 }
 
@@ -1006,7 +1007,7 @@ impl Database {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {} FROM messages
-             WHERE receiver_id = ?1 AND is_outgoing = 1 AND message_type IN ('text', 'secret_setting')
+             WHERE receiver_id = ?1 AND is_outgoing = 1 AND message_type IN ('text', 'secret_setting', 'card')
                AND status IN ('sending', 'queued')
              ORDER BY timestamp ASC, rowid ASC",
             MSG_COLS
@@ -1022,7 +1023,7 @@ impl Database {
         };
         count(
             "SELECT COUNT(*) FROM messages WHERE receiver_id = ?1 AND is_outgoing = 1
-             AND message_type IN ('text', 'secret_setting') AND status IN ('sending', 'queued')",
+             AND message_type IN ('text', 'secret_setting', 'card') AND status IN ('sending', 'queued')",
         ) + count(
             "SELECT COUNT(*) FROM transfers WHERE peer_id = ?1 AND direction = 'outgoing' AND status = 'queued'",
         ) + count(
@@ -1602,7 +1603,7 @@ impl Database {
             .join(", ");
         let mut stmt = conn.prepare(&format!(
             "SELECT {} FROM message_deliveries d JOIN messages m ON m.id = d.message_id
-             WHERE d.peer_id = ?1 AND d.status IN ('sending', 'queued') AND m.message_type = 'text'
+             WHERE d.peer_id = ?1 AND d.status IN ('sending', 'queued') AND m.message_type IN ('text', 'card')
              ORDER BY m.timestamp ASC, m.rowid ASC",
             cols
         ))?;
@@ -1645,6 +1646,7 @@ pub fn message_preview(msg: &Message) -> String {
         }
         "ring" => "🔔 Ring".to_string(),
         "call" => call_preview(&msg.content, msg.is_outgoing),
+        "card" => crate::networking::org::card_preview(&msg.content),
         "meeting" => meeting_preview(&msg.content),
         "recording" => "🔴 Recording saved".to_string(),
         _ => preview_text(&msg.content),

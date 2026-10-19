@@ -44,6 +44,21 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.6.0: organising
+Press **+** next to the message box in any chat to post one of these. Everyone in the chat sees it update live.
+- **Notices** — an announcement (mark it *important*); everyone presses **I've read it**, and you see who has
+  read and confirmed it.
+- **Polls** — a question with answers to tap (one or several); results show as bars with who voted.
+- **Tasks** — what needs doing, for whom, and by when. They get a reminder on the due date and tick it off when done.
+  Point at any message → **⋯ → Make a task…** to turn it into a task.
+- **Approvals** — ask one or more colleagues to approve or reject (with an amount and details); they can add a note.
+- **Checklists** — a shared list everyone can tick off and add to.
+- **Schedule a meeting** — date, time, length, who, place and agenda; people answer Going / Maybe / Can't, everyone
+  is reminded 10 minutes before, and a **Start meeting** button opens the LANX video meeting at the time.
+- **Organiser** (clipboard button above the chat list, with a red number for what waits for you) — all notices,
+  tasks, approvals, meetings, polls and checklists from every chat in one place, with **For me** on top.
+- Colleagues on an older LANX get these as readable text until they update.
+
 ### New in 1.5.0: better chatting
 Point at any message to get a small bar: quick reactions, **Reply** and **⋯** for everything else.
 - **Reactions** — 👍 ❤️ 😂 😮 and more under any message; everyone sees who reacted. Click yours again to take it back.

@@ -246,6 +246,7 @@ impl NetworkService {
         &self,
         conv: &Conversation,
         text: &str,
+        message_type: &str,
         reply: Option<(String, String)>,
         mentions: Vec<String>,
     ) -> Result<Message, String> {
@@ -268,7 +269,7 @@ impl NetworkService {
             sender_id: self.my_id().to_string(),
             receiver_id: conv.id.clone(),
             content: text.to_string(),
-            message_type: "text".to_string(),
+            message_type: message_type.to_string(),
             timestamp: now_secs(),
             status: "sending".to_string(),
             error_reason: None,
@@ -553,16 +554,25 @@ impl NetworkService {
         if !g.members.iter().any(|x| x.device_id == sender.id) {
             return ack(false, Some("You are not in this group"));
         }
-        if m.message_type != "text" || m.content.trim().is_empty() || m.content.len() > MAX_MESSAGE_CONTENT_LEN {
+        if (m.message_type != "text" && m.message_type != "card") || m.content.trim().is_empty() || m.content.len() > MAX_MESSAGE_CONTENT_LEN {
             return ack(false, Some("Message rejected (empty or too long)"));
         }
+        // LANX 1.6.0 cards are checked like everything else.
+        let (content, message_type) = if m.message_type == "card" {
+            match super::org::parse_card(&m.content).and_then(|c| super::org::clean_card(&c).ok()) {
+                Some(c) => (c.to_string(), "card".to_string()),
+                None => return ack(false, Some("Card rejected")),
+            }
+        } else {
+            (m.content.clone(), "text".to_string())
+        };
         let msg = Message {
             id: m.message_id.clone(),
             conversation_id: gid.clone(),
             sender_id: sender.id.clone(),
             receiver_id: self.my_id().to_string(),
-            content: m.content.clone(),
-            message_type: "text".to_string(),
+            content,
+            message_type,
             timestamp: now_secs(),
             status: "delivered".to_string(),
             error_reason: None,
@@ -587,6 +597,9 @@ impl NetworkService {
         }
         let mentioned = msg.mentions.iter().any(|id| id == self.my_id());
         let _ = self.db.increment_unread(&gid);
+        if msg.message_type == "card" {
+            self.card_reminders(&msg);
+        }
         let conv = self.db.get_conversation(&gid).ok().flatten();
         self.events.message_received(&msg, conv.as_ref());
         let hidden = conv.as_ref().is_some_and(|c| c.is_hidden);
@@ -596,12 +609,12 @@ impl NetworkService {
         } else if mentioned {
             (
                 format!("{} mentioned you in {}", sender.display_name, g.name),
-                crate::storage::preview_text(&msg.content),
+                crate::storage::message_preview(&msg),
             )
         } else {
             (
                 g.name.clone(),
-                format!("{}: {}", sender.display_name, crate::storage::preview_text(&msg.content)),
+                format!("{}: {}", sender.display_name, crate::storage::message_preview(&msg)),
             )
         };
         let alert = if private {
@@ -618,7 +631,7 @@ impl NetworkService {
                 id: msg.id.clone(),
                 kind: "message".into(),
                 title: if mentioned { format!("{} mentioned you", sender.display_name) } else { sender.display_name.clone() },
-                body: crate::storage::preview_text(&msg.content),
+                body: crate::storage::message_preview(&msg),
                 conversation_id: Some(gid.clone()),
                 avatar_color: Some(sender.avatar_color.clone()),
                 avatar: self.island_avatar(&sender.id),

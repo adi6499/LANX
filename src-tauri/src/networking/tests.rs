@@ -2095,3 +2095,137 @@ fn chat_extras_stay_off_plain_messages_and_old_style_packets_read() {
     assert_eq!(a.emoji.as_deref(), Some("👍"));
     assert!(a.group_id.is_none() && a.mentions.is_empty());
 }
+
+// ----------------------------------------------------------- cards (1.6.0)
+
+fn card_value(n: &Node, conv: &str, id: &str, key: &str) -> Option<serde_json::Value> {
+    msg_in(n.db(), conv, id)?.card_state.into_iter().find(|e| e.key == key).map(|e| e.value)
+}
+
+async fn team() -> (Node, Node, Node, String) {
+    let (a, b, c) = trio().await;
+    let conv = a.svc.create_group("Stores Team", &[b.id(), c.id()]).unwrap();
+    let gid = conv.id.clone();
+    assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
+    (a, b, c, gid)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn polls_and_notices_collect_answers_from_everyone() {
+    let (a, b, c, gid) = team().await;
+    let poll = a
+        .svc
+        .send_card(&gid, &serde_json::json!({ "kind": "poll", "question": "Stock count day?", "options": ["Friday", "Saturday"] }))
+        .await
+        .unwrap();
+    assert_eq!(poll.message_type, "card");
+    assert!(wait_for(|| msg_in(b.db(), &gid, &poll.id).is_some() && msg_in(c.db(), &gid, &poll.id).is_some(), 10).await);
+    assert_eq!(conv_of(c.db(), &gid).unwrap().last_message_preview.as_deref(), Some("📊 Poll: Stock count day?"));
+
+    b.svc.card_action(&poll.id, &format!("vote:{}", b.id()), &serde_json::json!([1])).unwrap();
+    c.svc.card_action(&poll.id, &format!("vote:{}", c.id()), &serde_json::json!([0])).unwrap();
+    assert!(b.svc.card_action(&poll.id, &format!("vote:{}", c.id()), &serde_json::json!([1])).is_err(), "no voting for others");
+    assert!(b.svc.card_action(&poll.id, "closed", &serde_json::json!(true)).is_err(), "only the asker closes");
+    let voted = |n: &Node| card_value(n, &gid, &poll.id, &format!("vote:{}", b.id())) == Some(serde_json::json!([1]))
+        && card_value(n, &gid, &poll.id, &format!("vote:{}", c.id())) == Some(serde_json::json!([0]));
+    assert!(wait_for(|| voted(&a) && voted(&b) && voted(&c), 10).await);
+    // Changing your mind replaces your vote.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    c.svc.card_action(&poll.id, &format!("vote:{}", c.id()), &serde_json::json!([1])).unwrap();
+    assert!(wait_for(|| card_value(&a, &gid, &poll.id, &format!("vote:{}", c.id())) == Some(serde_json::json!([1])), 10).await);
+    a.svc.card_action(&poll.id, "closed", &serde_json::json!(true)).unwrap();
+    assert!(wait_for(|| card_value(&b, &gid, &poll.id, "closed") == Some(serde_json::json!(true)), 10).await);
+
+    // A notice: everyone can say "I've read it".
+    let notice = a
+        .svc
+        .send_card(&gid, &serde_json::json!({ "kind": "notice", "title": "Diwali holidays", "body": "Office closed 31 Oct – 2 Nov.", "important": true }))
+        .await
+        .unwrap();
+    assert!(wait_for(|| msg_in(b.db(), &gid, &notice.id).is_some(), 10).await);
+    b.svc.card_action(&notice.id, &format!("ack:{}", b.id()), &serde_json::json!(true)).unwrap();
+    assert!(wait_for(|| card_value(&a, &gid, &notice.id, &format!("ack:{}", b.id())) == Some(serde_json::json!(true)), 10).await);
+    // The sender's copy keeps its "delivered / seen by" summary after changes.
+    assert!(a.db().get_message_full(&notice.id).unwrap().unwrap().deliveries.is_some_and(|d| d.total == 2));
+    let names: Vec<String> = msg_in(a.db(), &gid, &notice.id).unwrap().card_state.into_iter().map(|e| e.name).collect();
+    assert_eq!(names, vec!["Bharat"]);
+    // The Organiser lists every card with its state.
+    let cards = c.db().list_cards(false).unwrap();
+    assert_eq!(cards.len(), 2);
+    assert_eq!(cards.iter().find(|h| h.message.id == poll.id).unwrap().message.card_state.len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tasks_approvals_checklists_and_meetings_follow_the_rules() {
+    let (a, b, c, gid) = team().await;
+    let due = now_secs() + 3600;
+    let task = a
+        .svc
+        .send_card(&gid, &serde_json::json!({ "kind": "task", "title": "Count the bearings", "assignee": b.id(), "due": due }))
+        .await
+        .unwrap();
+    assert!(
+        wait_for(|| msg_in(b.db(), &gid, &task.id).is_some_and(|m| m.remind_at == Some(due)), 10).await,
+        "the assignee is reminded on the due date"
+    );
+    assert!(wait_for(|| msg_in(c.db(), &gid, &task.id).is_some(), 10).await);
+    assert!(msg_in(c.db(), &gid, &task.id).unwrap().remind_at.is_none());
+    assert!(c.svc.card_action(&task.id, "status", &serde_json::json!("done")).is_err(), "not Chetan's task");
+    b.svc.card_action(&task.id, "status", &serde_json::json!("done")).unwrap();
+    assert!(msg_in(b.db(), &gid, &task.id).unwrap().remind_at.is_none(), "done tasks stop reminding");
+    assert!(wait_for(|| card_value(&a, &gid, &task.id, "status") == Some(serde_json::json!("done")), 10).await);
+    // A forged change from someone else is refused on arrival too.
+    let chetan_at_a = a.db().get_peer(&c.id()).unwrap().unwrap();
+    let forged = MessageActionPayload {
+        action_id: "f".into(),
+        message_id: task.id.clone(),
+        action: "card".into(),
+        group_id: Some(gid.clone()),
+        key: Some("status".into()),
+        value: Some("\"open\"".into()),
+        at: now_secs() + 50,
+        ..Default::default()
+    };
+    assert!(!a.svc.handle_message_action(&chetan_at_a, forged).ok);
+    assert_eq!(card_value(&a, &gid, &task.id, "status"), Some(serde_json::json!("done")));
+
+    // Approval: only the chosen approver decides.
+    let ap = b
+        .svc
+        .send_card(&gid, &serde_json::json!({ "kind": "approval", "title": "Buy 20 bearings", "amount": "₹18,400", "approvers": [c.id()] }))
+        .await
+        .unwrap();
+    assert!(wait_for(|| msg_in(c.db(), &gid, &ap.id).is_some() && msg_in(a.db(), &gid, &ap.id).is_some(), 10).await);
+    assert!(a.svc.card_action(&ap.id, &format!("decision:{}", a.id()), &serde_json::json!({ "d": "approved" })).is_err());
+    c.svc.card_action(&ap.id, &format!("decision:{}", c.id()), &serde_json::json!({ "d": "approved", "note": "Go ahead" })).unwrap();
+    assert!(wait_for(|| card_value(&b, &gid, &ap.id, &format!("decision:{}", c.id())).is_some_and(|v| v["d"] == "approved" && v["note"] == "Go ahead"), 10).await);
+
+    // Checklist: everyone ticks and adds.
+    let cl = a
+        .svc
+        .send_card(&gid, &serde_json::json!({ "kind": "checklist", "title": "Dispatch", "items": ["Invoice", "E-way bill"] }))
+        .await
+        .unwrap();
+    assert!(wait_for(|| msg_in(c.db(), &gid, &cl.id).is_some() && msg_in(b.db(), &gid, &cl.id).is_some(), 10).await);
+    c.svc.card_action(&cl.id, "item:1", &serde_json::json!(true)).unwrap();
+    b.svc.card_action(&cl.id, "add:x1", &serde_json::json!("Packing list")).unwrap();
+    assert!(wait_for(|| card_value(&a, &gid, &cl.id, "item:1") == Some(serde_json::json!(true)) && card_value(&a, &gid, &cl.id, "add:x1") == Some(serde_json::json!("Packing list")), 10).await);
+
+    // Meeting: attendees are reminded 10 minutes before and answer.
+    let start = now_secs() + 7200;
+    let ev = a
+        .svc
+        .send_card(&gid, &serde_json::json!({ "kind": "event", "title": "Monthly review", "start": start, "minutes": 45, "attendees": [b.id()] }))
+        .await
+        .unwrap();
+    assert_eq!(msg_in(a.db(), &gid, &ev.id).unwrap().remind_at, Some(start - 600), "the organiser too");
+    assert!(wait_for(|| msg_in(b.db(), &gid, &ev.id).is_some_and(|m| m.remind_at == Some(start - 600)), 10).await);
+    assert!(wait_for(|| msg_in(c.db(), &gid, &ev.id).is_some(), 10).await);
+    assert!(msg_in(c.db(), &gid, &ev.id).unwrap().remind_at.is_none(), "not invited");
+    b.svc.card_action(&ev.id, &format!("rsvp:{}", b.id()), &serde_json::json!("yes")).unwrap();
+    assert!(wait_for(|| card_value(&a, &gid, &ev.id, &format!("rsvp:{}", b.id())) == Some(serde_json::json!("yes")), 10).await);
+    assert!(b.svc.card_action(&ev.id, "cancelled", &serde_json::json!(true)).is_err());
+
+    // Bad cards are refused before they leave.
+    assert!(a.svc.send_card(&gid, &serde_json::json!({ "kind": "poll", "question": "?", "options": ["only one"] })).await.is_err());
+}

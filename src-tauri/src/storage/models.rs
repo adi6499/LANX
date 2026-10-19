@@ -339,6 +339,20 @@ pub struct Message {
     /// A "remind me" set on this computer (filled in when loaded).
     #[serde(default)]
     pub remind_at: Option<i64>,
+    /// LANX 1.6.0 cards: votes, ticks, decisions… (filled in when loaded).
+    #[serde(default)]
+    pub card_state: Vec<CardEntry>,
+}
+
+/// LANX 1.6.0: one entry of a card's state ("vote:<id>" → [1]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CardEntry {
+    pub key: String,
+    pub peer_id: String,
+    /// Who set it ("You" for this computer's user).
+    pub name: String,
+    pub value: serde_json::Value,
+    pub at: i64,
 }
 
 /// LANX 1.5.0: a message waiting to be sent at a chosen time.

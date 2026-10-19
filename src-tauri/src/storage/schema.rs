@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 7;
+pub const LATEST_SCHEMA_VERSION: i64 = 8;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -327,6 +327,29 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (7, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 8 {
+        // v8 (LANX 1.6.0): what people did with cards (votes, ticks, …).
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS card_state (
+                card_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                peer_id TEXT NOT NULL,
+                value TEXT NOT NULL,
+                at INTEGER NOT NULL,
+                PRIMARY KEY (card_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_messages_cards ON messages(message_type) WHERE message_type = 'card';
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (8, now),
         )?;
         tx.commit()?;
     }
