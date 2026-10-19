@@ -515,6 +515,7 @@ fn plain_messages_keep_the_1_0_wire_format() {
         media_ms: None,
         sync_id: None,
         sync_path: None,
+        intercom: None,
     }))
     .unwrap();
     assert!(!o["data"].as_object().unwrap().contains_key("group_id"));
@@ -1222,13 +1223,13 @@ async fn call_is_answered_then_hung_up_and_both_sides_keep_a_record() {
     let a = node("Asha").await;
     let b = node("Bharat").await;
     let conv = link(&a, &b).await;
-    let call = a.svc.start_call(&conv, true, "v=0 offer".into()).await.unwrap();
+    let call = a.svc.start_call(&conv, true, "v=0 offer".into(), None).await.unwrap();
     assert!(call.outgoing && call.video && call.phase == "ringing");
     assert!(wait_for(|| b.svc.current_call().is_some_and(|c| c.phase == "ringing" && !c.outgoing), 5).await);
     let incoming = b.svc.current_call().unwrap();
     assert_eq!(incoming.call_id, call.call_id);
     assert_eq!(incoming.peer_name, "Asha");
-    assert!(a.svc.start_call(&conv, false, "x".into()).await.unwrap_err().contains("already in a call"));
+    assert!(a.svc.start_call(&conv, false, "x".into(), None).await.unwrap_err().contains("already in a call"));
 
     b.svc.answer_call(&call.call_id, "v=0 answer".into(), true).await.unwrap();
     assert!(wait_for(|| a.svc.current_call().is_some_and(|c| c.phase == "active"), 5).await);
@@ -1252,7 +1253,7 @@ async fn declined_and_cancelled_calls_are_recorded_on_both_sides() {
     let b_conv = b.db().get_or_create_conversation(&a.id()).unwrap().id;
 
     // Bharat declines.
-    let call = a.svc.start_call(&conv, false, "offer".into()).await.unwrap();
+    let call = a.svc.start_call(&conv, false, "offer".into(), None).await.unwrap();
     assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
     b.svc.decline_call(&call.call_id).await.unwrap();
     assert!(wait_for(|| a.svc.current_call().is_none(), 5).await);
@@ -1261,7 +1262,7 @@ async fn declined_and_cancelled_calls_are_recorded_on_both_sides() {
 
     // Asha gives up while it rings: a missed call for Bharat.
     let unread_before = conv_of(b.db(), &b_conv).unwrap().unread_count;
-    let call = a.svc.start_call(&conv, true, "offer".into()).await.unwrap();
+    let call = a.svc.start_call(&conv, true, "offer".into(), None).await.unwrap();
     assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
     a.svc.hangup_call(&call.call_id).await.unwrap();
     assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
@@ -1279,10 +1280,10 @@ async fn second_caller_hears_busy_and_strangers_cannot_end_the_call() {
     let (a, b, c) = trio().await;
     let ab = a.db().get_or_create_conversation(&b.id()).unwrap().id;
     let cb = link(&c, &b).await;
-    let call = a.svc.start_call(&ab, false, "offer".into()).await.unwrap();
+    let call = a.svc.start_call(&ab, false, "offer".into(), None).await.unwrap();
     assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
 
-    let err = c.svc.start_call(&cb, false, "offer".into()).await.unwrap_err();
+    let err = c.svc.start_call(&cb, false, "offer".into(), None).await.unwrap_err();
     assert!(err.contains("on another call"), "got {}", err);
     assert!(c.svc.current_call().is_none());
     let b_with_c = b.db().get_or_create_conversation(&c.id()).unwrap().id;
@@ -1298,6 +1299,7 @@ async fn second_caller_hears_busy_and_strangers_cannot_end_the_call() {
         muted: None,
         screen: None,
         recording: None,
+        help: None,
     };
     assert!(!b.svc.handle_call(&chetan, forged.clone()).ok);
     assert!(b.svc.current_call().is_some(), "call must survive");
@@ -1312,11 +1314,11 @@ async fn calling_an_offline_or_blocked_colleague_explains_why() {
     let b = node("Bharat").await;
     let conv = link(&a, &b).await;
     a.svc.peer_went_offline(&b.id());
-    assert!(a.svc.start_call(&conv, false, "o".into()).await.unwrap_err().contains("offline"));
+    assert!(a.svc.start_call(&conv, false, "o".into(), None).await.unwrap_err().contains("offline"));
     assert!(a.svc.current_call().is_none());
     let _ = link(&a, &b).await;
     a.db().update_peer_trust(&b.id(), "blocked").unwrap();
-    assert!(a.svc.start_call(&conv, false, "o".into()).await.unwrap_err().contains("blocked"));
+    assert!(a.svc.start_call(&conv, false, "o".into(), None).await.unwrap_err().contains("blocked"));
 }
 
 // ======================================== LANX 1.2.3: lanes, folders, speed test
@@ -1822,12 +1824,12 @@ async fn meeting_invites_can_be_declined_found_busy_or_over() {
     assert_eq!(meeting_records(b.db(), &ba).last().unwrap()["outcome"], "declined");
     assert_eq!(conv_of(b.db(), &ba).unwrap().last_message_preview.unwrap(), "🎥 Declined meeting");
     // In a meeting: no calls.
-    assert!(a.svc.start_call(&ab, false, "x".into()).await.unwrap_err().contains("meeting"));
+    assert!(a.svc.start_call(&ab, false, "x".into(), None).await.unwrap_err().contains("meeting"));
     a.svc.leave_meeting(&m.meeting_id).await.unwrap();
 
     // Busy: Bharat's phone is ringing (a call from Chetan).
     let cb = link(&c, &b).await;
-    let call = c.svc.start_call(&cb, false, "offer".into()).await.unwrap();
+    let call = c.svc.start_call(&cb, false, "offer".into(), None).await.unwrap();
     assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
     let m2 = a.svc.start_meeting(&ab, true, None).await.unwrap();
     tokio::time::sleep(Duration::from_millis(800)).await;
@@ -1875,6 +1877,7 @@ fn meeting_packets_keep_old_fields_optional() {
         muted: None,
         screen: None,
         recording: None,
+        help: None,
     };
     assert!(!serde_json::to_string(&c).unwrap().contains("recording"));
     assert_eq!(
@@ -2230,4 +2233,76 @@ async fn tasks_approvals_checklists_and_meetings_follow_the_rules() {
 
     // Bad cards are refused before they leave.
     assert!(a.svc.send_card(&gid, &serde_json::json!({ "kind": "poll", "question": "?", "options": ["only one"] })).await.is_err());
+}
+
+// ------------------------------------------------------------- 1.8.0 office
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn emergency_alert_is_answered_and_cleared() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let _ = link(&a, &b).await;
+    let alert = a.svc.raise_alert("fire", "").await.unwrap();
+    assert!(alert.mine && alert.text.starts_with("Fire!"));
+    assert_eq!(alert.sent_to, vec!["Bharat".to_string()]);
+    assert!(wait_for(|| b.db().alert(&alert.id).ok().flatten().is_some(), 5).await);
+    let got = b.db().alert(&alert.id).unwrap().unwrap();
+    assert!(!got.mine && got.from_name == "Asha" && got.kind == "fire");
+    assert!(a.svc.raise_alert("fire", "").await.unwrap_err().contains("just sent"), "no double alerts");
+    b.svc.answer_alert(&alert.id, "safe").await.unwrap();
+    assert!(wait_for(|| a.db().alert(&alert.id).unwrap().unwrap().acks.iter().any(|x| x.name == "Bharat" && x.status == "safe"), 5).await);
+    assert!(b.svc.clear_alert(&alert.id).await.unwrap_err().contains("Only the person"));
+    a.svc.clear_alert(&alert.id).await.unwrap();
+    assert!(wait_for(|| b.db().alert(&alert.id).unwrap().unwrap().cleared_at.is_some(), 5).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn out_of_office_replies_once() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let conv = link(&a, &b).await;
+    let mut s = b.db().get_settings().unwrap();
+    s.out_of_office = crate::storage::models::OutOfOffice { enabled: true, until: 0, message: "On leave till Monday.".into() };
+    b.db().save_settings(&s).unwrap();
+    a.svc.send_direct_message(&conv, "Hi, are you there?").await.unwrap();
+    let auto = |db: &Database| texts(db, &conv).iter().filter(|t| t.starts_with(super::office::AUTO_REPLY_PREFIX)).count();
+    assert!(wait_for(|| auto(a.db()) == 1, 5).await, "Asha gets the automatic reply");
+    assert!(texts(a.db(), &conv).iter().any(|t| t.ends_with("On leave till Monday.")));
+    a.svc.send_direct_message(&conv, "One more thing").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(auto(a.db()), 1, "only once");
+}
+
+#[test]
+fn birthday_is_only_sent_to_new_copies() {
+    let (svc, _dir) = new_service("Asha");
+    let mut s = svc.db.get_settings().unwrap();
+    s.profile.birthday = "10-19".into();
+    svc.db.save_settings(&s).unwrap();
+    let new = svc.profile_reply(false, true);
+    let old = svc.profile_reply(false, false);
+    assert_eq!(new.profile.birthday, "10-19");
+    assert!(old.profile.birthday.is_empty());
+    assert_eq!(new.rev, old.rev, "same fingerprint, so older copies don't keep asking");
+    assert!(!serde_json::to_string(&old).unwrap().contains("birthday"));
+}
+
+#[test]
+fn visitor_and_kudos_cards_follow_their_rules() {
+    use super::org::*;
+    let v = clean_card(&serde_json::json!({ "kind": "visitor", "visitor": "Mr Rao", "company": "Tata Steel", "host": "host-id", "host_name": "Bharat" })).unwrap();
+    assert_eq!(card_min_version(&v.to_string()), FEATURES_OFFICE);
+    assert!(card_fallback(&v.to_string()).starts_with("🛎️ VISITOR for Bharat: Mr Rao (Tata Steel) is at reception."));
+    assert!(check_card_change(&v, "reception", "host-id", "reply", &serde_json::json!({ "r": "coming" })).is_ok());
+    assert!(check_card_change(&v, "reception", "someone", "reply", &serde_json::json!({ "r": "coming" })).is_err());
+    assert!(check_card_change(&v, "reception", "reception", "status", &serde_json::json!("met")).is_ok());
+    assert!(check_card_change(&v, "reception", "host-id", "status", &serde_json::json!("met")).is_err());
+    assert!(clean_card(&serde_json::json!({ "kind": "visitor", "visitor": "", "host": "x" })).is_err());
+    let k = clean_card(&serde_json::json!({ "kind": "kudos", "to": "b", "to_name": "Bharat", "badge": "nonsense", "note": "Fixed dispatch" })).unwrap();
+    assert_eq!(k["badge"], "thanks", "unknown badges become Thank you");
+    assert!(card_preview(&k.to_string()).contains("Kudos to Bharat"));
+    assert!(check_card_change(&k, "a", "c", "plus:c", &serde_json::json!(true)).is_ok());
+    assert!(check_card_change(&k, "a", "c", "plus:d", &serde_json::json!(true)).is_err());
+    let sync = serde_json::json!({ "kind": "sync", "name": "x", "share_id": "s" }).to_string();
+    assert_eq!(card_min_version(&sync), FEATURES_TOOLS);
 }

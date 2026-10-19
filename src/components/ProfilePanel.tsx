@@ -3,6 +3,7 @@ import { Camera, Check, Copy, ImagePlus, Mail, Phone, Sparkles, Trash2, Type, X 
 import type { Profile, UserSettings } from "../types";
 import { Avatar } from "./Avatar";
 import { CHARACTERS, CLEAR_AFTER, EMPTY_PROFILE, STATUS_PRESETS, cropToAvatar, roleLine, statusLine } from "../lib/profile";
+import { MONTHS, toMMDD } from "../lib/office";
 
 const AVATAR_COLORS = [
   "#0284c7", "#6366f1", "#8b5cf6", "#ec4899", "#ef4444", "#f97316",
@@ -389,6 +390,47 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({ form, onChange, copi
             <span className={labelCls}>Email</span>
             <input className={fieldCls} maxLength={80} value={p.email} placeholder="name@company.com" onChange={(e) => setP({ email: e.target.value })} />
           </label>
+          {/* LANX 1.8.0: birthday (day and month only) */}
+          <div className="col-span-2" data-birthday-field>
+            <span className={labelCls}>Birthday (only day and month; colleagues see it in Office → Birthdays)</span>
+            <div className="flex gap-2">
+              <select
+                className={fieldCls}
+                value={Number((p.birthday ?? "").split("-")[1] ?? 0) || ""}
+                onChange={(e) => {
+                  const m = Number((p.birthday ?? "").split("-")[0]) || 1;
+                  setP({ birthday: e.target.value ? toMMDD(m, Number(e.target.value)) : "" });
+                }}
+              >
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={fieldCls}
+                value={Number((p.birthday ?? "").split("-")[0] ?? 0) || ""}
+                onChange={(e) => {
+                  const d = Number((p.birthday ?? "").split("-")[1]) || 1;
+                  setP({ birthday: e.target.value ? toMMDD(Number(e.target.value), d) : "" });
+                }}
+              >
+                <option value="">Month</option>
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              {p.birthday && (
+                <button type="button" onClick={() => setP({ birthday: "" })} className="shrink-0 text-[11px] font-semibold text-slate-500 hover:text-red-600">
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
           <label className="col-span-2">
             <span className={`${labelCls} flex justify-between`}>
               A line about you <span className="font-normal text-slate-400">{p.bio.length}/160</span>

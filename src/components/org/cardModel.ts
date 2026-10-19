@@ -1,7 +1,7 @@
 /** LANX 1.6.0: reading cards — what a card says and what people did with it. */
 import type { CardEntry, Message } from "../../types";
 
-export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync";
+export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync" | "visitor" | "kudos";
 
 export interface NoticeCard {
   kind: "notice";
@@ -54,7 +54,24 @@ export interface SyncCard {
   files: number;
   bytes: number;
 }
-export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard;
+/** LANX 1.8.0: reception tells a colleague their visitor has arrived. */
+export interface VisitorCard {
+  kind: "visitor";
+  visitor: string;
+  company: string;
+  host: string;
+  host_name: string;
+  note: string;
+}
+/** LANX 1.8.0: public thanks. */
+export interface KudosCard {
+  kind: "kudos";
+  to: string;
+  to_name: string;
+  badge: string;
+  note: string;
+}
+export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard;
 
 export const KIND_LABEL: Record<CardKind, string> = {
   notice: "Notice",
@@ -64,6 +81,8 @@ export const KIND_LABEL: Record<CardKind, string> = {
   checklist: "Checklist",
   event: "Meeting",
   sync: "Shared folder",
+  visitor: "Visitor",
+  kudos: "Kudos",
 };
 
 export function parseCard(m: Message): Card | null {
@@ -147,6 +166,8 @@ export function needsMe(m: Message, myId: string): string | null {
     }
     case "approval":
       return c.approvers.includes(myId) && !decisions(m).some((d) => d.id === myId) ? "Approve or reject" : null;
+    case "visitor":
+      return c.host === myId && !entries(m).some((e) => e.key === "reply") ? "Your visitor is here" : null;
     case "event": {
       const invited = !m.is_outgoing && (c.attendees.length === 0 || c.attendees.includes(myId));
       return invited && !eventCancelled(m) && c.start + c.minutes * 60 > now && !rsvps(m).some((r) => r.id === myId) ? "Reply" : null;

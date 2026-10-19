@@ -11,9 +11,10 @@ pub async fn call_start(
     conversation_id: String,
     video: bool,
     sdp: String,
+    help: Option<String>,
 ) -> Result<CallInfo, String> {
     guard_conversation(&state, &conversation_id)?;
-    state.network.start_call(&conversation_id, video, sdp).await
+    state.network.start_call(&conversation_id, video, sdp, help).await
 }
 
 /// Answering works from the lock screen too (like a phone); the chats stay locked.

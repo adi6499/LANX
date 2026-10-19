@@ -26,6 +26,9 @@ import {
   BellOff,
   Archive,
   FolderPlus,
+  Building2,
+  BellRing,
+  X as XIcon,
 } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { isMuted } from "../lib/tools";
@@ -68,6 +71,15 @@ interface SidebarProps {
   onManageFolders?: () => void;
   /** Search every message for what's typed in the search box. */
   onSearchAll?: (query: string) => void;
+  /** LANX 1.8.0: the Office (emergency, reception, kudos, birthdays, away). */
+  onOpenOffice?: () => void;
+  /** An emergency alert is going on. */
+  officeAlert?: boolean;
+  /** This PC is the reception desk: a 🛎️ button. */
+  onOpenReception?: () => void;
+  /** Colleagues whose birthday is today. */
+  birthdaysToday?: { id: string; name: string }[];
+  onSendWishes?: (peerId: string) => void;
 }
 
 /** LANX 1.7.0: which chats the list shows. */
@@ -102,9 +114,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   chatTools,
   onManageFolders,
   onSearchAll,
+  onOpenOffice,
+  officeAlert = false,
+  onOpenReception,
+  birthdaysToday = [],
+  onSendWishes,
 }) => {
+  const todayKey = `lanx.bday.${new Date().toDateString()}`;
+  const [bdayHidden, setBdayHidden] = useState(() => {
+    try {
+      return localStorage.getItem(todayKey) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [statusMenu, setStatusMenu] = useState(false);
   const [view, setView] = useState<ListView>("all");
+  const [composeMenu, setComposeMenu] = useState(false);
   const [menu, setMenu] = useState<{ conv: Conversation; x: number; y: number } | null>(null);
   const folders = settings.chat_folders ?? [];
   const activeView = view === "all" || view === "unread" || view === "archived" || folders.some((f) => f.id === view) ? view : "all";
@@ -242,8 +268,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Brand Header */}
       <div className="px-4 pt-4 pb-3">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            <img src="/lanx-logo.png" alt="LANX" className="h-9 w-9 rounded-[10px] shadow-md shadow-sky-500/25" />
+          <div className="flex items-center gap-2.5 min-w-0">
+            <img src="/lanx-logo.png" alt="LANX" className="h-9 w-9 shrink-0 rounded-[10px] shadow-md shadow-sky-500/25" />
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-[17px] tracking-[-0.02em] text-slate-900 dark:text-white">
@@ -271,6 +297,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center gap-0.5">
+            {onOpenReception && (
+              <button
+                type="button"
+                data-open-reception
+                onClick={onOpenReception}
+                title="Reception: tell a colleague their visitor has arrived"
+                className="lanx-tool flex h-8 w-8 items-center justify-center text-orange-500"
+              >
+                <BellRing className="h-[17px] w-[17px]" />
+              </button>
+            )}
+            {onOpenOffice && (
+              <button
+                type="button"
+                data-open-office
+                onClick={onOpenOffice}
+                title="Office: emergency alert, reception, kudos, birthdays, out of office"
+                className={`lanx-tool relative flex h-8 w-8 items-center justify-center ${officeAlert ? "text-red-600" : "text-orange-600 dark:text-orange-400"}`}
+              >
+                <Building2 className="h-[17px] w-[17px]" />
+                {officeAlert && <span className="absolute top-0.5 right-0.5 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />}
+                {!officeAlert && birthdaysToday.length > 0 && <span className="absolute -top-0.5 -right-0.5 text-[10px]">🎂</span>}
+              </button>
+            )}
             {onOpenOrganiser && (
               <button
                 type="button"
@@ -298,30 +348,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Star className="h-[17px] w-[17px]" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={onBroadcast}
-              title="Message everyone"
-              className="lanx-tool flex h-8 w-8 items-center justify-center text-amber-600 dark:text-amber-400"
-            >
-              <Megaphone className="h-[17px] w-[17px]" />
-            </button>
-            <button
-              type="button"
-              onClick={onNewGroup}
-              title="New group"
-              className="lanx-tool flex h-8 w-8 items-center justify-center text-indigo-600 dark:text-indigo-300"
-            >
-              <UsersRound className="h-[17px] w-[17px]" />
-            </button>
-            <button
-              type="button"
-              onClick={onNewChat}
-              title="New chat"
-              className="lanx-tool flex h-8 w-8 items-center justify-center text-sky-600 dark:text-sky-400"
-            >
-              <SquarePen className="h-[17px] w-[17px]" />
-            </button>
+            {/* LANX 1.8.0: new chat / new group / message everyone in one menu. */}
+            <div className="relative">
+              <button
+                type="button"
+                data-compose
+                onClick={() => setComposeMenu((v) => !v)}
+                title="New chat, new group, message everyone"
+                className={`lanx-tool flex h-8 w-8 items-center justify-center text-sky-600 dark:text-sky-400 ${composeMenu ? "!bg-[var(--lanx-fill)]" : ""}`}
+              >
+                <SquarePen className="h-[17px] w-[17px]" />
+              </button>
+              {composeMenu && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setComposeMenu(false)} />
+                  <div data-compose-menu className="absolute right-0 top-9 z-40 w-52 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
+                    {(
+                      [
+                        [SquarePen, "New chat", "text-sky-600", onNewChat, "new-chat"],
+                        [UsersRound, "New group", "text-indigo-600", onNewGroup, "new-group"],
+                        [Megaphone, "Message everyone", "text-amber-600", onBroadcast, "broadcast"],
+                      ] as [React.ElementType, string, string, () => void, string][]
+                    ).map(([I, label, tone, run, id]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        data-compose-item={id}
+                        onClick={() => {
+                          setComposeMenu(false);
+                          run();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]"
+                      >
+                        <I className={`h-4 w-4 ${tone}`} /> {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -410,6 +475,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>History</span>
         </button>
       </div>
+
+      {/* LANX 1.8.0: birthdays today */}
+      {activeTab === "messages" && birthdaysToday.length > 0 && !bdayHidden && (
+        <div data-birthday-banner className="mx-3 mb-2 flex items-center gap-2 rounded-[12px] bg-gradient-to-r from-pink-500/15 to-amber-400/15 px-3 py-2 text-[11.5px] text-slate-700 dark:text-slate-200 lanx-rise">
+          <span className="text-base">🎂</span>
+          <span className="flex-1 min-w-0">
+            <b>{birthdaysToday.map((b) => b.name.split(" ")[0]).join(", ")}</b> {birthdaysToday.length === 1 ? "has a birthday" : "have birthdays"} today!
+          </span>
+          {onSendWishes && (
+            <button type="button" data-birthday-wish onClick={() => birthdaysToday.forEach((b) => onSendWishes(b.id))} className="shrink-0 rounded-full bg-pink-500 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-pink-600">
+              Wish
+            </button>
+          )}
+          <button
+            type="button"
+            title="Hide for today"
+            onClick={() => {
+              setBdayHidden(true);
+              try {
+                localStorage.setItem(todayKey, "1");
+              } catch {
+                /* fine */
+              }
+            }}
+            className="shrink-0 text-slate-400 hover:text-slate-600"
+          >
+            <XIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* LANX 1.7.0: chat folders */}
       {activeTab === "messages" && (

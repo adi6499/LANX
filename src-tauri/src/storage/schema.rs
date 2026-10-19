@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 9;
+pub const LATEST_SCHEMA_VERSION: i64 = 10;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -407,6 +407,46 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (9, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 10 {
+        // v10 (LANX 1.8.0): emergency alerts and who answered them.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS alerts (
+                id TEXT PRIMARY KEY,
+                from_id TEXT NOT NULL,
+                from_name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                at INTEGER NOT NULL,
+                cleared_at INTEGER,
+                mine INTEGER NOT NULL DEFAULT 0,
+                my_ack TEXT
+            );
+            CREATE TABLE IF NOT EXISTS alert_targets (
+                alert_id TEXT NOT NULL,
+                peer_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                how TEXT NOT NULL,
+                PRIMARY KEY (alert_id, peer_id)
+            );
+            CREATE TABLE IF NOT EXISTS alert_acks (
+                alert_id TEXT NOT NULL,
+                peer_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                at INTEGER NOT NULL,
+                PRIMARY KEY (alert_id, peer_id)
+            );
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (10, now),
         )?;
         tx.commit()?;
     }

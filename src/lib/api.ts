@@ -34,6 +34,8 @@ import {
   SyncOverview,
   SyncSubscription,
   ToolsStatus,
+  AlertInfo,
+  IntercomEvent,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -128,6 +130,8 @@ let mockSettings: UserSettings = {
   ],
   send_to_menu: true,
   screenshot_hotkey: true,
+  out_of_office: { enabled: false, until: 0, message: "" },
+  reception_desk: true,
   quick_replies: ["On my way 🚶", "Give me 5 minutes, please.", "In a meeting — I'll get back to you soon.", "Received, thanks 👍", "Can you call me?", "Done ✅"],
   profile: {
     avatar: "emoji:🦊",
@@ -140,6 +144,7 @@ let mockSettings: UserSettings = {
     phone: "Ext. 204",
     email: "preview@company.local",
     bio: "Happy to help with shipping and stock questions.",
+    birthday: "",
   },
 };
 
@@ -155,6 +160,8 @@ const mockProfiles: Record<string, Profile> = {
     phone: "Ext. 112",
     email: "sarah@company.local",
     bio: "Invoices, payments and the monthly close.",
+    // Preview: Sarah's birthday is today.
+    birthday: `${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`,
   },
   "peer-marcus": {
     avatar: "initials",
@@ -167,6 +174,11 @@ const mockProfiles: Record<string, Profile> = {
     phone: "",
     email: "",
     bio: "",
+    // Preview: Marcus's birthday is in 5 days.
+    birthday: (() => {
+      const d = new Date(Date.now() + 5 * 86400_000);
+      return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    })(),
   },
   "peer-elena": {
     avatar: "emoji:🌸",
@@ -876,8 +888,8 @@ export const api = {
   },
 
   // ----------------------------------------------------------------- calls
-  callStart: async (conversationId: string, video: boolean, sdp: string): Promise<CallInfo> => {
-    if (isTauri) return invoke("call_start", { conversationId, video, sdp });
+  callStart: async (conversationId: string, video: boolean, sdp: string, help: "view" | "show" | null = null): Promise<CallInfo> => {
+    if (isTauri) return invoke("call_start", { conversationId, video, sdp, help });
     const c = mockConversations.find((x) => x.id === conversationId);
     return {
       call_id: `call-${Date.now()}`,
@@ -1287,7 +1299,41 @@ export const api = {
   openSyncFolder: async (shareId: string): Promise<void> => {
     if (isTauri) return invoke("open_sync_folder", { shareId });
   },
+
+  // ------------------------------------------------------ 1.8.0: office
+  raiseAlert: async (kind: string, text: string): Promise<AlertInfo> => {
+    if (isTauri) return invoke("raise_alert", { kind, text });
+    const a: AlertInfo = { id: `alert-${Date.now()}`, from_id: ME, from_name: "Preview User", kind: kind as AlertInfo["kind"], text: text || "Fire! Leave the building now by the nearest exit.", at: now(), cleared_at: null, mine: true, my_ack: null, sent_to: ["Sarah (Accounts)", "Marcus (Stores)"], acks: [{ peer_id: "peer-sarah", name: "Sarah (Accounts)", status: "safe", at: now() }] };
+    mockAlerts = [a, ...mockAlerts];
+    return a;
+  },
+  answerAlert: async (alertId: string, status: "safe" | "help"): Promise<AlertInfo> => {
+    if (isTauri) return invoke("answer_alert", { alertId, status });
+    mockAlerts = mockAlerts.map((a) => (a.id === alertId ? { ...a, my_ack: status } : a));
+    return mockAlerts.find((a) => a.id === alertId)!;
+  },
+  clearAlert: async (alertId: string): Promise<AlertInfo> => {
+    if (isTauri) return invoke("clear_alert", { alertId });
+    mockAlerts = mockAlerts.map((a) => (a.id === alertId ? { ...a, cleared_at: now() } : a));
+    return mockAlerts.find((a) => a.id === alertId)!;
+  },
+  listAlerts: async (): Promise<AlertInfo[]> => {
+    if (isTauri) return invoke("list_alerts");
+    return mockAlerts;
+  },
+  /** Push-to-talk: the recording plays by itself for colleagues who are online. */
+  sendIntercom: async (conversationId: string, data: Uint8Array, durationMs: number, ext: string): Promise<SentFile[]> => {
+    if (isTauri)
+      return invoke("send_intercom", data, {
+        headers: { "x-conversation": conversationId, "x-duration-ms": String(Math.round(durationMs)), "x-ext": ext },
+      });
+    return previewOnly();
+  },
 };
+
+let mockAlerts: AlertInfo[] = [
+  { id: "alert-old", from_id: "peer-marcus", from_name: "Marcus (Stores)", kind: "assembly", text: "Fire drill: everyone to the assembly point, please.", at: now() - 3 * 86400, cleared_at: now() - 3 * 86400 + 900, mine: false, my_ack: "safe", sent_to: [], acks: [] },
+];
 
 const MOCK_STICKERS: Sticker[] = [
   ["thanks", "🙏", "Thank you!"], ["ok", "👍", "OK!"], ["on-it", "🫡", "On it!"], ["done", "✅", "Done!"],
@@ -1397,6 +1443,10 @@ export const events = {
   onScreenshotReady: (cb: () => void) => on<null>("lanx://screenshot-ready", () => cb()),
   /** LANX 1.7.0: files from Explorer's "Send to → LANX". */
   onSendRequest: (cb: () => void) => on<null>("lanx://send-request", () => cb()),
+  /** LANX 1.8.0: an emergency alert arrived or changed. */
+  onAlert: (cb: (a: AlertInfo) => void) => on<AlertInfo>("lanx://alert", cb),
+  /** LANX 1.8.0: an intercom message arrived (play it unless quiet). */
+  onIntercom: (cb: (e: IntercomEvent) => void) => on<IntercomEvent>("lanx://intercom", cb),
 };
 
 let mockScheduled: ScheduledMessage[] = [];

@@ -416,6 +416,8 @@ impl NetworkService {
         }
         let folder = (t.kind == "folder" && version_at_least(&chan.remote.app_version, FEATURES_FAST)).then_some(true);
         let voice = t.kind == "voice" && version_at_least(&chan.remote.app_version, FEATURES_CHAT);
+        // LANX 1.8.0: a fresh intercom message plays by itself over there.
+        let intercom = voice && self.intercom_fresh(&t) && version_at_least(&chan.remote.app_version, FEATURES_OFFICE);
         // LANX 1.7.0: shared-folder files only go to copies that understand them.
         let sync = if t.kind == "sync" {
             if !version_at_least(&chan.remote.app_version, FEATURES_TOOLS) {
@@ -440,6 +442,7 @@ impl NetworkService {
             media_ms: if voice { self.voice_ms_of(&t) } else { None },
             sync_id: sync.as_ref().map(|s| s.0.clone()),
             sync_path: sync.map(|s| s.1),
+            intercom: intercom.then_some(true),
         });
         let sent = match chan.send(offer, None).await {
             Ok(p) => p,
@@ -814,6 +817,9 @@ impl NetworkService {
         if self.db.insert_transfer(&t).is_err() {
             return ack(false, Some("Recipient database error"));
         }
+        if voice && o.intercom == Some(true) {
+            self.intercom_offer(&t.id);
+        }
         let msg = Message {
             id: uuid::Uuid::new_v4().to_string(),
             conversation_id: conv.id.clone(),
@@ -998,6 +1004,9 @@ impl NetworkService {
                 if t.kind == "sync" {
                     self.sync_file_arrived(&t);
                     return;
+                }
+                if t.kind == "voice" {
+                    self.intercom_arrived(&t);
                 }
                 let hidden = t
                     .conversation_id

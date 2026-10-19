@@ -44,6 +44,31 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.8.0: office
+The **Office** button (building icon above the chat list) holds most of these.
+- **Emergency alert.** Office → Emergency: pick Fire, Medical help, Evacuate, Assembly point, Stay inside or your own words,
+  then **press and hold** the red button. Every colleague whose LANX is on gets a full-screen red alert with an alarm — even in
+  Do not disturb, quiet hours or with LANX hidden in the tray — and answers **I'm safe** or **I need help**. You see who answered
+  in a red bar at the top, and press **All clear** when it's over. Colleagues on older LANX get it as a message.
+- **Intercom (walkie-talkie).** The 📻 button at the top of a chat: hold **Hold to talk**, speak, let go. It plays by itself on
+  their computer straight away (to everyone online in a group), and stays in the chat as a voice note. Muted chats, Do not disturb
+  and quiet hours don't play it out loud.
+- **Reception desk.** Office → Reception (tick "This computer is the reception desk" to get a 🛎️ button above the chat list):
+  type the visitor's name and company and choose who they're here to see. That colleague gets a visitor card and answers
+  **Coming now**, **In 5 minutes**, **Send them in** or **Not available**; reception sees the answer and marks **They've met**.
+- **Remote help.** The 🛟 button in a one-to-one chat: **Ask to see their screen** (to help them) or **Show them my screen**
+  (when you need help). It's a voice call where the other person must agree and chooses which screen to share; either side can
+  stop any time. (Seeing only — nobody controls the other computer.)
+- **Birthdays.** Add yours in Settings → Profile (day and month only). On the day, colleagues see "🎂 … has a birthday today!"
+  above the chat list with a **Wish** button (sends a 🎂 sticker), and Office → Birthdays lists the next 60 days.
+- **Kudos.** Office → Kudos: thank a colleague with a badge (Thank you, Great teamwork, Problem solver, Above and beyond, Helping
+  hand, Star of the week) and a note, in your chat with them or in a group. Others can 👏 clap; the month's top list is in Office → Kudos.
+- **Out of office.** Office → Out of office: until when and your message. Anyone who messages you directly gets your automatic
+  reply (once every 12 hours each), and your status shows "On leave".
+- **Staff directory.** Peers → **Directory**: everyone with job title, department, phone, email and birthday, grouped by department, searchable.
+- The ✎ button above the chat list now holds New chat, New group and Message everyone.
+- Works with older versions: alerts, visitor and kudos cards reach older copies as text; birthdays and remote help need 1.8.0 on both sides.
+
 ### New in 1.7.0: tools
 - **Chat folders, mute, archive, pin.** Right-click any chat in the list: **Pin to the top**, **Mute…** (1 hour, 8 hours,
   1 day, 1 week or until you turn it back on), **Chat folders…** and **Archive**. Folders (e.g. "Clients", "Site team")

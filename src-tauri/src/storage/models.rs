@@ -88,6 +88,12 @@ pub struct UserSettings {
     /// LANX 1.7.0: Ctrl + Alt + S takes a screenshot (anywhere in Windows).
     #[serde(default = "default_true")]
     pub screenshot_hotkey: bool,
+    /// LANX 1.8.0: automatic reply while you're away.
+    #[serde(default)]
+    pub out_of_office: OutOfOffice,
+    /// LANX 1.8.0: this computer is the reception desk (shows the Reception tools).
+    #[serde(default)]
+    pub reception_desk: bool,
 }
 
 /// LANX 1.2.9: what colleagues see about you besides your name and colour.
@@ -117,6 +123,46 @@ pub struct Profile {
     pub email: String,
     #[serde(default)]
     pub bio: String,
+    /// LANX 1.8.0: birthday as "MM-DD" (empty = not shown). Only sent to
+    /// colleagues on 1.8.0 or newer.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub birthday: String,
+}
+
+/// A birthday as "MM-DD", checked (empty if it isn't a real day).
+pub fn clean_birthday(s: &str) -> String {
+    let s = s.trim();
+    let Some((m, d)) = s.split_once('-') else { return String::new() };
+    let (Ok(m), Ok(d)) = (m.parse::<u32>(), d.parse::<u32>()) else { return String::new() };
+    let days = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (1..=12).contains(&m) && d >= 1 && d <= days[(m - 1) as usize] {
+        format!("{:02}-{:02}", m, d)
+    } else {
+        String::new()
+    }
+}
+
+/// LANX 1.8.0: "out of office" — an automatic reply to people who message you.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct OutOfOffice {
+    pub enabled: bool,
+    /// Unix seconds when it ends by itself (0 = until turned off).
+    pub until: i64,
+    pub message: String,
+}
+
+impl OutOfOffice {
+    pub fn cleaned(&self) -> OutOfOffice {
+        OutOfOffice {
+            enabled: self.enabled,
+            until: self.until.max(0),
+            message: self.message.trim().chars().filter(|c| !c.is_control() || *c == '\n').take(500).collect(),
+        }
+    }
+
+    pub fn active(&self, now: i64) -> bool {
+        self.enabled && (self.until == 0 || now < self.until)
+    }
 }
 
 pub const STATUS_PRESETS: [&str; 8] = ["available", "busy", "meeting", "lunch", "wfh", "road", "leave", "dnd"];
@@ -163,6 +209,7 @@ impl Profile {
             phone: cut(&self.phone, 30),
             email: cut(&self.email, 80),
             bio: cut(&self.bio, 160),
+            birthday: clean_birthday(&self.birthday),
         }
     }
 

@@ -70,6 +70,26 @@ pub const FEATURES_ORG: &str = "1.6.0";
 /// sync_path`, cards of kind "sync").
 pub const FEATURES_TOOLS: &str = "1.7.0";
 
+/// Oldest app version with 1.8.0 office features: emergency alerts (`Alert`
+/// packets), intercom (`FileOfferPayload.intercom`), remote help
+/// (`CallPayload.help`), birthdays in profiles, visitor and kudos cards.
+pub const FEATURES_OFFICE: &str = "1.8.0";
+
+/// LANX 1.8.0: an emergency alert. Answered with `Ack`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AlertPayload {
+    pub alert_id: String,
+    /// raise | ack | clear
+    pub action: String,
+    /// fire | medical | evacuate | assembly | lockdown | custom
+    pub kind: String,
+    pub text: String,
+    pub at: i64,
+    /// For "ack": safe | help
+    #[serde(default)]
+    pub status: String,
+}
+
 /// LANX 1.7.0: shared folders. Answered with `Ack`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncPayload {
@@ -292,6 +312,10 @@ pub struct CallPayload {
     /// to 1.4.0 or newer, so the other side always sees the notice).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<bool>,
+    /// LANX 1.8.0 remote help (invites only, to 1.8.0+): "view" = the caller
+    /// asks to see the other person's screen; "show" = the caller will show theirs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -331,6 +355,10 @@ pub struct FileOfferPayload {
     /// …and where in it ("Reports/2026/Q3.xlsx").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_path: Option<String>,
+    /// LANX 1.8.0 (only to 1.8.0+): a voice note sent on the intercom — it
+    /// plays by itself when it arrives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intercom: Option<bool>,
 }
 
 /// LANX 1.2: "I have the official installer of LANX `version`; pull it with
@@ -468,6 +496,8 @@ pub enum PacketPayload {
     MessageAction(MessageActionPayload),
     // LANX 1.7.0 (only sent to peers reporting app_version >= 1.7.0)
     Sync(SyncPayload),
+    // LANX 1.8.0 (only sent to peers reporting app_version >= 1.8.0)
+    Alert(AlertPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

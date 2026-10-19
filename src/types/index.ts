@@ -47,6 +47,10 @@ export interface UserSettings {
   send_to_menu?: boolean;
   /** Ctrl + Alt + S takes a screenshot anywhere. */
   screenshot_hotkey?: boolean;
+  /** LANX 1.8.0 */
+  out_of_office?: OutOfOffice;
+  /** This computer is the reception desk. */
+  reception_desk?: boolean;
   /** LANX 1.2.9: avatar, status and "about me" (what colleagues see). */
   profile: Profile;
 }
@@ -67,6 +71,8 @@ export interface Profile {
   phone: string;
   email: string;
   bio: string;
+  /** LANX 1.8.0: "MM-DD" (empty = not shown). */
+  birthday?: string;
 }
 
 export type TrustState = "unverified" | "trusted" | "blocked";
@@ -470,6 +476,46 @@ export interface CallInfo {
   answered_at: number | null;
   /** Hidden chat or LANX locked: don't show the name. */
   private: boolean;
+  /** LANX 1.8.0 remote help: "view" = the caller sees the other screen, "show" = the caller shows theirs. */
+  help?: "view" | "show" | null;
+}
+
+/** LANX 1.8.0: an emergency alert. */
+export interface AlertAck {
+  peer_id: string;
+  name: string;
+  status: "safe" | "help";
+  at: number;
+}
+export interface AlertInfo {
+  id: string;
+  from_id: string;
+  from_name: string;
+  kind: "fire" | "medical" | "evacuate" | "assembly" | "lockdown" | "custom";
+  text: string;
+  at: number;
+  cleared_at: number | null;
+  mine: boolean;
+  my_ack: "safe" | "help" | null;
+  sent_to: string[];
+  acks: AlertAck[];
+}
+
+/** LANX 1.8.0: automatic reply while you're away. */
+export interface OutOfOffice {
+  enabled: boolean;
+  /** Unix seconds (0 = until turned off). */
+  until: number;
+  message: string;
+}
+
+export interface IntercomEvent {
+  transfer_id: string;
+  conversation_id: string;
+  peer_id: string;
+  name: string | null;
+  /** Muted chat / Do not disturb / quiet hours: don't play it by itself. */
+  quiet: boolean;
 }
 
 export interface CallEvent {

@@ -24,11 +24,29 @@ const MAX_PEOPLE: usize = 30;
 /// Meetings remind everyone this long before they start.
 const MEETING_REMINDER_SECS: i64 = 10 * 60;
 
-pub const CARD_KINDS: [&str; 7] = ["notice", "poll", "task", "approval", "checklist", "event", "sync"];
+pub const CARD_KINDS: [&str; 9] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos"];
 
-/// Cards that need LANX 1.7.0 (older copies get them as text).
-pub fn needs_tools(content: &str) -> bool {
-    parse_card(content).is_some_and(|c| c["kind"] == "sync")
+/// LANX 1.8.0 kudos badges: id → (emoji, words).
+pub const KUDOS_BADGES: [(&str, &str, &str); 6] = [
+    ("thanks", "🙏", "Thank you"),
+    ("teamwork", "🤝", "Great teamwork"),
+    ("solver", "🧠", "Problem solver"),
+    ("above", "🚀", "Above and beyond"),
+    ("helper", "🫶", "Helping hand"),
+    ("star", "⭐", "Star of the week"),
+];
+
+pub fn kudos_badge(id: &str) -> (&'static str, &'static str, &'static str) {
+    KUDOS_BADGES.iter().copied().find(|(b, _, _)| *b == id).unwrap_or(KUDOS_BADGES[0])
+}
+
+/// The oldest LANX that shows this card as a card (older copies get text).
+pub fn card_min_version(content: &str) -> &'static str {
+    match parse_card(content).as_ref().and_then(|c| c["kind"].as_str().map(|s| s.to_string())).as_deref() {
+        Some("sync") => FEATURES_TOOLS,
+        Some("visitor" | "kudos") => FEATURES_OFFICE,
+        _ => FEATURES_ORG,
+    }
 }
 
 fn text(v: &Value, key: &str, max: usize) -> String {
@@ -154,6 +172,26 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
                     "files": v.get("files").and_then(|x| x.as_u64()).unwrap_or(0),
                     "bytes": v.get("bytes").and_then(|x| x.as_u64()).unwrap_or(0) })
         }
+        "visitor" => {
+            let visitor = text(v, "visitor", 80);
+            let host = text(v, "host", 64);
+            if visitor.is_empty() {
+                return Err("Write the visitor's name.".to_string());
+            }
+            if host.is_empty() {
+                return Err("Choose who the visitor is for.".to_string());
+            }
+            json!({ "kind": kind, "visitor": visitor, "company": text(v, "company", 80), "host": host,
+                    "host_name": text(v, "host_name", 80), "note": text(v, "note", 300) })
+        }
+        "kudos" => {
+            let to = text(v, "to", 64);
+            if to.is_empty() {
+                return Err("Choose who the kudos are for.".to_string());
+            }
+            let (badge, _, _) = kudos_badge(v.get("badge").and_then(|b| b.as_str()).unwrap_or(""));
+            json!({ "kind": kind, "to": to, "to_name": text(v, "to_name", 80), "badge": badge, "note": text(v, "note", 300) })
+        }
         _ => return Err("Unknown kind of card.".to_string()),
     };
     Ok(card)
@@ -175,6 +213,8 @@ pub fn card_preview(content: &str) -> String {
         "checklist" => format!("☑️ Checklist: {}", t("title")),
         "event" => format!("📅 Meeting: {}", t("title")),
         "sync" => format!("📁 Shared folder: {}", t("name")),
+        "visitor" => format!("🛎️ Visitor: {}{}", t("visitor"), if t("company").is_empty() { String::new() } else { format!(" ({})", t("company")) }),
+        "kudos" => format!("{} Kudos to {}: {}", kudos_badge(&t("badge")).1, t("to_name"), kudos_badge(&t("badge")).2),
         _ => "Card".to_string(),
     };
     crate::storage::preview_text(&line)
@@ -207,6 +247,18 @@ pub fn card_fallback(content: &str) -> String {
             format!("📅 MEETING: {}\n{} ({} min){}", t("title"), when, v["minutes"].as_i64().unwrap_or(30), update)
         }
         "sync" => format!("📁 SHARED FOLDER: {}{}", t("name"), update),
+        "visitor" => format!(
+            "🛎️ VISITOR for {}: {}{} is at reception.{}{}",
+            if t("host_name").is_empty() { "you".to_string() } else { t("host_name") },
+            t("visitor"),
+            if t("company").is_empty() { String::new() } else { format!(" ({})", t("company")) },
+            if t("note").is_empty() { String::new() } else { format!("\n{}", t("note")) },
+            "\n(Reply here in the chat.)"
+        ),
+        "kudos" => {
+            let (_, e, w) = kudos_badge(&t("badge"));
+            format!("{} KUDOS to {}: {}{}", e, t("to_name"), w, if t("note").is_empty() { String::new() } else { format!("\n{}", t("note")) })
+        }
         _ => content.to_string(),
     }
 }
@@ -285,6 +337,29 @@ pub fn check_card_change(card: &Value, creator: &str, actor: &str, key: &str, va
             }
             Ok(json!(value.as_bool().unwrap_or(true)))
         }
+        // LANX 1.8.0: the person the visitor came for answers; reception
+        // marks them as met (or gone).
+        "visitor" if key == "reply" => {
+            if actor != card["host"].as_str().unwrap_or("") {
+                return no("Only the person the visitor came for can answer.");
+            }
+            let r = value["r"].as_str().unwrap_or("");
+            if !matches!(r, "coming" | "5min" | "send-in" | "busy") {
+                return no("Unknown answer");
+            }
+            let note: String = value["note"].as_str().unwrap_or("").trim().chars().filter(|c| !c.is_control()).take(120).collect();
+            Ok(json!({ "r": r, "note": note }))
+        }
+        "visitor" if key == "status" => {
+            if actor != creator {
+                return no("Only reception can change this.");
+            }
+            match value.as_str() {
+                Some(s @ ("waiting" | "met" | "left")) => Ok(json!(s)),
+                _ => no("Unknown visitor state"),
+            }
+        }
+        "kudos" if own("plus:") => Ok(json!(value.as_bool().unwrap_or(true))),
         _ => no("That can't be changed on this card."),
     }
 }

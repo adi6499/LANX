@@ -22,7 +22,8 @@ import {
 
 /** Imperative handle: the chat header's call buttons start calls here. */
 export interface CallLayerHandle {
-  start: (conversation: Conversation, video: boolean) => void;
+  /** LANX 1.8.0 `help`: "view" = ask to see their screen, "show" = show them yours. */
+  start: (conversation: Conversation, video: boolean, help?: "view" | "show") => void;
   /** LANX 1.2.8: the Dynamic Island's buttons. */
   accept: (video: boolean) => void;
   decline: () => void;
@@ -377,7 +378,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
 
   // ----------------------------------------------------------- actions
   const start = useCallback(
-    async (conv: Conversation, video: boolean) => {
+    async (conv: Conversation, video: boolean, help?: "view" | "show") => {
       if (callIdRef.current || startingRef.current) {
         onErrorRef.current("You're already in a call.");
         return;
@@ -430,7 +431,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         await pc.setLocalDescription(await pc.createOffer());
         await iceGathered(pc);
         if (!startingRef.current) return; // cancelled meanwhile
-        const info = await api.callStart(conv.id, !!cam, pc.localDescription?.sdp ?? "");
+        const info = await api.callStart(conv.id, !!cam, pc.localDescription?.sdp ?? "", help ?? null);
         callIdRef.current = info.call_id;
         startingRef.current = false;
         setCall((c) => (c ? { ...c, info, status: "outgoing", camera: !!cam } : c));
@@ -508,7 +509,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   useImperativeHandle(
     ref,
     () => ({
-      start: (c, v) => void start(c, v),
+      start: (c, v, h) => void start(c, v, h),
       accept: (v) => void accept(v),
       decline: () => void decline(),
       hangup: () => void cancelStarting(),
@@ -590,6 +591,18 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       /* the user closed the screen picker */
     }
   };
+
+  // LANX 1.8.0 remote help: the person showing their screen starts sharing
+  // as soon as the call is connected (Windows asks which screen to share).
+  const helpShareRef = useRef<string | null>(null);
+  const helpShows = !!call && ((call.info.help === "show" && call.info.outgoing) || (call.info.help === "view" && !call.info.outgoing));
+  useEffect(() => {
+    if (!call || call.status !== "active" || !helpShows || call.screen) return;
+    if (helpShareRef.current === call.info.call_id) return;
+    helpShareRef.current = call.info.call_id;
+    void toggleScreen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call?.status, call?.info.call_id, helpShows]);
 
   /** LANX 1.4.0: record the call (they are told; it's saved on this PC). */
   const toggleRecord = async () => {
@@ -735,13 +748,23 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
 
   // Ringing, connecting and ended: a calm full-window screen.
   if (status !== "active") {
+    const help = info.help;
+    const first = name.split(" ")[0] || "They";
     const line =
       status === "starting"
-        ? "Starting call…"
+        ? help ? "Starting remote help…" : "Starting call…"
         : status === "outgoing"
-          ? `Ringing… (${kindWord} call)`
+          ? help === "view"
+            ? `Asking ${first} to show you their screen…`
+            : help === "show"
+              ? `Asking ${first} to look at your screen…`
+              : `Ringing… (${kindWord} call)`
           : status === "incoming"
-            ? `Incoming ${kindWord} call…`
+            ? help === "view"
+              ? `${first} wants to see your screen to help you. You choose what to share, and can stop any time.`
+              : help === "show"
+                ? `${first} needs help and wants to show you their screen.`
+                : `Incoming ${kindWord} call…`
             : status === "connecting"
               ? "Connecting…"
               : call.endText || "Call ended";
@@ -763,13 +786,30 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
               {avatar("h-28 w-28 text-4xl relative", name.charAt(0).toUpperCase())}
             </div>
             <h2 className="text-2xl font-bold text-white">{info.private && status === "incoming" ? "Incoming call" : name}</h2>
-            <p className={`mt-1 text-sm ${status === "ended" ? "text-amber-200" : "text-white/70"}`}>{line}</p>
+            {help && status !== "ended" && (
+              <span data-call-help={help} className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-sky-500/20 px-3 py-0.5 text-[12px] font-semibold text-sky-200">
+                🛟 Remote help
+              </span>
+            )}
+            <p className={`mt-1 max-w-md text-sm ${status === "ended" ? "text-amber-200" : "text-white/70"}`}>{line}</p>
             {status === "incoming" && info.private && (
               <p className="mt-1 text-[11px] text-white/50">The name is hidden because LANX is locked or the chat is hidden.</p>
             )}
 
             <div className="mt-10 flex items-start gap-8">
-              {status === "incoming" && (
+              {status === "incoming" && help && (
+                <>
+                  {roundBtn("Decline", decline, <PhoneOff className="h-6 w-6" />, "red", "Decline")}
+                  {roundBtn(
+                    help === "view" ? "Allow and share my screen" : "Join and see their screen",
+                    () => accept(false),
+                    <Phone className="h-6 w-6" />,
+                    "green",
+                    help === "view" ? "Allow" : "Join"
+                  )}
+                </>
+              )}
+              {status === "incoming" && !help && (
                 <>
                   {roundBtn("Decline call", decline, <PhoneOff className="h-6 w-6" />, "red", "Decline")}
                   {info.video &&

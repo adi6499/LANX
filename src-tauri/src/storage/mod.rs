@@ -1,4 +1,5 @@
 mod chat;
+pub mod office;
 pub mod tools;
 pub mod models;
 pub mod schema;
@@ -429,6 +430,12 @@ impl Database {
                 .unwrap_or_default(),
             send_to_menu: flag("send_to_menu", true),
             screenshot_hotkey: flag("screenshot_hotkey", true),
+            out_of_office: map
+                .get("out_of_office")
+                .and_then(|v| serde_json::from_str::<OutOfOffice>(v).ok())
+                .map(|o| o.cleaned())
+                .unwrap_or_default(),
+            reception_desk: flag("reception_desk", false),
             profile: map
                 .get("profile")
                 .and_then(|v| serde_json::from_str::<Profile>(v).ok())
@@ -498,6 +505,8 @@ impl Database {
             ),
             ("send_to_menu", settings.send_to_menu.to_string()),
             ("screenshot_hotkey", settings.screenshot_hotkey.to_string()),
+            ("out_of_office", serde_json::to_string(&settings.out_of_office.cleaned()).unwrap_or_default()),
+            ("reception_desk", settings.reception_desk.to_string()),
         ];
 
         for (k, v) in pairs {

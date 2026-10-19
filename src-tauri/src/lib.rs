@@ -542,6 +542,11 @@ pub fn run() {
             commands::tools::resync_folder,
             commands::tools::list_sync,
             commands::tools::open_sync_folder,
+            commands::office::raise_alert,
+            commands::office::answer_alert,
+            commands::office::clear_alert,
+            commands::office::list_alerts,
+            commands::office::send_intercom,
             commands::speed_test,
             commands::pick_folder_to_send,
         ])

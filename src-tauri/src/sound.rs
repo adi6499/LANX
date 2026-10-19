@@ -6,7 +6,7 @@ use std::f32::consts::PI;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-pub const BUILTIN: [&str; 7] = ["chime", "soft", "ding", "pop", "bell", "ringtone", "ringback"];
+pub const BUILTIN: [&str; 8] = ["chime", "soft", "ding", "pop", "bell", "ringtone", "ringback", "alarm"];
 
 /// A ringtone is looping: short alert sounds would cut it off, so they wait.
 static LOOPING: AtomicBool = AtomicBool::new(false);
@@ -51,6 +51,20 @@ fn recipe(name: &str) -> (f32, Vec<Note>) {
                 n(0.7, 659.25, 0.22, WARM),
                 n(0.84, 830.61, 0.22, WARM),
                 n(0.98, 987.77, 0.45, WARM),
+            ],
+        ),
+        // LANX 1.8.0 emergency alert: a loud two-tone siren (loops until answered).
+        "alarm" => (
+            1.6,
+            vec![
+                n(0.0, 987.77, 0.16, WARM),
+                n(0.2, 739.99, 0.16, WARM),
+                n(0.4, 987.77, 0.16, WARM),
+                n(0.6, 739.99, 0.16, WARM),
+                n(0.8, 987.77, 0.16, WARM),
+                n(1.0, 739.99, 0.16, WARM),
+                n(1.2, 987.77, 0.16, WARM),
+                n(1.4, 739.99, 0.16, WARM),
             ],
         ),
         // Caller hears this while the other side rings: a soft double tone.

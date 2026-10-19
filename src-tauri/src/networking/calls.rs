@@ -33,6 +33,9 @@ pub struct CallInfo {
     pub answered_at: Option<i64>,
     /// The chat is hidden (or LANX is locked): the UI shows no name.
     pub private: bool,
+    /// LANX 1.8.0 remote help: "view" = the caller sees the other screen,
+    /// "show" = the caller shows theirs.
+    pub help: Option<String>,
 }
 
 /// `lanx://call` — incoming | accepted | media | ended
@@ -59,6 +62,7 @@ fn payload(call_id: &str, action: &str) -> CallPayload {
         muted: None,
         screen: None,
         recording: None,
+        help: None,
     }
 }
 
@@ -172,7 +176,8 @@ impl NetworkService {
     }
 
     /// Starts a call: `sdp` is this window's WebRTC offer.
-    pub async fn start_call(&self, conversation_id: &str, video: bool, sdp: String) -> Result<CallInfo, String> {
+    pub async fn start_call(&self, conversation_id: &str, video: bool, sdp: String, help: Option<String>) -> Result<CallInfo, String> {
+        let help = help.filter(|h| h == "view" || h == "show");
         let conv = self
             .db
             .get_conversation(conversation_id)
@@ -207,6 +212,7 @@ impl NetworkService {
             started_at: now_secs(),
             answered_at: None,
             private: false,
+            help: help.clone(),
         };
         {
             let mut cur = self.call.lock();
@@ -218,7 +224,13 @@ impl NetworkService {
         let mut invite = payload(&call.call_id, "invite");
         invite.video = Some(video);
         invite.sdp = Some(sdp);
-        if let Err(e) = self.send_call(&peer, invite).await {
+        invite.help = help.clone();
+        let sent = if help.is_some() {
+            self.send_call_min(&peer, invite, FEATURES_OFFICE, "remote help").await
+        } else {
+            self.send_call(&peer, invite).await
+        };
+        if let Err(e) = sent {
             self.take_call_if(&call.call_id, None, |_| true);
             return Err(e);
         }
@@ -357,6 +369,7 @@ impl NetworkService {
                     started_at: now_secs(),
                     answered_at: None,
                     private,
+                    help: c.help.clone().filter(|h| h == "view" || h == "show"),
                 };
                 {
                     let mut cur = self.call.lock();

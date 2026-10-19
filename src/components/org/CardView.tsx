@@ -10,6 +10,8 @@ import {
   Clock,
   FolderOpen,
   FolderSync,
+  BellRing,
+  Trophy,
   FileSignature,
   Link2,
   ListChecks,
@@ -41,6 +43,7 @@ import {
 import { whenText } from "../chat/chatUtils";
 import { ConfirmButton, ago, useSync } from "../tools/SyncPanel";
 import { formatSize } from "../../lib/format";
+import { kudosBadge } from "../../lib/office";
 
 /** LANX 1.6.0: a card in a chat — notice, poll, task, approval, checklist or
  *  meeting — with what people did with it and the buttons to take part. */
@@ -53,7 +56,16 @@ const STYLE: Record<CardKind, { bar: string; icon: React.ElementType }> = {
   checklist: { bar: "bg-teal-500/15 text-teal-700 dark:text-teal-300", icon: ListChecks },
   event: { bar: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300", icon: CalendarDays },
   sync: { bar: "bg-amber-500/15 text-amber-700 dark:text-amber-300", icon: FolderSync },
+  visitor: { bar: "bg-orange-500/15 text-orange-700 dark:text-orange-300", icon: BellRing },
+  kudos: { bar: "bg-yellow-400/20 text-yellow-800 dark:text-yellow-300", icon: Trophy },
 };
+
+const VISITOR_REPLIES: [string, string][] = [
+  ["coming", "Coming now"],
+  ["5min", "In 5 minutes"],
+  ["send-in", "Send them in"],
+  ["busy", "Not available"],
+];
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors active:scale-95 disabled:opacity-50";
 
@@ -412,6 +424,89 @@ export function CardView({
             )}
           </div>
         )}
+      </>
+    );
+  }
+
+  if (card.kind === "visitor") {
+    const reply = msg.card_state?.find((e) => e.key === "reply")?.value as { r: string; note?: string } | undefined;
+    const vstatus = (msg.card_state?.find((e) => e.key === "status")?.value as string | undefined) ?? "waiting";
+    const amHost = card.host === myId;
+    status =
+      vstatus === "met" ? (
+        <span className="rounded-full bg-emerald-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case">Met</span>
+      ) : vstatus === "left" ? (
+        <span className="rounded-full bg-slate-500/20 px-2 py-0.5 text-[10px] font-bold normal-case">Left</span>
+      ) : (
+        <span className="rounded-full bg-orange-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case animate-pulse">At reception</span>
+      );
+    body = (
+      <>
+        <div className="text-[15px] font-semibold text-slate-900 dark:text-white">
+          {card.visitor}
+          {card.company && <span className="font-normal text-slate-500"> · {card.company}</span>}
+        </div>
+        <div className="text-[12px] text-slate-600 dark:text-slate-300">
+          {amHost ? "is here to see you" : `is here to see ${card.host_name || nameOf(card.host)}`} · {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </div>
+        {card.note && <p className="text-[12px] text-slate-600 dark:text-slate-300 border-l-2 border-orange-400/50 pl-2">{card.note}</p>}
+        {reply && (
+          <div data-visitor-reply className={`text-[12.5px] font-semibold ${reply.r === "busy" ? "text-red-600" : "text-emerald-600 dark:text-emerald-400"}`}>
+            {amHost ? "You answered: " : `${card.host_name || nameOf(card.host)}: `}
+            {VISITOR_REPLIES.find((r) => r[0] === reply.r)?.[1] ?? reply.r}
+          </div>
+        )}
+        {amHost && canAct && vstatus === "waiting" && (
+          <div className="flex flex-wrap gap-1.5">
+            {VISITOR_REPLIES.map(([r, label]) => (
+              <button
+                key={r}
+                type="button"
+                data-visitor-answer={r}
+                disabled={busy}
+                onClick={() => act("reply", { r, note: "" })}
+                className={`${btn} ${reply?.r === r ? "bg-orange-500 text-white" : r === "busy" ? "bg-red-500/10 text-red-600 hover:bg-red-500/20" : "bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {isCreator && canAct && vstatus === "waiting" && (
+          <div className="flex gap-1.5">
+            <button type="button" disabled={busy} onClick={() => act("status", "met")} className={`${btn} bg-emerald-500 hover:bg-emerald-600 text-white`}>
+              <Check className="h-3.5 w-3.5" /> They've met
+            </button>
+            <button type="button" disabled={busy} onClick={() => act("status", "left")} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
+              Visitor left
+            </button>
+          </div>
+        )}
+      </>
+    );
+  } else if (card.kind === "kudos") {
+    const b = kudosBadge(card.badge);
+    const pluses = (msg.card_state ?? []).filter((e) => e.key.startsWith("plus:") && e.value === true);
+    const minePlus = pluses.some((e) => e.key === `plus:${myId}`);
+    body = (
+      <>
+        <div className="flex items-center gap-3">
+          <span className="text-[44px] leading-none">{b.emoji}</span>
+          <div className="min-w-0">
+            <div className="text-[15px] font-bold text-slate-900 dark:text-white">Kudos to {card.to === myId ? "you" : card.to_name || nameOf(card.to)}!</div>
+            <div className="text-[12px] font-semibold text-yellow-700 dark:text-yellow-300">{b.label}</div>
+          </div>
+        </div>
+        {card.note && <p className="text-[13px] text-slate-700 dark:text-slate-200">“{card.note}”</p>}
+        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          <span>from {nameOf(creator)}</span>
+          {pluses.length > 0 && <span title={pluses.map((p) => p.name).join(", ")}>· 👏 {pluses.length}</span>}
+          {canAct && !isCreator && card.to !== myId && (
+            <button type="button" data-kudos-plus disabled={busy} onClick={() => act(`plus:${myId}`, !minePlus)} className={`ml-auto ${btn} ${minePlus ? "bg-yellow-400 text-yellow-950" : "bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20"}`}>
+              👏 {minePlus ? "Clapped" : "Clap"}
+            </button>
+          )}
+        </div>
       </>
     );
   }

@@ -575,6 +575,12 @@ impl NetworkService {
 
     /// Saves a recorded voice note and sends it into the chat.
     pub async fn send_voice_note(&self, conversation_id: &str, data: &[u8], media_ms: u64, ext: &str) -> Result<Vec<SentFile>, String> {
+        self.send_voice_file(conversation_id, data, media_ms, ext, "Voice note").await
+    }
+
+    /// A recording saved as "<prefix> <date>.<ext>" and sent as a voice note
+    /// (LANX 1.8.0: prefix "Intercom" makes it play by itself on arrival).
+    pub(crate) async fn send_voice_file(&self, conversation_id: &str, data: &[u8], media_ms: u64, ext: &str, prefix: &str) -> Result<Vec<SentFile>, String> {
         if data.is_empty() {
             return Err("Nothing was recorded.".to_string());
         }
@@ -588,7 +594,8 @@ impl NetworkService {
         let dir = crate::storage::data_dir(crate::testmode::profile().as_deref()).join("Voice notes");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let name = format!(
-            "Voice note {} {}.{}",
+            "{} {} {}.{}",
+            prefix,
             chrono::Local::now().format("%Y-%m-%d %H-%M-%S"),
             &uuid::Uuid::new_v4().to_string()[..4],
             ext

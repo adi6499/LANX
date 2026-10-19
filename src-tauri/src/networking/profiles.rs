@@ -91,10 +91,16 @@ impl NetworkService {
         }
     }
 
-    /// Answer to a colleague's ProfileRequest.
-    pub(super) fn profile_reply(&self, blocked: bool) -> ProfileReplyPayload {
+    /// Answer to a colleague's ProfileRequest. `office`: their LANX is 1.8.0+
+    /// (older copies don't know the birthday field, so it isn't sent to them).
+    pub(super) fn profile_reply(&self, blocked: bool, office: bool) -> ProfileReplyPayload {
         let profile = if blocked { Profile::default() } else { self.local_profile_full() };
-        ProfileReplyPayload { rev: profile.rev(), profile }
+        let rev = profile.rev();
+        let mut profile = profile;
+        if !office {
+            profile.birthday.clear();
+        }
+        ProfileReplyPayload { rev, profile }
     }
 
     /// The picture to show for a colleague in alerts: their character

@@ -60,6 +60,9 @@ import { CreateCardModal, type Person } from "./org/CreateCardModal";
 import type { CardKind } from "./org/cardModel";
 import { BarChart3, BellOff, CalendarDays, ClipboardCheck, FileSignature, FolderSync, ListChecks, Megaphone, Plus, Scissors, Sticker as StickerIcon } from "lucide-react";
 import { StickerBubble, StickerPicker } from "./tools/Stickers";
+import { IntercomButton } from "./office/IntercomButton";
+import type { SentFile } from "../types";
+import { LifeBuoy } from "lucide-react";
 import { isMuted, muteText } from "../lib/tools";
 
 /** LANX 1.5.0: what a send can carry besides the text. */
@@ -125,6 +128,11 @@ interface ConversationPanelProps {
   /** Share a folder here that stays up to date. */
   onShareFolder?: () => void;
   onUnmute?: () => void;
+  // ---- LANX 1.8.0
+  /** An intercom message went out (instant feedback). */
+  onIntercomSent?: (sent: SentFile[]) => void;
+  /** Remote help: "view" = ask to see their screen, "show" = show mine. */
+  onRemoteHelp?: (help: "view" | "show") => void;
 }
 
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
@@ -214,6 +222,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onScreenshot,
   onShareFolder,
   onUnmute,
+  onIntercomSent,
+  onRemoteHelp,
   onJumped,
   onCardPosted,
 }) => {
@@ -239,6 +249,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const [plusMenu, setPlusMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
+  const [helpMenu, setHelpMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [secretMenu, setSecretMenu] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -780,8 +791,9 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 )}
               </div>
 
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
+              <div className="min-w-0 overflow-hidden">
+                {/* Badges are cut off (not drawn over the buttons) when the header is narrow. */}
+                <div className="flex items-center gap-2 overflow-hidden [&>span]:shrink-0 [&>button]:shrink-0">
                   <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-slate-900 dark:text-white truncate min-w-[5rem]" title={conversation.peer_name}>
                     {conversation.peer_name}
                   </h2>
@@ -887,6 +899,61 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     <Video className="h-[17px] w-[17px]" />
                   </button>
                 </>
+              )}
+              {/* LANX 1.8.0: intercom and remote help */}
+              {onIntercomSent && (
+                <IntercomButton
+                  conversationId={conversation.id}
+                  name={isGroup ? "everyone online in the group" : conversation.peer_name.split(" ")[0]}
+                  disabled={blocked || outOfGroup}
+                  onError={(t) => onError?.(t)}
+                  onSent={onIntercomSent}
+                />
+              )}
+              {!isGroup && onRemoteHelp && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    data-remote-help
+                    onClick={() => setHelpMenu((v) => !v)}
+                    disabled={blocked}
+                    title="Remote help: see their screen, or show them yours"
+                    className={`${toolCls} hover:text-sky-600 ${helpMenu ? "!bg-sky-500/15 !text-sky-600" : ""}`}
+                  >
+                    <LifeBuoy className="h-[17px] w-[17px]" />
+                  </button>
+                  {helpMenu && (
+                    <div data-remote-help-menu className="absolute right-0 top-11 z-30 w-72 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
+                      <div className="px-2.5 py-2 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                        🛟 Remote help: a voice call where one of you shares the screen. {conversation.peer_name.split(" ")[0]} must agree, and chooses what to share.
+                      </div>
+                      <button
+                        type="button"
+                        data-help-view
+                        onClick={() => {
+                          setHelpMenu(false);
+                          onRemoteHelp("view");
+                        }}
+                        className="w-full text-left px-2.5 py-2 rounded-lg text-[12.5px] text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]"
+                      >
+                        <b>Ask to see their screen</b>
+                        <span className="block text-[11px] text-slate-400">To help them with a problem</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-help-show
+                        onClick={() => {
+                          setHelpMenu(false);
+                          onRemoteHelp("show");
+                        }}
+                        className="w-full text-left px-2.5 py-2 rounded-lg text-[12.5px] text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]"
+                      >
+                        <b>Show them my screen</b>
+                        <span className="block text-[11px] text-slate-400">When you need help</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               <button
                 type="button"

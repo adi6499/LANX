@@ -2,6 +2,7 @@ pub mod backup;
 pub mod calls;
 pub mod chat;
 pub mod meetings;
+pub mod office;
 pub mod org;
 pub mod tools;
 

@@ -43,6 +43,12 @@ import { SendToModal } from "./components/tools/SendToModal";
 import { FileLibrary } from "./components/tools/FileLibrary";
 import { SyncPanel } from "./components/tools/SyncPanel";
 import { isMuted, quietNow } from "./lib/tools";
+import { AlertLayer } from "./components/office/AlertLayer";
+import { OfficePanel, type OfficeTab } from "./components/office/OfficePanel";
+import { Directory } from "./components/office/Directory";
+import { birthdayInfo, stillOn } from "./lib/office";
+import { playClip, unlockAudio } from "./lib/audio";
+import type { AlertInfo } from "./types";
 import type { SendOptions } from "./components/ConversationPanel";
 import { AlertCircle, X } from "lucide-react";
 
@@ -160,6 +166,21 @@ export default function App() {
   const [sendRequest, setSendRequest] = useState<string[] | null>(null);
   const [filesMode, setFilesMode] = useState<"transfers" | "library" | "sync">("transfers");
   const [historyQuery, setHistoryQuery] = useState("");
+  // ---- LANX 1.8.0
+  const [alerts, setAlerts] = useState<AlertInfo[]>([]);
+  const [office, setOffice] = useState<OfficeTab | null>(null);
+  const [peopleMode, setPeopleMode] = useState<"network" | "directory">("network");
+  const upsertAlert = useCallback((a: AlertInfo) => setAlerts((prev) => [a, ...prev.filter((x) => x.id !== a.id)].sort((x, y) => y.at - x.at)), []);
+  // The first click anywhere lets LANX play intercom messages by itself.
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
   const [, setClockTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setClockTick((n) => n + 1), 30_000);
@@ -265,6 +286,7 @@ export default function App() {
         const [s, l] = await Promise.all([api.getSettings(), api.getLockStatus()]);
         setSettings(s);
         setLock(l);
+        api.listAlerts().then(setAlerts).catch(() => {});
         lockedRef.current = l.locked;
         applyTheme(s.theme);
         if (!s.onboarding_completed) setShowOnboarding(true);
@@ -572,6 +594,26 @@ export default function App() {
     );
 
     add(events.onStateChanged(() => reloadAll().catch(() => {})));
+    // LANX 1.8.0: emergency alerts (also over the lock screen), intercom.
+    add(events.onAlert((a) => upsertAlert(a)));
+    add(
+      events.onIntercom(async (e) => {
+        if (lockedRef.current || e.quiet) return;
+        try {
+          const played = await playClip(await api.readVoiceNote(e.transfer_id));
+          setIslandMsg({
+            id: `intercom-${e.transfer_id}`,
+            conversationId: e.conversation_id,
+            peerId: e.peer_id,
+            from: e.name ?? "Intercom",
+            color: "#f97316",
+            text: played ? "📻 On the intercom…" : "📻 Sent you an intercom message — open the chat to play it",
+          });
+        } catch {
+          /* still in the chat as a voice note */
+        }
+      })
+    );
     // LANX 1.7.0: Ctrl + Alt + S, and Explorer's "Send to → LANX".
     add(
       events.onScreenshotReady(() => {
@@ -601,7 +643,7 @@ export default function App() {
       disposed = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [reloadAll, clearPrivateState, loadUpdateStatus]);
+  }, [reloadAll, clearPrivateState, loadUpdateStatus, upsertAlert]);
 
   // "Remind me tomorrow" ran out: show the banner again.
   const snoozedUntil = updateStatus?.snoozed_until ?? 0;
@@ -849,6 +891,22 @@ export default function App() {
     }
   };
 
+  // ---- LANX 1.8.0
+  const handleSendWishes = async (peerId: string) => {
+    try {
+      const conv = await api.getOrCreateConversation(peerId);
+      setConversations((prev) => (prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev]));
+      await api.sendSticker(conv.id, "birthday");
+      setActiveConversationId(conv.id);
+      setActiveTab("messages");
+      setOffice(null);
+      api.getConversations().then(setConversations).catch(() => {});
+      if (activeConversationIdRef.current === conv.id) api.getMessages(conv.id).then(setMessages).catch(() => {});
+    } catch (err) {
+      showError(err);
+    }
+  };
+
   const handleRing = async () => {
     if (!activeConversationId) return;
     try {
@@ -1028,6 +1086,30 @@ export default function App() {
     </div>
   );
 
+  /** LANX 1.8.0: Peers → Network / Directory. */
+  const peopleSwitch = (
+    <div data-people-mode className="flex rounded-[11px] bg-[var(--lanx-fill)] p-[3px] text-xs">
+      {(
+        [
+          ["network", "Network"],
+          ["directory", "Directory"],
+        ] as const
+      ).map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          data-people-mode-btn={k}
+          onClick={() => setPeopleMode(k)}
+          className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+            peopleMode === k ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
   // The details panel slides out before it goes away.
   const contextPresence = usePresence(activeTab === "messages" && isContextOpen && !!activeConversation, 220);
 
@@ -1087,11 +1169,21 @@ export default function App() {
     />
   );
 
+  const alertLayer = (
+    <AlertLayer
+      key="alert-layer"
+      alerts={alerts}
+      onAnswer={(id, status) => api.answerAlert(id, status).then(upsertAlert).catch(showError)}
+      onClear={(id) => api.clearAlert(id).then(upsertAlert).catch(showError)}
+    />
+  );
+
   if (locked) {
     return (
       <>
         {callLayer}
         {meetingLayer}
+        {alertLayer}
         <LockScreen
           displayName={settings.display_name}
           avatarColor={settings.avatar_color}
@@ -1124,6 +1216,7 @@ export default function App() {
     <>
     {callLayer}
     {meetingLayer}
+    {alertLayer}
     <div className="h-screen w-screen flex overflow-hidden lanx-window">
       <Sidebar
         settings={settings}
@@ -1162,6 +1255,11 @@ export default function App() {
           setHistoryQuery(q);
           setActiveTab("history");
         }}
+        onOpenOffice={() => setOffice("emergency")}
+        officeAlert={alerts.some((a) => stillOn(a))}
+        onOpenReception={settings.reception_desk ? () => setOffice("reception") : undefined}
+        birthdaysToday={peers.filter((p) => birthdayInfo(profiles[p.id]?.birthday)?.days === 0).map((p) => ({ id: p.id, name: p.display_name }))}
+        onSendWishes={handleSendWishes}
       />
 
       <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative lanx-launch" style={{ ["--d" as string]: "70ms" }}>
@@ -1234,11 +1332,18 @@ export default function App() {
             onScreenshot={handleScreenshot}
             onShareFolder={handleShareFolder}
             onUnmute={() => activeConversation && chatTools.mute(activeConversation.id, 0)}
+            onIntercomSent={addSentFiles}
+            onRemoteHelp={(help) => activeConversation && callRef.current?.start(activeConversation, false, help)}
           />
         )}
 
-        {activeTab === "people" && (
+        {activeTab === "people" && peopleMode === "directory" && (
+          <Directory settings={settings} peers={peers} profiles={profiles} modeSwitch={peopleSwitch} onStartChat={handleStartChatFromPeer} />
+        )}
+
+        {activeTab === "people" && peopleMode === "network" && (
           <PeopleView
+            modeSwitch={peopleSwitch}
             peers={peers}
             profiles={profiles}
             versions={peerVersions}
@@ -1411,6 +1516,47 @@ export default function App() {
             setShowOrganiser(false);
             if (conv) meetingRef.current?.start(conv, true);
           }}
+        />
+      )}
+
+      {office && (
+        <OfficePanel
+          settings={settings}
+          myId={settings.device_id}
+          peers={peers}
+          profiles={profiles}
+          conversations={conversations}
+          alerts={alerts}
+          initialTab={office}
+          onClose={() => setOffice(null)}
+          onSaveSettings={async (updated) => {
+            setSettings(updated);
+            try {
+              setSettings(await api.saveSettings(updated));
+            } catch (err) {
+              showError(err);
+            }
+          }}
+          onRaiseAlert={async (kind, text) => {
+            try {
+              const a = await api.raiseAlert(kind, text);
+              upsertAlert(a);
+              setOffice(null);
+              setNotice(a.sent_to.length ? `Emergency alert sent to ${a.sent_to.length} ${a.sent_to.length === 1 ? "colleague" : "colleagues"}. Their answers show at the top.` : "Nobody is online right now to get the alert.");
+            } catch (err) {
+              showError(err);
+            }
+          }}
+          onOpenChat={(conversationId, messageId) => {
+            setOffice(null);
+            setActiveConversationId(conversationId);
+            setActiveTab("messages");
+            if (messageId) setJumpTo(messageId);
+          }}
+          onSendWishes={handleSendWishes}
+          onError={showError}
+          onNotice={(t) => setNotice(t)}
+          onCardSent={() => api.getConversations().then(setConversations).catch(() => {})}
         />
       )}
 

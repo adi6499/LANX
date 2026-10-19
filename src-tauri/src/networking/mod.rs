@@ -8,6 +8,7 @@ pub mod meetings;
 pub mod org;
 pub mod profiles;
 pub mod protocol;
+pub mod office;
 pub mod session;
 pub mod tools;
 pub mod transfer;
@@ -97,6 +98,8 @@ pub struct Inner {
     last_failure: Mutex<HashMap<String, Instant>>,
     /// LANX 1.2.9: last time we asked each colleague for their profile.
     pub(crate) profile_tries: Mutex<HashMap<String, Instant>>,
+    /// LANX 1.8.0: intercom / out-of-office / alert bookkeeping.
+    pub(crate) office: office::OfficeState,
     /// "Share LANX update" settings and state (see update.rs).
     pub(crate) update_cfg: Mutex<update::UpdateConfig>,
     pub(crate) updates: Mutex<update::UpdateRuntime>,
@@ -136,6 +139,7 @@ impl NetworkService {
                 flushing: Mutex::new(HashMap::new()),
                 last_failure: Mutex::new(HashMap::new()),
                 profile_tries: Mutex::new(HashMap::new()),
+                office: Default::default(),
                 update_cfg: Mutex::new(update::UpdateConfig::default()),
                 updates: Mutex::new(update::UpdateRuntime::default()),
             }),
@@ -730,9 +734,10 @@ impl NetworkService {
         let chat = version_at_least(&chan.remote.app_version, FEATURES_CHAT);
         let org = version_at_least(&chan.remote.app_version, FEATURES_ORG);
         let tools_ok = version_at_least(&chan.remote.app_version, FEATURES_TOOLS);
+        let remote_version = chan.remote.app_version.clone();
         // Cards and stickers go to older copies as plain text.
         let wire = |m: &Message| -> (String, String) {
-            if m.message_type == "card" && (!org || (!tools_ok && org::needs_tools(&m.content))) {
+            if m.message_type == "card" && (!org || !version_at_least(&remote_version, org::card_min_version(&m.content))) {
                 (org::card_fallback(&m.content), "text".to_string())
             } else if m.message_type == "sticker" && !tools_ok {
                 (tools::sticker_fallback(&m.content), "text".to_string())
@@ -997,6 +1002,7 @@ impl NetworkService {
                 PacketPayload::Meeting(m) => Some(self.handle_meeting(&peer, m)),
                 PacketPayload::MessageAction(a) => Some(PacketPayload::Ack(self.handle_message_action(&peer, a))),
                 PacketPayload::Sync(s) => Some(PacketPayload::Ack(self.handle_sync(&peer, s))),
+                PacketPayload::Alert(a) => Some(PacketPayload::Ack(self.handle_alert(&peer, a))),
                 PacketPayload::GroupUpdate(g) => {
                     Some(PacketPayload::Ack(self.handle_group_update(&peer, g)))
                 }
@@ -1007,7 +1013,8 @@ impl NetworkService {
                     Some(PacketPayload::FileOfferAck(self.handle_update_offer(&peer, o)))
                 }
                 PacketPayload::ProfileRequest => {
-                    Some(PacketPayload::ProfileReply(self.profile_reply(peer.trust_state == "blocked")))
+                    let office = version_at_least(&chan.remote.app_version, FEATURES_OFFICE);
+                    Some(PacketPayload::ProfileReply(self.profile_reply(peer.trust_state == "blocked", office)))
                 }
                 PacketPayload::Disconnect => break,
                 _ => None,
@@ -1141,6 +1148,10 @@ impl NetworkService {
             self.events.notify_island(&self.db, AlertKind::Message, &title, &body, alert);
         }
         self.events.update_tray(&self.db);
+        // LANX 1.8.0: "out of office" answers by itself.
+        if matches!(msg.message_type.as_str(), "text" | "sticker") && ttl.is_none() {
+            self.maybe_auto_reply(peer, &msg.conversation_id, &msg.content);
+        }
         ack(true, None)
     }
 }

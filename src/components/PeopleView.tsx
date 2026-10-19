@@ -36,6 +36,8 @@ interface PeopleViewProps {
   onStartChat: (peerId: string) => void;
   onAddManualPeer: (ip: string, port: number, name?: string) => Promise<void>;
   onUpdateTrust: (peerId: string, trustState: "unverified" | "trusted" | "blocked") => void;
+  /** LANX 1.8.0: Network / Directory. */
+  modeSwitch?: React.ReactNode;
 }
 
 export const PeopleView: React.FC<PeopleViewProps> = ({
@@ -47,6 +49,7 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
   onStartChat,
   onAddManualPeer,
   onUpdateTrust,
+  modeSwitch,
 }) => {
   const [filter, setFilter] = useState<"all" | "online" | "trusted">("all");
   const [searching, setSearching] = useState(false);
@@ -104,13 +107,15 @@ export const PeopleView: React.FC<PeopleViewProps> = ({
     <div className="flex-1 h-full flex flex-col overflow-hidden select-none lanx-screen-in">
       {/* Header */}
       <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0">
-        <div>
+        <div className="flex items-center gap-3 min-w-0">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
-            Local Network Peers
+            {modeSwitch ? "Peers" : "Local Network Peers"}
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Computers and colleagues discovered on your LAN
-          </p>
+          {modeSwitch ?? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Computers and colleagues discovered on your LAN
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
