@@ -36,6 +36,9 @@ import {
   ToolsStatus,
   AlertInfo,
   IntercomEvent,
+  AdminState,
+  AppLink,
+  OfficePolicy,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -132,6 +135,8 @@ let mockSettings: UserSettings = {
   screenshot_hotkey: true,
   out_of_office: { enabled: false, until: 0, message: "" },
   reception_desk: true,
+  apps: [{ name: "Intranet", target: "https://intranet.company.local", emoji: "🏠" }],
+  retention_days: 0,
   quick_replies: ["On my way 🚶", "Give me 5 minutes, please.", "In a meeting — I'll get back to you soon.", "Received, thanks 👍", "Can you call me?", "Done ✅"],
   profile: {
     avatar: "emoji:🦊",
@@ -1321,6 +1326,81 @@ export const api = {
     if (isTauri) return invoke("list_alerts");
     return mockAlerts;
   },
+  // ------------------------------------------------------- 1.9.0: admin
+  getAdminState: async (): Promise<AdminState> => {
+    if (isTauri) return invoke("get_admin_state");
+    return mockAdminState();
+  },
+  becomeAdmin: async (): Promise<AdminState> => {
+    if (isTauri) return invoke("become_admin");
+    mockAdmin.my_policy = { version: 1, admin_id: ME, admin_name: "Preview User", active: true, apps: [], retention_days: 0, backup_dir: "", backup_password: "", at: now() };
+    mockAdmin.peers = [
+      { peer_id: "peer-sarah", version: 1, status: "accepted", app_version: "1.9.0", at: now() },
+      { peer_id: "peer-marcus", version: 1, status: "waiting", app_version: "1.9.0", at: now() },
+      { peer_id: "peer-elena", version: 0, status: "old", app_version: "1.4.0", at: now() },
+    ];
+    return mockAdminState();
+  },
+  savePolicy: async (policy: OfficePolicy): Promise<AdminState> => {
+    if (isTauri) return invoke("save_policy", { policy });
+    mockAdmin.my_policy = { ...policy, version: (mockAdmin.my_policy?.version ?? 0) + 1 };
+    return mockAdminState();
+  },
+  stopAdmin: async (): Promise<AdminState> => {
+    if (isTauri) return invoke("stop_admin");
+    mockAdmin.my_policy = null;
+    mockAdmin.peers = [];
+    return mockAdminState();
+  },
+  answerPolicyOffer: async (accept: boolean): Promise<AdminState> => {
+    if (isTauri) return invoke("answer_policy_offer", { accept });
+    if (accept) mockAdmin.policy = mockAdmin.offer;
+    mockAdmin.offer = null;
+    return mockAdminState();
+  },
+  leavePolicy: async (): Promise<AdminState> => {
+    if (isTauri) return invoke("leave_policy");
+    mockAdmin.policy = null;
+    return mockAdminState();
+  },
+  setRetention: async (days: number): Promise<AdminState> => {
+    if (isTauri) return invoke("set_retention", { days });
+    mockSettings = { ...mockSettings, retention_days: days };
+    return mockAdminState();
+  },
+  runRetention: async (): Promise<number> => {
+    if (isTauri) return invoke("run_retention");
+    return 0;
+  },
+  setMyApps: async (apps: AppLink[]): Promise<AdminState> => {
+    if (isTauri) return invoke("set_my_apps", { apps });
+    mockSettings = { ...mockSettings, apps };
+    return mockAdminState();
+  },
+  openAppLink: async (target: string): Promise<void> => {
+    if (isTauri) return invoke("open_app_link", { target });
+    window.open(target, "_blank");
+  },
+  /** Saves rows as .xlsx (Windows asks where); null if cancelled. */
+  exportExcel: async (fileName: string, sheet: string, rows: string[][]): Promise<string | null> => {
+    if (isTauri) return invoke("export_excel", { fileName, sheet, rows });
+    console.table(rows.slice(0, 5));
+    return `C:\\Users\\You\\Documents\\${fileName}.xlsx`;
+  },
+  openExported: async (path: string): Promise<void> => {
+    if (isTauri) return invoke("open_exported", { path });
+  },
+  setNetBackup: async (dir: string, password: string | null): Promise<BackupOverview> => {
+    if (isTauri) return invoke("set_net_backup", { dir, password });
+    mockBackups = { ...mockBackups, net_dir: dir, net_has_password: !!password || !!mockBackups.net_has_password, net_error: "" };
+    return mockBackups;
+  },
+  netBackupNow: async (): Promise<BackupOverview> => {
+    if (isTauri) return invoke("net_backup_now");
+    mockBackups = { ...mockBackups, net_last_at: now(), net_error: "" };
+    return mockBackups;
+  },
+
   /** Push-to-talk: the recording plays by itself for colleagues who are online. */
   sendIntercom: async (conversationId: string, data: Uint8Array, durationMs: number, ext: string): Promise<SentFile[]> => {
     if (isTauri)
@@ -1330,6 +1410,25 @@ export const api = {
     return previewOnly();
   },
 };
+
+const mockAdmin: { my_policy: OfficePolicy | null; policy: OfficePolicy | null; offer: OfficePolicy | null; peers: AdminState["peers"] } = {
+  my_policy: null,
+  policy: null,
+  offer: null,
+  peers: [],
+};
+function mockAdminState(): AdminState {
+  const office = [...(mockAdmin.policy?.apps ?? []), ...(mockAdmin.my_policy?.apps ?? [])].map((a) => ({ ...a, office: true }));
+  const mine = (mockSettings.apps ?? []).filter((a) => !office.some((o) => o.target === a.target)).map((a) => ({ ...a, office: false }));
+  return {
+    my_policy: mockAdmin.my_policy,
+    policy: mockAdmin.policy,
+    offer: mockAdmin.offer,
+    peers: mockAdmin.my_policy ? mockAdmin.peers : [],
+    retention_days: mockAdmin.policy?.retention_days || mockSettings.retention_days || 0,
+    apps: [...office, ...mine],
+  };
+}
 
 let mockAlerts: AlertInfo[] = [
   { id: "alert-old", from_id: "peer-marcus", from_name: "Marcus (Stores)", kind: "assembly", text: "Fire drill: everyone to the assembly point, please.", at: now() - 3 * 86400, cleared_at: now() - 3 * 86400 + 900, mine: false, my_ack: "safe", sent_to: [], acks: [] },
@@ -1445,6 +1544,11 @@ export const events = {
   onSendRequest: (cb: () => void) => on<null>("lanx://send-request", () => cb()),
   /** LANX 1.8.0: an emergency alert arrived or changed. */
   onAlert: (cb: (a: AlertInfo) => void) => on<AlertInfo>("lanx://alert", cb),
+  /** LANX 1.9.0: office settings changed (admin / colleague side). */
+  onAdminChanged: (cb: () => void) => on<null>("lanx://admin-changed", () => cb()),
+  /** LANX 1.9.0: the admin asks to manage this computer. */
+  onPolicyOffer: (cb: (p: OfficePolicy) => void) => on<OfficePolicy>("lanx://policy-offer", cb),
+  onAdminNotice: (cb: (p: { text: string }) => void) => on<{ text: string }>("lanx://admin-notice", cb),
   /** LANX 1.8.0: an intercom message arrived (play it unless quiet). */
   onIntercom: (cb: (e: IntercomEvent) => void) => on<IntercomEvent>("lanx://intercom", cb),
 };

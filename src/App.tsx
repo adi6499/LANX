@@ -48,6 +48,10 @@ import { OfficePanel, type OfficeTab } from "./components/office/OfficePanel";
 import { Directory } from "./components/office/Directory";
 import { birthdayInfo, stillOn } from "./lib/office";
 import { playClip, unlockAudio } from "./lib/audio";
+import { AdminPanel, type AdminTab } from "./components/admin/AdminPanel";
+import { PolicyOfferDialog } from "./components/admin/AppsLauncher";
+import { exportChatExcel, printChat } from "./lib/exportChat";
+import type { OfficePolicy } from "./types";
 import type { AlertInfo } from "./types";
 import type { SendOptions } from "./components/ConversationPanel";
 import { AlertCircle, X } from "lucide-react";
@@ -170,6 +174,9 @@ export default function App() {
   const [alerts, setAlerts] = useState<AlertInfo[]>([]);
   const [office, setOffice] = useState<OfficeTab | null>(null);
   const [peopleMode, setPeopleMode] = useState<"network" | "directory">("network");
+  // ---- LANX 1.9.0
+  const [adminTab, setAdminTab] = useState<AdminTab | null>(null);
+  const [policyOffer, setPolicyOffer] = useState<OfficePolicy | null>(null);
   const upsertAlert = useCallback((a: AlertInfo) => setAlerts((prev) => [a, ...prev.filter((x) => x.id !== a.id)].sort((x, y) => y.at - x.at)), []);
   // The first click anywhere lets LANX play intercom messages by itself.
   useEffect(() => {
@@ -295,6 +302,7 @@ export default function App() {
           const c = await reloadAll();
           if (c.length > 0 && !activeConversationIdRef.current) setActiveConversationId(c[0].id);
           takeSendRequest();
+          api.getAdminState().then((st) => setPolicyOffer(st.offer)).catch(() => {});
         }
         const restored = await api.takeRestoreNotice().catch(() => null);
         if (restored) setNotice(restored.text);
@@ -596,6 +604,9 @@ export default function App() {
     add(events.onStateChanged(() => reloadAll().catch(() => {})));
     // LANX 1.8.0: emergency alerts (also over the lock screen), intercom.
     add(events.onAlert((a) => upsertAlert(a)));
+    // LANX 1.9.0: the LANX admin asks to manage this computer.
+    add(events.onPolicyOffer((p) => setPolicyOffer(p)));
+    add(events.onAdminNotice(({ text }) => setNotice(text)));
     add(
       events.onIntercom(async (e) => {
         if (lockedRef.current || e.quiet) return;
@@ -902,6 +913,26 @@ export default function App() {
       setOffice(null);
       api.getConversations().then(setConversations).catch(() => {});
       if (activeConversationIdRef.current === conv.id) api.getMessages(conv.id).then(setMessages).catch(() => {});
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  /** LANX 1.9.0: an Excel file was saved — open it. */
+  const handleExported = (path: string) => {
+    setNotice(`Saved: ${path}`);
+    api.openExported(path).catch(() => {});
+  };
+
+  const handleExportChat = async (kind: "excel" | "pdf") => {
+    const conv = conversations.find((c) => c.id === activeConversationIdRef.current);
+    if (!conv || !settings) return;
+    try {
+      if (kind === "pdf") await printChat(conv, peers, settings.display_name);
+      else {
+        const p = await exportChatExcel(conv, peers, settings.display_name);
+        if (p) handleExported(p);
+      }
     } catch (err) {
       showError(err);
     }
@@ -1260,6 +1291,8 @@ export default function App() {
         onOpenReception={settings.reception_desk ? () => setOffice("reception") : undefined}
         birthdaysToday={peers.filter((p) => birthdayInfo(profiles[p.id]?.birthday)?.days === 0).map((p) => ({ id: p.id, name: p.display_name }))}
         onSendWishes={handleSendWishes}
+        onOpenAdmin={(tab) => setAdminTab(tab ?? "office")}
+        onError={(t) => setNotice(t)}
       />
 
       <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative lanx-launch" style={{ ["--d" as string]: "70ms" }}>
@@ -1446,6 +1479,7 @@ export default function App() {
           onOpenTransfer={transferActions.open}
           onSetHidden={handleSetHidden}
           onError={showError}
+          onExport={handleExportChat}
         />
       )}
 
@@ -1516,6 +1550,42 @@ export default function App() {
             setShowOrganiser(false);
             if (conv) meetingRef.current?.start(conv, true);
           }}
+        />
+      )}
+
+      {adminTab && (
+        <AdminPanel
+          settings={settings}
+          peers={peers}
+          profiles={profiles}
+          conversations={conversations.filter((c) => !c.is_hidden || lock.hidden_unlocked)}
+          versions={peerVersions}
+          initialTab={adminTab}
+          onClose={() => {
+            setAdminTab(null);
+            api.getSettings().then(setSettings).catch(() => {});
+          }}
+          onError={showError}
+          onNotice={(t) => setNotice(t)}
+          onExported={handleExported}
+        />
+      )}
+
+      {policyOffer && (
+        <PolicyOfferDialog
+          offer={policyOffer}
+          onAnswer={(accept) =>
+            api
+              .answerPolicyOffer(accept)
+              .then(() => {
+                setPolicyOffer(null);
+                setNotice(accept ? `This computer now uses ${policyOffer.admin_name}'s office settings.` : "OK — you won't be asked again by them.");
+              })
+              .catch((err) => {
+                setPolicyOffer(null);
+                showError(err);
+              })
+          }
         />
       )}
 

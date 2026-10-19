@@ -44,6 +44,24 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.9.0: admin
+- **Admin panel** (shield button at the bottom-left, next to Settings).
+- **LANX admin for the office (optional).** Admin → Office settings → "Make this computer the LANX admin". That computer then
+  sends everyone the same **company apps**, **message clean-up** and **network backup folder**. Each colleague gets a question
+  ("Asha is the LANX admin … Use the office settings?") and nothing changes until they say yes; they can stop following any time,
+  and the admin can never read anyone's messages. The admin sees every computer: who follows the settings, who said no, who still
+  needs LANX 1.9, and can **export that list to Excel**.
+- **Apps launcher** (grid button above the chat list): your company's websites, shared folders and files in one click — the admin's
+  apps for everyone, plus your own (Admin → Apps). Only web addresses and file/folder paths, never programs with commands.
+- **Message clean-up.** Admin → Message clean-up: keep everything (default), or delete messages older than 2 years / 1 year / 6 months /
+  90 days / 30 days. Checked every hour; **starred messages are always kept**; received files stay in Downloads.
+- **Export to Excel or PDF.** Any chat: the info panel (ⓘ) → "Export to Excel" or "PDF / print" (choose "Microsoft Print to PDF").
+  Admin → Export also does the staff directory to Excel.
+- **Backups to a network folder.** Settings → Backups → "Also copy backups to a network folder": each daily backup is also saved,
+  **locked with a password**, in a shared folder on another computer or a NAS (`\\SERVER\Backups`), the newest 7 per computer. Restore
+  one with "Restore from a file" and its password. The LANX admin can set the folder for everyone.
+- The tool buttons above the chat list now have their own row.
+
 ### New in 1.8.0: office
 The **Office** button (building icon above the chat list) holds most of these.
 - **Emergency alert.** Office → Emergency: pick Fire, Medical help, Evacuate, Assembly point, Stay inside or your own words,

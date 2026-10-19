@@ -42,6 +42,8 @@ interface ContextPanelProps {
   onOpenTransfer: (transferId: string) => void;
   onSetHidden: (hidden: boolean) => void;
   onError: (message: string) => void;
+  /** LANX 1.9.0: export this chat. */
+  onExport?: (kind: "excel" | "pdf") => void;
 }
 
 
@@ -149,6 +151,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   onOpenTransfer,
   onSetHidden,
   onError,
+  onExport,
 }) => {
   const [code, setCode] = useState("");
   const [group, setGroup] = useState<GroupInfo | null>(null);
@@ -227,6 +230,16 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       <p className="mt-1.5 text-[10px] text-slate-400 leading-snug">
         Hidden chats leave your normal list, search and Files. To see them: "Hidden chats" at the top of your chat list, then your PIN.
       </p>
+      {onExport && (
+        <div className="mt-3 flex gap-1.5" data-chat-export>
+          <button type="button" data-chat-export-excel onClick={() => onExport("excel")} className="flex-1 rounded-xl px-2 py-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 lanx-group hover:bg-[var(--lanx-fill)]">
+            Export to Excel
+          </button>
+          <button type="button" data-chat-export-pdf onClick={() => onExport("pdf")} className="flex-1 rounded-xl px-2 py-1.5 text-[11px] font-semibold text-red-600 dark:text-red-300 lanx-group hover:bg-[var(--lanx-fill)]">
+            PDF / print
+          </button>
+        </div>
+      )}
     </div>
   );
 

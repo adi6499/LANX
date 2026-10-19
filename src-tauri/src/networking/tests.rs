@@ -2306,3 +2306,43 @@ fn visitor_and_kudos_cards_follow_their_rules() {
     let sync = serde_json::json!({ "kind": "sync", "name": "x", "share_id": "s" }).to_string();
     assert_eq!(card_min_version(&sync), FEATURES_TOOLS);
 }
+
+// -------------------------------------------------------------- 1.9.0 admin
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn office_settings_need_a_yes_and_follow_the_admin() {
+    let (a, b, c) = trio().await;
+    a.svc.become_admin().unwrap();
+    a.svc.run_policy_round(true).await;
+    assert!(wait_for(|| b.db().policy_offer().is_some() && c.db().policy_offer().is_some(), 5).await, "both are asked");
+    assert!(b.db().applied_policy().is_none(), "nothing applies before a yes");
+    b.svc.answer_policy_offer(true).await.unwrap();
+    c.svc.answer_policy_offer(false).await.unwrap();
+    let status = |n: &Node, id: String| n.db().policy_peers().unwrap().into_iter().find(|p| p.peer_id == id).map(|p| p.status).unwrap_or_default();
+    assert!(wait_for(|| status(&a, b.id()) == "accepted" && status(&a, c.id()) == "declined", 5).await);
+
+    // A change reaches Bharat (who said yes) but not Chetan.
+    let mut p = a.db().my_policy().unwrap();
+    p.retention_days = 90;
+    p.apps = vec![crate::storage::models::AppLink { name: "Tally".into(), target: "https://tally.local".into(), emoji: String::new() }];
+    a.svc.save_policy(&p).unwrap();
+    a.svc.run_policy_round(true).await;
+    assert!(wait_for(|| b.db().effective_retention_days() == 90, 5).await);
+    assert!(b.db().effective_apps().iter().any(|(x, office)| x.name == "Tally" && *office));
+    assert_eq!(c.db().effective_retention_days(), 0);
+    assert!(c.db().policy_offer().is_none(), "Chetan isn't asked again");
+
+    // Only the admin computer itself can send its settings.
+    let forged = PolicyPayload { policy: crate::storage::models::OfficePolicy { version: 99, admin_id: a.id(), active: true, retention_days: 30, ..Default::default() } };
+    let chetan_on_b = b.db().get_peer(&c.id()).unwrap();
+    if let Some(cp) = chetan_on_b {
+        assert!(!b.svc.handle_policy(&cp, forged).ok);
+    }
+    assert_eq!(b.db().effective_retention_days(), 90);
+
+    // Bharat leaves; the admin sees it.
+    b.svc.leave_policy().await.unwrap();
+    assert_eq!(b.db().effective_retention_days(), 0);
+    assert!(wait_for(|| status(&a, b.id()) == "left", 5).await);
+    assert!(b.svc.become_admin().is_ok(), "after leaving, Bharat could be an admin himself");
+}

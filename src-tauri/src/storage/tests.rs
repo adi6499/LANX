@@ -377,3 +377,45 @@ fn chat_flags_filtered_search_and_shared_folder_retries() {
     db.prune_sync_transfers(now() + 10).unwrap();
     assert!(db.sync_transfer("st").unwrap().is_none());
 }
+
+#[test]
+fn retention_deletes_old_messages_but_keeps_starred_ones() {
+    let db = Database::new_in_memory().unwrap();
+    let conv = db.get_or_create_conversation("peer-1").unwrap();
+    let mut old = text_message("old", &conv.id, "last year", false, "delivered");
+    old.timestamp = now() - 400 * 86400;
+    db.insert_message(&old).unwrap();
+    let mut keep = text_message("star", &conv.id, "important", false, "delivered");
+    keep.timestamp = now() - 400 * 86400;
+    db.insert_message(&keep).unwrap();
+    db.set_starred("star", true).unwrap();
+    db.insert_message(&text_message("new", &conv.id, "today", false, "delivered")).unwrap();
+    assert_eq!(db.apply_retention(now()), 0, "keep forever by default");
+    let mut s = db.get_settings().unwrap();
+    s.retention_days = 365;
+    db.save_settings(&s).unwrap();
+    assert_eq!(db.apply_retention(now()), 1);
+    let ids: Vec<String> = db.get_messages(&conv.id).unwrap().into_iter().map(|m| m.id).collect();
+    assert_eq!(ids, vec!["star".to_string(), "new".to_string()]);
+    // An admin's choice wins over yours.
+    let p = crate::storage::models::OfficePolicy { version: 1, admin_id: "admin".into(), admin_name: "Asha".into(), active: true, retention_days: 30, at: now(), ..Default::default() };
+    db.set_applied_policy(Some(&p)).unwrap();
+    assert_eq!(db.effective_retention_days(), 30);
+}
+
+#[test]
+fn apps_are_only_web_addresses_and_paths() {
+    use crate::storage::models::{AppLink, clean_apps};
+    let a = |n: &str, t: &str| AppLink { name: n.into(), target: t.into(), emoji: "🌐".into() };
+    let list = clean_apps(&[
+        a("Tally", "https://tally.local"),
+        a("Share", "\\\\SERVER\\Docs"),
+        a("Drive", "D:\\Reports"),
+        a("Bad", "cmd.exe /c del"),
+        a("", "https://nameless.example"),
+        a("Dup", "https://tally.local"),
+        a("Js", "javascript:alert(1)"),
+    ]);
+    let names: Vec<&str> = list.iter().map(|x| x.name.as_str()).collect();
+    assert_eq!(names, vec!["Tally", "Share", "Drive"]);
+}

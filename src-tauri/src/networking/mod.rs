@@ -8,6 +8,7 @@ pub mod meetings;
 pub mod org;
 pub mod profiles;
 pub mod protocol;
+pub mod admin;
 pub mod office;
 pub mod session;
 pub mod tools;
@@ -183,6 +184,19 @@ impl NetworkService {
                     _ = this.cancel_token.cancelled() => break,
                     _ = tokio::time::sleep(Duration::from_secs(2)) => {
                         this.delete_expired_messages();
+                    }
+                }
+            }
+        });
+
+        // LANX 1.9.0: the admin computer brings colleagues the latest office settings.
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(admin::POLICY_EVERY_SECS)) => {
+                        this.run_policy_round(false).await;
                     }
                 }
             }
@@ -1003,6 +1017,8 @@ impl NetworkService {
                 PacketPayload::MessageAction(a) => Some(PacketPayload::Ack(self.handle_message_action(&peer, a))),
                 PacketPayload::Sync(s) => Some(PacketPayload::Ack(self.handle_sync(&peer, s))),
                 PacketPayload::Alert(a) => Some(PacketPayload::Ack(self.handle_alert(&peer, a))),
+                PacketPayload::Policy(p) => Some(PacketPayload::Ack(self.handle_policy(&peer, p))),
+                PacketPayload::PolicyAnswer(a) => Some(PacketPayload::Ack(self.handle_policy_answer(&peer, a))),
                 PacketPayload::GroupUpdate(g) => {
                     Some(PacketPayload::Ack(self.handle_group_update(&peer, g)))
                 }

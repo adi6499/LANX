@@ -75,6 +75,24 @@ pub const FEATURES_TOOLS: &str = "1.7.0";
 /// (`CallPayload.help`), birthdays in profiles, visitor and kudos cards.
 pub const FEATURES_OFFICE: &str = "1.8.0";
 
+/// Oldest app version with 1.9.0 admin features: office settings (`Policy`,
+/// `PolicyAnswer` packets).
+pub const FEATURES_ADMIN: &str = "1.9.0";
+
+/// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
+/// whose reason is the colleague's status (waiting | accepted | declined | …).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyPayload {
+    pub policy: crate::storage::models::OfficePolicy,
+}
+
+/// LANX 1.9.0: a colleague accepted / declined / left the office settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PolicyAnswerPayload {
+    pub version: i64,
+    pub status: String,
+}
+
 /// LANX 1.8.0: an emergency alert. Answered with `Ack`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AlertPayload {
@@ -498,6 +516,9 @@ pub enum PacketPayload {
     Sync(SyncPayload),
     // LANX 1.8.0 (only sent to peers reporting app_version >= 1.8.0)
     Alert(AlertPayload),
+    // LANX 1.9.0 (only sent to peers reporting app_version >= 1.9.0)
+    Policy(PolicyPayload),
+    PolicyAnswer(PolicyAnswerPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

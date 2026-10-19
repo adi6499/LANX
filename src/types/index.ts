@@ -51,6 +51,10 @@ export interface UserSettings {
   out_of_office?: OutOfOffice;
   /** This computer is the reception desk. */
   reception_desk?: boolean;
+  /** LANX 1.9.0: your own Apps launcher links. */
+  apps?: AppLink[];
+  /** Delete messages older than this many days (0 = keep all). */
+  retention_days?: number;
   /** LANX 1.2.9: avatar, status and "about me" (what colleagues see). */
   profile: Profile;
 }
@@ -441,6 +445,12 @@ export interface BackupOverview {
   auto_enabled: boolean;
   folder: string;
   backups: BackupInfo[];
+  /** LANX 1.9.0: copies on a network folder ("" = off). */
+  net_dir?: string;
+  net_locked?: boolean;
+  net_has_password?: boolean;
+  net_last_at?: number;
+  net_error?: string;
 }
 
 export interface PickedBackup {
@@ -499,6 +509,49 @@ export interface AlertInfo {
   my_ack: "safe" | "help" | null;
   sent_to: string[];
   acks: AlertAck[];
+}
+
+/** LANX 1.9.0: a link in the Apps launcher. */
+export interface AppLink {
+  name: string;
+  /** https:// address, or a file / folder path. */
+  target: string;
+  emoji: string;
+}
+export interface AppView extends AppLink {
+  /** From the LANX admin (can't be removed here). */
+  office: boolean;
+}
+
+/** LANX 1.9.0: the office settings the LANX admin sends. */
+export interface OfficePolicy {
+  version: number;
+  admin_id: string;
+  admin_name: string;
+  active: boolean;
+  apps: AppLink[];
+  /** 0 = everyone decides. */
+  retention_days: number;
+  backup_dir: string;
+  backup_password: string;
+  at: number;
+}
+
+export interface PolicyPeer {
+  peer_id: string;
+  version: number;
+  status: "accepted" | "waiting" | "declined" | "old" | "other-admin" | "left" | "refused";
+  app_version: string;
+  at: number;
+}
+
+export interface AdminState {
+  my_policy: OfficePolicy | null;
+  policy: OfficePolicy | null;
+  offer: OfficePolicy | null;
+  peers: PolicyPeer[];
+  retention_days: number;
+  apps: AppView[];
 }
 
 /** LANX 1.8.0: automatic reply while you're away. */

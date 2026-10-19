@@ -54,7 +54,17 @@ pub struct BackupOverview {
     pub auto_enabled: bool,
     pub folder: String,
     pub backups: Vec<BackupInfo>,
+    /// LANX 1.9.0: copies on a network folder ("" = off).
+    pub net_dir: String,
+    /// The admin set the network folder (it can't be changed here).
+    pub net_locked: bool,
+    pub net_has_password: bool,
+    pub net_last_at: i64,
+    pub net_error: String,
 }
+
+/// Copies kept per computer in the network folder.
+const NET_KEEP: usize = 7;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PickedBackup {
@@ -321,11 +331,108 @@ pub fn list_backups(db: &Database) -> Vec<BackupInfo> {
 }
 
 pub fn overview(db: &Database) -> BackupOverview {
+    let net = net_target(db);
     BackupOverview {
         auto_enabled: auto_enabled(db),
         folder: backups_dir(db).to_string_lossy().to_string(),
         backups: list_backups(db),
+        net_dir: net.as_ref().map(|n| n.0.to_string_lossy().to_string()).unwrap_or_default(),
+        net_locked: net.as_ref().is_some_and(|n| n.2),
+        net_has_password: net.as_ref().is_some_and(|n| !n.1.is_empty()),
+        net_last_at: db.get_setting("net_backup_last").and_then(|v| v.parse().ok()).unwrap_or(0),
+        net_error: db.get_setting("net_backup_error").unwrap_or_default(),
     }
+}
+
+// ------------------------------------------------- LANX 1.9.0: network copies
+
+/// (network folder, password, set by the admin) — the admin's choice wins.
+pub fn net_target(db: &Database) -> Option<(PathBuf, String, bool)> {
+    if let Some(p) = db.applied_policy().filter(|p| !p.backup_dir.is_empty()) {
+        return Some((PathBuf::from(&p.backup_dir), p.backup_password.clone(), true));
+    }
+    if let Some(p) = db.my_policy().filter(|p| !p.backup_dir.is_empty()) {
+        return Some((PathBuf::from(&p.backup_dir), p.backup_password.clone(), true));
+    }
+    let dir = db.get_setting("net_backup_dir").unwrap_or_default();
+    if dir.trim().is_empty() {
+        return None;
+    }
+    Some((PathBuf::from(dir.trim()), db.get_setting("net_backup_password").unwrap_or_default(), false))
+}
+
+/// Your own network folder and password (not when the admin set one).
+pub fn set_net_backup(db: &Database, dir: &str, password: Option<&str>) -> Result<(), String> {
+    if net_target(db).is_some_and(|n| n.2) {
+        return Err("Your LANX admin chose the backup folder.".to_string());
+    }
+    let dir = dir.trim();
+    if !dir.is_empty() {
+        let pw = match password.filter(|p| !p.is_empty()) {
+            Some(p) => p.to_string(),
+            None => db.get_setting("net_backup_password").unwrap_or_default(),
+        };
+        validate_password(&pw)?;
+        db.set_setting("net_backup_password", &pw).map_err(|e| e.to_string())?;
+    }
+    db.set_setting("net_backup_dir", dir).map_err(|e| e.to_string())?;
+    db.set_setting("net_backup_error", "").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// This computer's own folder inside the network folder.
+fn net_folder(db: &Database, base: &Path) -> PathBuf {
+    let name = db.get_settings().map(|s| s.display_name).unwrap_or_default();
+    let pc = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "PC".to_string());
+    let label = crate::networking::transfer::sanitize_file_name(&format!("{} - {}", pc, name));
+    base.join(label)
+}
+
+fn copy_sealed(db: &Database, base: &Path, password: &str, backup: &Path) -> Result<PathBuf, String> {
+    validate_password(password).map_err(|_| "Set a password for the backup copies.".to_string())?;
+    if !base.is_dir() {
+        return Err(format!("Can't reach {} (is that computer or network drive on?)", base.display()));
+    }
+    let dir = net_folder(db, base);
+    fs::create_dir_all(&dir).map_err(|e| format!("Can't write to {}: {}", dir.display(), e))?;
+    let plain = fs::read(backup).map_err(|e| e.to_string())?;
+    let sealed = encrypt(&plain, password)?;
+    let dest = dir.join(format!("LANX {}.{}", stamp(now_secs()), EXT));
+    let partial = dest.with_extension("partial");
+    fs::write(&partial, sealed).and_then(|_| fs::rename(&partial, &dest)).map_err(|e| {
+        let _ = fs::remove_file(&partial);
+        format!("Can't write to {}: {}", dir.display(), e)
+    })?;
+    let mut copies: Vec<PathBuf> = fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == EXT) && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("LANX ")))
+        .collect();
+    copies.sort();
+    copies.reverse();
+    for old in copies.iter().skip(NET_KEEP) {
+        let _ = fs::remove_file(old);
+    }
+    Ok(dest)
+}
+
+/// Copies a backup (locked with the password) to the network folder and
+/// keeps the newest 7 there. Remembers when it worked or what went wrong.
+pub fn copy_to_network(db: &Database, backup: &Path) -> Result<Option<PathBuf>, String> {
+    let Some((base, password, _)) = net_target(db) else { return Ok(None) };
+    let result = copy_sealed(db, &base, &password, backup);
+    match &result {
+        Ok(_) => {
+            let _ = db.set_setting("net_backup_last", &now_secs().to_string());
+            let _ = db.set_setting("net_backup_error", "");
+        }
+        Err(e) => {
+            let _ = db.set_setting("net_backup_error", e);
+        }
+    }
+    result.map(Some)
 }
 
 /// A backup in the Backups folder, by file name (never a path from outside).
@@ -367,6 +474,8 @@ pub fn auto_backup_if_due(db: &Database, app_version: &str) -> Option<BackupInfo
     match create_backup(db, "auto", app_version) {
         Ok(info) => {
             let _ = db.set_setting("last_auto_backup", &now.to_string());
+            // LANX 1.9.0: a locked copy on the network folder too.
+            let _ = copy_to_network(db, Path::new(&info.path));
             Some(info)
         }
         Err(e) => {
@@ -569,6 +678,32 @@ mod tests {
             deliveries: None,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn network_copies_are_locked_and_only_seven_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let net = tempfile::tempdir().unwrap();
+        let (db, _) = db_with_chat(dir.path());
+        assert!(set_net_backup(&db, &net.path().to_string_lossy(), Some("123")).is_err(), "short password");
+        set_net_backup(&db, &net.path().to_string_lossy(), Some("office-pass")).unwrap();
+        let info = create_backup(&db, "manual", "1.9.0").unwrap();
+        let first = copy_to_network(&db, Path::new(&info.path)).unwrap().unwrap();
+        let data = fs::read(&first).unwrap();
+        assert!(data.starts_with(MAGIC), "locked with the password");
+        assert!(decrypt(&data, "office-pass").is_ok());
+        let folder = first.parent().unwrap().to_path_buf();
+        for i in 0..8 {
+            fs::write(folder.join(format!("LANX 2000-01-0{} 00.00.00.{}", i + 1, EXT)), b"x").unwrap();
+        }
+        copy_to_network(&db, Path::new(&info.path)).unwrap();
+        let n = fs::read_dir(&folder).unwrap().count();
+        assert_eq!(n, NET_KEEP, "newest 7 kept");
+        assert!(overview(&db).net_last_at > 0 && overview(&db).net_error.is_empty());
+        // Unreachable folder: remembered as a problem, not a crash.
+        set_net_backup(&db, "Z:\\no-such-share\\x", None).unwrap();
+        assert!(copy_to_network(&db, Path::new(&info.path)).is_err());
+        assert!(!overview(&db).net_error.is_empty());
     }
 
     fn db_with_chat(dir: &Path) -> (Database, String) {

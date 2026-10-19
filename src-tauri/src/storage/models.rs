@@ -94,6 +94,12 @@ pub struct UserSettings {
     /// LANX 1.8.0: this computer is the reception desk (shows the Reception tools).
     #[serde(default)]
     pub reception_desk: bool,
+    /// LANX 1.9.0: your own links in the Apps launcher.
+    #[serde(default)]
+    pub apps: Vec<AppLink>,
+    /// LANX 1.9.0: delete messages older than this many days (0 = keep all).
+    #[serde(default)]
+    pub retention_days: i64,
 }
 
 /// LANX 1.2.9: what colleagues see about you besides your name and colour.
@@ -139,6 +145,82 @@ pub fn clean_birthday(s: &str) -> String {
         format!("{:02}-{:02}", m, d)
     } else {
         String::new()
+    }
+}
+
+/// LANX 1.9.0: a company app / website / shared folder in the Apps launcher.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AppLink {
+    pub name: String,
+    /// http(s):// address, or a file / folder path (\\server\share\…).
+    pub target: String,
+    #[serde(default)]
+    pub emoji: String,
+}
+
+/// Apps as stored: names and targets tidied, at most 40, only web
+/// addresses or paths (never commands).
+pub fn clean_apps(list: &[AppLink]) -> Vec<AppLink> {
+    let cut = |s: &str, n: usize| -> String { s.trim().chars().filter(|c| !c.is_control()).take(n).collect() };
+    let mut out: Vec<AppLink> = Vec::new();
+    for a in list {
+        let name = cut(&a.name, 40);
+        let target = cut(&a.target, 500);
+        let lower = target.to_ascii_lowercase();
+        let ok = lower.starts_with("http://")
+            || lower.starts_with("https://")
+            || target.starts_with("\\\\")
+            || (target.len() > 2 && target.as_bytes()[1] == b':' && target.as_bytes()[0].is_ascii_alphabetic());
+        if name.is_empty() || !ok || out.iter().any(|o| o.target == target) {
+            continue;
+        }
+        let emoji: String = a.emoji.trim().chars().filter(|c| !c.is_ascii() && !c.is_control()).take(4).collect();
+        out.push(AppLink { name, target, emoji });
+        if out.len() >= 40 {
+            break;
+        }
+    }
+    out
+}
+
+/// LANX 1.9.0: office-wide settings sent by the LANX admin (applied on a
+/// colleague's computer only after they accept).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct OfficePolicy {
+    pub version: i64,
+    pub admin_id: String,
+    pub admin_name: String,
+    /// false: the admin stopped managing the office.
+    pub active: bool,
+    #[serde(default)]
+    pub apps: Vec<AppLink>,
+    /// Delete messages older than this many days (0 = everyone decides).
+    #[serde(default)]
+    pub retention_days: i64,
+    /// Copy backups to this network folder ("" = everyone decides).
+    #[serde(default)]
+    pub backup_dir: String,
+    /// The password those copies are locked with (so the office can restore them).
+    #[serde(default)]
+    pub backup_password: String,
+    pub at: i64,
+}
+
+pub const RETENTION_CHOICES: [i64; 6] = [0, 30, 90, 180, 365, 730];
+
+impl OfficePolicy {
+    pub fn cleaned(&self) -> OfficePolicy {
+        OfficePolicy {
+            version: self.version.max(0),
+            admin_id: self.admin_id.chars().take(64).collect(),
+            admin_name: self.admin_name.trim().chars().filter(|c| !c.is_control()).take(80).collect(),
+            active: self.active,
+            apps: clean_apps(&self.apps),
+            retention_days: if RETENTION_CHOICES.contains(&self.retention_days) { self.retention_days } else { 0 },
+            backup_dir: self.backup_dir.trim().chars().filter(|c| !c.is_control()).take(300).collect(),
+            backup_password: self.backup_password.chars().filter(|c| !c.is_control()).take(100).collect(),
+            at: self.at,
+        }
     }
 }
 

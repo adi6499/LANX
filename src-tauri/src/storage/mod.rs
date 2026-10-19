@@ -1,4 +1,5 @@
 mod chat;
+pub mod admin;
 pub mod office;
 pub mod tools;
 pub mod models;
@@ -436,6 +437,16 @@ impl Database {
                 .map(|o| o.cleaned())
                 .unwrap_or_default(),
             reception_desk: flag("reception_desk", false),
+            apps: map
+                .get("apps")
+                .and_then(|v| serde_json::from_str::<Vec<AppLink>>(v).ok())
+                .map(|l| clean_apps(&l))
+                .unwrap_or_default(),
+            retention_days: map
+                .get("retention_days")
+                .and_then(|v| v.parse::<i64>().ok())
+                .filter(|d| RETENTION_CHOICES.contains(d))
+                .unwrap_or(0),
             profile: map
                 .get("profile")
                 .and_then(|v| serde_json::from_str::<Profile>(v).ok())
@@ -507,6 +518,11 @@ impl Database {
             ("screenshot_hotkey", settings.screenshot_hotkey.to_string()),
             ("out_of_office", serde_json::to_string(&settings.out_of_office.cleaned()).unwrap_or_default()),
             ("reception_desk", settings.reception_desk.to_string()),
+            ("apps", serde_json::to_string(&clean_apps(&settings.apps)).unwrap_or_default()),
+            (
+                "retention_days",
+                (if RETENTION_CHOICES.contains(&settings.retention_days) { settings.retention_days } else { 0 }).to_string(),
+            ),
         ];
 
         for (k, v) in pairs {

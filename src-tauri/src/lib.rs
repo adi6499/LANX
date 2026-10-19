@@ -2,6 +2,7 @@ pub mod backup;
 pub mod commands;
 pub mod discovery;
 pub mod events;
+pub mod export;
 pub mod networking;
 pub mod privacy;
 pub mod recordings;
@@ -313,6 +314,9 @@ pub fn run() {
                     loop {
                         let (db2, v) = (db.clone(), version.clone());
                         let _ = tauri::async_runtime::spawn_blocking(move || backup::auto_backup_if_due(&db2, &v)).await;
+                        // LANX 1.9.0: message clean-up (when one is set).
+                        let db3 = db.clone();
+                        let _ = tauri::async_runtime::spawn_blocking(move || db3.apply_retention(chrono::Utc::now().timestamp())).await;
                         tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
                     }
                 });
@@ -479,6 +483,21 @@ pub fn run() {
             commands::backup::restore_backup_file,
             commands::backup::reveal_backups_folder,
             commands::backup::take_restore_notice,
+            commands::backup::set_net_backup,
+            commands::backup::net_backup_now,
+            commands::admin::get_admin_state,
+            commands::admin::become_admin,
+            commands::admin::save_policy,
+            commands::admin::stop_admin,
+            commands::admin::answer_policy_offer,
+            commands::admin::leave_policy,
+            commands::admin::set_retention,
+            commands::admin::run_retention,
+            commands::admin::set_my_apps,
+            commands::admin::open_app_link,
+            commands::admin::export_excel,
+            commands::admin::open_exported,
+            commands::admin::export_excel_to,
             commands::calls::call_start,
             commands::calls::call_answer,
             commands::calls::call_decline,

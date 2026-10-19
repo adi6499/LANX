@@ -31,6 +31,8 @@ import {
   X as XIcon,
 } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
+import { AppsLauncher } from "./admin/AppsLauncher";
+import { ShieldCheck } from "lucide-react";
 import { isMuted } from "../lib/tools";
 import { stagger } from "../lib/motion";
 import { Avatar } from "./Avatar";
@@ -80,6 +82,9 @@ interface SidebarProps {
   /** Colleagues whose birthday is today. */
   birthdaysToday?: { id: string; name: string }[];
   onSendWishes?: (peerId: string) => void;
+  /** LANX 1.9.0: Admin (office settings, apps, clean-up, export). */
+  onOpenAdmin?: (tab?: "office" | "apps" | "cleanup" | "export") => void;
+  onError?: (text: string) => void;
 }
 
 /** LANX 1.7.0: which chats the list shows. */
@@ -119,6 +124,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenReception,
   birthdaysToday = [],
   onSendWishes,
+  onOpenAdmin,
+  onError,
 }) => {
   const todayKey = `lanx.bday.${new Date().toDateString()}`;
   const [bdayHidden, setBdayHidden] = useState(() => {
@@ -297,57 +304,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center gap-0.5">
-            {onOpenReception && (
-              <button
-                type="button"
-                data-open-reception
-                onClick={onOpenReception}
-                title="Reception: tell a colleague their visitor has arrived"
-                className="lanx-tool flex h-8 w-8 items-center justify-center text-orange-500"
-              >
-                <BellRing className="h-[17px] w-[17px]" />
-              </button>
-            )}
-            {onOpenOffice && (
-              <button
-                type="button"
-                data-open-office
-                onClick={onOpenOffice}
-                title="Office: emergency alert, reception, kudos, birthdays, out of office"
-                className={`lanx-tool relative flex h-8 w-8 items-center justify-center ${officeAlert ? "text-red-600" : "text-orange-600 dark:text-orange-400"}`}
-              >
-                <Building2 className="h-[17px] w-[17px]" />
-                {officeAlert && <span className="absolute top-0.5 right-0.5 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />}
-                {!officeAlert && birthdaysToday.length > 0 && <span className="absolute -top-0.5 -right-0.5 text-[10px]">🎂</span>}
-              </button>
-            )}
-            {onOpenOrganiser && (
-              <button
-                type="button"
-                data-open-organiser
-                onClick={onOpenOrganiser}
-                title="Organiser: notices, tasks, approvals, polls, meetings"
-                className="lanx-tool relative flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-400"
-              >
-                <ClipboardList className="h-[17px] w-[17px]" />
-                {organiserCount > 0 && (
-                  <span data-organiser-count className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9.5px] font-bold flex items-center justify-center">
-                    {organiserCount > 99 ? "99+" : organiserCount}
-                  </span>
-                )}
-              </button>
-            )}
-            {onOpenStarred && (
-              <button
-                type="button"
-                data-open-starred
-                onClick={onOpenStarred}
-                title="Starred messages"
-                className="lanx-tool flex h-8 w-8 items-center justify-center text-amber-500"
-              >
-                <Star className="h-[17px] w-[17px]" />
-              </button>
-            )}
             {/* LANX 1.8.0: new chat / new group / message everyone in one menu. */}
             <div className="relative">
               <button
@@ -388,6 +344,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
           </div>
+        </div>
+
+        {/* LANX 1.9.0: the tool buttons get their own row (the title row was too full). */}
+        <div data-header-tools className="-mx-1 mb-2 flex items-center gap-0.5">
+            {onOpenReception && (
+              <button
+                type="button"
+                data-open-reception
+                onClick={onOpenReception}
+                title="Reception: tell a colleague their visitor has arrived"
+                className="lanx-tool flex h-8 w-8 items-center justify-center text-orange-500"
+              >
+                <BellRing className="h-[17px] w-[17px]" />
+              </button>
+            )}
+            {onOpenAdmin && <AppsLauncher onEdit={() => onOpenAdmin("apps")} onError={(t) => onError?.(t)} />}
+            {onOpenOffice && (
+              <button
+                type="button"
+                data-open-office
+                onClick={onOpenOffice}
+                title="Office: emergency alert, reception, kudos, birthdays, out of office"
+                className={`lanx-tool relative flex h-8 w-8 items-center justify-center ${officeAlert ? "text-red-600" : "text-orange-600 dark:text-orange-400"}`}
+              >
+                <Building2 className="h-[17px] w-[17px]" />
+                {officeAlert && <span className="absolute top-0.5 right-0.5 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />}
+                {!officeAlert && birthdaysToday.length > 0 && <span className="absolute -top-0.5 -right-0.5 text-[10px]">🎂</span>}
+              </button>
+            )}
+            {onOpenOrganiser && (
+              <button
+                type="button"
+                data-open-organiser
+                onClick={onOpenOrganiser}
+                title="Organiser: notices, tasks, approvals, polls, meetings"
+                className="lanx-tool relative flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-400"
+              >
+                <ClipboardList className="h-[17px] w-[17px]" />
+                {organiserCount > 0 && (
+                  <span data-organiser-count className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9.5px] font-bold flex items-center justify-center">
+                    {organiserCount > 99 ? "99+" : organiserCount}
+                  </span>
+                )}
+              </button>
+            )}
+            {onOpenStarred && (
+              <button
+                type="button"
+                data-open-starred
+                onClick={onOpenStarred}
+                title="Starred messages"
+                className="lanx-tool flex h-8 w-8 items-center justify-center text-amber-500"
+              >
+                <Star className="h-[17px] w-[17px]" />
+              </button>
+            )}
         </div>
 
         {/* Search Bar */}
@@ -750,6 +762,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </button>
 
+          {onOpenAdmin && (
+            <button
+              type="button"
+              data-open-admin
+              onClick={() => onOpenAdmin("office")}
+              title="Admin: office settings, apps, message clean-up, export"
+              className="lanx-tool p-1.5 text-slate-500 dark:text-slate-400 hover:text-indigo-600"
+            >
+              <ShieldCheck className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onOpenSettings}

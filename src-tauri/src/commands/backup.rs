@@ -21,9 +21,37 @@ pub async fn backup_now(app: AppHandle, state: State<'_, AppState>) -> Result<Ba
     state.network.privacy.guard()?;
     let db = state.db.clone();
     let v = version(&app);
-    tauri::async_runtime::spawn_blocking(move || backup::create_backup(&db, "manual", &v))
-        .await
-        .map_err(err)?
+    tauri::async_runtime::spawn_blocking(move || {
+        let info = backup::create_backup(&db, "manual", &v)?;
+        // LANX 1.9.0: and a locked copy on the network folder (if set).
+        let _ = backup::copy_to_network(&db, std::path::Path::new(&info.path));
+        Ok(info)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// LANX 1.9.0: your network folder for backup copies ("" = off).
+#[tauri::command]
+pub fn set_net_backup(state: State<AppState>, dir: String, password: Option<String>) -> Result<BackupOverview, String> {
+    state.network.privacy.guard()?;
+    backup::set_net_backup(&state.db, &dir, password.as_deref())?;
+    Ok(backup::overview(&state.db))
+}
+
+/// Makes a backup now and copies it to the network folder (shows any problem).
+#[tauri::command]
+pub async fn net_backup_now(app: AppHandle, state: State<'_, AppState>) -> Result<BackupOverview, String> {
+    state.network.privacy.guard()?;
+    let db = state.db.clone();
+    let v = version(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let info = backup::create_backup(&db, "manual", &v)?;
+        backup::copy_to_network(&db, std::path::Path::new(&info.path))?;
+        Ok(backup::overview(&db))
+    })
+    .await
+    .map_err(err)?
 }
 
 #[tauri::command]

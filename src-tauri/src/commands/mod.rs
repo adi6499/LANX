@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod backup;
 pub mod calls;
 pub mod chat;

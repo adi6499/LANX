@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { NetworkBackup } from "./admin/NetworkBackup";
 import { BackupInfo, BackupOverview, PickedBackup } from "../types";
 import { api, errorText } from "../lib/api";
 import { formatSize } from "../lib/format";
@@ -199,6 +200,9 @@ export function BackupPanel() {
           <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${autoOn ? "left-[18px]" : "left-0.5"}`} />
         </button>
       </label>
+
+      {/* LANX 1.9.0: copies on a network folder */}
+      {data && <NetworkBackup data={data} onChange={setData} onMsg={setMsg} />}
 
       {/* Restore list */}
       <div>
