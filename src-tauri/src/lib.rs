@@ -6,6 +6,7 @@ pub mod networking;
 pub mod privacy;
 pub mod recordings;
 pub mod security;
+pub mod shell;
 pub mod sound;
 pub mod storage;
 pub mod testmode;
@@ -200,8 +201,10 @@ pub fn run() {
 
     if profile.is_none() {
         // A second launch just brings the running LANX to the front.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             show_main_window(app);
+            // LANX 1.7.0: Explorer's "Send to → LANX".
+            shell::queue_send(app, shell::send_paths(&args));
         }));
     }
 
@@ -341,6 +344,16 @@ pub fn run() {
                     events::place_island(app.handle(), &w);
                 }
                 Err(e) => eprintln!("[Island] Could not create the alert window: {}", e),
+            }
+
+            // LANX 1.7.0: "Send to → LANX" while LANX wasn't running, the
+            // screenshot key and the Explorer menu entry (never for test copies).
+            let args: Vec<String> = std::env::args().collect();
+            shell::remember_send(shell::send_paths(&args));
+            if profile.is_none() {
+                let s = db.get_settings().ok();
+                shell::start_hotkey(app.handle().clone(), s.as_ref().map(|s| s.screenshot_hotkey).unwrap_or(true));
+                shell::apply_send_to(s.as_ref().map(|s| s.send_to_menu).unwrap_or(true));
             }
 
             let start_hidden = std::env::args().any(|a| a == "--minimized");
@@ -508,6 +521,27 @@ pub fn run() {
             commands::org::send_card,
             commands::org::card_action,
             commands::org::list_cards,
+            commands::tools::set_chat_pinned,
+            commands::tools::set_chat_muted,
+            commands::tools::set_chat_archived,
+            commands::tools::set_chat_folders,
+            commands::tools::search_messages_ex,
+            commands::tools::message_for_transfer,
+            commands::tools::list_stickers,
+            commands::tools::send_sticker,
+            commands::tools::capture_screen,
+            commands::tools::take_hotkey_capture,
+            commands::tools::save_screenshot,
+            commands::tools::get_tools_status,
+            commands::tools::take_send_request,
+            commands::tools::pick_folder,
+            commands::tools::share_folder,
+            commands::tools::subscribe_folder,
+            commands::tools::unsubscribe_folder,
+            commands::tools::stop_sharing_folder,
+            commands::tools::resync_folder,
+            commands::tools::list_sync,
+            commands::tools::open_sync_folder,
             commands::speed_test,
             commands::pick_folder_to_send,
         ])

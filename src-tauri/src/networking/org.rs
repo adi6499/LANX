@@ -24,7 +24,12 @@ const MAX_PEOPLE: usize = 30;
 /// Meetings remind everyone this long before they start.
 const MEETING_REMINDER_SECS: i64 = 10 * 60;
 
-pub const CARD_KINDS: [&str; 6] = ["notice", "poll", "task", "approval", "checklist", "event"];
+pub const CARD_KINDS: [&str; 7] = ["notice", "poll", "task", "approval", "checklist", "event", "sync"];
+
+/// Cards that need LANX 1.7.0 (older copies get them as text).
+pub fn needs_tools(content: &str) -> bool {
+    parse_card(content).is_some_and(|c| c["kind"] == "sync")
+}
 
 fn text(v: &Value, key: &str, max: usize) -> String {
     v.get(key)
@@ -139,6 +144,16 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
                     "video": v.get("video").and_then(|x| x.as_bool()).unwrap_or(true),
                     "agenda": text(v, "agenda", 2000) })
         }
+        "sync" => {
+            let name = text(v, "name", 120);
+            let share_id = text(v, "share_id", 64);
+            if share_id.is_empty() {
+                return Err("Unknown shared folder.".to_string());
+            }
+            json!({ "kind": kind, "name": if name.is_empty() { "Shared folder".to_string() } else { name }, "share_id": share_id,
+                    "files": v.get("files").and_then(|x| x.as_u64()).unwrap_or(0),
+                    "bytes": v.get("bytes").and_then(|x| x.as_u64()).unwrap_or(0) })
+        }
         _ => return Err("Unknown kind of card.".to_string()),
     };
     Ok(card)
@@ -159,6 +174,7 @@ pub fn card_preview(content: &str) -> String {
         "approval" => format!("🖊️ Approval: {}", t("title")),
         "checklist" => format!("☑️ Checklist: {}", t("title")),
         "event" => format!("📅 Meeting: {}", t("title")),
+        "sync" => format!("📁 Shared folder: {}", t("name")),
         _ => "Card".to_string(),
     };
     crate::storage::preview_text(&line)
@@ -190,6 +206,7 @@ pub fn card_fallback(content: &str) -> String {
                 .unwrap_or_default();
             format!("📅 MEETING: {}\n{} ({} min){}", t("title"), when, v["minutes"].as_i64().unwrap_or(30), update)
         }
+        "sync" => format!("📁 SHARED FOLDER: {}{}", t("name"), update),
         _ => content.to_string(),
     }
 }

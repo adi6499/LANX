@@ -23,7 +23,12 @@ import {
   Lock,
   EyeOff,
   Timer,
+  BellOff,
+  Archive,
+  FolderPlus,
 } from "lucide-react";
+import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
+import { isMuted } from "../lib/tools";
 import { stagger } from "../lib/motion";
 import { Avatar } from "./Avatar";
 import { CLEAR_AFTER, EMPTY_PROFILE, STATUS_PRESETS, effective, statusLine, statusPreset } from "../lib/profile";
@@ -58,7 +63,15 @@ interface SidebarProps {
   organiserCount?: number;
   onLock: () => void;
   onToggleHidden: () => void;
+  /** LANX 1.7.0: pin / mute / archive / folders from the chat list. */
+  chatTools?: ChatTools;
+  onManageFolders?: () => void;
+  /** Search every message for what's typed in the search box. */
+  onSearchAll?: (query: string) => void;
 }
+
+/** LANX 1.7.0: which chats the list shows. */
+type ListView = "all" | "unread" | "archived" | string;
 
 const TAB_ORDER: NavTab[] = ["messages", "people", "transfers", "history"];
 
@@ -86,8 +99,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleHidden,
   profiles,
   onSetProfile,
+  chatTools,
+  onManageFolders,
+  onSearchAll,
 }) => {
   const [statusMenu, setStatusMenu] = useState(false);
+  const [view, setView] = useState<ListView>("all");
+  const [menu, setMenu] = useState<{ conv: Conversation; x: number; y: number } | null>(null);
+  const folders = settings.chat_folders ?? [];
+  const activeView = view === "all" || view === "unread" || view === "archived" || folders.some((f) => f.id === view) ? view : "all";
   const mine = effective(settings.profile);
   const myLine = statusLine(mine);
   const onlineCount = peers.filter((p) => p.status === "online").length;
@@ -99,8 +119,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       c.last_message_preview.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const visibleConversations = filteredConversations.filter((c) => !c.is_hidden);
-  const hiddenConversations = filteredConversations.filter((c) => c.is_hidden);
+  // Pinned chats first, then the newest.
+  const ordered = [...filteredConversations].sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || b.last_message_time - a.last_message_time);
+  const archivedConversations = ordered.filter((c) => !c.is_hidden && c.archived);
+  const archivedUnread = archivedConversations.reduce((n, c) => n + c.unread_count, 0);
+  const visibleConversations = ordered.filter((c) => {
+    if (c.is_hidden) return false;
+    if (activeView === "archived") return !!c.archived;
+    if (c.archived) return false;
+    if (activeView === "unread") return c.unread_count > 0 || c.id === activeConversationId;
+    if (activeView !== "all") return (c.folders ?? []).includes(activeView);
+    return true;
+  });
+  const hiddenConversations = ordered.filter((c) => c.is_hidden);
+  const folderUnread = (id: string) => ordered.filter((c) => !c.is_hidden && !c.archived && (c.folders ?? []).includes(id)).reduce((n, c) => n + c.unread_count, 0);
 
   const formatTimestamp = (ts: number) => {
     if (!ts) return "";
@@ -116,6 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const renderRow = (conv: Conversation, hidden: boolean, index: number) => {
     const isSelected = activeConversationId === conv.id;
+    const muted = isMuted(conv);
     return (
       <button
         key={conv.id}
@@ -123,6 +156,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         data-hidden-chat={hidden ? "true" : undefined}
         aria-current={isSelected ? "true" : undefined}
         onClick={() => onSelectConversation(conv.id)}
+        onContextMenu={(e) => {
+          if (!chatTools) return;
+          e.preventDefault();
+          setMenu({ conv, x: e.clientX, y: e.clientY });
+        }}
+        data-chat-row={conv.id}
         style={stagger(index)}
         className={`lanx-item-in w-full flex items-center gap-3 px-2.5 py-2 rounded-[12px] text-left transition-[background-color,box-shadow,color,transform] duration-200 relative active:scale-[0.985] ${
           isSelected
@@ -173,6 +212,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
               {conv.is_pinned && <Pin className={`h-3 w-3 shrink-0 ${isSelected ? "text-white fill-white" : "text-amber-500 fill-amber-500"}`} />}
               {conv.secret_ttl > 0 && <Timer className={`h-3 w-3 shrink-0 ${isSelected ? "text-white" : "text-violet-500"}`} aria-label="Secret chat" />}
+              {muted && <BellOff data-row-muted className={`h-3 w-3 shrink-0 ${isSelected ? "text-white/80" : "text-slate-400"}`} aria-label="Muted" />}
             </span>
             <span className={`text-[10px] shrink-0 font-medium ${isSelected ? "text-white/75" : "text-slate-400"}`}>{formatTimestamp(conv.last_message_time)}</span>
           </div>
@@ -185,7 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span
                 key={conv.unread_count}
                 className={`lanx-pop ml-1.5 shrink-0 min-w-[18px] text-center px-1.5 py-[3px] rounded-full text-[10px] font-bold leading-none ${
-                  isSelected ? "bg-white text-sky-600" : hidden ? "bg-violet-600 text-white" : "bg-sky-500 text-white"
+                  isSelected ? "bg-white text-sky-600" : hidden ? "bg-violet-600 text-white" : muted ? "bg-slate-400 dark:bg-slate-600 text-white" : "bg-sky-500 text-white"
                 }`}
               >
                 {conv.unread_count}
@@ -371,6 +411,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
 
+      {/* LANX 1.7.0: chat folders */}
+      {activeTab === "messages" && (
+        <div data-folder-chips className="flex items-center gap-1 px-3 pb-2 overflow-x-auto lanx-noscroll">
+          {(
+            [
+              ["all", "All", 0],
+              ["unread", "Unread", 0],
+              ...folders.map((f) => [f.id, f.name, folderUnread(f.id)] as [string, string, number]),
+            ] as [string, string, number][]
+          ).map(([id, label, n]) => (
+            <button
+              key={id}
+              type="button"
+              data-folder-chip={id}
+              onClick={() => setView(id)}
+              className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                activeView === id ? "bg-sky-500 text-white" : "bg-[var(--lanx-fill)] text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              {label}
+              {n > 0 && <span className={`min-w-[15px] px-1 rounded-full text-[9.5px] leading-[15px] ${activeView === id ? "bg-white/25" : "bg-sky-500 text-white"}`}>{n}</span>}
+            </button>
+          ))}
+          {(archivedConversations.length > 0 || activeView === "archived") && (
+            <button
+              type="button"
+              data-folder-chip="archived"
+              onClick={() => setView(activeView === "archived" ? "all" : "archived")}
+              title="Archived chats"
+              className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                activeView === "archived" ? "bg-slate-600 text-white" : "bg-[var(--lanx-fill)] text-slate-600 dark:text-slate-300"
+              }`}
+            >
+              <Archive className="h-3 w-3" /> Archived
+              {archivedUnread > 0 && <span className="min-w-[15px] px-1 rounded-full bg-slate-500 text-white text-[9.5px] leading-[15px]">{archivedUnread}</span>}
+            </button>
+          )}
+          {onManageFolders && (
+            <button type="button" data-manage-folders onClick={onManageFolders} title="Chat folders" className="shrink-0 lanx-tool p-1 text-slate-400 hover:text-indigo-500">
+              <FolderPlus className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Conversations List */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
         {activeTab === "messages" && (
@@ -418,19 +503,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ))}
 
             {visibleConversations.length === 0 ? (
-              <div className="h-48 flex flex-col items-center justify-center text-center p-4 text-xs text-slate-400">
-                <MessageSquare className="h-8 w-8 text-slate-300 dark:text-slate-700 mb-2" />
-                <p>No conversations found</p>
-                <button
-                  type="button"
-                  onClick={onNewChat}
-                  className="mt-2 text-sky-500 hover:underline font-medium"
-                >
-                  Start a new conversation
-                </button>
-              </div>
+              activeView === "all" ? (
+                <div className="h-48 flex flex-col items-center justify-center text-center p-4 text-xs text-slate-400">
+                  <MessageSquare className="h-8 w-8 text-slate-300 dark:text-slate-700 mb-2" />
+                  <p>No conversations found</p>
+                  <button
+                    type="button"
+                    onClick={onNewChat}
+                    className="mt-2 text-sky-500 hover:underline font-medium"
+                  >
+                    Start a new conversation
+                  </button>
+                </div>
+              ) : (
+                <div className="py-10 px-4 text-center text-[11.5px] text-slate-400 leading-relaxed">
+                  {activeView === "unread"
+                    ? "All caught up — no unread chats."
+                    : activeView === "archived"
+                      ? "No archived chats."
+                      : "No chats in this folder yet. Right-click a chat → Chat folders."}
+                </div>
+              )
             ) : (
               visibleConversations.map((c, i) => renderRow(c, false, i))
+            )}
+            {searchQuery.trim().length >= 2 && onSearchAll && (
+              <button
+                type="button"
+                data-search-all
+                onClick={() => onSearchAll(searchQuery.trim())}
+                className="w-full mt-1 flex items-center gap-2 px-3 py-2 rounded-[12px] text-left text-[11.5px] font-semibold text-sky-600 dark:text-sky-400 hover:bg-[var(--lanx-fill)]"
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span className="truncate">Search all messages for “{searchQuery.trim()}”</span>
+              </button>
             )}
           </>
         )}
@@ -445,6 +551,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
       </div>
+
+      {menu && chatTools && (
+        <ChatMenu
+          conv={conversations.find((c) => c.id === menu.conv.id) ?? menu.conv}
+          folders={folders}
+          x={menu.x}
+          y={menu.y}
+          tools={chatTools}
+          onNewFolder={() => onManageFolders?.()}
+          onClose={() => setMenu(null)}
+        />
+      )}
 
       {/* User Profile Footer */}
       <div className="relative px-3 py-2.5 border-t lanx-line flex items-center justify-between">

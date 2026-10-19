@@ -15,7 +15,7 @@
 
 use super::protocol::*;
 use super::session::{Frame, SecureChannel};
-use super::transfer::{Outcome, Progress, friendly_io_error, unique_destination};
+use super::transfer::{Outcome, Progress, final_destination, friendly_io_error};
 use super::{NetworkService, now_secs};
 use crate::storage::models::{Peer, TransferRecord};
 use parking_lot::Mutex;
@@ -412,7 +412,7 @@ impl NetworkService {
             ));
         }
         remove_plan(&temp);
-        let final_path = unique_destination(dir, &t.file_name);
+        let final_path = final_destination(dir, t);
         tokio::fs::rename(&temp, &final_path)
             .await
             .map_err(|e| Outcome::Failed(friendly_io_error(&e)))?;

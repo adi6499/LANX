@@ -151,6 +151,19 @@ pub fn sanitize_file_name(name: &str) -> String {
 }
 
 /// `name`, or `name (1).ext`, `name (2).ext`, ... if it already exists.
+/// Where a finished download goes: a new name in the folder, or (LANX 1.7.0
+/// shared folders) exactly its name there, replacing the older copy.
+pub fn final_destination(dir: &Path, t: &TransferRecord) -> PathBuf {
+    if t.kind == "sync" {
+        let p = dir.join(&t.file_name);
+        if p.is_file() {
+            let _ = std::fs::remove_file(&p);
+        }
+        return p;
+    }
+    unique_destination(dir, &t.file_name)
+}
+
 pub fn unique_destination(dir: &Path, name: &str) -> PathBuf {
     let first = dir.join(name);
     if !first.exists() {
@@ -403,6 +416,20 @@ impl NetworkService {
         }
         let folder = (t.kind == "folder" && version_at_least(&chan.remote.app_version, FEATURES_FAST)).then_some(true);
         let voice = t.kind == "voice" && version_at_least(&chan.remote.app_version, FEATURES_CHAT);
+        // LANX 1.7.0: shared-folder files only go to copies that understand them.
+        let sync = if t.kind == "sync" {
+            if !version_at_least(&chan.remote.app_version, FEATURES_TOOLS) {
+                let reason = "Waiting for them to update to LANX 1.7.0".to_string();
+                if t.error_reason.as_deref() != Some(reason.as_str()) {
+                    t.error_reason = Some(reason);
+                    self.save_and_emit(&t);
+                }
+                return true;
+            }
+            self.db.sync_transfer(&t.id).ok().flatten()
+        } else {
+            None
+        };
         let offer = PacketPayload::FileOffer(FileOfferPayload {
             transfer_id: t.id.clone(),
             file_name: t.file_name.clone(),
@@ -411,6 +438,8 @@ impl NetworkService {
             folder,
             kind: voice.then(|| "voice".to_string()),
             media_ms: if voice { self.voice_ms_of(&t) } else { None },
+            sync_id: sync.as_ref().map(|s| s.0.clone()),
+            sync_path: sync.map(|s| s.1),
         });
         let sent = match chan.send(offer, None).await {
             Ok(p) => p,
@@ -695,6 +724,48 @@ impl NetworkService {
             return ack(false, Some("Invalid transfer id"));
         }
 
+        // LANX 1.7.0: a file of a shared folder this computer gets — saved
+        // straight into the chosen folder, no chat message, no pop-up.
+        if let Some(share_id) = o.sync_id.clone() {
+            let rel = o.sync_path.clone().unwrap_or_default();
+            let conv_id = match self.accept_sync_offer(peer, &share_id, &rel) {
+                Ok(c) => c,
+                Err(e) => return ack(false, Some(&e)),
+            };
+            let rel = super::tools::clean_rel_path(&rel).unwrap_or_default();
+            let name = rel.rsplit('/').next().unwrap_or("file").to_string();
+            let t = TransferRecord {
+                id: o.transfer_id.clone(),
+                peer_id: peer.id.clone(),
+                peer_name: Some(peer.display_name.clone()),
+                conversation_id: Some(conv_id),
+                file_name: name,
+                file_size: o.file_size.min(i64::MAX as u64) as i64,
+                file_hash: String::new(),
+                direction: "incoming".to_string(),
+                status: "pending".to_string(),
+                transferred_bytes: 0,
+                local_path: None,
+                error_reason: None,
+                created_at: now_secs(),
+                completed_at: None,
+                duration_ms: None,
+                started_bytes: None,
+                parent_id: None,
+                temp_path: None,
+                kind: "sync".to_string(),
+            };
+            if self.db.insert_transfer(&t).is_err() || self.db.insert_sync_transfer(&t.id, &share_id, &rel).is_err() {
+                return ack(false, Some("Recipient database error"));
+            }
+            let this = self.clone();
+            let id = t.id.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = this.accept_transfer(&id).await;
+            });
+            return ack(true, None);
+        }
+
         // Group file: only from a member of a group we are in.
         let conv = match &o.group_id {
             Some(gid) => {
@@ -873,7 +944,13 @@ impl NetworkService {
         }
 
         // LANX updates go to LANX's own folder, not Downloads.
-        let dir = if t.kind == "update" { self.updates_dir() } else { self.download_dir() };
+        let dir = if t.kind == "update" {
+            self.updates_dir()
+        } else if t.kind == "sync" {
+            self.sync_target_dir(&t)?
+        } else {
+            self.download_dir()
+        };
         std::fs::create_dir_all(&dir).map_err(|e| friendly_io_error(&e))?;
         if t.temp_path.is_none() {
             let short: String = t.id.chars().take(8).collect();
@@ -916,6 +993,10 @@ impl NetworkService {
                 self.save_and_emit(&t);
                 if t.kind == "update" {
                     self.update_downloaded(&t);
+                    return;
+                }
+                if t.kind == "sync" {
+                    self.sync_file_arrived(&t);
                     return;
                 }
                 let hidden = t
@@ -1160,7 +1241,7 @@ impl NetworkService {
             ));
         }
 
-        let final_path = unique_destination(dir, &t.file_name);
+        let final_path = final_destination(dir, t);
         tokio::fs::rename(&temp, &final_path)
             .await
             .map_err(|e| Outcome::Failed(friendly_io_error(&e)))?;

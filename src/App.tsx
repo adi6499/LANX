@@ -37,6 +37,12 @@ import { CallLayer, CallLayerHandle } from "./components/CallLayer";
 import { MeetingLayer, MeetingLayerHandle, type IslandMeeting } from "./components/MeetingLayer";
 import { StarredModal } from "./components/chat/StarredModal";
 import { OrganiserPanel, countNeedsMe } from "./components/org/OrganiserPanel";
+import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
+import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
+import { SendToModal } from "./components/tools/SendToModal";
+import { FileLibrary } from "./components/tools/FileLibrary";
+import { SyncPanel } from "./components/tools/SyncPanel";
+import { isMuted, quietNow } from "./lib/tools";
 import type { SendOptions } from "./components/ConversationPanel";
 import { AlertCircle, X } from "lucide-react";
 
@@ -148,10 +154,25 @@ export default function App() {
   conversationsRef.current = conversations;
   /** LANX 1.2.9: colleagues' profiles (avatar, status, about me) by device id. */
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  // ---- LANX 1.7.0
+  const [showFolders, setShowFolders] = useState(false);
+  const [shot, setShot] = useState<ArrayBuffer | null>(null);
+  const [sendRequest, setSendRequest] = useState<string[] | null>(null);
+  const [filesMode, setFilesMode] = useState<"transfers" | "library" | "sync">("transfers");
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setClockTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  /** Quiet hours (Settings → Notifications): like Do not disturb. */
+  const quiet = quietNow(settings?.quiet_hours);
   /** Your status is "Do not disturb": no sounds or pop-ups in LANX either. */
-  const dnd = effective(settings?.profile)?.status === "dnd";
+  const dnd = effective(settings?.profile)?.status === "dnd" || quiet;
   const dndRef = useRef(false);
   dndRef.current = dnd;
+  const myIdRef = useRef("");
+  myIdRef.current = settings?.device_id ?? "";
   const peersRef = useRef<Peer[]>([]);
   peersRef.current = peers;
   const hiddenUnlockedRef = useRef(false);
@@ -218,11 +239,19 @@ export default function App() {
     return c;
   }, [loadUpdateStatus]);
 
+  const takeSendRequest = useCallback(() => {
+    api
+      .takeSendRequest()
+      .then((p) => p.length && setSendRequest((prev) => [...new Set([...(prev ?? []), ...p])]))
+      .catch(() => {});
+  }, []);
+
   const loadAfterUnlock = useCallback(async () => {
     try {
       const s = await api.getSettings();
       setSettings(s);
       const c = await reloadAll();
+      takeSendRequest();
       if (c.length > 0 && !activeConversationIdRef.current) setActiveConversationId(c[0].id);
     } catch (err) {
       showError(err);
@@ -243,6 +272,7 @@ export default function App() {
         if (!l.locked) {
           const c = await reloadAll();
           if (c.length > 0 && !activeConversationIdRef.current) setActiveConversationId(c[0].id);
+          takeSendRequest();
         }
         const restored = await api.takeRestoreNotice().catch(() => null);
         if (restored) setNotice(restored.text);
@@ -251,7 +281,7 @@ export default function App() {
         setLoadError(errorText(err));
       }
     })();
-  }, [applyTheme, reloadAll]);
+  }, [applyTheme, reloadAll, takeSendRequest]);
 
   useEffect(() => {
     applyAppearance({
@@ -415,13 +445,19 @@ export default function App() {
               if (activeConversationIdRef.current === message.conversation_id) setMessages(m);
             })
             .catch(() => {});
-        } else if (!message.is_outgoing && document.hasFocus() && ["text", "file"].includes(message.message_type)) {
+        } else if (
+          !message.is_outgoing &&
+          document.hasFocus() &&
+          ["text", "file", "sticker"].includes(message.message_type) &&
+          // LANX 1.7.0: muted chats stay quiet (unless you are @mentioned).
+          (!isMuted(conversation ?? conversationsRef.current.find((c) => c.id === message.conversation_id)) || !!message.mentions?.includes(myIdRef.current))
+        ) {
           // LANX is in front but this chat isn't open: a soft sound, and the
           // message (with the cat) in the Dynamic Island. Hidden chats stay
           // out of sight unless they are shown.
           if (!dndRef.current) api.playSound().catch(() => {});
           // (Files have their own island card: Accept / progress / done.)
-          if (!dndRef.current && message.message_type === "text" && conversation && (!conversation.is_hidden || hiddenUnlockedRef.current)) {
+          if (!dndRef.current && (message.message_type === "text" || message.message_type === "sticker") && conversation && (!conversation.is_hidden || hiddenUnlockedRef.current)) {
             const group = conversation.kind === "group";
             const sender = group ? peersRef.current.find((p) => p.id === message.sender_id) : null;
             setIslandMsg({
@@ -430,7 +466,7 @@ export default function App() {
               peerId: group ? message.sender_id : conversation.peer_id,
               from: group ? sender?.display_name ?? "Someone" : conversation.peer_name,
               color: group ? sender?.avatar_color ?? conversation.peer_avatar_color : conversation.peer_avatar_color,
-              text: message.ttl_secs ? "🔒 Secret message" : message.content,
+              text: message.ttl_secs ? "🔒 Secret message" : message.message_type === "sticker" ? conversation.last_message_preview ?? "Sticker" : message.content,
               group: group ? conversation.peer_name : null,
             });
           }
@@ -503,6 +539,7 @@ export default function App() {
         // The cat rings a bell in the Dynamic Island (hidden chats stay out of sight).
         const conv = conversationsRef.current.find((c) => c.id === conversation_id);
         if (conv?.is_hidden && !hiddenUnlockedRef.current) return;
+        if (isMuted(conv)) return; // LANX 1.7.0
         setIslandRing({
           id: `ring-${Date.now()}`,
           peerId: conv?.peer_id || null,
@@ -515,6 +552,7 @@ export default function App() {
 
     add(
       events.onTransferUpdated((t) => {
+        if (t.kind === "sync") return; // shared-folder files: see Files → Shared folders
         setTransfers((prev) => upsertTransfer(prev, t));
         if (t.status !== "transferring") {
           setProgress((prev) => {
@@ -534,6 +572,22 @@ export default function App() {
     );
 
     add(events.onStateChanged(() => reloadAll().catch(() => {})));
+    // LANX 1.7.0: Ctrl + Alt + S, and Explorer's "Send to → LANX".
+    add(
+      events.onScreenshotReady(() => {
+        if (lockedRef.current) return;
+        api.takeHotkeyCapture().then(setShot).catch(() => {});
+      })
+    );
+    add(
+      events.onSendRequest(() => {
+        if (lockedRef.current) return;
+        api
+          .takeSendRequest()
+          .then((p) => p.length && setSendRequest((prev) => [...new Set([...(prev ?? []), ...p])]))
+          .catch(() => {});
+      })
+    );
     add(events.onOpenPrivacySettings(() => setSettingsTab("privacy")));
     add(events.onUpdateChanged(loadUpdateStatus));
     add(
@@ -745,6 +799,56 @@ export default function App() {
     }
   };
 
+  // ---- LANX 1.7.0
+  const mergeConversation = (c: Conversation) => setConversations((prev) => prev.map((x) => (x.id === c.id ? { ...x, ...c } : x)));
+  const chatTools: ChatTools = {
+    pin: (id, pinned) => api.setChatPinned(id, pinned).then(mergeConversation).catch(showError),
+    mute: (id, minutes) => api.setChatMuted(id, minutes).then(mergeConversation).catch(showError),
+    archive: (id, archived) =>
+      api
+        .setChatArchived(id, archived)
+        .then((c) => {
+          mergeConversation(c);
+          if (archived) setNotice(`“${c.peer_name}” moved to Archived (the Archived button above your chats).`);
+        })
+        .catch(showError),
+    folders: (id, folders) => api.setChatFolders(id, folders).then(mergeConversation).catch(showError),
+  };
+
+  const handleSendSticker = async (id: string) => {
+    const conv = activeConversationIdRef.current;
+    if (!conv) return;
+    try {
+      const m = await api.sendSticker(conv, id);
+      setMessages((prev) => upsertMessage(prev, m));
+      api.getConversations().then(setConversations).catch(() => {});
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const handleScreenshot = async () => {
+    try {
+      setShot(await api.captureScreen());
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  const handleShareFolder = async () => {
+    const conv = activeConversationIdRef.current;
+    if (!conv) return;
+    try {
+      const dir = await api.pickFolder("Choose a folder to share (colleagues' copies stay up to date)");
+      if (!dir) return;
+      const m = await api.shareFolder(conv, dir);
+      setMessages((prev) => upsertMessage(prev, m));
+      api.getConversations().then(setConversations).catch(() => {});
+    } catch (err) {
+      showError(err);
+    }
+  };
+
   const handleRing = async () => {
     if (!activeConversationId) return;
     try {
@@ -899,6 +1003,31 @@ export default function App() {
     return map;
   }, [transfers]);
 
+  /** LANX 1.7.0: Files → Transfers / Library / Shared folders. */
+  const filesSwitch = (
+    <div data-files-mode className="flex rounded-[11px] bg-[var(--lanx-fill)] p-[3px] text-xs">
+      {(
+        [
+          ["transfers", "Transfers"],
+          ["library", "Library"],
+          ["sync", "Shared folders"],
+        ] as const
+      ).map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          data-files-mode-btn={k}
+          onClick={() => setFilesMode(k)}
+          className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+            filesMode === k ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
   // The details panel slides out before it goes away.
   const contextPresence = usePresence(activeTab === "messages" && isContextOpen && !!activeConversation, 220);
 
@@ -1027,6 +1156,12 @@ export default function App() {
         organiserCount={organiserCount}
         onLock={() => api.lockApp().then(setLock).catch(showError)}
         onToggleHidden={handleToggleHidden}
+        chatTools={chatTools}
+        onManageFolders={() => setShowFolders(true)}
+        onSearchAll={(q) => {
+          setHistoryQuery(q);
+          setActiveTab("history");
+        }}
       />
 
       <main className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative lanx-launch" style={{ ["--d" as string]: "70ms" }}>
@@ -1095,6 +1230,10 @@ export default function App() {
               refreshOrganiserCount();
             }}
             onUnblock={() => activePeer && handleUpdateTrust(activePeer.id, "unverified")}
+            onSendSticker={handleSendSticker}
+            onScreenshot={handleScreenshot}
+            onShareFolder={handleShareFolder}
+            onUnmute={() => activeConversation && chatTools.mute(activeConversation.id, 0)}
           />
         )}
 
@@ -1111,8 +1250,42 @@ export default function App() {
           />
         )}
 
-        {activeTab === "transfers" && (
+        {activeTab === "transfers" && filesMode === "library" && (
+          <FileLibrary
+            transfers={transfers}
+            conversations={conversations}
+            modeSwitch={filesSwitch}
+            onOpen={transferActions.open}
+            onReveal={transferActions.reveal}
+            onShowInChat={(id) =>
+              api
+                .messageForTransfer(id)
+                .then((m) => {
+                  if (!m) return setNotice("That chat message isn't on this computer any more.");
+                  setActiveConversationId(m.conversation_id);
+                  setActiveTab("messages");
+                  setJumpTo(m.id);
+                })
+                .catch(showError)
+            }
+          />
+        )}
+
+        {activeTab === "transfers" && filesMode === "sync" && (
+          <SyncPanel
+            conversations={conversations}
+            modeSwitch={filesSwitch}
+            onError={(t) => setNotice(t)}
+            onOpenChat={(id) => {
+              setActiveConversationId(id);
+              setActiveTab("messages");
+            }}
+          />
+        )}
+
+        {activeTab === "transfers" && filesMode === "transfers" && (
           <TransfersView
+            modeSwitch={filesSwitch}
             transfers={transfers}
             progress={progress}
             actions={transferActions}
@@ -1129,6 +1302,13 @@ export default function App() {
         {activeTab === "history" && (
           <HistoryView
             conversations={conversations}
+            peers={peers}
+            initialQuery={historyQuery}
+            onOpenMessage={(conversationId, messageId) => {
+              setActiveConversationId(conversationId);
+              setActiveTab("messages");
+              setJumpTo(messageId);
+            }}
             onSelectConversation={(id) => {
               setActiveConversationId(id);
               setActiveTab("messages");
@@ -1230,6 +1410,64 @@ export default function App() {
             const conv = conversations.find((c) => c.id === conversationId);
             setShowOrganiser(false);
             if (conv) meetingRef.current?.start(conv, true);
+          }}
+        />
+      )}
+
+      {showFolders && (
+        <ChatFoldersModal
+          folders={settings.chat_folders ?? []}
+          onClose={() => setShowFolders(false)}
+          onSave={(list) => {
+            const updated = { ...settings, chat_folders: list };
+            setSettings(updated);
+            setShowFolders(false);
+            api.saveSettings(updated).then(setSettings).catch(showError);
+          }}
+        />
+      )}
+
+      {shot && (
+        <ScreenshotEditor
+          capture={shot}
+          conversations={conversations.filter((c) => !c.is_hidden || lock.hidden_unlocked)}
+          defaultConversationId={activeConversationId}
+          onClose={() => setShot(null)}
+          onNotice={(t) => setNotice(t)}
+          onSend={async (conversationId, dataUrl) => {
+            const mime = dataUrl.slice(5, dataUrl.indexOf(";")) || "image/png";
+            const sent = await api.sendPastedImage(conversationId, dataUrl, mime);
+            addSentFiles(sent);
+            setActiveConversationId(conversationId);
+            setActiveTab("messages");
+          }}
+        />
+      )}
+
+      {sendRequest && sendRequest.length > 0 && (
+        <SendToModal
+          paths={sendRequest}
+          conversations={conversations}
+          peers={peers}
+          onClose={() => setSendRequest(null)}
+          onSend={async (conversationIds, peerIds) => {
+            const ids = [...conversationIds];
+            for (const p of peerIds) {
+              try {
+                const c = await api.getOrCreateConversation(p);
+                setConversations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]));
+                ids.push(c.id);
+              } catch (err) {
+                showError(err);
+              }
+            }
+            const paths = sendRequest;
+            setSendRequest(null);
+            for (const id of ids) await sendPaths(id, paths);
+            if (ids.length === 1) {
+              setActiveConversationId(ids[0]);
+              setActiveTab("messages");
+            } else if (ids.length > 1) setNotice(`Sending to ${ids.length} chats — see Files for progress.`);
           }}
         />
       )}

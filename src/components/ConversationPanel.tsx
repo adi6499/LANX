@@ -58,7 +58,9 @@ import { MessageText, whenText } from "./chat/chatUtils";
 import { CardView } from "./org/CardView";
 import { CreateCardModal, type Person } from "./org/CreateCardModal";
 import type { CardKind } from "./org/cardModel";
-import { BarChart3, CalendarDays, ClipboardCheck, FileSignature, ListChecks, Megaphone, Plus } from "lucide-react";
+import { BarChart3, BellOff, CalendarDays, ClipboardCheck, FileSignature, FolderSync, ListChecks, Megaphone, Plus, Scissors, Sticker as StickerIcon } from "lucide-react";
+import { StickerBubble, StickerPicker } from "./tools/Stickers";
+import { isMuted, muteText } from "../lib/tools";
 
 /** LANX 1.5.0: what a send can carry besides the text. */
 export interface SendOptions {
@@ -116,6 +118,13 @@ interface ConversationPanelProps {
   onJumped?: () => void;
   /** LANX 1.6.0: a card was posted here. */
   onCardPosted?: (m: Message) => void;
+  // ---- LANX 1.7.0
+  onSendSticker?: (id: string) => void;
+  /** Take a screenshot (LANX hides for a moment) and mark it up. */
+  onScreenshot?: () => void;
+  /** Share a folder here that stays up to date. */
+  onShareFolder?: () => void;
+  onUnmute?: () => void;
 }
 
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
@@ -201,6 +210,10 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onMessageChanged,
   onMessageRemoved,
   jumpTo = null,
+  onSendSticker,
+  onScreenshot,
+  onShareFolder,
+  onUnmute,
   onJumped,
   onCardPosted,
 }) => {
@@ -225,6 +238,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const [createCard, setCreateCard] = useState<{ kind: CardKind; title?: string; fromMessage?: string | null } | null>(null);
   const [plusMenu, setPlusMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showStickers, setShowStickers] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [secretMenu, setSecretMenu] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -798,6 +812,17 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                       <EyeOff className="h-3 w-3" /> Hidden
                     </span>
                   )}
+                  {isMuted(conversation) && (
+                    <button
+                      type="button"
+                      data-header-muted
+                      onClick={onUnmute}
+                      title={`${muteText(conversation)} — click to turn sounds back on`}
+                      className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-500/15 text-slate-600 dark:text-slate-300 text-[10px] font-semibold hover:bg-slate-500/25"
+                    >
+                      <BellOff className="h-3 w-3" /> Muted
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-0">
                   {typingName ? (
@@ -1106,6 +1131,29 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 </React.Fragment>
               );
             }
+            if (msg.message_type === "sticker" && !msg.deleted) {
+              const out = msg.is_outgoing;
+              const showName = isGroup && !out && (msg.sender_id !== lastSender || showDay);
+              lastSender = out ? "" : msg.sender_id;
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDay && <DaySeparator day={day} />}
+                  <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${out ? "items-end" : "items-start"}`}>
+                    {showName && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
+                    <div className="relative">
+                      <StickerBubble id={msg.content} isOut={out} />
+                      <MessageTools msg={msg} isOut={out} actions={actions} canAct={!blocked && !outOfGroup} />
+                    </div>
+                    <div className={`mt-0.5 flex items-center gap-1.5 px-2 text-[10px] text-slate-400 ${out ? "justify-end" : ""}`}>
+                      {msg.starred && <Star className="h-3 w-3 fill-current" />}
+                      <span>{formatMessageTime(msg.timestamp)}</span>
+                      {out && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
+                    </div>
+                    <ReactionChips reactions={msg.reactions ?? []} isOut={out} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
+                  </div>
+                </React.Fragment>
+              );
+            }
             const line = eventLine(msg);
             if (line) {
               lastSender = "";
@@ -1269,6 +1317,14 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         ref={bottomRef}
         className={`absolute bottom-0 inset-x-0 z-20 lanx-bar border-t lanx-line ${hidden ? "bg-gradient-to-r from-violet-500/15 to-transparent" : ""}`}
       >
+        {showStickers && !blocked && !outOfGroup && (
+          <StickerPicker
+            onPick={(id) => {
+              setShowStickers(false);
+              onSendSticker?.(id);
+            }}
+          />
+        )}
         {showEmojiPicker && (
           <div className="px-5 pt-2 flex items-center gap-1 overflow-x-auto lanx-screen-in">
             {QUICK_EMOJIS.map((emoji) => (
@@ -1371,11 +1427,54 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                         <I className={`h-4 w-4 ${tone}`} /> {label}
                       </button>
                     ))}
+                    {onShareFolder && (
+                      <button
+                        type="button"
+                        data-plus-kind="sync"
+                        onClick={() => {
+                          setPlusMenu(false);
+                          onShareFolder();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-[12.5px] rounded-lg hover:bg-[var(--lanx-fill)] text-slate-700 dark:text-slate-200 border-t lanx-line mt-1 pt-2.5"
+                      >
+                        <FolderSync className="h-4 w-4 text-amber-600" />
+                        <span className="flex-1 text-left">
+                          Share a folder
+                          <span className="block text-[10.5px] text-slate-400">Colleagues' copies stay up to date</span>
+                        </span>
+                      </button>
+                    )}
                   </div>
                 )}
                 <button
                   type="button"
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  data-sticker-button
+                  onClick={() => {
+                    setShowStickers(!showStickers);
+                    setShowEmojiPicker(false);
+                  }}
+                  title="Stickers"
+                  className={`lanx-tool p-2 text-slate-500 hover:text-pink-600 dark:text-slate-400 ${showStickers ? "!bg-[var(--lanx-fill)] !text-pink-600" : ""}`}
+                >
+                  <StickerIcon className="h-[18px] w-[18px]" />
+                </button>
+                {onScreenshot && (
+                  <button
+                    type="button"
+                    data-screenshot-button
+                    onClick={onScreenshot}
+                    title="Take a screenshot and mark it up (Ctrl + Alt + S anywhere)"
+                    className="lanx-tool p-2 text-slate-500 hover:text-sky-600 dark:text-slate-400"
+                  >
+                    <Scissors className="h-[18px] w-[18px]" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEmojiPicker(!showEmojiPicker);
+                    setShowStickers(false);
+                  }}
                   title="Emoji"
                   className={`lanx-tool p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 ${showEmojiPicker ? "!bg-[var(--lanx-fill)]" : ""}`}
                 >

@@ -76,6 +76,18 @@ pub struct UserSettings {
     /// LANX 1.5.0: ready-made answers ("/" in the message box).
     #[serde(default = "default_quick_replies")]
     pub quick_replies: Vec<String>,
+    /// LANX 1.7.0: hours without sounds or pop-ups.
+    #[serde(default)]
+    pub quiet_hours: QuietHours,
+    /// LANX 1.7.0: folders in the chat list.
+    #[serde(default)]
+    pub chat_folders: Vec<ChatFolder>,
+    /// LANX 1.7.0: "Send to → LANX" in Windows Explorer's right-click menu.
+    #[serde(default = "default_true")]
+    pub send_to_menu: bool,
+    /// LANX 1.7.0: Ctrl + Alt + S takes a screenshot (anywhere in Windows).
+    #[serde(default = "default_true")]
+    pub screenshot_hotkey: bool,
 }
 
 /// LANX 1.2.9: what colleagues see about you besides your name and colour.
@@ -262,6 +274,92 @@ pub struct Conversation {
     pub member_count: i64,
     /// Groups: "member" | "left" | "removed" (empty for direct chats).
     pub membership: String,
+    /// LANX 1.7.0: muted until (unix seconds); -1 = always; 0 = not muted.
+    #[serde(default)]
+    pub muted_until: i64,
+    /// LANX 1.7.0: moved out of the main chat list.
+    #[serde(default)]
+    pub archived: bool,
+    /// LANX 1.7.0: the chat folders it is in (folder ids).
+    #[serde(default)]
+    pub folders: Vec<String>,
+}
+
+impl Conversation {
+    /// Notifications for this chat are off right now.
+    pub fn is_muted(&self, now: i64) -> bool {
+        self.muted_until == -1 || self.muted_until > now
+    }
+}
+
+/// LANX 1.7.0: a folder in the chat list ("Clients", "Site team"…).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ChatFolder {
+    pub id: String,
+    pub name: String,
+}
+
+/// LANX 1.7.0: hours without sounds or pop-ups (like Do not disturb).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QuietHours {
+    pub enabled: bool,
+    /// Minutes after midnight.
+    pub start: u32,
+    pub end: u32,
+    /// Days it applies (0 = Sunday … 6 = Saturday), by the day it starts.
+    pub days: Vec<u8>,
+}
+
+impl Default for QuietHours {
+    fn default() -> Self {
+        QuietHours { enabled: false, start: 19 * 60, end: 9 * 60, days: vec![0, 1, 2, 3, 4, 5, 6] }
+    }
+}
+
+impl QuietHours {
+    pub fn cleaned(&self) -> QuietHours {
+        let mut days: Vec<u8> = self.days.iter().copied().filter(|d| *d < 7).collect();
+        days.sort_unstable();
+        days.dedup();
+        QuietHours { enabled: self.enabled, start: self.start.min(1439), end: self.end.min(1439), days }
+    }
+
+    /// Is `minute` (after midnight) on `weekday` (0 = Sunday) inside the quiet
+    /// hours? Overnight ranges (19:00–09:00) belong to the day they start.
+    pub fn covers(&self, weekday: u8, minute: u32) -> bool {
+        if !self.enabled || self.start == self.end {
+            return false;
+        }
+        let on = |d: u8| self.days.contains(&d);
+        if self.start < self.end {
+            on(weekday) && minute >= self.start && minute < self.end
+        } else {
+            (on(weekday) && minute >= self.start) || (on((weekday + 6) % 7) && minute < self.end)
+        }
+    }
+
+    /// Right now (local time).
+    pub fn active_now(&self) -> bool {
+        use chrono::{Datelike, Timelike};
+        let now = chrono::Local::now();
+        self.covers(now.weekday().num_days_from_sunday() as u8, now.hour() * 60 + now.minute())
+    }
+}
+
+/// Chat folders as stored: tidy names, unique ids, at most 20.
+pub fn clean_chat_folders(list: &[ChatFolder]) -> Vec<ChatFolder> {
+    let mut out: Vec<ChatFolder> = Vec::new();
+    for f in list {
+        let name: String = f.name.trim().chars().filter(|c| !c.is_control()).take(30).collect();
+        let id: String = f.id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect();
+        if !name.is_empty() && !id.is_empty() && !out.iter().any(|o| o.id == id) {
+            out.push(ChatFolder { id, name });
+        }
+        if out.len() >= 20 {
+            break;
+        }
+    }
+    out
 }
 
 /// Delivery state of an outgoing group message across its members.

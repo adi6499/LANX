@@ -40,6 +40,13 @@ export interface UserSettings {
   cat_alerts: boolean;
   /** LANX 1.5.0: ready-made answers ("/" in the message box). */
   quick_replies: string[];
+  /** LANX 1.7.0 */
+  quiet_hours?: QuietHours;
+  chat_folders?: ChatFolder[];
+  /** "Send to → LANX" in Explorer's right-click menu. */
+  send_to_menu?: boolean;
+  /** Ctrl + Alt + S takes a screenshot anywhere. */
+  screenshot_hotkey?: boolean;
   /** LANX 1.2.9: avatar, status and "about me" (what colleagues see). */
   profile: Profile;
 }
@@ -98,6 +105,81 @@ export interface Conversation {
   member_count: number;
   /** Groups: "member" | "left" | "removed". */
   membership: string;
+  /** LANX 1.7.0: muted until (unix seconds); -1 = always; 0 = not muted. */
+  muted_until?: number;
+  /** LANX 1.7.0: moved out of the main chat list. */
+  archived?: boolean;
+  /** LANX 1.7.0: the chat folders it is in (folder ids). */
+  folders?: string[];
+}
+
+/** LANX 1.7.0: a folder in the chat list. */
+export interface ChatFolder {
+  id: string;
+  name: string;
+}
+
+/** LANX 1.7.0: hours without sounds or pop-ups. */
+export interface QuietHours {
+  enabled: boolean;
+  /** Minutes after midnight. */
+  start: number;
+  end: number;
+  /** 0 = Sunday … 6 = Saturday (the day the quiet time starts). */
+  days: number[];
+}
+
+/** LANX 1.7.0: search filters. */
+export interface SearchFilter {
+  conversation_id?: string | null;
+  /** A colleague's device id, or "me". */
+  sender?: string | null;
+  kind?: "all" | "text" | "files" | "links" | "cards";
+  since?: number | null;
+}
+
+export interface Sticker {
+  id: string;
+  emoji: string;
+  words: string;
+}
+
+/** LANX 1.7.0: a folder you share (colleagues' copies stay up to date). */
+export interface SyncShare {
+  id: string;
+  name: string;
+  path: string;
+  conversation_id: string;
+  created_at: number;
+  active: boolean;
+  subscribers: string[];
+  /** Files still waiting to go out. */
+  waiting: number;
+}
+
+/** LANX 1.7.0: a colleague's folder you get. */
+export interface SyncSubscription {
+  share_id: string;
+  owner_id: string;
+  owner_name: string;
+  name: string;
+  dest_path: string;
+  conversation_id: string;
+  since: number;
+  files: number;
+  bytes: number;
+  last_at: number;
+  status: "active" | "stopped";
+}
+
+export interface SyncOverview {
+  shares: SyncShare[];
+  subscriptions: SyncSubscription[];
+}
+
+export interface ToolsStatus {
+  hotkey: string;
+  hotkey_working: boolean;
 }
 
 export type MessageStatus = "sending" | "queued" | "delivered" | "failed" | "read";
@@ -118,7 +200,7 @@ export interface Message {
   sender_id: string;
   receiver_id: string;
   content: string;
-  message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call" | "meeting" | "recording" | "card";
+  message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call" | "meeting" | "recording" | "card" | "sticker";
   /** LANX 1.6.0 cards: votes, ticks, decisions… */
   card_state?: CardEntry[];
   // ---- LANX 1.5.0

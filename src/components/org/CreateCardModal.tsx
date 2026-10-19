@@ -123,6 +123,8 @@ export function CreateCardModal({
         return { kind, title, items: items.filter((i) => i.trim()) };
       case "event":
         return { kind, title, start: toSecs(start), minutes, attendees, place, video, agenda: body };
+      default:
+        return { kind }; // shared folders are posted from "Share a folder", not here
     }
   };
 

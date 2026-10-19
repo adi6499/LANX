@@ -158,7 +158,10 @@ impl Events {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        db.get_settings().map(|s| s.profile.effective(now).status == "dnd").unwrap_or(false)
+        // LANX 1.7.0: quiet hours count too.
+        db.get_settings()
+            .map(|s| s.profile.effective(now).status == "dnd" || s.quiet_hours.active_now())
+            .unwrap_or(false)
     }
 
     fn main_window_focused(app: &AppHandle) -> bool {

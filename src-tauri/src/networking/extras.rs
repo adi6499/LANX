@@ -298,7 +298,9 @@ impl NetworkService {
             private,
             ..Default::default()
         };
-        self.events.notify_island(&self.db, AlertKind::Ring, &title, "Open LANX to reply", alert);
+        if !self.chat_muted(&conv.id) {
+            self.events.notify_island(&self.db, AlertKind::Ring, &title, "Open LANX to reply", alert);
+        }
         self.events.emit_json(
             "lanx://ring",
             RingEvent {

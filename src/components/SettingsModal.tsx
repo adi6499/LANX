@@ -32,6 +32,7 @@ import { BackupPanel } from "./BackupPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { ProfilePanel } from "./ProfilePanel";
 import { Avatar } from "./Avatar";
+import { ToolsSettings } from "./tools/ToolsSettings";
 import { Origin, revealChange, usePresence } from "../lib/motion";
 
 export type SettingsTab =
@@ -462,6 +463,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   title="Keep running when the window is closed"
                   description="Closing the window hides LANX to the tray (bottom-right, near the clock) so messages still arrive. Quit from the tray icon."
                 />
+                <ToolsSettings form={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
               </>
             )}
 

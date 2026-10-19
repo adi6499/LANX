@@ -8,6 +8,8 @@ import {
   Circle,
   ClipboardCheck,
   Clock,
+  FolderOpen,
+  FolderSync,
   FileSignature,
   Link2,
   ListChecks,
@@ -37,6 +39,8 @@ import {
   type CardKind,
 } from "./cardModel";
 import { whenText } from "../chat/chatUtils";
+import { ConfirmButton, ago, useSync } from "../tools/SyncPanel";
+import { formatSize } from "../../lib/format";
 
 /** LANX 1.6.0: a card in a chat — notice, poll, task, approval, checklist or
  *  meeting — with what people did with it and the buttons to take part. */
@@ -48,6 +52,7 @@ const STYLE: Record<CardKind, { bar: string; icon: React.ElementType }> = {
   approval: { bar: "bg-sky-500/15 text-sky-700 dark:text-sky-300", icon: FileSignature },
   checklist: { bar: "bg-teal-500/15 text-teal-700 dark:text-teal-300", icon: ListChecks },
   event: { bar: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300", icon: CalendarDays },
+  sync: { bar: "bg-amber-500/15 text-amber-700 dark:text-amber-300", icon: FolderSync },
 };
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors active:scale-95 disabled:opacity-50";
@@ -75,6 +80,7 @@ export function CardView({
   wide?: boolean;
 }) {
   const card = parseCard(msg);
+  const [sync, reloadSync] = useSync();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [newItem, setNewItem] = useState("");
@@ -406,6 +412,107 @@ export function CardView({
             )}
           </div>
         )}
+      </>
+    );
+  }
+
+  if (card.kind === "sync") {
+    const share = sync.shares.find((s) => s.id === card.share_id);
+    const sub = sync.subscriptions.find((s) => s.share_id === card.share_id);
+    const run = async (f: () => Promise<unknown>) => {
+      setBusy(true);
+      try {
+        await f();
+        reloadSync();
+      } catch (e) {
+        onError(errorText(e));
+      } finally {
+        setBusy(false);
+      }
+    };
+    const get = () =>
+      run(async () => {
+        const where = await api.pickFolder(`Where should “${card.name}” go on this computer?`);
+        if (!where) return;
+        const tail = where.split(/[\\/]/).filter(Boolean).pop() ?? "";
+        const dest = tail.toLowerCase() === card.name.toLowerCase() ? where : `${where.replace(/[\\/]+$/, "")}\\${card.name}`;
+        await api.subscribeFolder(msg.id, dest);
+      });
+    status = msg.is_outgoing ? (
+      share ? <span className="rounded-full bg-emerald-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case">Sharing</span> : <span className="rounded-full bg-slate-500/20 px-2 py-0.5 text-[10px] font-bold normal-case">Stopped</span>
+    ) : sub?.status === "active" ? (
+      <span className="rounded-full bg-emerald-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case">You get it</span>
+    ) : null;
+    body = (
+      <>
+        <div className="flex items-center gap-3">
+          <span className="h-11 w-11 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0">
+            <FolderSync className="h-6 w-6" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[14px] font-semibold text-slate-900 dark:text-white truncate">{card.name}</div>
+            <div className="text-[11.5px] text-slate-500 dark:text-slate-400">
+              {card.files} file{card.files === 1 ? "" : "s"} · {formatSize(card.bytes)} · stays up to date
+            </div>
+          </div>
+        </div>
+        {msg.is_outgoing ? (
+          share ? (
+            <>
+              <div className="text-[11.5px] text-slate-600 dark:text-slate-300" data-sync-card-subs>
+                {share.subscribers.length ? `${share.subscribers.join(", ")} ${share.subscribers.length === 1 ? "gets" : "get"} a copy` : "Nobody has pressed “Get this folder” yet."}
+                {share.waiting > 0 && ` · ${share.waiting} file${share.waiting === 1 ? "" : "s"} on the way`}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button type="button" onClick={() => run(() => api.openSyncFolder(share.id))} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
+                  <FolderOpen className="h-3.5 w-3.5" /> Open
+                </button>
+                <ConfirmButton
+                  data-sync-card-stop
+                  label="Stop sharing"
+                  ask="Stop sharing?"
+                  onYes={() => run(() => api.stopSharingFolder(share.id))}
+                  className="ml-auto text-[11px] font-semibold text-red-600 hover:underline"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="text-[11.5px] text-slate-500">You stopped sharing this folder.</div>
+          )
+        ) : sub ? (
+          <>
+            <div className="text-[11.5px] text-slate-600 dark:text-slate-300 break-all" data-sync-card-dest>
+              {sub.status === "active" ? (
+                <>
+                  Saved in <b>{sub.dest_path}</b> · {sub.files} file{sub.files === 1 ? "" : "s"} received · last {ago(sub.last_at)}
+                </>
+              ) : (
+                <>{nameOf(sub.owner_id)} stopped sharing it. Your copy in {sub.dest_path} stays.</>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button type="button" onClick={() => run(() => api.openSyncFolder(sub.share_id))} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
+                <FolderOpen className="h-3.5 w-3.5" /> Open
+              </button>
+              {sub.status === "active" && (
+                <ConfirmButton
+                  data-sync-card-unsub
+                  label="Stop getting it"
+                  ask="Stop getting it?"
+                  onYes={() => run(() => api.unsubscribeFolder(sub.share_id))}
+                  className="ml-auto text-[11px] font-semibold text-red-600 hover:underline"
+                />
+              )}
+            </div>
+          </>
+        ) : canAct ? (
+          <>
+            <div className="text-[11.5px] text-slate-500 dark:text-slate-400">Get a copy that stays up to date by itself.</div>
+            <button type="button" data-sync-get disabled={busy} onClick={get} className={`${btn} bg-amber-500 hover:bg-amber-600 text-white`}>
+              <FolderSync className="h-3.5 w-3.5" /> Get this folder
+            </button>
+          </>
+        ) : null}
       </>
     );
   }

@@ -54,6 +54,11 @@
   Pop $0
   ; "Start with Windows" entry created by LANX for this user.
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "LANX"
+  ; LANX 1.7.0: "Send to → LANX" in Explorer for this user (LANX makes it
+  ; again by itself on its next start if this was only an upgrade).
+  SetShellVarContext current
+  Delete "$SENDTO\LANX.lnk"
+  SetShellVarContext all
   ; The installer copy kept for sharing updates.
   ${If} $INSTDIR != ""
     Delete "$INSTDIR\updates\LANX-Setup-*.*"

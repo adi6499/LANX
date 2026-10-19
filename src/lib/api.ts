@@ -29,6 +29,11 @@ import {
   MeetingEvent,
   MeetingChatLine,
   ScheduledMessage,
+  SearchFilter,
+  Sticker,
+  SyncOverview,
+  SyncSubscription,
+  ToolsStatus,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -116,6 +121,13 @@ let mockSettings: UserSettings = {
   frost_level: 60,
   reduce_motion: false,
   cat_alerts: true,
+  quiet_hours: { enabled: false, start: 19 * 60, end: 9 * 60, days: [0, 1, 2, 3, 4, 5, 6] },
+  chat_folders: [
+    { id: "clients", name: "Clients" },
+    { id: "site", name: "Site team" },
+  ],
+  send_to_menu: true,
+  screenshot_hotkey: true,
   quick_replies: ["On my way 🚶", "Give me 5 minutes, please.", "In a meeting — I'll get back to you soon.", "Received, thanks 👍", "Can you call me?", "Done ✅"],
   profile: {
     avatar: "emoji:🦊",
@@ -193,6 +205,9 @@ const conv = (c: Partial<Conversation> & Pick<Conversation, "id" | "peer_name">)
   secret_ttl: 0,
   member_count: 0,
   membership: "",
+  muted_until: 0,
+  archived: false,
+  folders: [],
   ...c,
 });
 
@@ -200,7 +215,8 @@ let mockConversations: Conversation[] = [
   conv({ id: "grp-accounts", peer_name: "Accounts Team", kind: "group", member_count: 4, membership: "member", peer_avatar_color: "#0ea5e9", last_message_preview: "Quarter close on Friday", last_message_time: now() - 60, unread_count: 2 }),
   conv({ id: "conv-sarah", peer_id: "peer-sarah", peer_name: "Sarah (Accounts)", peer_avatar_color: "#6366f1", peer_ip: "192.168.1.104", last_message_preview: "📎 Vendor-Payments-Oct.xlsx", last_message_time: now() - 120, unread_count: 1 }),
   conv({ id: "conv-marcus", peer_id: "peer-marcus", peer_name: "Marcus (Stores)", peer_avatar_color: "#10b981", peer_ip: "192.168.1.115", last_message_preview: "🔒 Secret message", last_message_time: now() - 900, secret_ttl: 300 }),
-  conv({ id: "conv-elena", peer_id: "peer-elena", peer_name: "Elena (Sales)", peer_status: "offline", peer_avatar_color: "#ec4899", peer_ip: "192.168.1.142", last_message_preview: "Thanks!", last_message_time: now() - 4000 }),
+  conv({ id: "conv-elena", peer_id: "peer-elena", peer_name: "Elena (Sales)", peer_status: "offline", peer_avatar_color: "#ec4899", peer_ip: "192.168.1.142", last_message_preview: "Thanks!", last_message_time: now() - 4000, folders: ["clients"] }),
+  conv({ id: "conv-ravi", peer_id: "peer-ravi", peer_name: "Ravi (Transport)", peer_status: "offline", peer_avatar_color: "#f97316", peer_ip: "192.168.1.150", last_message_preview: "☕ Sticker: Coffee?", last_message_time: now() - 90000, archived: true, unread_count: 1 }),
 ];
 
 let mockGroups: Record<string, GroupInfo> = {
@@ -1142,7 +1158,196 @@ export const api = {
     if (isTauri) return invoke("get_call");
     return null;
   },
+
+  // ------------------------------------------------------- 1.7.0: tools
+  setChatPinned: async (conversationId: string, pinned: boolean): Promise<Conversation> => {
+    if (isTauri) return invoke("set_chat_pinned", { conversationId, pinned });
+    return mockConv(conversationId, { is_pinned: pinned });
+  },
+  /** minutes: -1 = until turned back on, 0 = sounds back on. */
+  setChatMuted: async (conversationId: string, minutes: number): Promise<Conversation> => {
+    if (isTauri) return invoke("set_chat_muted", { conversationId, minutes });
+    return mockConv(conversationId, { muted_until: minutes < 0 ? -1 : minutes === 0 ? 0 : now() + minutes * 60 });
+  },
+  setChatArchived: async (conversationId: string, archived: boolean): Promise<Conversation> => {
+    if (isTauri) return invoke("set_chat_archived", { conversationId, archived });
+    return mockConv(conversationId, { archived });
+  },
+  setChatFolders: async (conversationId: string, folders: string[]): Promise<Conversation> => {
+    if (isTauri) return invoke("set_chat_folders", { conversationId, folders });
+    return mockConv(conversationId, { folders });
+  },
+  searchMessagesEx: async (query: string, filter: SearchFilter): Promise<SearchHit[]> => {
+    if (isTauri) return invoke("search_messages_ex", { query, filter });
+    const q = query.trim().toLowerCase();
+    const since = filter.since ?? 0;
+    return Object.values(mockMessages)
+      .flat()
+      .filter((m) => ["text", "file", "card"].includes(m.message_type) && !m.ttl_secs)
+      .filter((m) => !q || m.content.toLowerCase().includes(q))
+      .filter((m) => !filter.conversation_id || m.conversation_id === filter.conversation_id)
+      .filter((m) => !filter.sender || (filter.sender === "me" ? m.is_outgoing : !m.is_outgoing && m.sender_id === filter.sender))
+      .filter((m) => m.timestamp >= since)
+      .filter((m) => {
+        switch (filter.kind) {
+          case "text":
+            return m.message_type === "text";
+          case "files":
+            return m.message_type === "file";
+          case "links":
+            return m.message_type === "text" && /https?:\/\/|www\./i.test(m.content);
+          case "cards":
+            return m.message_type === "card";
+          default:
+            return true;
+        }
+      })
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .map((m) => {
+        const c = mockConversations.find((x) => x.id === m.conversation_id);
+        return { message: m, peer_name: c?.peer_name ?? "", peer_avatar_color: c?.peer_avatar_color ?? "#6366f1" };
+      });
+  },
+  messageForTransfer: async (transferId: string): Promise<Message | null> => {
+    if (isTauri) return invoke("message_for_transfer", { transferId });
+    const t = mockTransfers.find((x) => x.id === transferId);
+    const key = t?.parent_id ?? transferId;
+    return Object.values(mockMessages).flat().find((m) => m.transfer_id === key) ?? null;
+  },
+  listStickers: async (): Promise<Sticker[]> => {
+    if (isTauri) return invoke("list_stickers");
+    return MOCK_STICKERS;
+  },
+  sendSticker: async (conversationId: string, id: string): Promise<Message> => {
+    if (isTauri) return invoke("send_sticker", { conversationId, id });
+    const m = msg({ id: `st-${Date.now()}`, conversation_id: conversationId, content: id, message_type: "sticker" });
+    mockMessages[conversationId] = [...(mockMessages[conversationId] || []), m];
+    return m;
+  },
+  /** Hides LANX for a moment and pictures the whole screen. */
+  captureScreen: async (): Promise<ArrayBuffer> => {
+    if (isTauri) return invoke("capture_screen");
+    return mockScreenshot();
+  },
+  /** The picture taken with Ctrl + Alt + S. */
+  takeHotkeyCapture: async (): Promise<ArrayBuffer> => {
+    if (isTauri) return invoke("take_hotkey_capture");
+    return mockScreenshot();
+  },
+  /** Saves to Pictures\LANX Screenshots; returns where. */
+  saveScreenshot: async (dataBase64: string): Promise<string> => {
+    if (isTauri) return invoke("save_screenshot", { dataBase64 });
+    return "C:\\Users\\You\\Pictures\\LANX Screenshots\\Screenshot.png";
+  },
+  getToolsStatus: async (): Promise<ToolsStatus> => {
+    if (isTauri) return invoke("get_tools_status");
+    return { hotkey: "Ctrl + Alt + S", hotkey_working: true };
+  },
+  /** Files and folders from Explorer's "Send to → LANX". */
+  takeSendRequest: async (): Promise<string[]> => {
+    if (isTauri) return invoke("take_send_request");
+    return [];
+  },
+  pickFolder: async (title: string): Promise<string | null> => {
+    if (isTauri) return invoke("pick_folder", { title });
+    return "D:\\Shared\\Price Lists";
+  },
+  shareFolder: async (conversationId: string, path: string): Promise<Message> => {
+    if (isTauri) return invoke("share_folder", { conversationId, path });
+    const name = path.split(/[\\/]/).pop() || "Shared folder";
+    const id = `share-${Date.now()}`;
+    mockSync.shares.push({ id, name, path, conversation_id: conversationId, created_at: now(), active: true, subscribers: [], waiting: 0 });
+    const m = msg({ id: `card-${Date.now()}`, conversation_id: conversationId, message_type: "card", content: JSON.stringify({ kind: "sync", name, share_id: id, files: 42, bytes: 18_400_000 }), card_state: [] });
+    mockMessages[conversationId] = [...(mockMessages[conversationId] || []), m];
+    return m;
+  },
+  subscribeFolder: async (messageId: string, dest: string): Promise<SyncSubscription> => {
+    if (isTauri) return invoke("subscribe_folder", { messageId, dest });
+    const m = Object.values(mockMessages).flat().find((x) => x.id === messageId);
+    const c = m ? JSON.parse(m.content) : {};
+    const sub: SyncSubscription = { share_id: c.share_id, owner_id: m?.sender_id ?? "", owner_name: "Sarah (Accounts)", name: c.name, dest_path: dest, conversation_id: m?.conversation_id ?? "", since: now(), files: 0, bytes: 0, last_at: 0, status: "active" };
+    mockSync.subscriptions = [...mockSync.subscriptions.filter((s) => s.share_id !== sub.share_id), sub];
+    return sub;
+  },
+  unsubscribeFolder: async (shareId: string): Promise<void> => {
+    if (isTauri) return invoke("unsubscribe_folder", { shareId });
+    mockSync.subscriptions = mockSync.subscriptions.filter((s) => s.share_id !== shareId);
+  },
+  stopSharingFolder: async (shareId: string): Promise<void> => {
+    if (isTauri) return invoke("stop_sharing_folder", { shareId });
+    mockSync.shares = mockSync.shares.filter((s) => s.id !== shareId);
+  },
+  resyncFolder: async (shareId: string): Promise<void> => {
+    if (isTauri) return invoke("resync_folder", { shareId });
+  },
+  listSync: async (): Promise<SyncOverview> => {
+    if (isTauri) return invoke("list_sync");
+    return { shares: [...mockSync.shares], subscriptions: [...mockSync.subscriptions] };
+  },
+  openSyncFolder: async (shareId: string): Promise<void> => {
+    if (isTauri) return invoke("open_sync_folder", { shareId });
+  },
 };
+
+const MOCK_STICKERS: Sticker[] = [
+  ["thanks", "🙏", "Thank you!"], ["ok", "👍", "OK!"], ["on-it", "🫡", "On it!"], ["done", "✅", "Done!"],
+  ["great", "🌟", "Great job!"], ["lol", "😂", "LOL"], ["coffee", "☕", "Coffee?"], ["lunch", "🍱", "Lunch?"],
+  ["wow", "🤩", "Wow!"], ["sorry", "🙇", "Sorry!"], ["wait", "⏳", "One minute"], ["call", "📞", "Call me"],
+  ["meeting", "📅", "In a meeting"], ["hello", "👋", "Hello!"], ["night", "🌙", "Good night"], ["congrats", "🎉", "Congrats!"],
+  ["birthday", "🎂", "Happy birthday!"], ["diwali", "🪔", "Happy Diwali!"], ["party", "🥳", "Party!"], ["love", "❤️", "Love it!"],
+  ["fire", "🔥", "On fire!"], ["think", "🤔", "Hmm…"], ["tired", "😴", "So tired"], ["cat", "🐱", "Meow!"],
+].map(([id, emoji, words]) => ({ id, emoji, words }));
+
+const mockSync: SyncOverview = {
+  shares: [],
+  subscriptions: [
+    { share_id: "share-sarah-prices", owner_id: "peer-sarah", owner_name: "Sarah (Accounts)", name: "Price Lists 2026", dest_path: "D:\\LANX\\Price Lists 2026", conversation_id: "conv-sarah", since: now() - 86400, files: 37, bytes: 52_000_000, last_at: now() - 600, status: "active" },
+  ],
+};
+
+/** Browser preview: changes a pretend chat. */
+function mockConv(id: string, patch: Partial<Conversation>): Conversation {
+  mockConversations = mockConversations.map((c) => (c.id === id ? { ...c, ...patch } : c));
+  return mockConversations.find((c) => c.id === id)!;
+}
+
+/** Browser preview: a pretend desktop picture (size + BGRA pixels). */
+function mockScreenshot(): ArrayBuffer {
+  const w = 1600;
+  const h = 900;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext("2d")!;
+  const grad = g.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, "#1e3a8a");
+  grad.addColorStop(1, "#0ea5e9");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = "#ffffff";
+  g.fillRect(180, 120, 900, 560);
+  g.fillStyle = "#e2e8f0";
+  g.fillRect(180, 120, 900, 44);
+  g.fillStyle = "#0f172a";
+  g.font = "bold 28px Segoe UI, sans-serif";
+  g.fillText("Q3 Vendor Payments.xlsx", 210, 220);
+  g.font = "20px Segoe UI, sans-serif";
+  for (let i = 0; i < 12; i++) g.fillText(`Row ${i + 1}    ₹ ${(12000 + i * 1375).toLocaleString("en-IN")}    Paid`, 210, 270 + i * 32);
+  g.fillStyle = "#0f172a";
+  g.fillRect(0, h - 48, w, 48);
+  const rgba = g.getImageData(0, 0, w, h).data;
+  const out = new Uint8Array(8 + w * h * 4);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, w, true);
+  view.setUint32(4, h, true);
+  for (let i = 0; i < w * h; i++) {
+    out[8 + i * 4] = rgba[i * 4 + 2];
+    out[8 + i * 4 + 1] = rgba[i * 4 + 1];
+    out[8 + i * 4 + 2] = rgba[i * 4];
+    out[8 + i * 4 + 3] = 255;
+  }
+  return out.buffer;
+}
 
 function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
   if (isTauri) return listen<T>(event, (e) => cb(e.payload));
@@ -1186,6 +1391,12 @@ export const events = {
   /** LANX 1.5.0: the "send later" list of a chat changed. */
   onScheduledChanged: (cb: (e: { conversation_id: string; problem: string | null }) => void) =>
     on<{ conversation_id: string; problem: string | null }>("lanx://scheduled-changed", cb),
+  /** LANX 1.7.0: shared folders changed (someone got / stopped / a file arrived). */
+  onSyncChanged: (cb: () => void) => on<null>("lanx://sync-changed", () => cb()),
+  /** LANX 1.7.0: Ctrl + Alt + S took a screenshot. */
+  onScreenshotReady: (cb: () => void) => on<null>("lanx://screenshot-ready", () => cb()),
+  /** LANX 1.7.0: files from Explorer's "Send to → LANX". */
+  onSendRequest: (cb: () => void) => on<null>("lanx://send-request", () => cb()),
 };
 
 let mockScheduled: ScheduledMessage[] = [];

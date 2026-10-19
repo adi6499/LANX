@@ -297,3 +297,83 @@ fn profiles_are_cleaned_expire_and_round_trip() {
     assert_eq!(db.peer_profile_rev("peer-1"), Some(42));
     assert_eq!(db.peer_profiles().unwrap().get("peer-1"), Some(&back));
 }
+
+#[test]
+fn chat_flags_filtered_search_and_shared_folder_retries() {
+    use crate::storage::tools::{SearchFilter, SyncShare};
+    let db = Database::new_in_memory().unwrap();
+    let conv = db.get_or_create_conversation("peer-1").unwrap();
+    assert!(!conv.archived && conv.muted_until == 0 && conv.folders.is_empty());
+    db.set_conversation_muted(&conv.id, -1).unwrap();
+    db.set_conversation_archived(&conv.id, true).unwrap();
+    db.set_conversation_folders(&conv.id, &["clients".to_string()]).unwrap();
+    let c = db.get_conversation(&conv.id).unwrap().unwrap();
+    assert!(c.is_muted(now()) && c.archived);
+    assert_eq!(c.folders, vec!["clients".to_string()]);
+    db.set_conversation_muted(&conv.id, now() - 5).unwrap();
+    assert!(!db.get_conversation(&conv.id).unwrap().unwrap().is_muted(now()), "mute ran out");
+
+    // Stickers wait in the outbox like text (they once didn't leave at all).
+    let mut sticker = text_message("st", &conv.id, "thanks", true, "queued");
+    sticker.message_type = "sticker".into();
+    db.insert_message(&sticker).unwrap();
+    assert!(db.pending_outgoing_messages("peer-1").unwrap().iter().any(|m| m.id == "st"));
+    assert!(db.has_pending_outbox("peer-1"));
+    db.insert_message(&text_message("a", &conv.id, "see https://example.com", true, "delivered")).unwrap();
+    db.insert_message(&text_message("b", &conv.id, "lunch?", false, "delivered")).unwrap();
+    let f = |kind: &str, sender: &str| SearchFilter {
+        kind: Some(kind.to_string()),
+        sender: (!sender.is_empty()).then(|| sender.to_string()),
+        ..Default::default()
+    };
+    let ids = |hits: Vec<crate::storage::models::SearchHit>| hits.into_iter().map(|h| h.message.id).collect::<Vec<_>>();
+    assert_eq!(ids(db.search_messages_ex("", &f("links", ""), 10, false).unwrap()), vec!["a"]);
+    assert_eq!(ids(db.search_messages_ex("", &f("all", "peer-1"), 10, false).unwrap()), vec!["b"]);
+    assert_eq!(ids(db.search_messages_ex("", &f("all", "me"), 10, false).unwrap()), vec!["a"]);
+    let hits = db.search_messages_ex("lunch", &SearchFilter::default(), 10, false).unwrap();
+    assert_eq!(hits.len(), 1);
+
+    let share = SyncShare {
+        id: "s1".into(),
+        name: "Reports".into(),
+        path: "C:/Reports".into(),
+        conversation_id: conv.id.clone(),
+        created_at: now(),
+        active: true,
+        subscribers: Vec::new(),
+    };
+    db.insert_sync_share(&share).unwrap();
+    db.add_sync_subscriber("s1", "peer-1", now()).unwrap();
+    db.mark_sync_sent("s1", "peer-1", "Q3.xlsx", 10, 100).unwrap();
+    let t = TransferRecord {
+        id: "st".into(),
+        peer_id: "peer-1".into(),
+        peer_name: None,
+        conversation_id: Some(conv.id.clone()),
+        file_name: "Q3.xlsx".into(),
+        file_size: 10,
+        file_hash: String::new(),
+        direction: "outgoing".into(),
+        status: "queued".into(),
+        transferred_bytes: 0,
+        local_path: None,
+        error_reason: None,
+        created_at: now(),
+        completed_at: None,
+        duration_ms: None,
+        started_bytes: None,
+        parent_id: None,
+        temp_path: None,
+        kind: "sync".into(),
+    };
+    db.insert_transfer(&t).unwrap();
+    db.insert_sync_transfer("st", "s1", "Q3.xlsx").unwrap();
+    assert_eq!(db.sync_pending_count("s1").unwrap(), 1);
+    assert!(db.list_transfers(true).unwrap().iter().all(|x| x.kind != "sync"), "not in the transfers list");
+    db.update_transfer_status("st", "failed", Some("offline")).unwrap();
+    assert_eq!(db.sync_retry_failed("s1").unwrap(), 1, "failed file is sent again");
+    assert!(db.sync_sent_map("s1", "peer-1").unwrap().is_empty());
+    assert!(db.get_transfer("st").unwrap().is_none());
+    db.prune_sync_transfers(now() + 10).unwrap();
+    assert!(db.sync_transfer("st").unwrap().is_none());
+}

@@ -554,7 +554,7 @@ impl NetworkService {
         if !g.members.iter().any(|x| x.device_id == sender.id) {
             return ack(false, Some("You are not in this group"));
         }
-        if (m.message_type != "text" && m.message_type != "card") || m.content.trim().is_empty() || m.content.len() > MAX_MESSAGE_CONTENT_LEN {
+        if !matches!(m.message_type.as_str(), "text" | "card" | "sticker") || m.content.trim().is_empty() || m.content.len() > MAX_MESSAGE_CONTENT_LEN {
             return ack(false, Some("Message rejected (empty or too long)"));
         }
         // LANX 1.6.0 cards are checked like everything else.
@@ -562,6 +562,11 @@ impl NetworkService {
             match super::org::parse_card(&m.content).and_then(|c| super::org::clean_card(&c).ok()) {
                 Some(c) => (c.to_string(), "card".to_string()),
                 None => return ack(false, Some("Card rejected")),
+            }
+        } else if m.message_type == "sticker" {
+            match super::tools::sticker(m.content.trim()) {
+                Some((id, _, _)) => (id.to_string(), "sticker".to_string()),
+                None => return ack(false, Some("Unknown sticker")),
             }
         } else {
             (m.content.clone(), "text".to_string())
@@ -639,7 +644,10 @@ impl NetworkService {
                 ..Default::default()
             }
         };
-        self.events.notify_island(&self.db, AlertKind::Message, &title, &body, alert);
+        // LANX 1.7.0: muted chats stay quiet, unless you are @mentioned.
+        if mentioned || !self.chat_muted(&gid) {
+            self.events.notify_island(&self.db, AlertKind::Message, &title, &body, alert);
+        }
         self.events.update_tray(&self.db);
         ack(true, None)
     }

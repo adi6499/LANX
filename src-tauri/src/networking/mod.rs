@@ -9,6 +9,7 @@ pub mod org;
 pub mod profiles;
 pub mod protocol;
 pub mod session;
+pub mod tools;
 pub mod transfer;
 pub mod update;
 #[cfg(test)]
@@ -178,6 +179,19 @@ impl NetworkService {
                     _ = this.cancel_token.cancelled() => break,
                     _ = tokio::time::sleep(Duration::from_secs(2)) => {
                         this.delete_expired_messages();
+                    }
+                }
+            }
+        });
+
+        // LANX 1.7.0: shared folders send new and changed files.
+        let this = self.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(tools::SYNC_EVERY_SECS)) => {
+                        this.run_sync_round().await;
                     }
                 }
             }
@@ -715,10 +729,13 @@ impl NetworkService {
         // copy re-checks signatures on the fields it knows).
         let chat = version_at_least(&chan.remote.app_version, FEATURES_CHAT);
         let org = version_at_least(&chan.remote.app_version, FEATURES_ORG);
-        // Cards go to older copies as plain text.
+        let tools_ok = version_at_least(&chan.remote.app_version, FEATURES_TOOLS);
+        // Cards and stickers go to older copies as plain text.
         let wire = |m: &Message| -> (String, String) {
-            if m.message_type == "card" && !org {
+            if m.message_type == "card" && (!org || (!tools_ok && org::needs_tools(&m.content))) {
                 (org::card_fallback(&m.content), "text".to_string())
+            } else if m.message_type == "sticker" && !tools_ok {
+                (tools::sticker_fallback(&m.content), "text".to_string())
             } else {
                 (m.content.clone(), m.message_type.clone())
             }
@@ -979,6 +996,7 @@ impl NetworkService {
                 PacketPayload::Call(c) => Some(PacketPayload::Ack(self.handle_call(&peer, c))),
                 PacketPayload::Meeting(m) => Some(self.handle_meeting(&peer, m)),
                 PacketPayload::MessageAction(a) => Some(PacketPayload::Ack(self.handle_message_action(&peer, a))),
+                PacketPayload::Sync(s) => Some(PacketPayload::Ack(self.handle_sync(&peer, s))),
                 PacketPayload::GroupUpdate(g) => {
                     Some(PacketPayload::Ack(self.handle_group_update(&peer, g)))
                 }
@@ -1060,6 +1078,11 @@ impl NetworkService {
                 Some(c) => (c.to_string(), "card".to_string()),
                 None => return ack(false, Some("Card rejected")),
             }
+        } else if m.message_type == "sticker" {
+            match tools::sticker(m.content.trim()) {
+                Some((id, _, _)) => (id.to_string(), "sticker".to_string()),
+                None => return ack(false, Some("Unknown sticker")),
+            }
         } else {
             (m.content.clone(), "text".to_string())
         };
@@ -1113,7 +1136,10 @@ impl NetworkService {
             private,
             ..Default::default()
         };
-        self.events.notify_island(&self.db, AlertKind::Message, &title, &body, alert);
+        // LANX 1.7.0: muted chats stay quiet.
+        if !self.chat_muted(&msg.conversation_id) {
+            self.events.notify_island(&self.db, AlertKind::Message, &title, &body, alert);
+        }
         self.events.update_tray(&self.db);
         ack(true, None)
     }

@@ -1,7 +1,7 @@
 /** LANX 1.6.0: reading cards — what a card says and what people did with it. */
 import type { CardEntry, Message } from "../../types";
 
-export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event";
+export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync";
 
 export interface NoticeCard {
   kind: "notice";
@@ -46,7 +46,15 @@ export interface EventCard {
   video: boolean;
   agenda: string;
 }
-export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard;
+/** LANX 1.7.0: a shared folder that stays up to date. */
+export interface SyncCard {
+  kind: "sync";
+  name: string;
+  share_id: string;
+  files: number;
+  bytes: number;
+}
+export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard;
 
 export const KIND_LABEL: Record<CardKind, string> = {
   notice: "Notice",
@@ -55,6 +63,7 @@ export const KIND_LABEL: Record<CardKind, string> = {
   approval: "Approval",
   checklist: "Checklist",
   event: "Meeting",
+  sync: "Shared folder",
 };
 
 export function parseCard(m: Message): Card | null {

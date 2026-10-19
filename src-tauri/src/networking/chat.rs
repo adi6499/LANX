@@ -179,7 +179,7 @@ impl NetworkService {
         if m.deleted {
             return Err("That message was deleted.".to_string());
         }
-        if m.message_type != "text" && m.message_type != "file" && m.message_type != "card" {
+        if !matches!(m.message_type.as_str(), "text" | "file" | "card" | "sticker") {
             return Err("You can't do that with this message.".to_string());
         }
         Ok(())
@@ -253,7 +253,7 @@ impl NetworkService {
     /// Deletes one of your messages for everyone ("This message was deleted").
     pub async fn delete_for_everyone(&self, message_id: &str) -> Result<Message, String> {
         let m = self.message(message_id)?;
-        if !m.is_outgoing || m.deleted || !matches!(m.message_type.as_str(), "text" | "file" | "card") {
+        if !m.is_outgoing || m.deleted || !matches!(m.message_type.as_str(), "text" | "file" | "card" | "sticker") {
             return Err("Only your own messages can be deleted for everyone.".to_string());
         }
         if now_secs() - m.timestamp > DELETE_WINDOW_SECS {

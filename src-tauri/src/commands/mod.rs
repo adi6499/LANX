@@ -3,6 +3,7 @@ pub mod calls;
 pub mod chat;
 pub mod meetings;
 pub mod org;
+pub mod tools;
 
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};
 use crate::networking::NetworkService;
@@ -64,6 +65,11 @@ pub fn save_settings(
     state.db.save_settings(&settings).map_err(err)?;
     if settings.onboarding_completed {
         apply_autostart(&app, settings.launch_at_startup);
+    }
+    // LANX 1.7.0 (normal installation only, never test copies).
+    if crate::testmode::profile().is_none() {
+        crate::shell::set_hotkey(settings.screenshot_hotkey);
+        crate::shell::apply_send_to(settings.send_to_menu);
     }
     state.db.get_settings().map_err(err)
 }

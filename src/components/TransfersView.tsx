@@ -11,6 +11,8 @@ interface TransfersViewProps {
   actions: TransferActions;
   onOpenDownloads: () => void;
   onClearFinished: () => void;
+  /** LANX 1.7.0: Transfers / Library / Shared folders. */
+  modeSwitch?: React.ReactNode;
 }
 
 type Filter = "all" | "active" | "incoming" | "outgoing";
@@ -23,6 +25,7 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
   actions,
   onOpenDownloads,
   onClearFinished,
+  modeSwitch,
 }) => {
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -56,11 +59,13 @@ export const TransfersView: React.FC<TransfersViewProps> = ({
   return (
     <div className="flex-1 h-full flex flex-col overflow-hidden select-none lanx-screen-in">
       <div className="h-16 px-8 border-b lanx-line lanx-bar flex items-center justify-between shrink-0 gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 flex items-center gap-3">
           <h2 className="text-base font-bold text-slate-900 dark:text-white">Files</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-            Any size · encrypted · verified · resumable
-          </p>
+          {modeSwitch ?? (
+            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+              Any size · encrypted · verified · resumable
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2 text-xs shrink-0">

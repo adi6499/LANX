@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 8;
+pub const LATEST_SCHEMA_VERSION: i64 = 9;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -350,6 +350,63 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (8, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 9 {
+        // v9 (LANX 1.7.0): mute / archive / folders for chats, and shared
+        // folders that stay in sync.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE conversations ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE conversations ADD COLUMN folders TEXT;
+            CREATE TABLE IF NOT EXISTS sync_shares (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS sync_subscribers (
+                share_id TEXT NOT NULL,
+                peer_id TEXT NOT NULL,
+                since INTEGER NOT NULL,
+                PRIMARY KEY (share_id, peer_id)
+            );
+            CREATE TABLE IF NOT EXISTS sync_sent (
+                share_id TEXT NOT NULL,
+                peer_id TEXT NOT NULL,
+                rel_path TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                mtime INTEGER NOT NULL,
+                PRIMARY KEY (share_id, peer_id, rel_path)
+            );
+            CREATE TABLE IF NOT EXISTS sync_subscriptions (
+                share_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                dest_path TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                since INTEGER NOT NULL,
+                files INTEGER NOT NULL DEFAULT 0,
+                bytes INTEGER NOT NULL DEFAULT 0,
+                last_at INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active'
+            );
+            CREATE TABLE IF NOT EXISTS sync_transfers (
+                transfer_id TEXT PRIMARY KEY,
+                share_id TEXT NOT NULL,
+                rel_path TEXT NOT NULL
+            );
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (9, now),
         )?;
         tx.commit()?;
     }

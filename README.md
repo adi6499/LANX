@@ -44,6 +44,32 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.7.0: tools
+- **Chat folders, mute, archive, pin.** Right-click any chat in the list: **Pin to the top**, **Mute…** (1 hour, 8 hours,
+  1 day, 1 week or until you turn it back on), **Chat folders…** and **Archive**. Folders (e.g. "Clients", "Site team")
+  appear as buttons above your chats, next to **All**, **Unread** and **Archived**; the folder button with ＋ makes, renames
+  and deletes folders. Muted chats show 🔕 and make no sound or pop-up (in groups you still hear an @mention).
+- **Quiet hours** (Settings → General) — no sounds or pop-ups for messages, files and rings at the times and days you choose,
+  e.g. 19:00 to 09:00. Messages still arrive; calls still come through.
+- **Screenshot tool.** Press **Ctrl + Alt + S** anywhere in Windows (or the ✂ button next to the message box). Drag to choose
+  the part you want, then mark it up: **arrows, boxes, pen, highlighter, text and blur** (to hide private numbers). Then
+  **Send** it to any chat, **Copy** it, or **Save** it (Pictures → LANX Screenshots).
+- **"Send to → LANX" in File Explorer.** Right-click files or folders → **Send to** → **LANX** (on Windows 11 first
+  "Show more options"), pick one or more chats or colleagues, press **Send**. Turn it off in Settings → General.
+- **Better search.** The **History** tab now has filters: Messages / Files / Links / Notices & tasks, in which chat, from whom,
+  and when (today, past 7 days…). Click a result to jump straight to that message. Typing in the search box above your
+  chats also offers **Search all messages for "…"**.
+- **File library.** **Files → Library** shows every file you sent or received, with pictures as thumbnails. Filter by type
+  (pictures, documents & PDFs, spreadsheets, videos, audio, zip), chat, sent/received; sort by date, size or name; open it,
+  show it in its folder, or jump to the chat message.
+- **Stickers.** The sticker button next to the message box: 24 big, friendly stickers (Thank you!, On it!, Coffee?, Happy Diwali!…).
+- **Shared folders that stay in sync.** In a chat, press **+** → **Share a folder**. Colleagues press **Get this folder** on the card
+  and choose where it goes. New and changed files then reach them by themselves (checked every 30 seconds while both computers
+  are on), inside the same sub-folders. It works one way (from the person who shares), and nothing is ever deleted on the
+  receiving side. See and manage everything in **Files → Shared folders** (open, send everything again, stop sharing / stop getting).
+- Works with older versions: stickers and shared-folder cards reach colleagues on older LANX as plain text; shared folders,
+  stickers and the rest start working with them once they update to 1.7.0.
+
 ### New in 1.6.0: organising
 Press **+** next to the message box in any chat to post one of these. Everyone in the chat sees it update live.
 - **Notices** — an announcement (mark it *important*); everyone presses **I've read it**, and you see who has

@@ -65,6 +65,19 @@ pub const FEATURES_CHAT: &str = "1.5.0";
 /// { action: "card" }`. Older peers get the card as plain text.
 pub const FEATURES_ORG: &str = "1.6.0";
 
+/// Oldest app version with 1.7.0 tools: stickers (`message_type =
+/// "sticker"`), shared folders (`Sync` packets, `FileOfferPayload.sync_id /
+/// sync_path`, cards of kind "sync").
+pub const FEATURES_TOOLS: &str = "1.7.0";
+
+/// LANX 1.7.0: shared folders. Answered with `Ack`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SyncPayload {
+    /// subscribe | unsubscribe | stopped
+    pub action: String,
+    pub share_id: String,
+}
+
 /// LANX 1.5.0: something done to an existing message, sent to everyone in
 /// the chat. Answered with `Ack`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -312,6 +325,12 @@ pub struct FileOfferPayload {
     /// LANX 1.5.0: a voice note's length in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_ms: Option<u64>,
+    /// LANX 1.7.0 (only to 1.7.0+): a file of a shared folder…
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_id: Option<String>,
+    /// …and where in it ("Reports/2026/Q3.xlsx").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_path: Option<String>,
 }
 
 /// LANX 1.2: "I have the official installer of LANX `version`; pull it with
@@ -447,6 +466,8 @@ pub enum PacketPayload {
     Meeting(MeetingPayload),
     // LANX 1.5.0 (only sent to peers reporting app_version >= 1.5.0)
     MessageAction(MessageActionPayload),
+    // LANX 1.7.0 (only sent to peers reporting app_version >= 1.7.0)
+    Sync(SyncPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

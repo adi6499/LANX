@@ -513,6 +513,8 @@ fn plain_messages_keep_the_1_0_wire_format() {
         folder: None,
         kind: None,
         media_ms: None,
+        sync_id: None,
+        sync_path: None,
     }))
     .unwrap();
     assert!(!o["data"].as_object().unwrap().contains_key("group_id"));

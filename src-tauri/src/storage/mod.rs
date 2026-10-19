@@ -1,4 +1,5 @@
 mod chat;
+pub mod tools;
 pub mod models;
 pub mod schema;
 #[cfg(test)]
@@ -100,7 +101,7 @@ const CONV_SELECT: &str = "SELECT c.id, COALESCE(c.peer_id, ''), COALESCE(p.disp
         c.last_message_preview, c.last_message_time, c.unread_count, c.is_pinned, c.created_at,
         c.kind, c.is_hidden, c.secret_ttl,
         (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.group_id = c.id),
-        COALESCE(g.membership, '')
+        COALESCE(g.membership, ''), c.muted_until, c.archived, c.folders
      FROM conversations c LEFT JOIN peers p ON c.peer_id = p.id LEFT JOIN groups g ON g.id = c.id";
 const MSG_COLS: &str = "id, conversation_id, sender_id, receiver_id, content, message_type, timestamp, status, error_reason, is_outgoing, transfer_id, ttl_secs, expire_at, reply_to, reply_preview, mentions, edited_at, deleted, pinned_at, pinned_by, starred";
 const TRANSFER_SELECT: &str = "SELECT t.id, t.peer_id, p.display_name, t.conversation_id, t.file_name, t.file_size, t.file_hash,
@@ -144,6 +145,12 @@ fn row_to_conversation(row: &Row) -> Result<Conversation> {
         secret_ttl: row.get::<_, i64>(13)?.max(0) as u32,
         member_count: row.get(14)?,
         membership: row.get(15)?,
+        muted_until: row.get(16)?,
+        archived: row.get::<_, i64>(17)? != 0,
+        folders: row
+            .get::<_, Option<String>>(18)?
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
     })
 }
 
@@ -410,6 +417,18 @@ impl Database {
                 .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
                 .map(|l| clean_quick_replies(&l))
                 .unwrap_or_else(default_quick_replies),
+            quiet_hours: map
+                .get("quiet_hours")
+                .and_then(|v| serde_json::from_str::<QuietHours>(v).ok())
+                .map(|q| q.cleaned())
+                .unwrap_or_default(),
+            chat_folders: map
+                .get("chat_folders")
+                .and_then(|v| serde_json::from_str::<Vec<ChatFolder>>(v).ok())
+                .map(|l| clean_chat_folders(&l))
+                .unwrap_or_default(),
+            send_to_menu: flag("send_to_menu", true),
+            screenshot_hotkey: flag("screenshot_hotkey", true),
             profile: map
                 .get("profile")
                 .and_then(|v| serde_json::from_str::<Profile>(v).ok())
@@ -472,6 +491,13 @@ impl Database {
                 "quick_replies",
                 serde_json::to_string(&clean_quick_replies(&settings.quick_replies)).unwrap_or_default(),
             ),
+            ("quiet_hours", serde_json::to_string(&settings.quiet_hours.cleaned()).unwrap_or_default()),
+            (
+                "chat_folders",
+                serde_json::to_string(&clean_chat_folders(&settings.chat_folders)).unwrap_or_default(),
+            ),
+            ("send_to_menu", settings.send_to_menu.to_string()),
+            ("screenshot_hotkey", settings.screenshot_hotkey.to_string()),
         ];
 
         for (k, v) in pairs {
@@ -1001,13 +1027,13 @@ impl Database {
         Ok(())
     }
 
-    /// Outgoing direct messages (text and secret-mode changes) still waiting
+    /// Outgoing direct messages (text, cards, stickers, secret-mode changes) still waiting
     /// to reach `peer_id`.
     pub fn pending_outgoing_messages(&self, peer_id: &str) -> Result<Vec<Message>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
             "SELECT {} FROM messages
-             WHERE receiver_id = ?1 AND is_outgoing = 1 AND message_type IN ('text', 'secret_setting', 'card')
+             WHERE receiver_id = ?1 AND is_outgoing = 1 AND message_type IN ('text', 'secret_setting', 'card', 'sticker')
                AND status IN ('sending', 'queued')
              ORDER BY timestamp ASC, rowid ASC",
             MSG_COLS
@@ -1023,7 +1049,7 @@ impl Database {
         };
         count(
             "SELECT COUNT(*) FROM messages WHERE receiver_id = ?1 AND is_outgoing = 1
-             AND message_type IN ('text', 'secret_setting', 'card') AND status IN ('sending', 'queued')",
+             AND message_type IN ('text', 'secret_setting', 'card', 'sticker') AND status IN ('sending', 'queued')",
         ) + count(
             "SELECT COUNT(*) FROM transfers WHERE peer_id = ?1 AND direction = 'outgoing' AND status = 'queued'",
         ) + count(
@@ -1603,7 +1629,7 @@ impl Database {
             .join(", ");
         let mut stmt = conn.prepare(&format!(
             "SELECT {} FROM message_deliveries d JOIN messages m ON m.id = d.message_id
-             WHERE d.peer_id = ?1 AND d.status IN ('sending', 'queued') AND m.message_type IN ('text', 'card')
+             WHERE d.peer_id = ?1 AND d.status IN ('sending', 'queued') AND m.message_type IN ('text', 'card', 'sticker')
              ORDER BY m.timestamp ASC, m.rowid ASC",
             cols
         ))?;
@@ -1647,6 +1673,7 @@ pub fn message_preview(msg: &Message) -> String {
         "ring" => "🔔 Ring".to_string(),
         "call" => call_preview(&msg.content, msg.is_outgoing),
         "card" => crate::networking::org::card_preview(&msg.content),
+        "sticker" => crate::networking::tools::sticker_preview(&msg.content),
         "meeting" => meeting_preview(&msg.content),
         "recording" => "🔴 Recording saved".to_string(),
         _ => preview_text(&msg.content),
