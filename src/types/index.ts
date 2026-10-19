@@ -116,7 +116,7 @@ export interface Message {
   sender_id: string;
   receiver_id: string;
   content: string;
-  message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call";
+  message_type: "text" | "file" | "system" | "secret_setting" | "ring" | "call" | "meeting" | "recording";
   timestamp: number;
   status: MessageStatus;
   error_reason?: string | null;
@@ -376,5 +376,60 @@ export interface CallEvent {
   video: boolean | null;
   muted: boolean | null;
   screen: boolean | null;
+  reason: string | null;
+  /** LANX 1.4.0: the other side started / stopped recording. */
+  recording?: boolean | null;
+}
+
+/** LANX 1.4.0: someone in a meeting. */
+export interface MeetingPerson {
+  device_id: string;
+  name: string;
+  avatar_color: string;
+  muted: boolean;
+  camera: boolean;
+  screen: boolean;
+  hand: boolean;
+  recording: boolean;
+  is_me: boolean;
+}
+
+/** A meeting chat line (`from` is empty for LANX's notes: "Bharat joined"). */
+export interface MeetingChatLine {
+  from: string;
+  name: string;
+  text: string;
+  at: number;
+}
+
+export interface MeetingInfo {
+  meeting_id: string;
+  title: string;
+  conversation_id: string;
+  group_id: string | null;
+  host_id: string;
+  host_name: string;
+  inviter_id: string;
+  inviter_name: string;
+  inviter_color: string;
+  video: boolean;
+  phase: "invited" | "joined";
+  started_at: number;
+  joined_at: number | null;
+  people: MeetingPerson[];
+  chat: MeetingChatLine[];
+  /** Hidden chat or LANX locked: the invitation shows no names. */
+  private: boolean;
+  my_id: string;
+}
+
+export interface MeetingEvent {
+  action: "invited" | "joined" | "person-joined" | "person-left" | "signal" | "media" | "chat" | "declined" | "notice" | "ended";
+  meeting: MeetingInfo | null;
+  from: string | null;
+  person: MeetingPerson | null;
+  kind: "offer" | "answer" | null;
+  sdp: string | null;
+  text: string | null;
   reason: string | null;
 }

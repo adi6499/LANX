@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Bell, Check, ExternalLink, Folder, Phone, PhoneOff, Video, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bell, Check, ExternalLink, Folder, Phone, PhoneOff, Users, Video, X } from "lucide-react";
 import { Profile, TransferActions, TransferProgress, TransferRecord } from "../types";
 import { Avatar } from "./Avatar";
 import { formatEta, formatSize, formatSpeed, transferTiming } from "../lib/format";
 import { FileIcon, displayName, isFolderTransfer } from "./FileCard";
 import { CatMood, DeliveryCat } from "./DeliveryCat";
 import type { IslandCall } from "./CallLayer";
+import type { IslandMeeting } from "./MeetingLayer";
 
 /** A new message to show (LANX is in front, but that chat isn't open). */
 export interface IslandMessage {
@@ -40,6 +41,9 @@ interface DynamicIslandProps {
   onRingClose: () => void;
   call: IslandCall | null;
   callActions: { accept: (video: boolean) => void; decline: () => void; hangup: () => void; toggleSize: () => void };
+  /** LANX 1.4.0: the meeting invitation, or the meeting going on. */
+  meeting?: IslandMeeting | null;
+  meetingActions?: { join: (video: boolean) => void; decline: () => void; show: () => void };
   progress: Record<string, TransferProgress>;
   actions: TransferActions;
   /** Settings → Appearance → Delivery cat. */
@@ -49,7 +53,7 @@ interface DynamicIslandProps {
   onOpenChat: (conversationId: string) => void;
 }
 
-type Mode = "hidden" | "request" | "message" | "ring" | "call" | "callActive" | "active" | "detail" | "done";
+type Mode = "hidden" | "request" | "message" | "ring" | "call" | "callActive" | "meet" | "meetActive" | "active" | "detail" | "done";
 
 const SIZE: Record<Mode, { w: number; h: number; r: number }> = {
   hidden: { w: 120, h: 30, r: 15 },
@@ -60,6 +64,8 @@ const SIZE: Record<Mode, { w: number; h: number; r: number }> = {
   ring: { w: 380, h: 66, r: 33 },
   call: { w: 420, h: 112, r: 30 },
   callActive: { w: 210, h: 36, r: 18 },
+  meet: { w: 430, h: 116, r: 30 },
+  meetActive: { w: 250, h: 36, r: 18 },
   done: { w: 380, h: 62, r: 31 },
 };
 
@@ -115,6 +121,8 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
   catEnabled,
   onOpenChat,
   profiles = {},
+  meeting = null,
+  meetingActions,
 }) => {
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [expanded, setExpanded] = useState(false);
@@ -171,11 +179,14 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
 
   // While a call lasts, the small green pill counts the time.
   const [, setTick] = useState(0);
+  const meetingLive = meeting?.status === "active";
   useEffect(() => {
-    if (call?.status !== "active") return;
+    if (call?.status !== "active" && !meetingLive) return;
     const t = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(t);
-  }, [call?.status]);
+  }, [call?.status, meetingLive]);
+  const meetInvite = meeting?.status === "invited" ? meeting : null;
+  const meetFrom = meetInvite ? (meetInvite.private ? "A colleague" : meetInvite.inviterName) : "";
 
   const callRinging = !!call && call.status !== "active";
   const callName = call ? (call.private && call.status === "incoming" ? "Someone" : call.name) : "";
@@ -184,6 +195,13 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
   // (rings) or a phone (calls); it stays a moment afterwards to animate out.
   const want: Omit<CatState, "mood"> | null = !catEnabled
     ? null
+    : meetInvite && !callRinging
+      ? {
+          id: `meet-${meetInvite.meetingId}`,
+          variant: "phone",
+          from: meetFrom,
+          say: `${meetFrom.split(" ")[0]} invited you to a meeting! Join? 🎥`,
+        }
     : callRinging && call
       ? {
           id: "call",
@@ -224,11 +242,11 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
         const now = transfers.find((t) => t.id === cat.id);
         mood = now && ["declined", "cancelled"].includes(now.status) ? "bye" : "happy";
       } else if (cat.variant === "phone") {
-        mood = call?.status === "active" ? "happy" : "bye";
+        mood = call?.status === "active" || meeting?.status === "active" || meeting?.status === "joining" ? "happy" : "bye";
       }
       setCat({ ...cat, mood });
     }
-  }, [want?.id, want?.say, catEnabled, cat, call?.status]);
+  }, [want?.id, want?.say, catEnabled, cat, call?.status, meeting?.status]);
   useEffect(() => {
     if (!cat || cat.mood === "hello") return;
     const t = window.setTimeout(() => setCat(null), cat.mood === "happy" ? 1300 : 1100);
@@ -237,6 +255,8 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
 
   const mode: Mode = callRinging
     ? "call"
+    : meetInvite
+      ? "meet"
     : request
       ? "request"
       : ring
@@ -247,6 +267,8 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
             ? "done"
             : call?.status === "active"
               ? "callActive"
+              : meetingLive && meeting?.minimized
+                ? "meetActive"
               : active.length
                 ? expanded
                   ? "detail"
@@ -389,6 +411,68 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
           )}
         </div>
       </div>
+    );
+  } else if (mode === "meet" && meetInvite && meetingActions) {
+    content = (
+      <div className="flex h-full flex-col justify-between px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="relative h-11 w-11 shrink-0">
+            <span className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
+            <Avatar
+              name={meetFrom}
+              color={meetInvite.private ? "#64748b" : meetInvite.color}
+              profile={meetInvite.private ? null : profiles[meetInvite.inviterId]}
+              size={44}
+              className="relative ring-2 ring-white/20 rounded-full"
+            />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold truncate">{meetInvite.private ? "Meeting invitation" : meetInvite.title || "Meeting"}</span>
+            <span className="block text-[11px] text-white/60 truncate" data-island-meeting="invited">
+              {meetInvite.private ? "Someone invited you to a meeting" : `${meetInvite.inviterName} invited you to a meeting`}
+            </span>
+          </span>
+          <Users className="h-5 w-5 text-emerald-400" />
+        </div>
+        <div className="flex items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={meetingActions.decline}
+            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-red-500 hover:bg-red-400 text-[11px] font-bold"
+          >
+            <PhoneOff className="h-3.5 w-3.5" /> Decline
+          </button>
+          <button
+            type="button"
+            onClick={() => meetingActions.join(false)}
+            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/80 hover:bg-emerald-400 text-[11px] font-bold"
+          >
+            <Phone className="h-3.5 w-3.5" /> Voice
+          </button>
+          <button
+            type="button"
+            data-island-join
+            onClick={() => meetingActions.join(true)}
+            className="inline-flex items-center gap-1 px-3.5 py-1 rounded-full bg-emerald-500 hover:bg-emerald-400 text-[11px] font-bold shadow-md shadow-emerald-500/30"
+          >
+            <Video className="h-3.5 w-3.5" /> Join
+          </button>
+        </div>
+      </div>
+    );
+  } else if (mode === "meetActive" && meeting && meetingActions) {
+    const secs = meeting.joinedAt ? Math.max(0, Math.floor((Date.now() - meeting.joinedAt) / 1000)) : 0;
+    content = (
+      <button type="button" onClick={meetingActions.show} className="flex h-full w-full items-center gap-2 px-3" title="Show the meeting">
+        <span className={`h-2.5 w-2.5 rounded-full animate-pulse ${meeting.recording ? "bg-red-500" : "bg-emerald-400"}`} />
+        <Users className="h-4 w-4 text-emerald-400" />
+        <span className="min-w-0 flex-1 truncate text-left text-[12px] font-semibold">
+          {meeting.title || "Meeting"} · {meeting.count}
+        </span>
+        <span className="text-[12px] font-bold tabular-nums text-emerald-400" data-island-meeting="active">
+          {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+        </span>
+      </button>
     );
   } else if (mode === "callActive" && call) {
     const secs = call.connectedAt ? Math.max(0, Math.floor((Date.now() - call.connectedAt) / 1000)) : 0;
@@ -536,7 +620,7 @@ export const DynamicIsland: React.FC<DynamicIslandProps> = ({
 
   return (
     <div
-      className={`fixed top-[98px] left-1/2 ${mode === "call" || mode === "callActive" ? "z-[75]" : "z-[45]"} -translate-x-1/2 flex flex-col items-center pointer-events-none`}
+      className={`fixed top-[98px] left-1/2 ${["call", "callActive", "meet", "meetActive"].includes(mode) ? "z-[75]" : "z-[45]"} -translate-x-1/2 flex flex-col items-center pointer-events-none`}
       data-island={mode}
     >
       <div

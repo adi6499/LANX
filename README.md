@@ -44,6 +44,30 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.4.0: group meetings, recording, best-quality voice and video
+- **Group video meetings.** Open a group chat and press **Meet**: everyone online in the group is
+  invited (their LANX rings, with the cat on the Dynamic Island). Join with video or voice only.
+  Up to 12 people; everyone is connected straight to everyone else across the office network —
+  no server, nothing leaves the building.
+- **In the meeting:** a grid of everyone (the person talking gets a green ring), mute, camera,
+  **share your screen** (shown large), **raise your hand**, a **meeting chat**, **People** (see who
+  is in and **invite more colleagues**), and **Make smaller** to keep chatting while the meeting
+  runs in a small window with a pill on the Dynamic Island.
+- **Recording** — meetings and one-to-one calls. Press record (meetings ask first). **Everyone sees
+  "● Recording · Asha"** and a line in the chat, so nobody is recorded without knowing. The video
+  (everyone's picture side by side, or the shared screen large, plus everyone's sound) is saved in
+  Full HD on your PC in **Documents\LANX Recordings**; a "Recording saved" card in the chat has
+  **Play** and **Show in folder**. Recordings never leave your computer.
+- **Meeting summary in the chat:** "Meeting · 25 min · 4 people" with who was there and the meeting
+  chat. Left by mistake? **Join again** on that card. Missed one? It shows as a missed meeting.
+- **Maximum voice and video quality.** An office network is far faster than the internet links Zoom
+  or Teams are tuned for, so LANX now asks for much more: 128 kbps Opus voice with lost-packet repair,
+  Full HD camera in one-to-one calls (HD in meetings), up to 6 Mbps per picture, and screen sharing
+  at full resolution and 30 frames a second that keeps text sharp. It starts sharp instead of slowly
+  getting clearer, and only steps the picture down when a meeting gets large.
+- Meetings need LANX 1.4.0 on both sides (older PCs are told to update); calls still work with
+  1.2.2 and newer.
+
 ### New in 1.3.0: everyone sees everyone
 - **More reliable discovery.** Before, LANX found colleagues only by broadcasting on the network, and
   Wi-Fi routers (and laptops saving power) often lose those broadcasts — so one PC could see another

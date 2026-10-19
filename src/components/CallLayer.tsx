@@ -2,6 +2,8 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { CallEvent, CallInfo, Conversation, Profile } from "../types";
 import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
+import { Recorder, recordingSupported } from "../lib/recorder";
+import { VOICE_BITRATE, getCamera, getMic, getScreen, tuneSdp, tuneSender, videoBudget } from "../lib/webrtc";
 import {
   Phone,
   PhoneOff,
@@ -14,6 +16,8 @@ import {
   Maximize2,
   Minimize2,
   MessageSquare,
+  Circle,
+  Square,
 } from "lucide-react";
 
 /** Imperative handle: the chat header's call buttons start calls here. */
@@ -60,6 +64,9 @@ interface CallState {
   connectedAt: number | null;
   endText: string | null;
   expanded: boolean;
+  /** LANX 1.4.0: the other side is recording / we are recording (since). */
+  remoteRecording?: boolean;
+  recordingSince?: number | null;
 }
 
 const CONNECT_TIMEOUT_MS = 20_000;
@@ -81,27 +88,8 @@ function iceGathered(pc: RTCPeerConnection, ms = 2500): Promise<void> {
   });
 }
 
-async function getMic(): Promise<MediaStreamTrack | null> {
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
-    return s.getAudioTracks()[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function getCam(): Promise<MediaStreamTrack | null> {
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-    });
-    return s.getVideoTracks()[0] ?? null;
-  } catch {
-    return null;
-  }
-}
+/** LANX 1.4.0: one-to-one calls use the camera in Full HD (see webrtc.ts). */
+const getCam = () => getCamera("call");
 
 function endReasonText(reason: string | null, info: CallInfo): string {
   const name = info.peer_name || "They";
@@ -146,8 +134,22 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const recorderRef = useRef<Recorder | null>(null);
+  const callStateRef = useRef<CallState | null>(null);
+  callStateRef.current = call;
 
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => (c ? { ...c, ...p } : c)), []);
+
+  /** LANX 1.4.0: the best voice and picture the office network allows. */
+  const tuneCall = useCallback(() => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    for (const t of pc.getTransceivers()) {
+      if (t.receiver.track.kind === "audio") void tuneSender(t.sender, { maxBitrate: VOICE_BITRATE, audio: true });
+    }
+    const screen = !!screenRef.current;
+    void tuneSender(videoSenderRef.current, { ...videoBudget(2, screen), screen });
+  }, []);
 
   /** Uses this camera for the call and keeps it going: if it stops by itself
    *  (unplugged, taken by another program, a driver hiccup) LANX reopens it;
@@ -200,8 +202,25 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
   }, []);
 
+  /** Stops our recording and saves it (LANX 1.4.0). */
+  const stopRecording = useCallback(async (announce = true) => {
+    const r = recorderRef.current;
+    if (!r) return;
+    recorderRef.current = null;
+    setCall((c) => (c ? { ...c, recordingSince: null } : c));
+    const id = callIdRef.current;
+    if (id) api.callMedia(id, { recording: false }).catch(() => {});
+    try {
+      const res = await r.stop();
+      if (announce) onErrorRef.current(`Recording saved in Documents\\LANX Recordings: ${res.name}`);
+    } catch (err) {
+      onErrorRef.current(errorText(err));
+    }
+  }, []);
+
   const finish = useCallback(
     (text: string | null) => {
+      void stopRecording();
       releaseMedia();
       callIdRef.current = null;
       startingRef.current = false;
@@ -214,7 +233,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       setCall((c) => (c ? { ...c, status: "ended", endText: text } : c));
       timersRef.current.close = window.setTimeout(() => setCall((c) => (c?.status === "ended" ? null : c)), 2400);
     },
-    [releaseMedia]
+    [releaseMedia, stopRecording]
   );
 
   const hangup = useCallback(async () => {
@@ -244,6 +263,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       if (st === "connected") {
         window.clearTimeout(t.connect);
         window.clearTimeout(t.disconnect);
+        tuneCall();
         setCall((c) => (c && c.status !== "ended" ? { ...c, status: "active", connectedAt: c.connectedAt ?? Date.now() } : c));
       } else if (st === "disconnected") {
         window.clearTimeout(t.disconnect);
@@ -258,7 +278,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     };
     pcRef.current = pc;
     return pc;
-  }, [hangup]);
+  }, [hangup, tuneCall]);
 
   const armConnectTimeout = useCallback(() => {
     window.clearTimeout(timersRef.current.connect);
@@ -300,7 +320,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       if (ev.call.call_id !== callIdRef.current) return;
       if (ev.action === "accepted" && ev.sdp && pcRef.current) {
         try {
-          await pcRef.current.setRemoteDescription({ type: "answer", sdp: ev.sdp });
+          await pcRef.current.setRemoteDescription({ type: "answer", sdp: tuneSdp(ev.sdp) });
           patch({ status: "connecting", remoteVideo: !!ev.video });
           armConnectTimeout();
         } catch (err) {
@@ -315,6 +335,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
                 remoteVideo: ev.video ?? c.remoteVideo,
                 remoteMuted: ev.muted ?? c.remoteMuted,
                 remoteScreen: ev.screen ?? c.remoteScreen,
+                remoteRecording: ev.recording ?? c.remoteRecording,
               }
             : c
         );
@@ -458,7 +479,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       const local = new MediaStream([mic, cam].filter((t): t is MediaStreamTrack => !!t));
       localStreamRef.current = local;
       const pc = newPeer();
-      await pc.setRemoteDescription({ type: "offer", sdp: offer });
+      await pc.setRemoteDescription({ type: "offer", sdp: tuneSdp(offer) });
       for (const t of pc.getTransceivers()) {
         const kind = t.receiver.track.kind;
         t.direction = "sendrecv";
@@ -544,10 +565,11 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     screenRef.current?.stop();
     screenRef.current = null;
     await videoSenderRef.current?.replaceTrack(camRef.current).catch(() => {});
+    tuneCall();
     patch({ screen: false });
     const id = callIdRef.current;
     if (id) api.callMedia(id, { screen: false, video: !!camRef.current }).catch(() => {});
-  }, [patch]);
+  }, [patch, tuneCall]);
 
   const toggleScreen = async () => {
     if (!call) return;
@@ -556,17 +578,80 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       return;
     }
     try {
-      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15 } }, audio: false });
-      const track = s.getVideoTracks()[0];
+      const track = await getScreen();
       if (!track) return;
       track.onended = () => void stopScreen();
       screenRef.current = track;
       await videoSenderRef.current?.replaceTrack(track);
+      tuneCall();
       patch({ screen: true });
       sendMedia({ screen: true, video: true });
     } catch {
       /* the user closed the screen picker */
     }
+  };
+
+  /** LANX 1.4.0: record the call (they are told; it's saved on this PC). */
+  const toggleRecord = async () => {
+    const id = callIdRef.current;
+    if (!call || !id) return;
+    if (recorderRef.current) {
+      await stopRecording();
+      return;
+    }
+    if (!recordingSupported()) {
+      onErrorRef.current("Recording isn't available on this computer.");
+      return;
+    }
+    try {
+      await api.callMedia(id, { recording: true });
+    } catch (err) {
+      onErrorRef.current(errorText(err));
+      return;
+    }
+    const info = call.info;
+    const r = new Recorder({
+      title: `Call with ${info.peer_name || "a colleague"}`,
+      kind: "call",
+      conversationId: info.conversation_id,
+      tiles: () => {
+        const c = callStateRef.current;
+        const remote = remoteStreamRef.current;
+        return [
+          {
+            id: "them",
+            name: info.peer_name || "Colleague",
+            color: info.avatar_color,
+            video: c && (c.remoteVideo || c.remoteScreen) ? remote.getVideoTracks()[0] ?? null : null,
+            audio: remote.getAudioTracks()[0] ?? null,
+            screen: !!c?.remoteScreen,
+            muted: !!c?.remoteMuted,
+          },
+          {
+            id: "me",
+            name: "You",
+            color: "#0ea5e9",
+            video: screenRef.current ?? camRef.current,
+            audio: micRef.current,
+            screen: !!screenRef.current,
+            muted: !!c?.muted,
+          },
+        ];
+      },
+      onFailed: (text) => {
+        onErrorRef.current(text);
+        void stopRecording(false);
+      },
+    });
+    try {
+      await r.start();
+    } catch (err) {
+      api.callMedia(id, { recording: false }).catch(() => {});
+      onErrorRef.current(errorText(err));
+      return;
+    }
+    recorderRef.current = r;
+    patch({ recordingSince: Date.now() });
   };
 
   // -------------------------------------------------------------- views
@@ -710,6 +795,13 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
 
   // Active call: a floating panel (bigger with video, or full window).
   const withVideo = showRemoteVideo || !!localPreview;
+  const recBadge =
+    call.recordingSince || call.remoteRecording ? (
+      <span data-call-rec className="inline-flex items-center gap-1 font-semibold text-red-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+        {call.recordingSince ? "Recording" : `${name.split(" ")[0]} is recording`}
+      </span>
+    ) : null;
   const elapsed = call.connectedAt ? clock(Date.now() - call.connectedAt) : "0:00";
   const frame = call.expanded
     ? "fixed inset-4 z-[70]"
@@ -758,6 +850,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> {elapsed}
                   {call.remoteMuted && <span className="flex items-center gap-0.5"><MicOff className="h-3 w-3" /> muted</span>}
                   {call.remoteScreen && <span>· sharing screen</span>}
+                  {recBadge}
                 </div>
               </div>
             </div>
@@ -770,6 +863,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
               <div className="text-[11px] text-white/70 flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 online-pulse" /> Voice call · {elapsed}
                 {call.remoteMuted && <span className="flex items-center gap-0.5"><MicOff className="h-3 w-3" /> muted</span>}
+                {recBadge}
               </div>
             </div>
           </div>
@@ -784,6 +878,14 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
           </CtlButton>
           <CtlButton label={call.screen ? "Stop sharing your screen" : "Share your screen"} onClick={toggleScreen} active={call.screen} accent>
             {call.screen ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
+          </CtlButton>
+          <CtlButton
+            label={call.recordingSince ? "Stop recording" : `Record this call (${name.split(" ")[0]} will see it)`}
+            onClick={() => void toggleRecord()}
+            active={!!call.recordingSince}
+            danger
+          >
+            {call.recordingSince ? <Square className="h-3.5 w-3.5 fill-current" /> : <Circle className="h-4 w-4" />}
           </CtlButton>
           <CtlButton label="Open the chat" onClick={() => onOpenChat(info.conversation_id)}>
             <MessageSquare className="h-4 w-4" />
@@ -813,12 +915,14 @@ function CtlButton({
   onClick,
   active,
   accent,
+  danger,
   children,
 }: {
   label: string;
   onClick: () => void;
   active?: boolean;
   accent?: boolean;
+  danger?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -828,7 +932,7 @@ function CtlButton({
       title={label}
       onClick={onClick}
       className={`h-10 w-10 rounded-full flex items-center justify-center transition-colors active:scale-90 ${
-        active ? (accent ? "bg-sky-500 text-white" : "bg-white text-slate-900") : "bg-white/10 hover:bg-white/20 text-white"
+        active ? (danger ? "bg-red-500 text-white" : accent ? "bg-sky-500 text-white" : "bg-white text-slate-900") : "bg-white/10 hover:bg-white/20 text-white"
       }`}
     >
       {children}

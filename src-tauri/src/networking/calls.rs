@@ -46,6 +46,8 @@ pub struct CallEvent {
     pub screen: Option<bool>,
     /// For "ended": hangup | declined | cancelled | timeout | busy | failed
     pub reason: Option<String>,
+    /// LANX 1.4.0: the other side started / stopped recording.
+    pub recording: Option<bool>,
 }
 
 fn payload(call_id: &str, action: &str) -> CallPayload {
@@ -56,6 +58,7 @@ fn payload(call_id: &str, action: &str) -> CallPayload {
         sdp: None,
         muted: None,
         screen: None,
+        recording: None,
     }
 }
 
@@ -73,6 +76,7 @@ impl NetworkService {
             muted: None,
             screen: None,
             reason: None,
+            recording: None,
         };
         extra(&mut ev);
         self.events.emit_json("lanx://call", ev);
@@ -97,13 +101,19 @@ impl NetworkService {
     }
 
     async fn send_call(&self, peer: &Peer, p: CallPayload) -> Result<(), String> {
+        self.send_call_min(peer, p, FEATURES_CALLS, "calls").await
+    }
+
+    /// `send_call` to a colleague whose LANX is at least `min` (`what` names
+    /// the feature in the "please update" message).
+    async fn send_call_min(&self, peer: &Peer, p: CallPayload, min: &str, what: &str) -> Result<(), String> {
         let unreachable = || format!("Could not reach {}.", peer.display_name);
         let mut chan = self.connect_peer(peer).await.map_err(|_| unreachable())?;
-        if !version_at_least(&chan.remote.app_version, FEATURES_CALLS) {
+        if !version_at_least(&chan.remote.app_version, min) {
             chan.close().await;
             return Err(format!(
-                "{} needs LANX {} or newer for calls. Ask them to update.",
-                peer.display_name, FEATURES_CALLS
+                "{} needs LANX {} or newer for {}. Ask them to update.",
+                peer.display_name, min, what
             ));
         }
         let reply = NetworkService::send_acked(&mut chan, PacketPayload::Call(p)).await;
@@ -181,6 +191,9 @@ impl NetworkService {
         }
         if peer.status != "online" {
             return Err(format!("{} is offline right now.", peer.display_name));
+        }
+        if self.meeting.lock().is_some() {
+            return Err("You're in a meeting. Leave it first.".to_string());
         }
         let call = CallInfo {
             call_id: uuid::Uuid::new_v4().to_string(),
@@ -279,8 +292,16 @@ impl NetworkService {
         Ok(())
     }
 
-    /// Tells the other side about mute / camera / screen sharing.
-    pub async fn call_media(&self, call_id: &str, video: Option<bool>, muted: Option<bool>, screen: Option<bool>) -> Result<(), String> {
+    /// Tells the other side about mute / camera / screen sharing, and (LANX
+    /// 1.4.0) recording: that is only allowed when their LANX shows the notice.
+    pub async fn call_media(
+        &self,
+        call_id: &str,
+        video: Option<bool>,
+        muted: Option<bool>,
+        screen: Option<bool>,
+        recording: Option<bool>,
+    ) -> Result<(), String> {
         let Some(call) = self.current_call().filter(|c| c.call_id == call_id) else {
             return Ok(());
         };
@@ -291,7 +312,24 @@ impl NetworkService {
         p.video = video;
         p.muted = muted;
         p.screen = screen;
-        self.send_call(&peer, p).await
+        p.recording = recording;
+        match recording {
+            Some(on) => {
+                self.send_call_min(&peer, p, FEATURES_MEETINGS, "call recording").await?;
+                let text = if on { "🔴 You started recording this call" } else { "You stopped recording this call" };
+                self.call_note(&call, &self.identity.device_id.clone(), true, text);
+                Ok(())
+            }
+            None => self.send_call(&peer, p).await,
+        }
+    }
+
+    /// A line in the call's chat ("🔴 Bharat started recording this call").
+    fn call_note(&self, call: &CallInfo, sender: &str, outgoing: bool, text: &str) {
+        if let Some(m) = self.insert_event_message(&call.conversation_id, sender, outgoing, "system", text) {
+            let fresh = self.db.get_conversation(&call.conversation_id).ok().flatten();
+            self.events.message_received(&m, fresh.as_ref());
+        }
     }
 
     pub(super) fn handle_call(&self, peer: &Peer, c: CallPayload) -> AckPayload {
@@ -322,7 +360,7 @@ impl NetworkService {
                 };
                 {
                     let mut cur = self.call.lock();
-                    if cur.is_some() {
+                    if cur.is_some() || self.meeting.lock().is_some() {
                         drop(cur);
                         // Still show that they tried.
                         let mut missed = call.clone();
@@ -385,10 +423,19 @@ impl NetworkService {
             }
             "media" => match self.current_call() {
                 Some(call) if call.call_id == c.call_id && call.peer_id == peer.id => {
+                    if let Some(on) = c.recording {
+                        let text = if on {
+                            format!("🔴 {} started recording this call", peer.display_name)
+                        } else {
+                            format!("{} stopped recording this call", peer.display_name)
+                        };
+                        self.call_note(&call, &peer.id, false, &text);
+                    }
                     self.emit_call("media", &call, |e| {
                         e.video = c.video;
                         e.muted = c.muted;
                         e.screen = c.screen;
+                        e.recording = c.recording;
                     });
                     ok
                 }

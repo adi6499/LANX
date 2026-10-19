@@ -1291,6 +1291,7 @@ async fn second_caller_hears_busy_and_strangers_cannot_end_the_call() {
         sdp: None,
         muted: None,
         screen: None,
+        recording: None,
     };
     assert!(!b.svc.handle_call(&chetan, forged.clone()).ok);
     assert!(b.svc.current_call().is_some(), "call must survive");
@@ -1678,4 +1679,201 @@ async fn colleagues_fetch_each_others_profiles() {
     a.db().save_settings(&s).unwrap();
     assert!(a.svc.local_profile_full().status.is_empty());
     assert_ne!(a.svc.local_profile_rev(), rev);
+}
+
+// ------------------------------------------------------- meetings (1.4.0)
+
+fn meeting_records(db: &Database, conv: &str) -> Vec<serde_json::Value> {
+    messages_in(db, conv)
+        .into_iter()
+        .filter(|m| m.message_type == "meeting")
+        .map(|m| serde_json::from_str(&m.content).unwrap())
+        .collect()
+}
+
+fn people_in(n: &Node) -> Vec<String> {
+    let mut v: Vec<String> = n
+        .svc
+        .current_meeting()
+        .filter(|m| m.phase == "joined")
+        .map(|m| m.people.iter().map(|p| p.name.clone()).collect())
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+fn invited(n: &Node) -> bool {
+    n.svc.current_meeting().is_some_and(|m| m.phase == "invited")
+}
+
+fn person<'a>(m: &'a super::meetings::MeetingInfo, name: &str) -> &'a super::meetings::MeetingPerson {
+    m.people.iter().find(|p| p.name == name).unwrap()
+}
+
+fn chat_texts(n: &Node) -> Vec<String> {
+    n.svc.current_meeting().map(|m| m.chat.iter().map(|l| l.text.clone()).collect()).unwrap_or_default()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn group_meeting_invites_joins_shares_and_leaves() {
+    let (a, b, c) = trio().await;
+    let conv = a.svc.create_group("Accounts Team", &[b.id(), c.id()]).unwrap();
+    let gid = conv.id.clone();
+    assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
+
+    let m = a.svc.start_meeting(&gid, true, Some("  Quarter close ".into())).await.unwrap();
+    assert_eq!((m.phase.as_str(), m.title.as_str(), m.people.len()), ("joined", "Quarter close", 1));
+    assert!(a.svc.start_meeting(&gid, true, None).await.unwrap_err().contains("already in a meeting"));
+    assert!(wait_for(|| invited(&b) && invited(&c), 10).await);
+    let inv = b.svc.current_meeting().unwrap();
+    assert_eq!(inv.title, "Quarter close");
+    assert_eq!(inv.inviter_name, "Asha");
+    assert_eq!(inv.conversation_id, gid, "group members see the meeting in the group chat");
+
+    let joined = b.svc.join_meeting(&m.meeting_id).await.unwrap();
+    assert_eq!(joined.people.len(), 2);
+    assert!(wait_for(|| people_in(&a) == ["Asha", "Bharat"], 5).await);
+
+    // Chetan never connected to Bharat: he reaches him through who Asha says is in.
+    c.svc.join_meeting(&m.meeting_id).await.unwrap();
+    for n in [&a, &b, &c] {
+        assert!(wait_for(|| people_in(n) == ["Asha", "Bharat", "Chetan"], 10).await, "{:?}", people_in(n));
+    }
+
+    // Each pair's offer/answer is passed on.
+    a.svc.meeting_signal(&m.meeting_id, &c.id(), "offer", "v=0 offer".into()).await.unwrap();
+    c.svc.meeting_signal(&m.meeting_id, &b.id(), "answer", "v=0 answer".into()).await.unwrap();
+    assert!(a.svc.meeting_signal(&m.meeting_id, &c.id(), "bogus", "x".into()).await.is_err());
+
+    // Mute + raised hand reach everyone; newer changes win.
+    c.svc.meeting_media(&m.meeting_id, Some(true), None, None, Some(true), None).await.unwrap();
+    assert!(wait_for(|| a.svc.current_meeting().is_some_and(|x| person(&x, "Chetan").muted && person(&x, "Chetan").hand), 5).await);
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|x| person(&x, "Chetan").hand), 5).await);
+
+    // Recording: everyone is told (a line in the meeting chat).
+    b.svc.meeting_media(&m.meeting_id, None, None, None, None, Some(true)).await.unwrap();
+    assert!(wait_for(|| chat_texts(&a).contains(&"● Bharat started recording".to_string()), 5).await);
+    assert!(wait_for(|| chat_texts(&c).contains(&"● Bharat started recording".to_string()), 5).await);
+    assert!(chat_texts(&b).contains(&"● You started recording".to_string()));
+    assert!(person(&a.svc.current_meeting().unwrap(), "Bharat").recording);
+
+    // Someone joining later learns Chetan's state from Chetan himself, even
+    // if Asha's copy were out of date.
+    c.svc.meeting_media(&m.meeting_id, None, Some(true), None, None, None).await.unwrap();
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|x| person(&x, "Chetan").camera), 5).await);
+
+    // Meeting chat.
+    let line = a.svc.meeting_chat(&m.meeting_id, "Agenda: the numbers").await.unwrap();
+    assert_eq!(line.name, "Asha");
+    assert!(wait_for(|| chat_texts(&b).contains(&"Agenda: the numbers".to_string()) && chat_texts(&c).contains(&"Agenda: the numbers".to_string()), 5).await);
+    assert!(a.svc.meeting_chat(&m.meeting_id, "   ").await.is_err());
+
+    // Bharat leaves: the others see it; he gets a summary in the group chat.
+    b.svc.leave_meeting(&m.meeting_id).await.unwrap();
+    assert!(b.svc.current_meeting().is_none());
+    assert!(wait_for(|| people_in(&a) == ["Asha", "Chetan"] && people_in(&c) == ["Asha", "Chetan"], 5).await);
+    let rec = meeting_records(b.db(), &gid);
+    assert_eq!(rec.len(), 1);
+    assert_eq!(rec[0]["outcome"], "attended");
+    assert_eq!(rec[0]["attended"], 3);
+    assert_eq!(rec[0]["title"], "Quarter close");
+    assert!(rec[0]["chat"].as_array().unwrap().iter().any(|l| l["text"] == "Agenda: the numbers"));
+    let preview = conv_of(b.db(), &gid).unwrap().last_message_preview.unwrap();
+    assert!(preview.starts_with("🎥 Meeting · ") && preview.ends_with("3 people"), "got {}", preview);
+
+    // "Join again" from that line.
+    let line_id = messages_in(b.db(), &gid).into_iter().rev().find(|x| x.message_type == "meeting").unwrap().id;
+    // Asha's view of Chetan goes stale on purpose; Bharat still gets it right.
+    a.svc.meeting.lock().as_mut().unwrap().person_mut_for_test(&c.id()).unwrap().camera = false;
+    b.svc.rejoin_meeting(&line_id).await.unwrap();
+    assert!(wait_for(|| people_in(&a).len() == 3 && people_in(&c).len() == 3, 5).await);
+    let again = b.svc.current_meeting().unwrap();
+    assert!(person(&again, "Chetan").camera && person(&again, "Chetan").muted && person(&again, "Chetan").hand);
+
+    for n in [&a, &b, &c] {
+        n.svc.leave_meeting(&m.meeting_id).await.unwrap();
+    }
+    assert!(meeting_records(a.db(), &gid).last().unwrap()["outcome"] == "attended");
+    // Once everyone has left, "Join again" says it's over.
+    let err = b.svc.rejoin_meeting(&line_id).await.unwrap_err();
+    assert!(err.contains("ended"), "got {}", err);
+    assert!(b.svc.current_meeting().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn meeting_invites_can_be_declined_found_busy_or_over() {
+    let (a, b, c) = trio().await;
+    let ab = a.db().get_or_create_conversation(&b.id()).unwrap().id;
+    let ba = b.db().get_or_create_conversation(&a.id()).unwrap().id;
+
+    // Declined.
+    let m = a.svc.start_meeting(&ab, false, None).await.unwrap();
+    assert_eq!(m.title, "Meeting with Bharat");
+    assert!(wait_for(|| invited(&b), 5).await);
+    assert_eq!(b.svc.current_meeting().unwrap().conversation_id, ba, "personal invites go to the chat with the inviter");
+    b.svc.decline_meeting(&m.meeting_id).await.unwrap();
+    assert!(b.svc.current_meeting().is_none());
+    assert_eq!(meeting_records(b.db(), &ba).last().unwrap()["outcome"], "declined");
+    assert_eq!(conv_of(b.db(), &ba).unwrap().last_message_preview.unwrap(), "🎥 Declined meeting");
+    // In a meeting: no calls.
+    assert!(a.svc.start_call(&ab, false, "x".into()).await.unwrap_err().contains("meeting"));
+    a.svc.leave_meeting(&m.meeting_id).await.unwrap();
+
+    // Busy: Bharat's phone is ringing (a call from Chetan).
+    let cb = link(&c, &b).await;
+    let call = c.svc.start_call(&cb, false, "offer".into()).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
+    let m2 = a.svc.start_meeting(&ab, true, None).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(b.svc.current_meeting().is_none(), "a busy colleague isn't invited");
+    a.svc.leave_meeting(&m2.meeting_id).await.unwrap();
+    c.svc.hangup_call(&call.call_id).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
+
+    // Over before joining: Asha leaves while Bharat's invitation rings.
+    let m3 = a.svc.start_meeting(&ab, true, None).await.unwrap();
+    assert!(wait_for(|| invited(&b), 5).await);
+    a.svc.leave_meeting(&m3.meeting_id).await.unwrap();
+    let err = b.svc.join_meeting(&m3.meeting_id).await.unwrap_err();
+    assert!(err.contains("ended"), "got {}", err);
+    assert!(b.svc.current_meeting().is_none());
+
+    // Strangers can't push into a meeting they weren't told about.
+    let m4 = a.svc.start_meeting(&ab, true, None).await.unwrap();
+    let chetan = a.db().get_peer(&c.id()).unwrap().unwrap();
+    let forged = MeetingPayload {
+        meeting_id: "not-the-id".into(),
+        action: "join".into(),
+        ..Default::default()
+    };
+    assert!(matches!(a.svc.handle_meeting(&chetan, forged), PacketPayload::Ack(AckPayload { ok: false, .. })));
+    assert_eq!(people_in(&a), ["Asha"]);
+    a.svc.leave_meeting(&m4.meeting_id).await.unwrap();
+}
+
+#[test]
+fn meeting_packets_keep_old_fields_optional() {
+    // A minimal packet (as an older 1.4 build might send) still reads.
+    let p: MeetingPayload = serde_json::from_str(r#"{"meeting_id":"m","action":"leave"}"#).unwrap();
+    assert_eq!(p.action, "leave");
+    assert!(p.people.is_empty() && p.person.is_none() && p.seq.is_none());
+    // Empty optional fields aren't sent.
+    let s = serde_json::to_string(&p).unwrap();
+    assert_eq!(s, r#"{"meeting_id":"m","action":"leave"}"#);
+    // Calls: "recording" is only sent when set.
+    let c = CallPayload {
+        call_id: "c".into(),
+        action: "media".into(),
+        video: None,
+        sdp: None,
+        muted: None,
+        screen: None,
+        recording: None,
+    };
+    assert!(!serde_json::to_string(&c).unwrap().contains("recording"));
+    assert_eq!(
+        crate::storage::meeting_preview(r#"{"outcome":"attended","secs":1500,"attended":4}"#),
+        "🎥 Meeting · 25 min · 4 people"
+    );
+    assert_eq!(crate::storage::meeting_preview(r#"{"outcome":"missed"}"#), "🎥 Missed meeting");
 }

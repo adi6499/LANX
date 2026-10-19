@@ -34,6 +34,7 @@ import { DynamicIsland, IslandMessage, IslandRing } from "./components/DynamicIs
 import { effective } from "./lib/profile";
 import type { IslandCall } from "./components/CallLayer";
 import { CallLayer, CallLayerHandle } from "./components/CallLayer";
+import { MeetingLayer, MeetingLayerHandle, type IslandMeeting } from "./components/MeetingLayer";
 import { AlertCircle, X } from "lucide-react";
 
 // v2: shown once more after the 1.2 update, which added calls, backups and the new hidden chats.
@@ -110,6 +111,9 @@ export default function App() {
 
   const locked = !!lock?.locked;
   const callRef = useRef<CallLayerHandle>(null);
+  /** LANX 1.4.0: group meetings. */
+  const meetingRef = useRef<MeetingLayerHandle>(null);
+  const [islandMeeting, setIslandMeeting] = useState<IslandMeeting | null>(null);
   const activeConversationIdRef = useRef<string | null>(null);
   const activeTabRef = useRef<NavTab>("messages");
   const lockedRef = useRef(false);
@@ -880,10 +884,29 @@ export default function App() {
     />
   );
 
+  const meetingLayer = (
+    <MeetingLayer
+      key="meeting-layer"
+      ref={meetingRef}
+      onError={(text) => setNotice(text)}
+      onNotice={(text) => setNotice(text)}
+      onIslandChange={setIslandMeeting}
+      profiles={profiles}
+      peers={peers}
+      onOpenChat={(id) => {
+        if (lockedRef.current) return;
+        meetingRef.current?.show();
+        setActiveConversationId(id);
+        setActiveTab("messages");
+      }}
+    />
+  );
+
   if (locked) {
     return (
       <>
         {callLayer}
+        {meetingLayer}
         <LockScreen
           displayName={settings.display_name}
           avatarColor={settings.avatar_color}
@@ -915,6 +938,7 @@ export default function App() {
   return (
     <>
     {callLayer}
+    {meetingLayer}
     <div className="h-screen w-screen flex overflow-hidden lanx-window">
       <Sidebar
         settings={settings}
@@ -990,6 +1014,10 @@ export default function App() {
             onSetSecret={handleSetSecret}
             onSetHidden={handleSetHidden}
             onCall={(video) => activeConversation && callRef.current?.start(activeConversation, video)}
+            myId={settings.device_id}
+            onMeeting={(video) => activeConversation && meetingRef.current?.start(activeConversation, video)}
+            onRejoinMeeting={(id) => meetingRef.current?.rejoin(id)}
+            onError={(text) => setNotice(text)}
             onUnblock={() => activePeer && handleUpdateTrust(activePeer.id, "unverified")}
           />
         )}
@@ -1072,6 +1100,12 @@ export default function App() {
           decline: () => callRef.current?.decline(),
           hangup: () => callRef.current?.hangup(),
           toggleSize: () => callRef.current?.toggleSize(),
+        }}
+        meeting={islandMeeting}
+        meetingActions={{
+          join: (video) => meetingRef.current?.join(video),
+          decline: () => meetingRef.current?.decline(),
+          show: () => meetingRef.current?.show(),
         }}
         progress={progress}
         actions={transferActions}

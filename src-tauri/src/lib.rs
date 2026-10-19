@@ -4,6 +4,7 @@ pub mod discovery;
 pub mod events;
 pub mod networking;
 pub mod privacy;
+pub mod recordings;
 pub mod security;
 pub mod sound;
 pub mod storage;
@@ -193,6 +194,8 @@ pub fn run() {
     if profile.is_none() || testmode::webview_base().is_some() {
         webview_folder::choose();
     }
+    // LANX 1.4.0: recordings cut short by LANX closing get their name back.
+    std::thread::spawn(recordings::recover_leftovers);
     let mut builder = tauri::Builder::default();
 
     if profile.is_none() {
@@ -469,6 +472,24 @@ pub fn run() {
             commands::calls::call_hangup,
             commands::calls::call_media,
             commands::calls::get_call,
+            commands::meetings::meeting_start,
+            commands::meetings::meeting_invite,
+            commands::meetings::meeting_join,
+            commands::meetings::meeting_rejoin,
+            commands::meetings::meeting_decline,
+            commands::meetings::meeting_leave,
+            commands::meetings::meeting_signal,
+            commands::meetings::meeting_media,
+            commands::meetings::meeting_chat,
+            commands::meetings::meeting_drop,
+            commands::meetings::get_meeting,
+            commands::meetings::recording_begin,
+            commands::meetings::recording_chunk,
+            commands::meetings::recording_end,
+            commands::meetings::recording_cancel,
+            commands::meetings::open_recording,
+            commands::meetings::reveal_recording,
+            commands::meetings::open_recordings_folder,
             commands::speed_test,
             commands::pick_folder_to_send,
         ])

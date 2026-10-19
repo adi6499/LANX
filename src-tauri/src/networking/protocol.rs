@@ -50,6 +50,78 @@ pub const FEATURES_COMPRESS: &str = "1.2.4";
 /// `profile_rev` in discovery beacons).
 pub const FEATURES_PROFILE: &str = "1.2.9";
 
+/// Oldest app version with group meetings and recording notices (`Meeting`,
+/// `CallPayload.recording`).
+pub const FEATURES_MEETINGS: &str = "1.4.0";
+
+/// LANX 1.4.0: someone in a meeting, as the others see them. The address and
+/// key let a newcomer reach people it has never met (like group members).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct MeetingPersonPayload {
+    pub device_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub avatar_color: String,
+    #[serde(default)]
+    pub public_key: String,
+    #[serde(default)]
+    pub ip: String,
+    #[serde(default)]
+    pub tcp_port: u16,
+    #[serde(default)]
+    pub muted: bool,
+    #[serde(default)]
+    pub camera: bool,
+    #[serde(default)]
+    pub screen: bool,
+    #[serde(default)]
+    pub hand: bool,
+    #[serde(default)]
+    pub recording: bool,
+}
+
+/// LANX 1.4.0: group meetings. Everyone in a meeting talks to everyone else
+/// directly (WebRTC between the LANX windows, no server); these packets carry
+/// the invitations, who is in the meeting, each pair's offer/answer, and
+/// changes (mute, camera, screen, raised hand, recording, chat).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MeetingPayload {
+    pub meeting_id: String,
+    /// invite | join | roster | decline | leave | signal | media | chat
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The group chat the meeting belongs to (none: invited personally).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<bool>,
+    /// invite / roster: who is in the meeting.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<MeetingPersonPayload>,
+    /// join / media: the sender as they are now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<MeetingPersonPayload>,
+    /// signal: "offer" | "answer"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sdp: Option<String>,
+    /// chat: the message; decline: why ("busy").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// media: when the change was made (milliseconds), so a late older change
+    /// never overwrites a newer one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+}
+
 /// LANX 1.2.9: a colleague's profile, with its fingerprint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileReplyPayload {
@@ -155,6 +227,10 @@ pub struct CallPayload {
     pub muted: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screen: Option<bool>,
+    /// LANX 1.4.0: the sender started / stopped recording the call (only sent
+    /// to 1.4.0 or newer, so the other side always sees the notice).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -313,6 +389,8 @@ pub enum PacketPayload {
     // LANX 1.2.9 (only sent to peers reporting app_version >= 1.2.9)
     ProfileRequest,
     ProfileReply(ProfileReplyPayload),
+    // LANX 1.4.0 (only sent to peers reporting app_version >= 1.4.0)
+    Meeting(MeetingPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

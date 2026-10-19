@@ -3,6 +3,7 @@ pub mod lanes;
 pub mod extras;
 pub mod folders;
 pub mod groups;
+pub mod meetings;
 pub mod profiles;
 pub mod protocol;
 pub mod session;
@@ -76,6 +77,8 @@ pub struct Inner {
     pub(crate) ring_sent: Mutex<HashMap<String, Instant>>,
     /// The one call in progress (ringing or active), if any.
     pub(crate) call: Mutex<Option<calls::CallInfo>>,
+    /// LANX 1.4.0: the meeting we are in or invited to, if any.
+    pub(crate) meeting: Mutex<Option<meetings::MeetingInfo>>,
     cancel_token: CancellationToken,
     bound_port: AtomicU16,
     /// Running transfers (either direction) by transfer id.
@@ -120,6 +123,7 @@ impl NetworkService {
                 typing_sent: Mutex::new(HashMap::new()),
                 ring_sent: Mutex::new(HashMap::new()),
                 call: Mutex::new(None),
+                meeting: Mutex::new(None),
                 cancel_token: CancellationToken::new(),
                 bound_port: AtomicU16::new(0),
                 active_transfers: Mutex::new(HashMap::new()),
@@ -884,6 +888,7 @@ impl NetworkService {
                 }
                 PacketPayload::Ring(r) => Some(PacketPayload::Ack(self.handle_ring(&peer, r))),
                 PacketPayload::Call(c) => Some(PacketPayload::Ack(self.handle_call(&peer, c))),
+                PacketPayload::Meeting(m) => Some(self.handle_meeting(&peer, m)),
                 PacketPayload::GroupUpdate(g) => {
                     Some(PacketPayload::Ack(self.handle_group_update(&peer, g)))
                 }

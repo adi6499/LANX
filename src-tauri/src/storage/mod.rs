@@ -1605,6 +1605,8 @@ pub fn message_preview(msg: &Message) -> String {
         }
         "ring" => "🔔 Ring".to_string(),
         "call" => call_preview(&msg.content, msg.is_outgoing),
+        "meeting" => meeting_preview(&msg.content),
+        "recording" => "🔴 Recording saved".to_string(),
         _ => preview_text(&msg.content),
     }
 }
@@ -1627,6 +1629,32 @@ pub fn call_preview(content: &str, outgoing: bool) -> String {
         "no_answer" => "📞 No answer".to_string(),
         "cancelled" => "📞 Cancelled call".to_string(),
         _ => "📞 Call failed".to_string(),
+    }
+}
+
+/// "🎥 Meeting · 25 min · 4 people", "🎥 Missed meeting", … (LANX 1.4.0).
+pub fn meeting_preview(content: &str) -> String {
+    let v: serde_json::Value = serde_json::from_str(content).unwrap_or_default();
+    match v["outcome"].as_str().unwrap_or("") {
+        "attended" => {
+            let secs = v["secs"].as_i64().unwrap_or(0).max(0);
+            let people = v["attended"].as_u64().unwrap_or(1);
+            let time = if secs >= 3600 {
+                format!("{} h {} min", secs / 3600, (secs % 3600) / 60)
+            } else if secs >= 60 {
+                format!("{} min", secs / 60)
+            } else {
+                format!("{} s", secs)
+            };
+            if people > 1 {
+                format!("🎥 Meeting · {} · {} people", time, people)
+            } else {
+                format!("🎥 Meeting · {}", time)
+            }
+        }
+        "missed" => "🎥 Missed meeting".to_string(),
+        "declined" => "🎥 Declined meeting".to_string(),
+        _ => "🎥 Meeting".to_string(),
     }
 }
 

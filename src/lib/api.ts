@@ -25,6 +25,9 @@ import {
   CallInfo,
   CallEvent,
   SpeedTestResult,
+  MeetingInfo,
+  MeetingEvent,
+  MeetingChatLine,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -242,6 +245,49 @@ let mockMessages: Record<string, Message[]> = {
     msg({ id: "g-2", conversation_id: "grp-accounts", content: "Will do 👍", sender_id: "peer-sarah", is_outgoing: false, timestamp: now() - 200 }),
     msg({ id: "g-3", conversation_id: "grp-accounts", content: "", message_type: "ring", sender_id: "peer-marcus", is_outgoing: false, timestamp: now() - 120 }),
     msg({ id: "g-4", conversation_id: "grp-accounts", content: "📎 Q3-Closing.xlsx", message_type: "file", transfer_id: "pg-1", timestamp: now() - 50 }),
+    msg({
+      id: "g-5",
+      conversation_id: "grp-accounts",
+      message_type: "meeting",
+      content: JSON.stringify({
+        meeting_id: "mtg-preview",
+        title: "Accounts Team",
+        outcome: "attended",
+        secs: 1520,
+        attended: 4,
+        host_id: "peer-sarah",
+        host_name: "Sarah (Accounts)",
+        people: [
+          { id: "peer-sarah", name: "Sarah (Accounts)" },
+          { id: "peer-marcus", name: "Marcus (Stores)" },
+          { id: "peer-elena", name: "Elena (Sales)" },
+          { id: "me", name: "Preview User" },
+        ],
+        chat: [
+          { from: "peer-sarah", name: "Sarah (Accounts)", text: "Sharing the Q3 sheet now", at: now() - 1500 },
+          { from: "peer-marcus", name: "Marcus (Stores)", text: "Stock count is done for Dolvi", at: now() - 900 },
+        ],
+      }),
+      sender_id: "peer-sarah",
+      is_outgoing: false,
+      timestamp: now() - 30,
+      status: "read",
+    }),
+    msg({
+      id: "g-6",
+      conversation_id: "grp-accounts",
+      message_type: "recording",
+      content: JSON.stringify({
+        path: "C:\\Users\\You\\Documents\\LANX Recordings\\Accounts Team - 2026-10-17 11-05.mp4",
+        name: "Accounts Team - 2026-10-17 11-05.mp4",
+        size: 187_400_000,
+        secs: 1490,
+        kind: "meeting",
+        title: "Accounts Team",
+      }),
+      timestamp: now() - 25,
+      status: "delivered",
+    }),
   ],
   "conv-sarah": [
     msg({ id: "m-1", conversation_id: "conv-sarah", content: "Sending the Dolvi site photos now — it's a big one.", timestamp: now() - 320, status: "read" }),
@@ -809,9 +855,105 @@ export const api = {
     if (isTauri) return invoke("call_hangup", { callId });
   },
 
-  callMedia: async (callId: string, media: { video?: boolean; muted?: boolean; screen?: boolean }): Promise<void> => {
+  callMedia: async (
+    callId: string,
+    media: { video?: boolean; muted?: boolean; screen?: boolean; recording?: boolean }
+  ): Promise<void> => {
     if (isTauri)
-      return invoke("call_media", { callId, video: media.video ?? null, muted: media.muted ?? null, screen: media.screen ?? null });
+      return invoke("call_media", {
+        callId,
+        video: media.video ?? null,
+        muted: media.muted ?? null,
+        screen: media.screen ?? null,
+        recording: media.recording ?? null,
+      });
+  },
+
+  // ------------------------------------------------------ 1.4.0: meetings
+  meetingStart: async (conversationId: string, video: boolean, title?: string): Promise<MeetingInfo> => {
+    if (isTauri) return invoke("meeting_start", { conversationId, video, title: title ?? null });
+    return mockMeeting(conversationId, video);
+  },
+  /** Returns who couldn't be invited and why. */
+  meetingInvite: async (meetingId: string, peerIds: string[]): Promise<string[]> => {
+    if (isTauri) return invoke("meeting_invite", { meetingId, peerIds });
+    return [];
+  },
+  meetingJoin: async (meetingId: string): Promise<MeetingInfo> => {
+    if (isTauri) return invoke("meeting_join", { meetingId });
+    return previewOnly();
+  },
+  meetingRejoin: async (messageId: string): Promise<MeetingInfo> => {
+    if (isTauri) return invoke("meeting_rejoin", { messageId });
+    return previewOnly();
+  },
+  meetingDecline: async (meetingId: string): Promise<void> => {
+    if (isTauri) return invoke("meeting_decline", { meetingId });
+  },
+  meetingLeave: async (meetingId: string): Promise<void> => {
+    if (isTauri) return invoke("meeting_leave", { meetingId });
+  },
+  meetingSignal: async (meetingId: string, to: string, kind: "offer" | "answer", sdp: string): Promise<void> => {
+    if (isTauri) return invoke("meeting_signal", { meetingId, to, kind, sdp });
+  },
+  meetingMedia: async (
+    meetingId: string,
+    m: { muted?: boolean; camera?: boolean; screen?: boolean; hand?: boolean; recording?: boolean }
+  ): Promise<void> => {
+    if (isTauri)
+      return invoke("meeting_media", {
+        meetingId,
+        muted: m.muted ?? null,
+        camera: m.camera ?? null,
+        screen: m.screen ?? null,
+        hand: m.hand ?? null,
+        recording: m.recording ?? null,
+      });
+  },
+  meetingChat: async (meetingId: string, text: string): Promise<MeetingChatLine> => {
+    if (isTauri) return invoke("meeting_chat", { meetingId, text });
+    return { from: "me", name: "You", text, at: now() };
+  },
+  meetingDrop: async (meetingId: string, peerId: string): Promise<void> => {
+    if (isTauri) return invoke("meeting_drop", { meetingId, peerId });
+  },
+  getMeeting: async (): Promise<MeetingInfo | null> => {
+    if (isTauri) return invoke("get_meeting");
+    return null;
+  },
+
+  // ---------------------------------------------------- 1.4.0: recordings
+  recordingBegin: async (title: string, ext: "mp4" | "webm"): Promise<{ id: string; name: string }> => {
+    if (isTauri) return invoke("recording_begin", { title, ext });
+    return { id: `rec-${Date.now()}`, name: `${title}.${ext}` };
+  },
+  /** A piece of the recording, sent as raw bytes. */
+  recordingChunk: async (id: string, data: Uint8Array): Promise<number> => {
+    if (isTauri) return invoke("recording_chunk", data, { headers: { "x-recording": id } });
+    return data.length;
+  },
+  recordingEnd: async (
+    id: string,
+    conversationId: string | null,
+    title: string,
+    kind: "meeting" | "call",
+    secs: number
+  ): Promise<string> => {
+    if (isTauri) return invoke("recording_end", { id, conversationId, title, kind, secs });
+    return `C:\\Users\\You\\Documents\\LANX Recordings\\${title}.mp4`;
+  },
+  recordingCancel: async (id: string): Promise<void> => {
+    if (isTauri) return invoke("recording_cancel", { id });
+  },
+  openRecording: async (path: string): Promise<void> => {
+    if (isTauri) return invoke("open_recording", { path });
+  },
+  revealRecording: async (path: string): Promise<void> => {
+    if (isTauri) return invoke("reveal_recording", { path });
+  },
+  openRecordingsFolder: async (): Promise<string> => {
+    if (isTauri) return invoke("open_recordings_folder");
+    return "Documents\\LANX Recordings";
   },
 
   // -------------------------------------------------- 1.2.3: speed, folders
@@ -867,4 +1009,50 @@ export const events = {
   onUpdateProblem: (cb: (p: UpdateProblemPayload) => void) =>
     on<UpdateProblemPayload>("lanx://update-problem", cb),
   onCall: (cb: (e: CallEvent) => void) => on<CallEvent>("lanx://call", cb),
+  /** LANX 1.4.0: meetings (invitations, who joins/leaves, signals, chat…). */
+  onMeeting: (cb: (e: MeetingEvent) => void) => on<MeetingEvent>("lanx://meeting", cb),
 };
+
+/** Browser preview: a pretend meeting with a few colleagues. */
+function mockMeeting(conversationId: string, video: boolean): MeetingInfo {
+  const c = mockConversations.find((x) => x.id === conversationId);
+  const person = (device_id: string, name: string, avatar_color: string, extra: Partial<MeetingInfo["people"][number]> = {}) => ({
+    device_id,
+    name,
+    avatar_color,
+    muted: false,
+    camera: false,
+    screen: false,
+    hand: false,
+    recording: false,
+    is_me: false,
+    ...extra,
+  });
+  return {
+    meeting_id: `meeting-${Date.now()}`,
+    title: c?.peer_name ?? "Team meeting",
+    conversation_id: conversationId,
+    group_id: c?.kind === "group" ? conversationId : null,
+    host_id: "me",
+    host_name: "You",
+    inviter_id: "me",
+    inviter_name: "You",
+    inviter_color: "#0ea5e9",
+    video,
+    phase: "joined",
+    started_at: now(),
+    joined_at: now(),
+    people: [
+      person("me", "You", "#0ea5e9", { is_me: true }),
+      person("p1", "Priya Sharma", "#ec4899", { hand: true }),
+      person("p2", "Rahul Verma", "#10b981", { muted: true }),
+      person("p3", "Anita Desai", "#f59e0b"),
+    ],
+    chat: [
+      { from: "", name: "", text: "Priya Sharma joined", at: now() },
+      { from: "p1", name: "Priya Sharma", text: "Can everyone see my screen?", at: now() },
+    ],
+    private: false,
+    my_id: "me",
+  };
+}

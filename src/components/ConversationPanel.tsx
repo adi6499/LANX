@@ -40,6 +40,7 @@ import {
   Video,
 } from "lucide-react";
 import { FileCard, GroupFileCard } from "./FileCard";
+import { MeetingCard, RecordingCard } from "./MeetingCards";
 import { lessMotion } from "../lib/motion";
 import { Avatar } from "./Avatar";
 import { statusLine } from "../lib/profile";
@@ -75,6 +76,11 @@ interface ConversationPanelProps {
   onSetHidden: (hidden: boolean) => void;
   onCall: (video: boolean) => void;
   onUnblock: () => void;
+  /** LANX 1.4.0: start a meeting with this group; "Join again" on a meeting card. */
+  myId?: string | null;
+  onMeeting?: (video: boolean) => void;
+  onRejoinMeeting?: (messageId: string) => void;
+  onError?: (text: string) => void;
 }
 
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
@@ -147,6 +153,10 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onSetSecret,
   onSetHidden,
   onCall,
+  myId = null,
+  onMeeting,
+  onRejoinMeeting,
+  onError,
   onUnblock,
 }) => {
   const [inputText, setInputText] = useState("");
@@ -515,6 +525,19 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             </div>
 
             <div className="flex items-center gap-0.5 shrink-0">
+              {isGroup && onMeeting && (
+                <button
+                  type="button"
+                  data-start-meeting
+                  onClick={() => onMeeting(true)}
+                  disabled={outOfGroup}
+                  title="Start a video meeting with everyone online in this group"
+                  className={`${toolCls} hover:text-emerald-600 inline-flex items-center gap-1`}
+                >
+                  <Video className="h-[17px] w-[17px]" />
+                  <span className="hidden lg:inline text-[12px] font-semibold">Meet</span>
+                </button>
+              )}
               {!isGroup && (
                 <>
                   <button
@@ -721,6 +744,21 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             const day = dayLabel(msg.timestamp);
             const showDay = day !== lastDay;
             lastDay = day;
+            if (msg.message_type === "meeting" || msg.message_type === "recording") {
+              lastSender = "";
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDay && <DaySeparator day={day} />}
+                  <div className="flex justify-center lanx-fade py-1">
+                    {msg.message_type === "meeting" ? (
+                      <MeetingCard msg={msg} myId={myId} onRejoin={(id) => onRejoinMeeting?.(id)} />
+                    ) : (
+                      <RecordingCard msg={msg} onError={(t) => onError?.(t)} />
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            }
             const line = eventLine(msg);
             if (line) {
               lastSender = "";
