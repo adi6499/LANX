@@ -44,6 +44,13 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.3.0: IT help desk & the Organiser's tasks
+- **Get IT help** — the pencil/compose button (top of the chat list) → **Get IT help**. Describe the problem, optionally send a
+  picture of your screen, and pick your IT person. They get a **ticket** in their chat with your PC's details.
+- Your IT person can press **I'll help**, **See their screen** (starts Remote help), and **Mark resolved** right on the ticket.
+- Tickets (and everyone's) show in the **Organiser** under a new **IT help** tab, so nothing gets lost.
+- The admin can save who the IT people are (they're pre-ticked in the Get-IT-help box).
+
 ### New in 2.2.0: everyday helpers
 - **Forward** a message, file or sticker to another person or group — hover a message → **…** → **Forward**, then pick who gets it.
   A forwarded message shows a small "Forwarded" label.

@@ -3,7 +3,7 @@ import { ArrowUpRight, ClipboardList, RefreshCw, X } from "lucide-react";
 import type { Message, SearchHit } from "../../types";
 import { api, errorText } from "../../lib/api";
 import { CardView } from "./CardView";
-import { approvalStatus, eventCancelled, needsMe, parseCard, pollTally, taskDone, type CardKind } from "./cardModel";
+import { approvalStatus, eventCancelled, needsMe, parseCard, pollTally, taskDone, ticketStatus, type CardKind } from "./cardModel";
 
 /** LANX 1.6.0: the Organiser — every notice, task, approval, poll, checklist
  *  and meeting from all chats, with what waits for you on top. */
@@ -14,6 +14,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "notice", label: "Notices" },
   { id: "task", label: "Tasks" },
   { id: "approval", label: "Approvals" },
+  { id: "ticket", label: "IT help" },
   { id: "event", label: "Meetings" },
   { id: "poll", label: "Polls" },
   { id: "checklist", label: "Checklists" },
@@ -77,6 +78,8 @@ export function OrganiserPanel({
           return !taskDone(h.message);
         case "approval":
           return approvalStatus(h.message, c) === "pending";
+        case "ticket":
+          return ticketStatus(h.message) !== "resolved";
         case "poll":
           return !pollTally(h.message, c).closed;
         case "event":
@@ -163,6 +166,7 @@ export function OrganiserPanel({
                   onChanged={changed}
                   onError={onError}
                   onStartMeeting={onStartMeeting}
+                  onRemoteHelp={(convId) => onOpen(convId, h.message.id)}
                   wide
                 />
               </div>

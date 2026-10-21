@@ -580,6 +580,8 @@ pub fn run() {
             commands::org::send_card,
             commands::org::card_action,
             commands::org::list_cards,
+            commands::org::get_it_helpers,
+            commands::org::set_it_helpers,
             commands::tools::set_chat_pinned,
             commands::tools::set_chat_muted,
             commands::tools::set_chat_archived,

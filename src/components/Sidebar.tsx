@@ -28,6 +28,7 @@ import {
   FolderPlus,
   Building2,
   BellRing,
+  LifeBuoy,
   X as XIcon,
 } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
@@ -61,6 +62,8 @@ interface SidebarProps {
   onNewChat: () => void;
   onNewGroup: () => void;
   onBroadcast: () => void;
+  /** LANX 2.3.0: raise an IT help ticket. */
+  onRaiseHelp?: () => void;
   /** LANX 1.5.0: starred messages from all chats. */
   onOpenStarred?: () => void;
   /** LANX 1.6.0: the Organiser, and how many cards wait for you. */
@@ -109,6 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onNewGroup,
   onBroadcast,
+  onRaiseHelp,
   onOpenStarred,
   onOpenOrganiser,
   organiserCount = 0,
@@ -324,6 +328,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         [SquarePen, "New chat", "text-sky-600", onNewChat, "new-chat"],
                         [UsersRound, "New group", "text-indigo-600", onNewGroup, "new-group"],
                         [Megaphone, "Message everyone", "text-amber-600", onBroadcast, "broadcast"],
+                        ...(onRaiseHelp ? ([[LifeBuoy, "Get IT help", "text-rose-600", onRaiseHelp, "help"]] as [React.ElementType, string, string, () => void, string][]) : []),
                       ] as [React.ElementType, string, string, () => void, string][]
                     ).map(([I, label, tone, run, id]) => (
                       <button

@@ -1112,6 +1112,15 @@ export const api = {
     });
   },
   /** Every card in every chat, for the Organiser. */
+  // ------------------------------------------------ LANX 2.3.0 IT help desk
+  getItHelpers: async (): Promise<string[]> => {
+    if (isTauri) return invoke("get_it_helpers");
+    return [];
+  },
+  setItHelpers: async (peerIds: string[]): Promise<void> => {
+    if (isTauri) return invoke("set_it_helpers", { peerIds });
+  },
+
   listCards: async (): Promise<SearchHit[]> => {
     if (isTauri) return invoke("list_cards");
     return Object.values(mockMessages)

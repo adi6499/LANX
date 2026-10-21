@@ -40,6 +40,7 @@ import { OrganiserPanel, countNeedsMe } from "./components/org/OrganiserPanel";
 import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
 import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
 import { SendToModal } from "./components/tools/SendToModal";
+import { HelpDeskModal } from "./components/HelpDeskModal";
 import { withoutForwardMark } from "./components/chat/chatUtils";
 import { FileLibrary } from "./components/tools/FileLibrary";
 import { SyncPanel } from "./components/tools/SyncPanel";
@@ -171,6 +172,8 @@ export default function App() {
   const [sendRequest, setSendRequest] = useState<string[] | null>(null);
   /** LANX 2.2.0: messages being forwarded (the chat picker is open). */
   const [forwarding, setForwarding] = useState<Message[] | null>(null);
+  /** LANX 2.3.0: the IT help dialog is open. */
+  const [showHelpDesk, setShowHelpDesk] = useState(false);
   const [filesMode, setFilesMode] = useState<"transfers" | "library" | "sync">("transfers");
   const [historyQuery, setHistoryQuery] = useState("");
   // ---- LANX 1.8.0
@@ -1295,6 +1298,7 @@ export default function App() {
         onNewChat={() => setActiveTab("people")}
         onNewGroup={() => setShowNewGroup(true)}
         onBroadcast={() => setShowBroadcast(true)}
+        onRaiseHelp={() => setShowHelpDesk(true)}
         onOpenStarred={() => setShowStarred(true)}
         onOpenOrganiser={() => setShowOrganiser(true)}
         organiserCount={organiserCount}
@@ -1677,6 +1681,24 @@ export default function App() {
             addSentFiles(sent);
             setActiveConversationId(conversationId);
             setActiveTab("messages");
+          }}
+        />
+      )}
+
+      {showHelpDesk && (
+        <HelpDeskModal
+          conversations={conversations}
+          peers={peers}
+          myId={settings.device_id}
+          onClose={() => setShowHelpDesk(false)}
+          onError={showError}
+          onSent={(ids) => {
+            setNotice(ids.length === 1 ? "Sent to IT. They'll see it in your chat." : `Sent to IT (${ids.length} people).`);
+            api.getConversations().then(setConversations).catch(() => {});
+            if (ids[0]) {
+              setActiveConversationId(ids[0]);
+              setActiveTab("messages");
+            }
           }}
         />
       )}

@@ -1183,6 +1183,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                         onChanged={(m) => onMessageChanged?.(m)}
                         onError={(t) => onError?.(t)}
                         onStartMeeting={() => onMeeting?.(true)}
+                        onRemoteHelp={() => onRemoteHelp?.("view")}
                         onJump={(id) => jumpToMessage(id)}
                         canAct={!blocked && !outOfGroup}
                       />

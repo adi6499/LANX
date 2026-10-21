@@ -24,3 +24,25 @@ pub fn list_cards(state: State<AppState>) -> Result<Vec<SearchHit>, String> {
     privacy.guard()?;
     state.db.list_cards(privacy.hidden_unlocked()).map_err(err)
 }
+
+/// LANX 2.3.0 IT help desk: who the IT helpers are (peer ids), saved so the
+/// Help button can pre-tick them. Anyone can see them; anyone can set them
+/// (typically the admin does it once).
+#[tauri::command]
+pub fn get_it_helpers(state: State<AppState>) -> Vec<String> {
+    state
+        .db
+        .get_setting("it_helpers")
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn set_it_helpers(state: State<AppState>, peer_ids: Vec<String>) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    let ids: Vec<String> = peer_ids.into_iter().filter(|p| !p.is_empty() && p.len() <= 64).take(20).collect();
+    let json = serde_json::to_string(&ids).map_err(err)?;
+    state.db.set_setting("it_helpers", &json).map_err(err)?;
+    Ok(())
+}
+

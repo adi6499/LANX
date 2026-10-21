@@ -1,7 +1,7 @@
 /** LANX 1.6.0: reading cards — what a card says and what people did with it. */
 import type { CardEntry, Message } from "../../types";
 
-export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync" | "visitor" | "kudos";
+export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync" | "visitor" | "kudos" | "ticket";
 
 export interface NoticeCard {
   kind: "notice";
@@ -71,7 +71,18 @@ export interface KudosCard {
   badge: string;
   note: string;
 }
-export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard;
+/** LANX 2.3.0: an IT help desk ticket. */
+export interface TicketCard {
+  kind: "ticket";
+  title: string;
+  details: string;
+  helpers: string[];
+  pc: string;
+  app: string;
+  os: string;
+  shot: boolean;
+}
+export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard | TicketCard;
 
 export const KIND_LABEL: Record<CardKind, string> = {
   notice: "Notice",
@@ -83,6 +94,7 @@ export const KIND_LABEL: Record<CardKind, string> = {
   sync: "Shared folder",
   visitor: "Visitor",
   kudos: "Kudos",
+  ticket: "IT help",
 };
 
 export function parseCard(m: Message): Card | null {
@@ -146,6 +158,11 @@ export function checklistItems(m: Message, c: ChecklistCard) {
   return all.map((it, i) => ({ ...it, index: i, done: entry(m, `item:${i}`)?.value === true }));
 }
 
+// ---- ticket (IT help desk, LANX 2.3.0)
+export type TicketStatus = "open" | "working" | "resolved";
+export const ticketStatus = (m: Message): TicketStatus => (entry(m, "status")?.value as TicketStatus | undefined) ?? "open";
+export const ticketTakenBy = (m: Message) => perPerson(m, "taken:").filter((t) => t.value === true);
+
 // ---- meeting
 export const rsvps = (m: Message) => perPerson(m, "rsvp:").map((r) => ({ ...r, answer: String(r.value) }));
 export const eventCancelled = (m: Message) => entry(m, "cancelled")?.value === true;
@@ -166,6 +183,8 @@ export function needsMe(m: Message, myId: string): string | null {
     }
     case "approval":
       return c.approvers.includes(myId) && !decisions(m).some((d) => d.id === myId) ? "Approve or reject" : null;
+    case "ticket":
+      return c.helpers.includes(myId) && ticketStatus(m) !== "resolved" ? "Help needed" : null;
     case "visitor":
       return c.host === myId && !entries(m).some((e) => e.key === "reply") ? "Your visitor is here" : null;
     case "event": {

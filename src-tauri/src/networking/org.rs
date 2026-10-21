@@ -24,7 +24,7 @@ const MAX_PEOPLE: usize = 30;
 /// Meetings remind everyone this long before they start.
 const MEETING_REMINDER_SECS: i64 = 10 * 60;
 
-pub const CARD_KINDS: [&str; 9] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos"];
+pub const CARD_KINDS: [&str; 10] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos", "ticket"];
 
 /// LANX 1.8.0 kudos badges: id → (emoji, words).
 pub const KUDOS_BADGES: [(&str, &str, &str); 6] = [
@@ -45,6 +45,7 @@ pub fn card_min_version(content: &str) -> &'static str {
     match parse_card(content).as_ref().and_then(|c| c["kind"].as_str().map(|s| s.to_string())).as_deref() {
         Some("sync") => FEATURES_TOOLS,
         Some("visitor" | "kudos") => FEATURES_OFFICE,
+        Some("ticket") => FEATURES_HELP,
         _ => FEATURES_ORG,
     }
 }
@@ -184,6 +185,19 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
             json!({ "kind": kind, "visitor": visitor, "company": text(v, "company", 80), "host": host,
                     "host_name": text(v, "host_name", 80), "note": text(v, "note", 300) })
         }
+        "ticket" => {
+            let title = text(v, "title", MAX_TEXT);
+            if title.is_empty() {
+                return Err("Say what the problem is.".to_string());
+            }
+            let helpers = ids(v, "helpers");
+            if helpers.is_empty() {
+                return Err("Choose who should help (your IT person).".to_string());
+            }
+            json!({ "kind": kind, "title": title, "details": text(v, "details", 2000), "helpers": helpers,
+                    "pc": text(v, "pc", 80), "app": text(v, "app", 40), "os": text(v, "os", 60),
+                    "shot": v.get("shot").and_then(|x| x.as_bool()).unwrap_or(false) })
+        }
         "kudos" => {
             let to = text(v, "to", 64);
             if to.is_empty() {
@@ -215,6 +229,7 @@ pub fn card_preview(content: &str) -> String {
         "sync" => format!("📁 Shared folder: {}", t("name")),
         "visitor" => format!("🛎️ Visitor: {}{}", t("visitor"), if t("company").is_empty() { String::new() } else { format!(" ({})", t("company")) }),
         "kudos" => format!("{} Kudos to {}: {}", kudos_badge(&t("badge")).1, t("to_name"), kudos_badge(&t("badge")).2),
+        "ticket" => format!("🛟 IT help: {}", t("title")),
         _ => "Card".to_string(),
     };
     crate::storage::preview_text(&line)
@@ -259,6 +274,11 @@ pub fn card_fallback(content: &str) -> String {
             let (_, e, w) = kudos_badge(&t("badge"));
             format!("{} KUDOS to {}: {}{}", e, t("to_name"), w, if t("note").is_empty() { String::new() } else { format!("\n{}", t("note")) })
         }
+        "ticket" => format!(
+            "🛟 IT HELP NEEDED: {}\n{}\nFrom: {} · LANX {} · {}{}",
+            t("title"), t("details"), t("pc"), t("app"), t("os"),
+            if v["shot"].as_bool() == Some(true) { "\n(A screenshot was sent in this chat.)" } else { "" }
+        ),
         _ => content.to_string(),
     }
 }
@@ -360,6 +380,25 @@ pub fn check_card_change(card: &Value, creator: &str, actor: &str, key: &str, va
             }
         }
         "kudos" if own("plus:") => Ok(json!(value.as_bool().unwrap_or(true))),
+        // LANX 2.3.0 IT help desk: a helper (or the person who asked) moves
+        // the ticket along; a helper can mark that they are on it.
+        "ticket" if key == "status" => {
+            let helpers: Vec<&str> = card["helpers"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
+            if actor != creator && !helpers.contains(&actor) {
+                return no("Only your IT helper, or the person who asked, can change this.");
+            }
+            match value.as_str() {
+                Some(s @ ("open" | "working" | "resolved")) => Ok(json!(s)),
+                _ => no("Unknown ticket state"),
+            }
+        }
+        "ticket" if own("taken:") => {
+            let helpers: Vec<&str> = card["helpers"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
+            if !helpers.contains(&actor) {
+                return no("Only an IT helper can take this.");
+            }
+            Ok(json!(value.as_bool().unwrap_or(true)))
+        }
         _ => no("That can't be changed on this card."),
     }
 }
@@ -457,6 +496,12 @@ mod tests {
         let e = clean_card(&json!({ "kind": "event", "title": "Review", "start": 2_000_000_000, "minutes": 9999 })).unwrap();
         assert_eq!(e["minutes"], 600);
         assert_eq!(e["video"], true);
+
+        // LANX 2.3.0 IT help desk ticket.
+        let t = clean_card(&json!({ "kind": "ticket", "title": " Printer stuck ", "helpers": ["it1", "it2"], "pc": "ACCTS-01", "app": "2.3.0", "os": "Windows 11", "shot": true })).unwrap();
+        assert_eq!((t["title"].as_str(), t["helpers"].as_array().map(|a| a.len()), t["shot"].as_bool()), (Some("Printer stuck"), Some(2), Some(true)));
+        assert!(clean_card(&json!({ "kind": "ticket", "title": "x" })).is_err(), "needs a helper");
+        assert!(clean_card(&json!({ "kind": "ticket", "helpers": ["it1"] })).is_err(), "needs a title");
     }
 
     #[test]
@@ -477,6 +522,15 @@ mod tests {
         assert!(check_card_change(&appr, "asha", "chetan", "decision:chetan", &json!({ "d": "approved", "note": "ok" })).is_ok());
         assert!(check_card_change(&appr, "asha", "bharat", "decision:bharat", &json!({ "d": "approved" })).is_err());
         assert!(check_card_change(&appr, "asha", "chetan", "decision:chetan", &json!({ "d": "maybe" })).is_err());
+
+        // Ticket: a helper or the person who asked moves it; others can't.
+        let tk = clean_card(&json!({ "kind": "ticket", "title": "VPN down", "helpers": ["it1"] })).unwrap();
+        assert!(check_card_change(&tk, "asha", "it1", "status", &json!("working")).is_ok());
+        assert!(check_card_change(&tk, "asha", "asha", "status", &json!("resolved")).is_ok());
+        assert!(check_card_change(&tk, "asha", "bharat", "status", &json!("working")).is_err());
+        assert!(check_card_change(&tk, "asha", "chetan", "status", &json!("flying")).is_err());
+        assert!(check_card_change(&tk, "asha", "it1", "taken:it1", &json!(true)).is_ok());
+        assert!(check_card_change(&tk, "asha", "asha", "taken:asha", &json!(true)).is_err(), "only a helper takes it");
 
         let ev = clean_card(&json!({ "kind": "event", "title": "Review", "start": 5 })).unwrap();
         assert!(check_card_change(&ev, "asha", "bharat", "rsvp:bharat", &json!("maybe")).is_ok());

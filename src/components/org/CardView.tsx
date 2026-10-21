@@ -21,6 +21,9 @@ import {
   Video,
   X,
   XCircle,
+  LifeBuoy,
+  Monitor,
+  Wrench,
 } from "lucide-react";
 import type { Message } from "../../types";
 import { api, errorText } from "../../lib/api";
@@ -38,6 +41,8 @@ import {
   rsvps,
   taskDone,
   taskDoneBy,
+  ticketStatus,
+  ticketTakenBy,
   type CardKind,
 } from "./cardModel";
 import { whenText } from "../chat/chatUtils";
@@ -58,6 +63,7 @@ const STYLE: Record<CardKind, { bar: string; icon: React.ElementType }> = {
   sync: { bar: "bg-amber-500/15 text-amber-700 dark:text-amber-300", icon: FolderSync },
   visitor: { bar: "bg-orange-500/15 text-orange-700 dark:text-orange-300", icon: BellRing },
   kudos: { bar: "bg-yellow-400/20 text-yellow-800 dark:text-yellow-300", icon: Trophy },
+  ticket: { bar: "bg-rose-500/15 text-rose-700 dark:text-rose-300", icon: LifeBuoy },
 };
 
 const VISITOR_REPLIES: [string, string][] = [
@@ -76,6 +82,7 @@ export function CardView({
   onChanged,
   onError,
   onStartMeeting,
+  onRemoteHelp,
   onJump,
   canAct = true,
   wide = false,
@@ -87,6 +94,8 @@ export function CardView({
   onChanged: (m: Message) => void;
   onError: (text: string) => void;
   onStartMeeting?: (conversationId: string) => void;
+  /** LANX 2.3.0: see the asker's screen to help with their ticket. */
+  onRemoteHelp?: (conversationId: string) => void;
   onJump?: (messageId: string) => void;
   canAct?: boolean;
   wide?: boolean;
@@ -608,6 +617,54 @@ export function CardView({
             </button>
           </>
         ) : null}
+      </>
+    );
+  } else if (card.kind === "ticket") {
+    const st = ticketStatus(msg);
+    const iAmHelper = card.helpers.includes(myId);
+    const taken = ticketTakenBy(msg);
+    const iTook = taken.some((t) => t.id === myId);
+    status =
+      st === "resolved" ? (
+        <span className="rounded-full bg-emerald-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case">Resolved</span>
+      ) : st === "working" ? (
+        <span className="rounded-full bg-amber-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case">Being fixed</span>
+      ) : (
+        <span className="rounded-full bg-rose-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case">Needs help</span>
+      );
+    body = (
+      <>
+        <div className="text-[14px] font-semibold text-slate-900 dark:text-white">{card.title}</div>
+        {card.details && <p className="text-[12.5px] text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words">{card.details}</p>}
+        <div className="rounded-lg bg-[var(--lanx-fill)] px-2.5 py-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+          <div>From {nameOf(creator)}{card.pc ? ` · ${card.pc}` : ""}</div>
+          <div className="text-slate-500">{card.app ? `LANX ${card.app}` : ""}{card.os ? ` · ${card.os}` : ""}{card.shot ? " · screenshot in this chat" : ""}</div>
+        </div>
+        {taken.length > 0 && st !== "resolved" && (
+          <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">On it: {taken.map((t) => t.name).join(", ")}</div>
+        )}
+        {iAmHelper && canAct && st !== "resolved" && (
+          <div className="flex flex-wrap gap-1.5">
+            {!iTook && (
+              <button type="button" data-ticket-take disabled={busy} onClick={() => act(`taken:${myId}`, true)} className={`${btn} bg-amber-500 hover:bg-amber-600 text-white`}>
+                <Wrench className="h-3.5 w-3.5" /> I'll help
+              </button>
+            )}
+            {onRemoteHelp && (
+              <button type="button" data-ticket-remote disabled={busy} onClick={() => onRemoteHelp(msg.conversation_id)} className={`${btn} bg-sky-500 hover:bg-sky-600 text-white`}>
+                <Monitor className="h-3.5 w-3.5" /> See their screen
+              </button>
+            )}
+            <button type="button" data-ticket-resolve disabled={busy} onClick={() => act("status", "resolved")} className={`${btn} bg-emerald-500 hover:bg-emerald-600 text-white`}>
+              <Check className="h-3.5 w-3.5" /> Mark resolved
+            </button>
+          </div>
+        )}
+        {isCreator && canAct && st === "resolved" && (
+          <button type="button" data-ticket-reopen disabled={busy} onClick={() => act("status", "open")} className={`${btn} bg-slate-500/10 text-slate-600 dark:text-slate-300`}>
+            Reopen
+          </button>
+        )}
       </>
     );
   }

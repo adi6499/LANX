@@ -79,6 +79,10 @@ pub const FEATURES_OFFICE: &str = "1.8.0";
 /// `PolicyAnswer` packets).
 pub const FEATURES_ADMIN: &str = "1.9.0";
 
+/// Oldest app version with 2.3.0 IT help desk: the "ticket" card
+/// (`message_type = "card"`, kind "ticket"). Older peers get it as text.
+pub const FEATURES_HELP: &str = "2.3.0";
+
 /// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
 /// whose reason is the colleague's status (waiting | accepted | declined | …).
 #[derive(Debug, Clone, Serialize, Deserialize)]
