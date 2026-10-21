@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArchiveRestore, Bell, BellOff, Check, FolderPlus, Pin, PinOff, Plus, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, Bell, BellOff, Check, FolderPlus, MailOpen, MailWarning, Pin, PinOff, Plus, Trash2, X } from "lucide-react";
 import type { ChatFolder, Conversation } from "../../types";
 import { MUTE_CHOICES, isMuted, muteText } from "../../lib/tools";
 
@@ -10,6 +10,8 @@ export interface ChatTools {
   mute: (id: string, minutes: number) => void;
   archive: (id: string, archived: boolean) => void;
   folders: (id: string, folders: string[]) => void;
+  /** LANX 2.2.0: "Mark as unread" / "Mark as read". */
+  unread?: (id: string, unread: boolean) => void;
 }
 
 /** Right-click menu of a chat in the chat list. */
@@ -68,6 +70,12 @@ export function ChatMenu({
       <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-semibold text-slate-400 truncate">{conv.peer_name}</div>
       {page === "main" && (
         <>
+          {tools.unread && (
+            <button type="button" data-menu-unread className={item} onClick={done(() => tools.unread!(conv.id, conv.unread_count === 0))}>
+              {conv.unread_count === 0 ? <MailWarning className="h-4 w-4 text-sky-500" /> : <MailOpen className="h-4 w-4 text-sky-500" />}
+              {conv.unread_count === 0 ? "Mark as unread" : "Mark as read"}
+            </button>
+          )}
           <button type="button" data-menu-pin className={item} onClick={done(() => tools.pin(conv.id, !conv.is_pinned))}>
             {conv.is_pinned ? <PinOff className="h-4 w-4 text-amber-500" /> : <Pin className="h-4 w-4 text-amber-500" />}
             {conv.is_pinned ? "Unpin" : "Pin to the top"}

@@ -72,9 +72,45 @@ pub fn list_starred(state: State<AppState>) -> Result<Vec<SearchHit>, String> {
 }
 
 #[tauri::command]
-pub fn set_reminder(state: State<AppState>, message_id: String, remind_at: i64) -> Result<Message, String> {
+pub fn set_reminder(state: State<AppState>, message_id: String, remind_at: i64, no_reply: Option<bool>) -> Result<Message, String> {
     state.network.privacy.guard()?;
-    state.network.set_reminder(&message_id, remind_at)
+    state.network.set_reminder_ex(&message_id, remind_at, no_reply.unwrap_or(false))
+}
+
+/// LANX 2.2.0: forward messages (and files) to chats.
+#[tauri::command]
+pub async fn forward_messages(
+    state: State<'_, AppState>,
+    message_ids: Vec<String>,
+    conversation_ids: Vec<String>,
+) -> Result<crate::networking::everyday::ForwardResult, String> {
+    state.network.privacy.guard()?;
+    for c in &conversation_ids {
+        super::guard_conversation(&state, c)?;
+    }
+    state.network.forward_messages(&message_ids, &conversation_ids).await
+}
+
+/// LANX 2.2.0: "Mark as unread" in the chat list.
+#[tauri::command]
+pub fn mark_chat_unread(state: State<AppState>, conversation_id: String) -> Result<crate::storage::models::Conversation, String> {
+    super::guard_conversation(&state, &conversation_id)?;
+    state.db.mark_unread(&conversation_id).map_err(|e| e.to_string())?;
+    state.network.events.update_tray(&state.db);
+    state
+        .db
+        .get_conversation(&conversation_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Chat not found".to_string())
+}
+
+/// LANX 2.2.0: why can or can't LANX reach this colleague?
+#[tauri::command]
+pub async fn check_connection(
+    state: State<'_, AppState>,
+    peer_id: String,
+) -> Result<crate::networking::everyday::ConnectionCheck, String> {
+    state.network.check_connection(&peer_id).await
 }
 
 #[tauri::command]

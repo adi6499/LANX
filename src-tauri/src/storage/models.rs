@@ -566,6 +566,9 @@ pub struct Message {
     /// A "remind me" set on this computer (filled in when loaded).
     #[serde(default)]
     pub remind_at: Option<i64>,
+    /// LANX 2.2.0: that reminder only goes off if nobody replied.
+    #[serde(default)]
+    pub remind_no_reply: bool,
     /// LANX 1.6.0 cards: votes, ticks, decisions… (filled in when loaded).
     #[serde(default)]
     pub card_state: Vec<CardEntry>,
@@ -601,6 +604,11 @@ pub struct Reminder {
     pub message_id: String,
     pub conversation_id: String,
     pub remind_at: i64,
+    /// LANX 2.2.0: only if nothing came back in the chat since `set_at`.
+    #[serde(default)]
+    pub no_reply: bool,
+    #[serde(default)]
+    pub set_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

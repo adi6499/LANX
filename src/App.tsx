@@ -40,6 +40,7 @@ import { OrganiserPanel, countNeedsMe } from "./components/org/OrganiserPanel";
 import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
 import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
 import { SendToModal } from "./components/tools/SendToModal";
+import { withoutForwardMark } from "./components/chat/chatUtils";
 import { FileLibrary } from "./components/tools/FileLibrary";
 import { SyncPanel } from "./components/tools/SyncPanel";
 import { isMuted, quietNow } from "./lib/tools";
@@ -168,6 +169,8 @@ export default function App() {
   const [showFolders, setShowFolders] = useState(false);
   const [shot, setShot] = useState<ArrayBuffer | null>(null);
   const [sendRequest, setSendRequest] = useState<string[] | null>(null);
+  /** LANX 2.2.0: messages being forwarded (the chat picker is open). */
+  const [forwarding, setForwarding] = useState<Message[] | null>(null);
   const [filesMode, setFilesMode] = useState<"transfers" | "library" | "sync">("transfers");
   const [historyQuery, setHistoryQuery] = useState("");
   // ---- LANX 1.8.0
@@ -866,6 +869,23 @@ export default function App() {
         })
         .catch(showError),
     folders: (id, folders) => api.setChatFolders(id, folders).then(mergeConversation).catch(showError),
+    unread: (id, unread) => {
+      if (unread) {
+        api
+          .markChatUnread(id)
+          .then((c) => {
+            mergeConversation(c);
+            // (An open chat would be read again at once.)
+            if (activeConversationIdRef.current === id) setActiveConversationId(null);
+          })
+          .catch(showError);
+      } else {
+        api
+          .markConversationRead(id)
+          .then(() => setConversations((prev) => prev.map((x) => (x.id === id ? { ...x, unread_count: 0 } : x))))
+          .catch(showError);
+      }
+    },
   };
 
   const handleSendSticker = async (id: string) => {
@@ -1367,6 +1387,7 @@ export default function App() {
             onUnmute={() => activeConversation && chatTools.mute(activeConversation.id, 0)}
             onIntercomSent={addSentFiles}
             onRemoteHelp={(help) => activeConversation && callRef.current?.start(activeConversation, false, help)}
+            onForward={(msgs) => setForwarding(msgs)}
           />
         )}
 
@@ -1656,6 +1677,46 @@ export default function App() {
             addSentFiles(sent);
             setActiveConversationId(conversationId);
             setActiveTab("messages");
+          }}
+        />
+      )}
+
+      {forwarding && forwarding.length > 0 && (
+        <SendToModal
+          paths={[]}
+          title="Forward to…"
+          items={forwarding.map((m) =>
+            m.message_type === "file" ? `📎 ${m.content}` : m.message_type === "sticker" ? "Sticker" : withoutForwardMark(m.content).slice(0, 120)
+          )}
+          conversations={conversations}
+          peers={peers}
+          onClose={() => setForwarding(null)}
+          onSend={async (conversationIds, peerIds) => {
+            const ids = [...conversationIds];
+            for (const p of peerIds) {
+              try {
+                const c = await api.getOrCreateConversation(p);
+                setConversations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]));
+                ids.push(c.id);
+              } catch (err) {
+                showError(err);
+              }
+            }
+            const msgs = forwarding;
+            setForwarding(null);
+            try {
+              const r = await api.forwardMessages(
+                msgs.map((m) => m.id),
+                ids
+              );
+              if (r.problems.length) showError(r.problems.join(" "));
+              else setNotice(ids.length === 1 ? "Forwarded." : `Forwarded to ${ids.length} chats.`);
+              api.getConversations().then(setConversations).catch(() => {});
+              const open = activeConversationIdRef.current;
+              if (open && ids.includes(open)) api.getMessages(open).then(setMessages).catch(() => {});
+            } catch (err) {
+              showError(err);
+            }
           }}
         />
       )}

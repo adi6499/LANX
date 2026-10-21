@@ -2401,3 +2401,66 @@ async fn office_settings_need_a_yes_and_follow_the_admin() {
     assert!(wait_for(|| status(&a, b.id()) == "left", 5).await);
     assert!(b.svc.become_admin().is_ok(), "after leaving, Bharat could be an admin himself");
 }
+
+// ------------------------------------------------------------ LANX 2.2.0
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn forward_unread_follow_up_and_connection_check() {
+    let a = node("Asha").await;
+    let b = node("Bharat").await;
+    let c = node("Chetan").await;
+    let ab = link(&a, &b).await;
+    let ac = link(&a, &c).await;
+
+    // Forward: Asha forwards her message to Chetan; it arrives marked once.
+    let m = a.svc.send_message_full(&ab, "Price list for Dolvi", None, Vec::new()).await.unwrap();
+    let r = a.svc.forward_messages(&[m.id.clone()], &[ac.clone()]).await.unwrap();
+    assert_eq!((r.sent, r.problems.len()), (1, 0));
+    let on_c = || c.db().get_conversations(true).unwrap().into_iter().find(|x| x.peer_id == a.id()).map(|x| x.id);
+    assert!(wait_for(|| on_c().is_some_and(|id| texts(c.db(), &id).contains(&"↪ Forwarded\nPrice list for Dolvi".to_string())), 10).await);
+    // Forwarding the forwarded message doesn't mark it twice.
+    let fwd = messages_in(a.db(), &ac).into_iter().find(|x| x.content.starts_with("↪ Forwarded")).unwrap();
+    a.svc.forward_messages(&[fwd.id], &[ab.clone()]).await.unwrap();
+    assert!(texts(a.db(), &ab).contains(&"↪ Forwarded\nPrice list for Dolvi".to_string()));
+    // A file that isn't on this PC can't be forwarded; a deleted message neither.
+    let mut gone = m.clone();
+    gone.id = "not-there".into();
+    assert!(a.svc.forward_messages(&[gone.id], &[ac.clone()]).await.is_err());
+
+    // Mark as unread, then read again.
+    a.db().mark_unread(&ab).unwrap();
+    assert_eq!(a.db().get_conversation(&ab).unwrap().unwrap().unread_count, 1);
+    a.db().mark_conversation_read(&ab, false).unwrap();
+    assert_eq!(a.db().get_conversation(&ab).unwrap().unwrap().unread_count, 0);
+
+    // "Remind me if no reply": only on messages you sent; a reply cancels it.
+    let ask = a.svc.send_message_full(&ab, "Can you send the rates?", None, Vec::new()).await.unwrap();
+    let at = chrono::Utc::now().timestamp() + 3600;
+    let set = a.svc.set_reminder_ex(&ask.id, at, true).unwrap();
+    assert!(set.remind_no_reply && set.remind_at == Some(at));
+    let since = chrono::Utc::now().timestamp() - 1;
+    assert!(!a.db().has_reply_since(&ab, since));
+    let ba = b.db().get_conversations(true).unwrap().into_iter().find(|x| x.peer_id == a.id()).unwrap().id;
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    b.svc.send_message_full(&ba, "Sending now", None, Vec::new()).await.unwrap();
+    assert!(wait_for(|| a.db().has_reply_since(&ab, since), 10).await);
+    let due = a.db().take_due_reminders(at + 1).unwrap();
+    assert!(due.iter().any(|r| r.message_id == ask.id && r.no_reply));
+    let theirs = messages_in(a.db(), &ab).into_iter().find(|x| !x.is_outgoing).unwrap();
+    assert!(a.svc.set_reminder_ex(&theirs.id, at, true).is_err(), "only on messages you sent");
+
+    // Connection check: Bharat is reachable…
+    let ok = a.svc.check_connection(&b.id()).await.unwrap();
+    assert!(ok.ok && ok.verdict.starts_with("All good"), "{:?}", ok);
+    // (Test copies talk over 127.0.0.1, so "same network" can't be checked here.)
+    for label in ["PC answers", "Secure LANX connection", "LANX version"] {
+        assert!(ok.steps.iter().any(|s| s.label.contains(label) && s.ok == Some(true)), "{label}: {:?}", ok.steps);
+    }
+    // …Chetan's LANX is gone (nothing listens on his port any more).
+    let mut chetan = a.db().get_peer(&c.id()).unwrap().unwrap();
+    chetan.tcp_port = 1;
+    a.db().upsert_peer(&chetan).unwrap();
+    let bad = a.svc.check_connection(&c.id()).await.unwrap();
+    assert!(!bad.ok && bad.steps.iter().any(|s| s.ok == Some(false)), "{:?}", bad);
+}
+

@@ -6,6 +6,8 @@ import {
   ChevronLeft,
   ClipboardCheck,
   Copy,
+  Forward,
+  MessageCircleQuestion,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -18,7 +20,7 @@ import {
   Undo2,
 } from "lucide-react";
 import type { Message, Reaction } from "../../types";
-import { QUICK_REACTIONS, localInputValue, whenChoices, whenText } from "./chatUtils";
+import { QUICK_REACTIONS, followUpChoices, localInputValue, whenChoices, whenText } from "./chatUtils";
 
 /** LANX 1.5.0: what you can do with a message — a small bar that appears
  *  when the mouse is on it (quick reactions, reply, more…). */
@@ -34,6 +36,10 @@ export interface MessageActions {
   deleteEveryone: (m: Message) => void;
   /** LANX 1.6.0: turn a message into a task. */
   makeTask?: (m: Message) => void;
+  /** LANX 2.2.0: forward to other chats. */
+  forward?: (m: Message) => void;
+  /** LANX 2.2.0: "remind me if no reply" (messages you sent). */
+  followUp?: (m: Message, at: number) => void;
 }
 
 const EDIT_WINDOW = 24 * 3600;
@@ -52,7 +58,7 @@ export function MessageTools({
   /** False in chats you have left (only local things stay). */
   canAct: boolean;
 }) {
-  const [menu, setMenu] = useState<null | "main" | "remind" | "emoji">(null);
+  const [menu, setMenu] = useState<null | "main" | "remind" | "followup" | "emoji">(null);
   const [custom, setCustom] = useState(() => localInputValue(Math.floor(Date.now() / 1000) + 3600));
   const [up, setUp] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -60,6 +66,9 @@ export function MessageTools({
   const now = Math.floor(Date.now() / 1000);
   const isText = msg.message_type === "text";
   const secret = !!msg.ttl_secs;
+  /** LANX 2.2.0: texts, files, stickers and cards can be forwarded. */
+  const canForward =
+    !secret && !msg.deleted && ["text", "file", "sticker", "card"].includes(msg.message_type) && (msg.message_type !== "file" || !!msg.transfer_id);
   const canEdit = canAct && isOut && isText && !secret && now - msg.timestamp < EDIT_WINDOW;
   const canDeleteAll = canAct && isOut && now - msg.timestamp < DELETE_WINDOW;
 
@@ -150,7 +159,7 @@ export function MessageTools({
         </div>
       )}
 
-      {(menu === "main" || menu === "remind") && (
+      {(menu === "main" || menu === "remind" || menu === "followup") && (
         <div
           data-msg-menu
           className={`absolute ${up ? "bottom-full mb-1.5" : "top-full mt-1.5"} ${isOut ? "right-0" : "left-0"} w-60 rounded-2xl lanx-menu p-1.5 shadow-xl lanx-rise`}
@@ -160,6 +169,7 @@ export function MessageTools({
               {canAct && item(<Reply className="h-4 w-4" />, "Reply", done(() => actions.reply(msg)))}
               {canAct && isText && !secret && actions.makeTask && item(<ClipboardCheck className="h-4 w-4" />, "Make a task…", done(() => actions.makeTask!(msg)), false, "make-task")}
               {isText && !secret && item(<Copy className="h-4 w-4" />, "Copy text", done(() => navigator.clipboard.writeText(msg.content).catch(() => {})))}
+              {canForward && actions.forward && item(<Forward className="h-4 w-4" />, "Forward…", done(() => actions.forward!(msg)), false, "forward")}
               {canEdit && item(<Pencil className="h-4 w-4" />, "Edit", done(() => actions.edit(msg)), false, "edit")}
               {canAct && !secret &&
                 (msg.pinned_at
@@ -170,14 +180,43 @@ export function MessageTools({
                   ? item(<StarOff className="h-4 w-4" />, "Unstar", done(() => actions.star(msg, false)), false, "unstar")
                   : item(<Star className="h-4 w-4" />, "Star (save)", done(() => actions.star(msg, true)), false, "star"))}
               {msg.remind_at
-                ? item(<BellOff className="h-4 w-4" />, `Cancel reminder (${whenText(msg.remind_at)})`, done(() => actions.remind(msg, null)), false, "unremind")
+                ? item(
+                    <BellOff className="h-4 w-4" />,
+                    msg.remind_no_reply ? `Cancel follow-up (${whenText(msg.remind_at)})` : `Cancel reminder (${whenText(msg.remind_at)})`,
+                    done(() => actions.remind(msg, null)),
+                    false,
+                    "unremind"
+                  )
                 : item(<AlarmClock className="h-4 w-4" />, "Remind me…", () => setMenu("remind"), false, "remind")}
+              {!msg.remind_at && isOut && !secret && actions.followUp &&
+                item(<MessageCircleQuestion className="h-4 w-4" />, "Remind me if no reply…", () => setMenu("followup"), false, "followup")}
               <div className="my-1 border-t lanx-line" />
               {item(<Trash2 className="h-4 w-4" />, "Delete for me", done(() => actions.deleteMe(msg)), true, "delete-me")}
               {canDeleteAll &&
                 (confirm
                   ? item(<Undo2 className="h-4 w-4" />, "Sure? Delete for everyone", done(() => actions.deleteEveryone(msg)), true, "delete-all-confirm")
                   : item(<Trash2 className="h-4 w-4" />, "Delete for everyone…", () => setConfirm(true), true, "delete-all"))}
+            </>
+          ) : menu === "followup" ? (
+            <>
+              <button type="button" onClick={() => setMenu("main")} className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-slate-500">
+                <ChevronLeft className="h-3.5 w-3.5" /> Remind me if there's no reply
+              </button>
+              <p className="px-2.5 pb-1 text-[10.5px] leading-snug text-slate-400">If they answer before then, LANX stays quiet.</p>
+              {followUpChoices().map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  data-followup-choice={c.label}
+                  onClick={done(() => actions.followUp!(msg, c.at))}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[12.5px] rounded-lg hover:bg-[var(--lanx-fill)] text-slate-700 dark:text-slate-200"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <MessageCircleQuestion className="h-3.5 w-3.5" /> {c.label}
+                  </span>
+                  <span className="text-[10.5px] text-slate-400">{c.hint}</span>
+                </button>
+              ))}
             </>
           ) : (
             <>

@@ -230,6 +230,8 @@ export interface Message {
   reactions?: Reaction[];
   /** "Remind me" time set on this computer. */
   remind_at?: number | null;
+  /** LANX 2.2.0: that reminder only goes off if nobody replied. */
+  remind_no_reply?: boolean;
   timestamp: number;
   status: MessageStatus;
   error_reason?: string | null;
@@ -469,6 +471,26 @@ export interface RestoreNotice {
 }
 
 // -------------------------------------------------------------------- calls
+/** LANX 2.2.0: forwarding. */
+export interface ForwardResult {
+  sent: number;
+  problems: string[];
+}
+
+/** LANX 2.2.0: the connection check for one colleague. */
+export interface CheckStep {
+  label: string;
+  /** true ✓, false ✗, null = not checked */
+  ok: boolean | null;
+  detail: string;
+}
+export interface ConnectionCheck {
+  ok: boolean;
+  verdict: string;
+  steps: CheckStep[];
+  latency_ms: number | null;
+}
+
 export interface SpeedTestResult {
   /** MB/s over one connection. */
   single_mbps: number;

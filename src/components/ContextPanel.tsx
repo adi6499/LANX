@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Conversation, GroupInfo, Peer, SpeedTestResult, TransferRecord, TrustState, secretLabel } from "../types";
+import { ConnectionCheck, Conversation, GroupInfo, Peer, SpeedTestResult, TransferRecord, TrustState, secretLabel } from "../types";
 import {
   Copy,
   X,
@@ -18,6 +18,7 @@ import {
   Eye,
   Timer,
   Gauge,
+  Stethoscope,
 } from "lucide-react";
 import { FileIcon } from "./FileCard";
 import { PeerPicker, groupPickReason } from "./NewGroupModal";
@@ -46,6 +47,71 @@ interface ContextPanelProps {
   onExport?: (kind: "excel" | "pdf") => void;
 }
 
+
+/** LANX 2.2.0: can LANX reach this colleague, and if not, why (in plain words)? */
+function ConnectionCheckCard({ peer }: { peer: Peer }) {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<ConnectionCheck | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setRes(null);
+    setErr(null);
+  }, [peer.id]);
+  const run = async () => {
+    setBusy(true);
+    setErr(null);
+    setRes(null);
+    try {
+      setRes(await api.checkConnection(peer.id));
+    } catch (e) {
+      setErr(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="p-4 border-b lanx-line" data-connection-check>
+      <div className="flex items-center justify-between mb-2">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+          <Stethoscope className="h-3.5 w-3.5 text-emerald-500" /> Connection check
+        </span>
+        <button
+          type="button"
+          data-check-connection
+          onClick={run}
+          disabled={busy}
+          className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold disabled:opacity-60"
+        >
+          {busy ? "Checking…" : res ? "Check again" : "Check"}
+        </button>
+      </div>
+      {!res && !err && <p className="text-[11px] text-slate-500 leading-snug">Can't reach {peer.display_name}? This finds out why, step by step.</p>}
+      {err && <p className="text-[11px] text-red-600">{err}</p>}
+      {res && (
+        <div className="space-y-1.5" data-check-result={res.ok ? "ok" : "problem"}>
+          <p
+            className={`rounded-lg px-2 py-1.5 text-[11.5px] leading-snug ${
+              res.ok ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/10 text-amber-800 dark:text-amber-200"
+            }`}
+          >
+            {res.verdict}
+          </p>
+          {res.steps.map((s) => (
+            <div key={s.label} className="flex items-start gap-2 text-[11px]">
+              <span className={`mt-px w-3.5 shrink-0 text-center font-bold ${s.ok === true ? "text-emerald-500" : s.ok === false ? "text-red-500" : "text-slate-400"}`}>
+                {s.ok === true ? "✓" : s.ok === false ? "✗" : "–"}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-700 dark:text-slate-200">{s.label}</span>
+                <span className="block text-slate-500 break-words">{s.detail}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Measures the real network speed to this colleague (LANX 1.2.3+). */
 function SpeedTestCard({ peer, busy: sending }: { peer: Peer; busy: boolean }) {
@@ -528,6 +594,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
         </div>
       )}
 
+      {!isGroup && peer && <ConnectionCheckCard peer={peer} />}
       {!isGroup && peer && <SpeedTestCard peer={peer} busy={transfers.some((t) => t.status === "transferring")} />}
 
       {hideBlock}

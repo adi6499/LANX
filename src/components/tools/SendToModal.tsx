@@ -5,12 +5,17 @@ import type { Conversation, Peer } from "../../types";
 /** LANX 1.7.0: files chosen in Explorer ("Send to → LANX"): pick who gets them. */
 export function SendToModal({
   paths,
+  items,
+  title = "Send with LANX",
   conversations,
   peers,
   onSend,
   onClose,
 }: {
   paths: string[];
+  /** LANX 2.2.0: what is being forwarded (shown instead of file names). */
+  items?: string[];
+  title?: string;
   conversations: Conversation[];
   peers: Peer[];
   /** Sends to chats (ids) and to colleagues without a chat yet (peer ids). */
@@ -38,12 +43,17 @@ export function SendToModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm lanx-fade" onMouseDown={onClose}>
       <div data-send-to className="w-[440px] max-w-[94vw] max-h-[86vh] flex flex-col rounded-[22px] lanx-menu shadow-2xl lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 pt-4">
-          <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">Send with LANX</h3>
+          <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">{title}</h3>
           <button type="button" onClick={onClose} className="lanx-tool p-1 text-slate-400">
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="px-5 pt-2 space-y-1 max-h-28 overflow-y-auto">
+          {(items ?? []).map((t, i) => (
+            <div key={i} className="truncate text-[12px] text-slate-600 dark:text-slate-300" data-forward-item>
+              {t}
+            </div>
+          ))}
           {paths.map((p) => (
             <div key={p} className="flex items-center gap-2 text-[12px] text-slate-600 dark:text-slate-300" title={p}>
               {isFolder(p) ? <Folder className="h-3.5 w-3.5 text-amber-500 shrink-0" /> : <File className="h-3.5 w-3.5 text-sky-500 shrink-0" />}

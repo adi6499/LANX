@@ -185,6 +185,7 @@ fn row_to_message(row: &Row) -> Result<Message> {
         starred: row.get::<_, i64>(20)? != 0,
         reactions: Vec::new(),
         remind_at: None,
+        remind_no_reply: false,
         card_state: Vec::new(),
     })
 }

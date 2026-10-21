@@ -53,17 +53,20 @@ impl Database {
         }
         let ids: Vec<&str> = messages.iter().map(|m| m.id.as_str()).collect();
         let mut reactions = self.reactions_for(&ids)?;
-        let reminders: HashMap<String, i64> = {
+        let reminders: HashMap<String, (i64, bool)> = {
             let conn = self.conn.lock();
-            let mut stmt = conn.prepare("SELECT message_id, remind_at FROM reminders WHERE conversation_id = ?1")?;
-            let rows = stmt.query_map(params![conversation_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            let mut stmt = conn.prepare("SELECT message_id, remind_at, no_reply FROM reminders WHERE conversation_id = ?1")?;
+            let rows = stmt.query_map(params![conversation_id], |r| {
+                Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)? != 0)))
+            })?;
             rows.flatten().collect()
         };
         let card_ids: Vec<&str> = messages.iter().filter(|m| m.message_type == "card").map(|m| m.id.as_str()).collect();
         let mut cards = self.card_entries_for(&card_ids)?;
         for m in messages.iter_mut() {
             m.reactions = reactions.remove(&m.id).unwrap_or_default();
-            m.remind_at = reminders.get(&m.id).copied();
+            m.remind_at = reminders.get(&m.id).map(|r| r.0);
+            m.remind_no_reply = reminders.get(&m.id).is_some_and(|r| r.1);
             m.card_state = cards.remove(&m.id).unwrap_or_default();
         }
         Ok(())
@@ -164,15 +167,16 @@ impl Database {
         let ids: Vec<String> = hits.iter().map(|h| h.message.id.clone()).collect();
         let refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
         let mut cards = self.card_entries_for(&refs)?;
-        let reminders: HashMap<String, i64> = {
+        let reminders: HashMap<String, (i64, bool)> = {
             let conn = self.conn.lock();
-            let mut stmt = conn.prepare("SELECT message_id, remind_at FROM reminders")?;
-            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            let mut stmt = conn.prepare("SELECT message_id, remind_at, no_reply FROM reminders")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)? != 0))))?;
             rows.flatten().collect()
         };
         for h in hits.iter_mut() {
             h.message.card_state = cards.remove(&h.message.id).unwrap_or_default();
-            h.message.remind_at = reminders.get(&h.message.id).copied();
+            h.message.remind_at = reminders.get(&h.message.id).map(|r| r.0);
+            h.message.remind_no_reply = reminders.get(&h.message.id).is_some_and(|r| r.1);
         }
         Ok(hits)
     }
@@ -401,11 +405,40 @@ impl Database {
     // -------------------------------------------------------------- reminders
 
     pub fn set_reminder(&self, message_id: &str, conversation_id: &str, remind_at: i64) -> Result<()> {
+        self.set_reminder_ex(message_id, conversation_id, remind_at, false, 0)
+    }
+
+    /// LANX 2.2.0: `no_reply`: only go off if nothing came back in the chat after `set_at`.
+    pub fn set_reminder_ex(&self, message_id: &str, conversation_id: &str, remind_at: i64, no_reply: bool, set_at: i64) -> Result<()> {
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT INTO reminders (id, message_id, conversation_id, remind_at) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(message_id) DO UPDATE SET remind_at = excluded.remind_at",
-            params![uuid::Uuid::new_v4().to_string(), message_id, conversation_id, remind_at],
+            "INSERT INTO reminders (id, message_id, conversation_id, remind_at, no_reply, set_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(message_id) DO UPDATE SET remind_at = excluded.remind_at, no_reply = excluded.no_reply, set_at = excluded.set_at",
+            params![uuid::Uuid::new_v4().to_string(), message_id, conversation_id, remind_at, no_reply as i64, set_at],
+        )?;
+        Ok(())
+    }
+
+    /// Did anything come back in this chat after `since` (a message, a file,
+    /// a card, a call from them)?
+    pub fn has_reply_since(&self, conversation_id: &str, since: i64) -> bool {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE conversation_id = ?1 AND is_outgoing = 0 AND timestamp > ?2
+                 AND message_type NOT IN ('system', 'secret_setting'))",
+            params![conversation_id, since],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n != 0)
+        .unwrap_or(false)
+    }
+
+    /// LANX 2.2.0: "Mark as unread" (until the chat is opened again).
+    pub fn mark_unread(&self, conversation_id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE conversations SET unread_count = MAX(unread_count, 1) WHERE id = ?1",
+            params![conversation_id],
         )?;
         Ok(())
     }
@@ -420,10 +453,17 @@ impl Database {
         let conn = self.conn.lock();
         let list: Vec<Reminder> = {
             let mut stmt = conn.prepare(
-                "SELECT id, message_id, conversation_id, remind_at FROM reminders WHERE remind_at <= ?1 ORDER BY remind_at",
+                "SELECT id, message_id, conversation_id, remind_at, no_reply, set_at FROM reminders WHERE remind_at <= ?1 ORDER BY remind_at",
             )?;
             let rows = stmt.query_map(params![now], |r| {
-                Ok(Reminder { id: r.get(0)?, message_id: r.get(1)?, conversation_id: r.get(2)?, remind_at: r.get(3)? })
+                Ok(Reminder {
+                    id: r.get(0)?,
+                    message_id: r.get(1)?,
+                    conversation_id: r.get(2)?,
+                    remind_at: r.get(3)?,
+                    no_reply: r.get::<_, i64>(4)? != 0,
+                    set_at: r.get(5)?,
+                })
             })?;
             rows.flatten().collect()
         };

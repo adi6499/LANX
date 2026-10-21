@@ -434,6 +434,11 @@ impl NetworkService {
     // ------------------------------------------------------------ remind me
 
     pub fn set_reminder(&self, message_id: &str, remind_at: i64) -> Result<Message, String> {
+        self.set_reminder_ex(message_id, remind_at, false)
+    }
+
+    /// LANX 2.2.0: `no_reply`: "remind me if no reply" (only on messages you sent).
+    pub fn set_reminder_ex(&self, message_id: &str, remind_at: i64, no_reply: bool) -> Result<Message, String> {
         let m = self.message(message_id)?;
         let now = now_secs();
         if remind_at <= now {
@@ -442,8 +447,11 @@ impl NetworkService {
         if remind_at > now + MAX_AHEAD_SECS {
             return Err("Reminders can be at most a year ahead.".to_string());
         }
+        if no_reply && !m.is_outgoing {
+            return Err("\"If no reply\" works on messages you sent.".to_string());
+        }
         self.db
-            .set_reminder(message_id, &m.conversation_id, remind_at)
+            .set_reminder_ex(message_id, &m.conversation_id, remind_at, no_reply, now)
             .map_err(|e| e.to_string())?;
         self.emit_changed(message_id, false).ok_or_else(|| "Message not found".to_string())
     }
@@ -518,6 +526,11 @@ impl NetworkService {
         let now = now_secs();
         for r in self.db.take_due_reminders(now).unwrap_or_default() {
             let Some(m) = self.db.get_message_full(&r.message_id).ok().flatten() else { continue };
+            // LANX 2.2.0 "if no reply": they answered, so nothing to remind.
+            if r.no_reply && self.db.has_reply_since(&r.conversation_id, r.set_at) {
+                self.events.message_updated(&m);
+                continue;
+            }
             let conv = self.db.get_conversation(&r.conversation_id).ok().flatten();
             let hidden = conv.as_ref().is_some_and(|c| c.is_hidden);
             let private = hidden && !self.privacy.hidden_unlocked() || self.privacy.is_locked();
@@ -529,7 +542,13 @@ impl NetworkService {
             } else {
                 crate::storage::message_preview(&m)
             };
-            let title = if private { "⏰ Reminder".to_string() } else { format!("⏰ Reminder · {}", chat) };
+            let title = if private {
+                "⏰ Reminder".to_string()
+            } else if r.no_reply {
+                format!("⏰ No reply yet · {}", chat)
+            } else {
+                format!("⏰ Reminder · {}", chat)
+            };
             self.events.message_updated(&m);
             self.events.emit_json(
                 "lanx://reminder",

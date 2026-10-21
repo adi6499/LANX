@@ -27,6 +27,8 @@ import {
   CallEvent,
   RemoteInfo,
   ClipboardText,
+  ForwardResult,
+  ConnectionCheck,
   SpeedTestResult,
   MeetingInfo,
   MeetingEvent,
@@ -1031,9 +1033,35 @@ export const api = {
         return { message: m, peer_name: c?.peer_name ?? "", peer_avatar_color: c?.peer_avatar_color ?? "#6366f1" };
       });
   },
-  setReminder: async (messageId: string, remindAt: number): Promise<Message> => {
-    if (isTauri) return invoke("set_reminder", { messageId, remindAt });
-    return mockPatch(messageId, (m) => ({ ...m, remind_at: remindAt }));
+  /** `noReply` (LANX 2.2.0): only if nobody replied by then. */
+  setReminder: async (messageId: string, remindAt: number, noReply = false): Promise<Message> => {
+    if (isTauri) return invoke("set_reminder", { messageId, remindAt, noReply });
+    return mockPatch(messageId, (m) => ({ ...m, remind_at: remindAt, remind_no_reply: noReply }));
+  },
+
+  // ------------------------------------------------------ LANX 2.2.0 everyday
+  forwardMessages: async (messageIds: string[], conversationIds: string[]): Promise<ForwardResult> => {
+    if (isTauri) return invoke("forward_messages", { messageIds, conversationIds });
+    return { sent: messageIds.length * conversationIds.length, problems: [] };
+  },
+  markChatUnread: async (conversationId: string): Promise<Conversation> => {
+    if (isTauri) return invoke("mark_chat_unread", { conversationId });
+    const c = mockConversations.find((x) => x.id === conversationId)!;
+    return { ...c, unread_count: Math.max(1, c.unread_count) };
+  },
+  checkConnection: async (peerId: string): Promise<ConnectionCheck> => {
+    if (isTauri) return invoke("check_connection", { peerId });
+    return {
+      ok: true,
+      verdict: "All good: messages, files and calls reach them (3 ms).",
+      steps: [
+        { label: "LANX sees their PC on the network", ok: true, detail: "Heard from it 4 seconds ago" },
+        { label: "On the same network as this PC", ok: true, detail: "Their address 192.168.1.24 · this PC 192.168.1.10" },
+        { label: "Their PC answers", ok: true, detail: "Answered in 2 ms" },
+        { label: "Secure LANX connection", ok: true, detail: "Encrypted connection made in 3 ms" },
+      ],
+      latency_ms: 3,
+    };
   },
   cancelReminder: async (messageId: string): Promise<Message> => {
     if (isTauri) return invoke("cancel_reminder", { messageId });

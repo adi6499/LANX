@@ -44,6 +44,7 @@ import {
   AlarmClock,
   Pin,
   Ban,
+  Forward,
 } from "lucide-react";
 import { FileCard, GroupFileCard } from "./FileCard";
 import { MeetingCard, RecordingCard } from "./MeetingCards";
@@ -55,7 +56,7 @@ import { api, errorText, events } from "../lib/api";
 import { MessageTools, ReactionChips, type MessageActions } from "./chat/MessageTools";
 import { VoiceNote, VoiceRecorder, voiceMsFromLabel } from "./chat/VoiceNote";
 import { MentionPicker, PinnedBar, QuickReplyPicker, ReplyEditBar, ScheduledStrip, SendLaterMenu, type MentionCandidate } from "./chat/ComposerExtras";
-import { MessageText, whenText } from "./chat/chatUtils";
+import { MessageText, isForwarded, whenText, withoutForwardMark } from "./chat/chatUtils";
 import { CardView } from "./org/CardView";
 import { CreateCardModal, type Person } from "./org/CreateCardModal";
 import type { CardKind } from "./org/cardModel";
@@ -134,6 +135,8 @@ interface ConversationPanelProps {
   onIntercomSent?: (sent: SentFile[]) => void;
   /** Remote help: "view" = ask to see their screen, "show" = show mine. */
   onRemoteHelp?: (help: "view" | "show") => void;
+  /** LANX 2.2.0: forward these messages (opens the chat picker). */
+  onForward?: (messages: Message[]) => void;
 }
 
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
@@ -225,6 +228,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onUnmute,
   onIntercomSent,
   onRemoteHelp,
+  onForward,
   onJumped,
   onCardPosted,
 }) => {
@@ -469,6 +473,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
       }),
     deleteEveryone: (m) => void run(() => api.deleteMessageEveryone(m.id)),
     makeTask: (m) => setCreateCard({ kind: "task", title: m.content.slice(0, 200), fromMessage: m.id }),
+    forward: onForward ? (m) => onForward([m]) : undefined,
+    followUp: (m, at) => void run(() => api.setReminder(m.id, at, true)),
   };
   // LANX 1.6.0: names on cards, and who can be picked when making one.
   const nameOf = (id: string) => (id === myId ? "You" : members.find((m) => m.id === id)?.name ?? (isGroup ? peerName(id) : conversation.peer_name));
@@ -1342,7 +1348,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                       />
                     ) : (
                       <p className={`whitespace-pre-wrap break-words leading-relaxed ${isSecret ? "select-none" : "select-text"}`}>
-                        <MessageText text={msg.content} names={mentionNames} myName={myName} onAccent={isOut} />
+                        {isForwarded(msg.content) && (
+                          <span data-forwarded className={`mb-0.5 flex items-center gap-1 text-[10.5px] italic ${isOut ? "text-white/75" : "text-slate-400"}`}>
+                            <Forward className="h-3 w-3" /> Forwarded
+                          </span>
+                        )}
+                        <MessageText text={withoutForwardMark(msg.content)} names={mentionNames} myName={myName} onAccent={isOut} />
                       </p>
                     )}
 

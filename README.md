@@ -44,6 +44,15 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.2.0: everyday helpers
+- **Forward** a message, file or sticker to another person or group — hover a message → **…** → **Forward**, then pick who gets it.
+  A forwarded message shows a small "Forwarded" label.
+- **Mark a chat as unread** (or back to read) — right-click it in the chat list. Good for coming back to something later.
+- **Remind me if no reply** — on a message you sent, **…** → **Remind me if no reply…**. If they answer in time, LANX stays quiet;
+  if not, it nudges you.
+- **Connection check** — in a colleague's info panel (ⓘ), press **Check**. It says in plain words whether LANX can reach them and,
+  if not, why (their PC is off, a different network, LANX not running, or a firewall), so people stop guessing.
+
 ### New in 2.1.0: faster, more reliable remote control
 - **Their screen arrives with less delay:** each picture is shown as soon as it arrives (no waiting buffer), and while you
   control a PC its screen keeps a steady frame rate. The orange hint shows how fast it is (for example "28 fps · 60 ms").

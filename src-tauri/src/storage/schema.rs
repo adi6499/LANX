@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 11;
+pub const LATEST_SCHEMA_VERSION: i64 = 12;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -468,6 +468,23 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (11, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 12 {
+        // v12 (LANX 2.2.0): "remind me if no reply" — the reminder only goes
+        // off when nothing came back in that chat since it was set.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE reminders ADD COLUMN no_reply INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE reminders ADD COLUMN set_at INTEGER NOT NULL DEFAULT 0;
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (12, now),
         )?;
         tx.commit()?;
     }

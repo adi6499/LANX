@@ -12,6 +12,26 @@ const secs = (d: Date) => Math.floor(d.getTime() / 1000);
 const timeText = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 /** Ready-made times: soon, later today, tomorrow morning, next Monday. */
+/** LANX 2.2.0: forwarded texts start with this mark (older LANX just shows the words). */
+export const FORWARD_MARK = "↪ Forwarded\n";
+export const isForwarded = (text: string) => text.startsWith(FORWARD_MARK);
+export const withoutForwardMark = (text: string) => (isForwarded(text) ? text.slice(FORWARD_MARK.length) : text);
+
+/** LANX 2.2.0: "remind me if no reply" choices. */
+export function followUpChoices(): WhenChoice[] {
+  const now = new Date();
+  const out: WhenChoice[] = [];
+  const add = (label: string, d: Date) => out.push({ label, hint: `${d.toLocaleDateString([], { weekday: "short" })} ${timeText(d)}`, at: secs(d) });
+  add("In 1 hour", new Date(now.getTime() + 60 * 60_000));
+  add("In 2 hours", new Date(now.getTime() + 2 * 60 * 60_000));
+  add("In 4 hours", new Date(now.getTime() + 4 * 60 * 60_000));
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  tomorrow.setHours(10, 0, 0, 0);
+  add("Tomorrow at 10", tomorrow);
+  return out;
+}
+
 export function whenChoices(kind: "remind" | "send"): WhenChoice[] {
   const now = new Date();
   const out: WhenChoice[] = [];

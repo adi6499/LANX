@@ -1,5 +1,6 @@
 pub mod calls;
 pub mod chat;
+pub mod everyday;
 pub mod lanes;
 pub mod extras;
 pub mod folders;
