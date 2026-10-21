@@ -367,6 +367,8 @@ export interface SharedInstaller {
 }
 
 export type ColleagueUpdateState =
+  /** LANX 2.0: behind, and not chosen to get the update yet. */
+  | "not_chosen"
   | "up_to_date"
   | "behind"
   | "unknown"
@@ -402,6 +404,8 @@ export interface UpdateStatus {
   snoozed_until?: number | null;
   /** Send the shared installer once as a chat file to colleagues on LANX 1.1. */
   auto_chat: boolean;
+  /** LANX 2.0: offer it to everyone who is behind (else only the chosen ones). */
+  send_everyone: boolean;
 }
 
 export type NavTab = "messages" | "people" | "transfers" | "history";

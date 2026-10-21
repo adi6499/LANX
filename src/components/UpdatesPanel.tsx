@@ -39,6 +39,8 @@ function stateLabel(c: ColleagueUpdate): { text: string; tone: string } {
       return { text: c.detail || "Something went wrong", tone: "text-red-600 dark:text-red-400" };
     case "not_offered":
       return { text: `${v} · offered the next time they come online`, tone: "text-slate-500" };
+    case "not_chosen":
+      return { text: `${v} · needs the update: tick to send it`, tone: amber };
     default:
       return { text: "Version shows when they are next online", tone: "text-slate-400" };
   }
@@ -49,6 +51,8 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
+  /** LANX 2.0: who to send the update to. */
+  const [sendTo, setSendTo] = useState<Record<string, boolean>>({});
 
   if (!status) {
     return <div className="text-xs text-slate-500">Loading…</div>;
@@ -59,6 +63,10 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
   const old = colleagues.filter((c) => c.state === "old_version" || c.state === "chat_sent");
   const chosenOld = old.filter((c) => picked[c.peer_id] ?? c.state === "old_version");
   const thisPcBehind = latest !== status.current_version && !available;
+  const notChosen = colleagues.filter((c) => c.state === "not_chosen");
+  const toSend = notChosen.filter((c) => sendTo[c.peer_id]);
+  /** Chosen but not fetched yet: can still be taken back. */
+  const canUnsend = (c: ColleagueUpdate) => !status.send_everyone && (c.state === "waiting" || c.state === "offered" || c.state === "not_offered");
 
   const run = async (fn: () => Promise<string | void>) => {
     setBusy(true);
@@ -79,7 +87,16 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
       const path = await api.pickUpdateInstaller();
       if (!path) return;
       const s = await api.shareUpdate(path);
-      return `Sharing LANX ${s.version}. Colleagues get it automatically as they come online.`;
+      return status.send_everyone
+        ? `Sharing LANX ${s.version}. Colleagues get it automatically as they come online.`
+        : `Sharing LANX ${s.version}. Tick who should get it in the list above, then press Send update.`;
+    });
+
+  const sendUpdate = () =>
+    run(async () => {
+      const n = await api.sendUpdateTo(toSend.map((c) => c.peer_id));
+      setSendTo({});
+      return `Sending LANX ${sharing?.version ?? ""} to ${n} colleague${n === 1 ? "" : "s"}. Those who are offline get it when they come online.`;
     });
 
   const sendInChat = () =>
@@ -153,15 +170,69 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
                       onChange={(e) => setPicked({ ...picked, [c.peer_id]: e.target.checked })}
                       className="accent-sky-500"
                     />
+                  ) : sharing && c.state === "not_chosen" ? (
+                    <input
+                      type="checkbox"
+                      data-update-pick={c.display_name}
+                      checked={!!sendTo[c.peer_id]}
+                      onChange={(e) => setSendTo({ ...sendTo, [c.peer_id]: e.target.checked })}
+                      className="accent-sky-500"
+                    />
                   ) : (
                     <span className="w-[13px]" />
                   )}
                   <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${c.online ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`} />
                   <span className="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[35%]">{c.display_name}</span>
-                  <span className={`truncate ${l.tone}`} title={c.detail ?? undefined}>{l.text}</span>
+                  <span className={`truncate ${l.tone}`} data-update-state={c.state} title={c.detail ?? undefined}>
+                    {l.text}
+                  </span>
+                  {sharing && canUnsend(c) && (
+                    <button
+                      type="button"
+                      data-update-unsend={c.display_name}
+                      disabled={busy}
+                      onClick={() => run(async () => api.unsendUpdate([c.peer_id]))}
+                      className="ml-auto shrink-0 text-[10.5px] font-semibold text-slate-500 hover:text-red-600 hover:underline"
+                    >
+                      Don't send
+                    </button>
+                  )}
                 </div>
               );
             })}
+          </div>
+        )}
+        {sharing && notChosen.length > 0 && (
+          <div className="mt-3 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 p-2.5">
+            <p className="text-[11px] text-sky-900 dark:text-sky-100 leading-snug">
+              {notChosen.length} colleague{notChosen.length === 1 ? "" : "s"} can get LANX {sharing.version}. Nobody gets it
+              until you choose: tick them above, then press <b>Send update</b>.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                data-send-update
+                disabled={busy || toSend.length === 0}
+                onClick={sendUpdate}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-semibold disabled:opacity-50"
+              >
+                <ArrowUpCircle className="h-3.5 w-3.5" />
+                Send update ({toSend.length})
+              </button>
+              <button
+                type="button"
+                data-update-pick-all
+                disabled={busy}
+                onClick={() =>
+                  setSendTo(
+                    toSend.length === notChosen.length ? {} : Object.fromEntries(notChosen.map((c) => [c.peer_id, true]))
+                  )
+                }
+                className="text-[11px] font-semibold text-sky-700 dark:text-sky-300 hover:underline"
+              >
+                {toSend.length === notChosen.length ? "Clear" : "Tick everyone"}
+              </button>
+            </div>
           </div>
         )}
         {sharing && old.length > 0 && (
@@ -206,9 +277,20 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
               </div>
             </div>
             <p className="mt-2 text-[11px] text-slate-500 leading-snug">
-              Every colleague with an older LANX gets it as soon as they are online: it downloads by itself and they see
-              “Update LANX now”. Each PC that updates passes it on too, so nobody depends on this PC being on.
+              {status.send_everyone
+                ? "Every colleague with an older LANX gets it as soon as they are online: it downloads by itself and they see “Update LANX now”."
+                : "Only the colleagues you choose in the list above get it. For them it downloads by itself and they see “Update LANX now”; nobody else is told."}
             </p>
+            <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                data-update-everyone
+                checked={status.send_everyone}
+                onChange={(e) => run(async () => api.setUpdateSendEveryone(e.target.checked))}
+                className="accent-sky-500"
+              />
+              Send it to everyone automatically (no choosing)
+            </label>
             <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer">
               <input
                 type="checkbox"

@@ -399,6 +399,7 @@ let mockUpdate: UpdateStatus = {
   ],
   snoozed_until: null,
   auto_chat: true,
+  send_everyone: false,
 };
 
 let mockBackups: BackupOverview = {
@@ -825,6 +826,27 @@ export const api = {
   stopSharingUpdate: async (): Promise<void> => {
     if (isTauri) return invoke("stop_sharing_update");
     mockUpdate = { ...mockUpdate, sharing: null };
+  },
+
+  /** LANX 2.0: send the shared update to these colleagues. Returns how many. */
+  sendUpdateTo: async (peerIds: string[]): Promise<number> => {
+    if (isTauri) return invoke("send_update_to", { peerIds });
+    mockUpdate = {
+      ...mockUpdate,
+      colleagues: mockUpdate.colleagues.map((c) => (peerIds.includes(c.peer_id) ? { ...c, state: "waiting" } : c)),
+    };
+    return peerIds.length;
+  },
+  unsendUpdate: async (peerIds: string[]): Promise<void> => {
+    if (isTauri) return invoke("unsend_update", { peerIds });
+    mockUpdate = {
+      ...mockUpdate,
+      colleagues: mockUpdate.colleagues.map((c) => (peerIds.includes(c.peer_id) ? { ...c, state: "not_chosen" } : c)),
+    };
+  },
+  setUpdateSendEveryone: async (enabled: boolean): Promise<void> => {
+    if (isTauri) return invoke("set_update_send_everyone", { enabled });
+    mockUpdate = { ...mockUpdate, send_everyone: enabled };
   },
 
   sendUpdateAsFile: async (peerIds: string[]): Promise<BroadcastResult> => {

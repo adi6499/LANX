@@ -943,8 +943,15 @@ async fn update_is_offered_downloaded_checked_and_started_on_click() {
     let share = a.svc.share_update(&path.to_string_lossy()).unwrap();
     assert!(Path::new(&share.path).starts_with(a.dir.path().join("Updates")), "kept in LANX's folder");
 
-    // Without anyone doing anything, Bharat is offered it and his LANX
-    // fetches and checks it in the background.
+    // LANX 2.0: nobody is offered it until Asha chooses them.
+    assert!(wait_for(|| colleague_state(&a, &b.id()) == "not_chosen", 10).await);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(available(&b).is_none(), "not offered by itself");
+    assert!(!a.svc.update_status().send_everyone);
+    assert_eq!(a.svc.send_update_to(&[b.id()]).unwrap(), 1);
+
+    // Once chosen, Bharat is offered it and his LANX fetches and checks it
+    // in the background.
     assert!(wait_for(|| avail_state(&b) == "ready", 20).await);
     let offer = available(&b).unwrap();
     assert_eq!((offer.version.as_str(), offer.from_name.as_str()), ("1.3.0", "Asha"));
@@ -1024,6 +1031,7 @@ async fn installer_changed_on_the_sharing_pc_is_rejected_and_deleted() {
     let (path, _) = fake_installer(a.dir.path(), "1.3.0", 400_000);
     let share = a.svc.share_update(&path.to_string_lossy()).unwrap();
     std::fs::write(&share.path, vec![0x5A; 400_000]).unwrap(); // same size, other program
+    a.svc.set_update_send_everyone(true).unwrap(); // as LANX 1.2–1.9 did
 
     link(&a, &b).await; // Bharat is offered it and fetches it by himself
     assert!(wait_for(|| avail_state(&b) == "failed", 20).await);
@@ -1048,6 +1056,7 @@ async fn colleagues_on_1_1_get_the_installer_as_a_chat_file() {
     link(&a, &b).await;
     let (path, data) = fake_installer(a.dir.path(), "1.3.0", 300_000);
     a.svc.share_update(&path.to_string_lossy()).unwrap();
+    a.svc.send_update_to(&[b.id()]).unwrap();
 
     // Sent once, by itself, as an ordinary file in their chat.
     let copies = || {
@@ -1080,6 +1089,7 @@ async fn no_automatic_chat_files_when_turned_off() {
     let a = updater("Asha", "1.3.0").await;
     let b = updater("Bharat", "1.1.0").await;
     a.svc.set_update_auto_chat(false).unwrap();
+    a.svc.set_update_send_everyone(true).unwrap();
     link(&a, &b).await;
     let (path, _) = fake_installer(a.dir.path(), "1.3.0", 1000);
     a.svc.share_update(&path.to_string_lossy()).unwrap();
@@ -1167,6 +1177,7 @@ async fn an_updated_pc_passes_the_update_on() {
     link(&a, &b).await;
     let (path, data) = fake_installer(a.dir.path(), "1.3.0", 500_000);
     a.svc.share_update(&path.to_string_lossy()).unwrap();
+    a.svc.send_update_to(&[b.id()]).unwrap();
     assert!(wait_for(|| avail_state(&b) == "ready", 20).await);
     assert_eq!(b.svc.install_update().await.unwrap(), "dry_run");
 
@@ -1177,8 +1188,12 @@ async fn an_updated_pc_passes_the_update_on() {
     assert_eq!((share.release.version.as_str(), share.origin.as_str()), ("1.3.0", "passed_on"));
     assert!(available(&b).is_none(), "up to date now");
 
-    // Chetan only knows Bharat, and still gets 1.3.0.
+    // Chetan only knows Bharat. LANX 2.0: Bharat's PC doesn't pass it on by
+    // itself either; once Bharat chooses Chetan, he gets 1.3.0.
     link(&b, &c).await;
+    assert!(wait_for(|| colleague_state(&b, &c.id()) == "not_chosen", 10).await);
+    assert!(available(&c).is_none());
+    b.svc.send_update_to(&[c.id()]).unwrap();
     assert!(wait_for(|| available(&c).is_some_and(|x| x.from_name == "Bharat" && x.state == "ready"), 20).await);
     assert_eq!(c.svc.install_update().await.unwrap(), "dry_run");
     let t = c.db().update_transfers("incoming").unwrap().remove(0).0;
@@ -1199,10 +1214,50 @@ async fn stopping_sharing_withdraws_the_offer() {
     link(&a, &b).await;
     let (path, _) = fake_installer(a.dir.path(), "1.3.0", 200_000);
     a.svc.share_update(&path.to_string_lossy()).unwrap();
+    a.svc.send_update_to(&[b.id()]).unwrap();
     assert!(wait_for(|| avail_state(&b) == "available", 10).await);
     a.svc.stop_sharing_update().unwrap();
     assert!(a.svc.shared_installer().is_none());
     assert!(wait_for(|| available(&b).is_none(), 10).await, "the banner goes away");
+}
+
+/// LANX 2.0: Settings → Updates decides who gets the update.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn only_chosen_colleagues_get_the_update() {
+    let a = updater("Asha", "1.3.0").await;
+    let b = updater("Bharat", "1.2.0").await;
+    let c = updater("Chetan", "1.2.0").await;
+    // Chetan's LANX can't fetch it (no Updates folder), so an offer to him
+    // stays waiting and can be taken back.
+    let blocked = c.dir.path().join("not-a-folder");
+    std::fs::write(&blocked, b"x").unwrap();
+    let mut cfg = update_cfg(c.dir.path(), "1.2.0");
+    cfg.dir = Some(blocked);
+    c.svc.set_update_config(cfg);
+    link(&a, &b).await;
+    link(&a, &c).await;
+    let (path, _) = fake_installer(a.dir.path(), "1.3.0", 100_000);
+    a.svc.share_update(&path.to_string_lossy()).unwrap();
+    assert!(wait_for(|| colleague_state(&a, &b.id()) == "not_chosen" && colleague_state(&a, &c.id()) == "not_chosen", 10).await);
+
+    // Only Bharat is chosen: only Bharat gets it.
+    assert_eq!(a.svc.send_update_to(&[b.id()]).unwrap(), 1);
+    assert!(wait_for(|| avail_state(&b) == "ready", 20).await);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(available(&c).is_none(), "Chetan is not told");
+    assert_eq!(colleague_state(&a, &c.id()), "not_chosen");
+
+    // Chosen, then "Don't send": the offer is withdrawn.
+    a.svc.send_update_to(&[c.id()]).unwrap();
+    assert!(wait_for(|| avail_state(&c) == "available", 10).await);
+    a.svc.unsend_update(&[c.id()]).unwrap();
+    assert!(wait_for(|| available(&c).is_none(), 10).await, "his banner goes away");
+    assert!(wait_for(|| colleague_state(&a, &c.id()) == "not_chosen", 10).await);
+
+    // "Send it to everyone automatically" (as before 2.0).
+    a.svc.set_update_send_everyone(true).unwrap();
+    assert!(a.svc.update_status().send_everyone);
+    assert!(wait_for(|| avail_state(&c) == "available", 10).await);
 }
 
 // ------------------------------------------------------------------ calls

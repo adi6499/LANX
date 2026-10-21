@@ -52,6 +52,12 @@ const REMINDED_SETTING: &str = "update_reminded_at";
 const AUTO_CHAT_SETTING: &str = "update_auto_chat";
 /// JSON map peer id -> version already sent to them as a chat file.
 const CHAT_SENT_SETTING: &str = "update_chat_sent";
+/// LANX 2.0: who gets the shared installer. "chosen" (the default): only
+/// the colleagues picked in Settings → Updates; "everyone": every colleague
+/// who is behind, as soon as they are online (how LANX 1.2–1.9 worked).
+const SEND_MODE_SETTING: &str = "update_send_mode";
+/// JSON map peer id -> version they were chosen to get.
+const SEND_TO_SETTING: &str = "update_send_to";
 
 #[derive(Clone, Debug)]
 pub struct UpdateConfig {
@@ -113,7 +119,7 @@ pub struct SharedInstaller {
     pub file_name: String,
     #[serde(flatten)]
     pub release: ReleaseInfo,
-    /// "chosen" (picked in Settings, or installed from a folder that had its
+    /// Where it came from: "chosen" (picked in Settings, or installed from a folder that had its
     /// .sig) | "passed_on" (received through LANX). Only chosen installers
     /// are also sent as chat files to colleagues on LANX 1.1, so they don't
     /// get one copy from every updated PC.
@@ -163,6 +169,9 @@ pub struct UpdateStatus {
     pub snoozed_until: Option<i64>,
     /// Send the shared installer once as a chat file to colleagues on 1.1.
     pub auto_chat: bool,
+    /// LANX 2.0: offer the shared installer to everyone who is behind
+    /// (otherwise only to the colleagues chosen in Settings → Updates).
+    pub send_everyone: bool,
 }
 
 // ------------------------------------------------------------- checks
@@ -513,6 +522,9 @@ impl NetworkService {
         if !is_newer(&share.release.version, &v) {
             return;
         }
+        if !self.may_send_update(peer_id, &share.release.version) {
+            return; // LANX 2.0: only colleagues chosen in Settings → Updates
+        }
         if !version_at_least(&v, FEATURES_V12) {
             self.events.update_changed(); // listed under "send as a chat file"
             self.auto_send_chat_installer(&peer, &share).await;
@@ -642,6 +654,91 @@ impl NetworkService {
         }
         self.events.update_changed();
         Ok(result)
+    }
+
+    // ------------------------------------------- who gets it (LANX 2.0)
+
+    pub fn update_send_everyone(&self) -> bool {
+        self.db.get_setting(SEND_MODE_SETTING).is_some_and(|v| v == "everyone")
+    }
+
+    /// "Send it to everyone automatically" on or off (off by default).
+    pub fn set_update_send_everyone(&self, on: bool) -> Result<(), String> {
+        self.db
+            .set_setting(SEND_MODE_SETTING, if on { "everyone" } else { "chosen" })
+            .map_err(|e| e.to_string())?;
+        if on {
+            self.offer_update_to_online_peers();
+        }
+        self.events.update_changed();
+        Ok(())
+    }
+
+    fn send_to(&self) -> HashMap<String, String> {
+        self.db
+            .get_setting(SEND_TO_SETTING)
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_default()
+    }
+
+    fn save_send_to(&self, chosen: &HashMap<String, String>) -> Result<(), String> {
+        let json = serde_json::to_string(chosen).map_err(|e| e.to_string())?;
+        self.db.set_setting(SEND_TO_SETTING, &json).map_err(|e| e.to_string())
+    }
+
+    /// May this PC offer `version` to this colleague?
+    fn may_send_update(&self, peer_id: &str, version: &str) -> bool {
+        self.update_send_everyone() || self.send_to().get(peer_id).is_some_and(|v| v == version)
+    }
+
+    /// Settings → Updates → "Send update": these colleagues get the shared
+    /// installer, now if they are online, else as soon as they come online.
+    /// Returns how many were chosen.
+    pub fn send_update_to(&self, peer_ids: &[String]) -> Result<usize, String> {
+        let share = self
+            .shared_installer()
+            .ok_or("Choose the installer to share first (Settings → Updates).")?;
+        let mut chosen = self.send_to();
+        let mut picked = Vec::new();
+        for id in peer_ids {
+            if let Ok(Some(p)) = self.db.get_peer(id) {
+                if can_get_updates(&p) {
+                    chosen.insert(id.clone(), share.release.version.clone());
+                    picked.push(id.clone());
+                }
+            }
+        }
+        self.save_send_to(&chosen)?;
+        for id in &picked {
+            self.maybe_offer_update(id);
+        }
+        self.events.update_changed();
+        Ok(picked.len())
+    }
+
+    /// "Don't send": takes colleagues off the list and withdraws an offer
+    /// they haven't finished fetching.
+    pub fn unsend_update(&self, peer_ids: &[String]) -> Result<(), String> {
+        let mut chosen = self.send_to();
+        for id in peer_ids {
+            chosen.remove(id);
+        }
+        self.save_send_to(&chosen)?;
+        if let Some(s) = self.share_setting() {
+            for (t, r) in self.db.update_transfers("outgoing").unwrap_or_default() {
+                if peer_ids.contains(&t.peer_id)
+                    && r.version == s.release.version
+                    && matches!(t.status.as_str(), "queued" | "pending" | "transferring")
+                {
+                    let this = self.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = this.cancel_transfer(&t.id).await;
+                    });
+                }
+            }
+        }
+        self.events.update_changed();
+        Ok(())
     }
 
     pub fn auto_chat_enabled(&self) -> bool {
@@ -1105,6 +1202,8 @@ impl NetworkService {
             Vec::new()
         };
         let chat_sent = self.chat_sent();
+        let everyone = self.update_send_everyone();
+        let chosen = self.send_to();
         let mut colleagues = Vec::new();
         for (p, v) in self.db.peers_with_versions().unwrap_or_default() {
             if p.id.starts_with("manual-") || p.trust_state == "blocked" {
@@ -1138,7 +1237,9 @@ impl NetworkService {
                                 "declined" => ("declined", t.error_reason.clone()),
                                 _ => ("failed", t.error_reason.clone()),
                             },
-                            None => ("not_offered", None),
+                            None if everyone || chosen.get(&p.id) == Some(sv) => ("not_offered", None),
+                            // LANX 2.0: waits until it is chosen in Settings → Updates.
+                            None => ("not_chosen", None),
                         }
                     };
                 }
@@ -1163,6 +1264,7 @@ impl NetworkService {
             colleagues,
             snoozed_until: (snoozed > now_secs()).then_some(snoozed),
             auto_chat: self.auto_chat_enabled(),
+            send_everyone: everyone,
         }
     }
 

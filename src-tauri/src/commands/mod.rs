@@ -789,6 +789,27 @@ pub fn set_update_auto_chat(state: State<AppState>, enabled: bool) -> Result<(),
     state.network.set_update_auto_chat(enabled)
 }
 
+/// LANX 2.0: Settings → Updates → "Send update" to the colleagues ticked.
+#[tauri::command]
+pub fn send_update_to(state: State<AppState>, peer_ids: Vec<String>) -> Result<usize, String> {
+    state.network.privacy.guard()?;
+    state.network.send_update_to(&peer_ids)
+}
+
+/// LANX 2.0: "Don't send" (takes them off the list, withdraws the offer).
+#[tauri::command]
+pub fn unsend_update(state: State<AppState>, peer_ids: Vec<String>) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    state.network.unsend_update(&peer_ids)
+}
+
+/// LANX 2.0: "Send it to everyone automatically" (off by default).
+#[tauri::command]
+pub fn set_update_send_everyone(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    state.network.set_update_send_everyone(enabled)
+}
+
 /// For colleagues on LANX 1.1 or older: the installer as a chat file.
 #[tauri::command]
 pub async fn send_update_as_file(
