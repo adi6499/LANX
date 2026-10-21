@@ -3,7 +3,7 @@
 //! here; every command checks that the allowed call is still connected.
 
 use super::AppState;
-use crate::remote::{self, InputEvent, RemoteInfo};
+use crate::remote::{self, InputEvent, InputResult, RemoteInfo};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
@@ -33,8 +33,11 @@ pub async fn remote_allow(
     remote::allow(&app, &call_id, &name, width, height, still_ok)
 }
 
+/// LANX 2.1.0: runs off the main thread (which is busy drawing), so their
+/// clicks and keys are never kept waiting; the window sends one batch at a
+/// time, so they still happen in order.
 #[tauri::command]
-pub fn remote_input(state: State<AppState>, call_id: String, events: Vec<InputEvent>) -> Result<(), String> {
+pub async fn remote_input(state: State<'_, AppState>, call_id: String, events: Vec<InputEvent>) -> Result<InputResult, String> {
     if active_call(&state, &call_id).is_err() {
         remote::stop_for_call(&call_id);
         return Err("This call has ended.".to_string());
@@ -79,18 +82,25 @@ pub struct ClipboardText {
 
 /// Copy and paste between the two PCs while one controls the other: only
 /// during a connected call.
+/// (Off the main thread too: another program may hold the clipboard a moment.)
 #[tauri::command]
-pub fn clipboard_read(state: State<AppState>, call_id: String, since: u32) -> Result<ClipboardText, String> {
+pub async fn clipboard_read(state: State<'_, AppState>, call_id: String, since: u32) -> Result<ClipboardText, String> {
     active_call(&state, &call_id)?;
-    let seq = remote::clipboard_seq();
-    let text = if seq != since { remote::read_clipboard() } else { None };
-    Ok(ClipboardText { seq, text })
+    tauri::async_runtime::spawn_blocking(move || {
+        let seq = remote::clipboard_seq();
+        let text = if seq != since { remote::read_clipboard() } else { None };
+        ClipboardText { seq, text }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn clipboard_write(state: State<AppState>, call_id: String, text: String) -> Result<u32, String> {
+pub async fn clipboard_write(state: State<'_, AppState>, call_id: String, text: String) -> Result<u32, String> {
     active_call(&state, &call_id)?;
-    remote::write_clipboard(&text)
+    tauri::async_runtime::spawn_blocking(move || remote::write_clipboard(&text))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Test copies only: what remote control would have done to the mouse and keyboard.
@@ -98,6 +108,14 @@ pub fn clipboard_write(state: State<AppState>, call_id: String, text: String) ->
 pub fn remote_test_log() -> Result<Vec<String>, String> {
     crate::testmode::profile().ok_or("Only for test copies")?;
     Ok(remote::take_dry_log())
+}
+
+/// Test copies only: pretend Windows refuses their input (an admin program in front).
+#[tauri::command]
+pub fn remote_test_block(on: bool) -> Result<(), String> {
+    crate::testmode::profile().ok_or("Only for test copies")?;
+    remote::test_block(on);
+    Ok(())
 }
 
 /// Test copies only: pretend the person copied `text`.

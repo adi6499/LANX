@@ -39,7 +39,9 @@ export default function RemoteBar() {
         </span>
         <span className="min-w-0 flex-1 leading-tight">
           <span className="block truncate text-[13px] font-bold">{first} is controlling your PC</span>
-          <span className="block truncate text-[11px] text-white/85">Move your mouse to take over</span>
+          <span className="block truncate text-[11px] text-white/85">
+            {info?.blocked ? "Windows blocked them here: please click it yourself" : "Move your mouse to take over"}
+          </span>
         </span>
         <button
           type="button"

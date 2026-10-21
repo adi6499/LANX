@@ -153,7 +153,7 @@ type SendParams = RTCRtpSendParameters & { degradationPreference?: string };
  *  cameras, and voice always first. */
 export async function tuneSender(
   sender: RTCRtpSender | null | undefined,
-  opts: { maxBitrate: number; scale?: number; screen?: boolean; audio?: boolean }
+  opts: { maxBitrate: number; scale?: number; screen?: boolean; audio?: boolean; live?: boolean }
 ): Promise<void> {
   if (!sender) return;
   try {
@@ -166,12 +166,55 @@ export async function tuneSender(
     if (!opts.audio) {
       e.scaleResolutionDownBy = opts.scale ?? 1;
       e.maxFramerate = 30;
-      p.degradationPreference = opts.screen ? "maintain-resolution" : "balanced";
+      // A shown screen keeps its sharpness; while someone controls it
+      // (`live`, LANX 2.1.0) the frame rate matters as much, or every
+      // click looks late.
+      p.degradationPreference = opts.screen && !opts.live ? "maintain-resolution" : "balanced";
     }
     await sender.setParameters(p);
   } catch {
     /* an older WebView ignores what it doesn't know */
   }
+}
+
+/** LANX 2.1.0: show each frame of a shared screen as soon as it arrives
+ *  (no waiting buffer: on the office network frames arrive in time). */
+export function liveReceiver(receiver: RTCRtpReceiver, live: boolean) {
+  const r = receiver as unknown as Record<string, number | null>;
+  try {
+    if ("jitterBufferTarget" in receiver) r.jitterBufferTarget = live ? 0 : null;
+    else if ("playoutDelayHint" in receiver) r.playoutDelayHint = live ? 0 : null;
+  } catch {
+    /* an older WebView */
+  }
+}
+
+/** LANX 2.1.0: how fast their screen reaches us: frames per second and
+ *  about how long a frame takes (network + waiting + decoding), from the
+ *  difference between two stats readings. */
+export interface PictureStats {
+  fps: number;
+  delayMs: number;
+}
+export async function pictureStats(
+  pc: RTCPeerConnection,
+  prev: { buf: number; out: number; dec: number; frames: number } | null
+): Promise<{ stats: PictureStats | null; snap: { buf: number; out: number; dec: number; frames: number } | null }> {
+  let fps = 0;
+  let rtt = 0;
+  let snap: { buf: number; out: number; dec: number; frames: number } | null = null;
+  (await pc.getStats()).forEach((x) => {
+    if (x.type === "inbound-rtp" && x.kind === "video") {
+      fps = x.framesPerSecond ?? 0;
+      snap = { buf: x.jitterBufferDelay ?? 0, out: x.jitterBufferEmittedCount ?? 0, dec: x.totalDecodeTime ?? 0, frames: x.framesDecoded ?? 0 };
+    }
+    if (x.type === "candidate-pair" && x.state === "succeeded" && x.nominated) rtt = x.currentRoundTripTime ?? 0;
+  });
+  const now = snap as { buf: number; out: number; dec: number; frames: number } | null;
+  if (!now || !prev || now.out <= prev.out || now.frames <= prev.frames) return { stats: null, snap: now };
+  const wait = (now.buf - prev.buf) / (now.out - prev.out);
+  const decode = (now.dec - prev.dec) / (now.frames - prev.frames);
+  return { stats: { fps: Math.round(fps), delayMs: Math.round((wait + decode + rtt / 2) * 1000) }, snap: now };
 }
 
 /** Voice: 128 kbps Opus (far beyond phone quality). */

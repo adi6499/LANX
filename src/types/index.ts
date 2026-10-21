@@ -504,6 +504,8 @@ export interface RemoteInfo {
   screen: number;
   /** Why it stopped: "stopped" | "call-ended". */
   reason: string | null;
+  /** LANX 2.1.0: Windows just refused their input (an admin program or a security prompt is in front). */
+  blocked?: boolean;
 }
 
 /** LANX 2.0: the clipboard (copy and paste between the two PCs). */

@@ -31,7 +31,9 @@ export type RemoteMsg =
   | { t: "clip"; text: string }
   /** "That's the wrong screen": try the next one. */
   | { t: "next-screen" }
-  | { t: "screens"; screens: number; screen: number };
+  | { t: "screens"; screens: number; screen: number }
+  /** LANX 2.1.0: Windows on their PC refused some input (admin program / security prompt). */
+  | { t: "blocked" };
 
 export const REMOTE_CHANNEL = "lanx-remote";
 export const REMOTE_VERSION = 2;

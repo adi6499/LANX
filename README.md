@@ -44,6 +44,16 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.1.0: faster, more reliable remote control
+- **Their screen arrives with less delay:** each picture is shown as soon as it arrives (no waiting buffer), and while you
+  control a PC its screen keeps a steady frame rate. The orange hint shows how fast it is (for example "28 fps · 60 ms").
+- **Clicks and typing go at once** and always in order; they no longer wait for the next screen refresh.
+- **Clicks land where you point**, even right after the other person touched their own mouse.
+- **Their own mouse only takes over when it really moves** (a resting hand or a jittery mouse no longer freezes yours), and
+  only for a moment.
+- **When Windows refuses** (a program opened "as administrator", or a Windows security question is in front), both of you
+  see a message, so the person at that PC can click it.
+
 ### New in 2.0.1: clearer menus
 - Menus are solid now, so their text is easy to read in dark mode too (the messages behind no longer show through).
 - The right-click menu in the chat list and the menus in a chat's top bar (Remote help, Secret messages, Intercom) are never

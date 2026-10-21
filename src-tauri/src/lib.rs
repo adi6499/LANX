@@ -521,6 +521,7 @@ pub fn run() {
             commands::remote::clipboard_write,
             commands::remote::remote_test_log,
             commands::remote::remote_test_copy,
+            commands::remote::remote_test_block,
             commands::admin::get_admin_state,
             commands::admin::become_admin,
             commands::admin::save_policy,

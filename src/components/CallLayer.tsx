@@ -3,7 +3,7 @@ import { CallEvent, CallInfo, Conversation, Profile } from "../types";
 import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
 import { Recorder, recordingSupported } from "../lib/recorder";
-import { VOICE_BITRATE, getCamera, getMic, getScreen, tuneSdp, tuneSender, videoBudget } from "../lib/webrtc";
+import { VOICE_BITRATE, getCamera, getMic, getScreen, liveReceiver, pictureStats, tuneSdp, tuneSender, videoBudget } from "../lib/webrtc";
 import { CLIP_MAX, REMOTE_CHANNEL, RemoteInput, RemoteLink, RemoteMsg } from "../lib/remote";
 import { RemoteAskDialog, RemoteKeysButton, RemoteScreenButton, RemoteSurface } from "./remote/RemoteControl";
 import {
@@ -88,6 +88,10 @@ interface RemoteUi {
   note: string | null;
   /** Why Allow didn't work yet (sharing a single window). */
   problem: string | null;
+  /** LANX 2.1.0: Windows here just refused their input. */
+  blocked?: boolean;
+  /** LANX 2.1.0: how fast their screen arrives ("28 fps · 60 ms"). */
+  speed?: string | null;
 }
 
 const REMOTE_OFF: RemoteUi = { peer: false, control: "off", controlled: "off", screens: 1, note: null, problem: null };
@@ -170,6 +174,12 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const deniedAtRef = useRef(0);
   const askTimerRef = useRef<number | undefined>(undefined);
   const noteTimerRef = useRef<number | undefined>(undefined);
+  /** LANX 2.1.0: their input, one batch after the other (never out of order). */
+  const inputChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const blockedAtRef = useRef(0);
+  const blockedTimerRef = useRef<number | undefined>(undefined);
+  /** Someone controls this PC: the shared screen favours a steady frame rate. */
+  const liveRef = useRef(false);
 
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => (c ? { ...c, ...p } : c)), []);
   const patchRemote = useCallback(
@@ -194,7 +204,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       if (t.receiver.track.kind === "audio") void tuneSender(t.sender, { maxBitrate: VOICE_BITRATE, audio: true });
     }
     const screen = !!screenRef.current;
-    void tuneSender(videoSenderRef.current, { ...videoBudget(2, screen), screen });
+    void tuneSender(videoSenderRef.current, { ...videoBudget(2, screen), screen, live: liveRef.current });
   }, []);
 
   /** Uses this camera for the call and keeps it going: if it stops by itself
@@ -549,10 +559,31 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         break;
       case "in":
         if (r.controlled === "on" && Array.isArray(m.e)) {
-          api.remoteInput(id, m.e).catch(() => {
-            patchRemote({ controlled: "off" });
-            sendRemote({ t: "stop" });
-          });
+          const batch = m.e;
+          inputChainRef.current = inputChainRef.current
+            .then(() => api.remoteInput(id, batch))
+            .then((res) => {
+              if (!res?.blocked) return;
+              // Windows refused it: tell both sides (not for every key).
+              patchRemote({ blocked: true });
+              window.clearTimeout(blockedTimerRef.current);
+              blockedTimerRef.current = window.setTimeout(() => patchRemote({ blocked: false }), 8000);
+              if (Date.now() - blockedAtRef.current > 4000) {
+                blockedAtRef.current = Date.now();
+                sendRemote({ t: "blocked" });
+              }
+            })
+            .catch(() => {
+              patchRemote({ controlled: "off" });
+              sendRemote({ t: "stop" });
+            });
+        }
+        break;
+      case "blocked":
+        if (r.control === "on") {
+          remoteNote(
+            `${first}'s PC refused that: an administrator program or a Windows security question is in front. ${first} needs to click it.`
+          );
         }
         break;
       case "next-screen":
@@ -724,6 +755,45 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     patchRemote({ controlled: "off" });
     api.remoteStop().catch(() => {});
   };
+
+  // LANX 2.1.0: their shared screen is shown as soon as each frame arrives.
+  const remoteScreenLive = !!call && call.status === "active" && call.remoteScreen;
+  useEffect(() => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    for (const r of pc.getReceivers()) if (r.track.kind === "video") liveReceiver(r, remoteScreenLive);
+  }, [remoteScreenLive]);
+
+  // While someone controls this PC, the shared screen keeps a steady frame rate.
+  const beingControlled = call?.remote.controlled === "on";
+  useEffect(() => {
+    liveRef.current = beingControlled;
+    tuneCall();
+  }, [beingControlled, tuneCall]);
+
+  // While in control: how fast their screen arrives, once a second.
+  const controlling = call?.remote.control === "on";
+  useEffect(() => {
+    if (!controlling) return;
+    let prev: Awaited<ReturnType<typeof pictureStats>>["snap"] = null;
+    let stopped = false;
+    const t = window.setInterval(async () => {
+      const pc = pcRef.current;
+      if (!pc || stopped) return;
+      try {
+        const r = await pictureStats(pc, prev);
+        prev = r.snap;
+        if (r.stats && !stopped) patchRemote({ speed: `${r.stats.fps} fps · ${r.stats.delayMs} ms` });
+      } catch {
+        /* the call is ending */
+      }
+    }, 1000);
+    return () => {
+      stopped = true;
+      window.clearInterval(t);
+      patchRemote({ speed: null });
+    };
+  }, [controlling, patchRemote]);
 
   // Copy and paste between the PCs while one controls the other: text you
   // copy is sent across (checked once a second), and theirs lands on yours.
@@ -1185,7 +1255,11 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       >
         <span className="flex min-w-0 items-center gap-1.5">
           <MousePointer2 className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{firstName} is controlling your PC · move your mouse to take over</span>
+          <span className="truncate" data-remote-blocked={rc.blocked ? "1" : undefined}>
+            {rc.blocked
+              ? `Windows blocked ${firstName} here (an admin program or a security question): please click it yourself`
+              : `${firstName} is controlling your PC · move your mouse to take over`}
+          </span>
         </span>
         <button
           type="button"
@@ -1250,7 +1324,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
               </div>
             )}
             {canControl && rc.control === "on" && (
-              <RemoteSurface video={() => remoteVideoElRef.current} name={name} send={sendInput} />
+              <RemoteSurface video={() => remoteVideoElRef.current} name={name} send={sendInput} speed={rc.speed} />
             )}
             {localPreview && rc.control !== "on" && (
               <video

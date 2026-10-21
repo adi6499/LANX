@@ -8,11 +8,14 @@ export function RemoteSurface({
   video,
   name,
   send,
+  speed,
 }: {
   /** The video element showing their screen. */
   video: () => HTMLVideoElement | null;
   name: string;
   send: (events: RemoteInput[]) => void;
+  /** LANX 2.1.0: how fast their screen arrives ("28 fps · 60 ms"). */
+  speed?: string | null;
 }) {
   const el = useRef<HTMLDivElement | null>(null);
   const queue = useRef<RemoteInput[]>([]);
@@ -35,6 +38,13 @@ export function RemoteSurface({
     // Only the latest pointer position matters between two frames.
     if (ev.t === "move" && q.length && q[q.length - 1].t === "move") q[q.length - 1] = ev;
     else q.push(ev);
+    if (ev.t !== "move") {
+      // LANX 2.1.0: clicks, keys and the wheel go at once (with the pointer
+      // position before them), not at the next screen refresh.
+      if (frame.current) cancelAnimationFrame(frame.current);
+      flush();
+      return;
+    }
     if (!frame.current) frame.current = requestAnimationFrame(flush);
   };
   const at = (e: { clientX: number; clientY: number }) => {
@@ -133,6 +143,11 @@ export function RemoteSurface({
         {typing
           ? `You're controlling ${first}'s PC · your keyboard types there`
           : `You're controlling ${first}'s PC · click the picture to type`}
+        {speed && (
+          <span data-remote-speed className="ml-1 rounded-full bg-black/25 px-1.5 py-px font-mono text-[10.5px]">
+            {speed}
+          </span>
+        )}
       </div>
     </div>
   );

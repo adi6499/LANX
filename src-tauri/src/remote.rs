@@ -13,11 +13,16 @@
 //!
 //! There is no unattended access: no password, no way in without a person
 //! pressing Allow on this PC.
+//!
+//! LANX 2.1.0: their clicks always land where they point, this PC's own
+//! mouse only pauses theirs when it really moves, and when Windows refuses
+//! their input (a program opened "as administrator", or a Windows security
+//! prompt) both sides are told, so the person at this PC can click it.
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -62,6 +67,16 @@ pub struct RemoteInfo {
     pub screen: usize,
     /// Why it stopped: "stopped" | "call-ended".
     pub reason: Option<String>,
+    /// LANX 2.1.0: Windows just refused some of their input (an admin program
+    /// or a Windows security prompt is in front).
+    pub blocked: bool,
+}
+
+/// What became of one batch of input.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct InputResult {
+    /// Windows refused some of it (see `RemoteInfo::blocked`).
+    pub blocked: bool,
 }
 
 struct Session {
@@ -73,6 +88,13 @@ struct Session {
     keys: Vec<(u16, bool)>,
     /// Mouse buttons held down for the colleague (bit per button).
     buttons: u8,
+    /// Where their pointer is on this screen (pixels), and where LANX last put
+    /// the real one: clicks always happen where they point, even after their
+    /// moves waited for this PC's own mouse.
+    last: Option<(i32, i32)>,
+    placed: Option<(i32, i32)>,
+    /// When Windows last refused their input (ms on `clock`, 0 = never).
+    blocked_at: i64,
 }
 
 type StillOk = Box<dyn Fn() -> bool + Send>;
@@ -91,7 +113,18 @@ static DRY_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static TEST_CLIPBOARD: Mutex<(u32, String)> = Mutex::new((1, String::new()));
 
 /// While the person at this PC moves their own mouse, the colleague's mouse waits this long.
-pub const LOCAL_WINS_MS: i64 = 1200;
+pub const LOCAL_WINS_MS: i64 = 600;
+/// Only a real movement of this PC's own mouse counts: this many pixels
+/// within `MOVE_WINDOW_MS` (a resting hand or a jittery sensor doesn't).
+pub const LOCAL_MOVE_PX: i64 = 8;
+const MOVE_WINDOW_MS: i64 = 200;
+/// Physical mouse movement added up over the last `MOVE_WINDOW_MS`.
+static PHYS_ACC: AtomicI64 = AtomicI64::new(0);
+static PHYS_ACC_T: AtomicI64 = AtomicI64::new(0);
+/// Test copies: pretend Windows refuses the input (an admin program in front).
+static TEST_BLOCKED: AtomicBool = AtomicBool::new(false);
+/// How often a refusal is reported (ms).
+const BLOCKED_REPORT_MS: i64 = 4000;
 /// The most text copied across in one go.
 pub const CLIPBOARD_MAX_CHARS: usize = 200_000;
 const MAX_EVENTS: usize = 300;
@@ -116,6 +149,7 @@ pub fn info() -> RemoteInfo {
             screens: s.screens.len(),
             screen: s.current,
             reason: None,
+            blocked: s.blocked_at != 0 && clock() - s.blocked_at < BLOCKED_REPORT_MS * 2,
         },
         None => RemoteInfo::default(),
     }
@@ -340,13 +374,15 @@ mod win {
         mouse(flags, 0, 0, data)
     }
 
-    pub fn wheel(dx: i32, dy: i32) {
+    pub fn wheel(dx: i32, dy: i32) -> bool {
+        let mut ok = true;
         if dy != 0 {
-            mouse(MOUSEEVENTF_WHEEL, 0, 0, dy);
+            ok &= mouse(MOUSEEVENTF_WHEEL, 0, 0, dy);
         }
         if dx != 0 {
-            mouse(MOUSEEVENTF_HWHEEL, 0, 0, dx);
+            ok &= mouse(MOUSEEVENTF_HWHEEL, 0, 0, dx);
         }
+        ok
     }
 
     pub fn key(scan: u16, ext: bool, down: bool) -> bool {
@@ -403,6 +439,9 @@ pub fn allow(app: &AppHandle, call_id: &str, peer_name: &str, width: u32, height
         current: 0,
         keys: Vec::new(),
         buttons: 0,
+        last: None,
+        placed: None,
+        blocked_at: 0,
     });
     *STILL_OK.lock() = Some(still_ok);
     *APP.lock() = Some(app.clone());
@@ -466,131 +505,188 @@ pub fn next_screen(call_id: &str) -> Result<RemoteInfo, String> {
     Ok(info())
 }
 
+/// Whether this PC's own mouse is in use right now (the colleague's waits).
+fn local_busy() -> bool {
+    let t = LOCAL_MOUSE_MS.load(Ordering::SeqCst);
+    t != 0 && clock() - t < LOCAL_WINS_MS
+}
+
+/// Adds a physical movement of `d` pixels at `now`; true when it adds up to a
+/// real movement (pure, so it can be tested: (sum, window start) in and out).
+pub fn physical_move(sum: i64, since: i64, now: i64, d: i64) -> (i64, i64, bool) {
+    let (sum, since) = if now - since > MOVE_WINDOW_MS { (0, now) } else { (sum, since) };
+    let sum = sum + d.max(0);
+    (sum, since, sum >= LOCAL_MOVE_PX)
+}
+
 /// The colleague's mouse and keyboard, for the allowed call only.
-pub fn input(call_id: &str, events: &[InputEvent]) -> Result<(), String> {
+pub fn input(call_id: &str, events: &[InputEvent]) -> Result<InputResult, String> {
     if events.len() > MAX_EVENTS {
         return Err("Too much at once.".to_string());
     }
-    let mut g = SESSION.lock();
-    let s = g.as_mut().filter(|s| s.call_id == call_id).ok_or("Remote control is off.")?;
-    let local_busy = {
-        let t = LOCAL_MOUSE_MS.load(Ordering::SeqCst);
-        t != 0 && clock() - t < LOCAL_WINS_MS
-    };
-    for e in events {
-        match e {
-            InputEvent::Move { x, y } => {
-                if !local_busy {
-                    let (px, py) = to_pixel(&s.screens[s.current], *x, *y);
-                    inject_move(px, py);
+    let mut refused = false;
+    let report = {
+        let mut g = SESSION.lock();
+        let s = g.as_mut().filter(|s| s.call_id == call_id).ok_or("Remote control is off.")?;
+        let busy = local_busy();
+        // Before a click or a turn of the wheel: the real pointer goes to
+        // where they point (it may have waited for this PC's own mouse).
+        let place = |s: &mut Session, refused: &mut bool| {
+            if let Some(p) = s.last {
+                if s.placed != Some(p) {
+                    if inject_move(p.0, p.1) {
+                        s.placed = Some(p);
+                    } else {
+                        *refused = true;
+                    }
                 }
             }
-            InputEvent::Button { b, down } => {
-                if *b > 4 {
-                    continue;
+        };
+        for e in events {
+            match e {
+                InputEvent::Move { x, y } => {
+                    let p = to_pixel(&s.screens[s.current], *x, *y);
+                    s.last = Some(p);
+                    if !busy {
+                        place(s, &mut refused);
+                    }
                 }
-                let bit = 1u8 << b;
-                if *down {
-                    if local_busy || s.buttons & bit != 0 {
+                InputEvent::Button { b, down } => {
+                    if *b > 4 {
                         continue;
                     }
-                    s.buttons |= bit;
-                } else {
-                    if s.buttons & bit == 0 {
+                    let bit = 1u8 << b;
+                    if *down {
+                        if busy || s.buttons & bit != 0 {
+                            continue;
+                        }
+                        s.buttons |= bit;
+                    } else {
+                        if s.buttons & bit == 0 {
+                            continue;
+                        }
+                        s.buttons &= !bit;
+                    }
+                    if !busy {
+                        place(s, &mut refused);
+                    }
+                    refused |= !inject_button(*b, *down);
+                }
+                InputEvent::Wheel { dx, dy } => {
+                    if !busy {
+                        place(s, &mut refused);
+                        refused |= !inject_wheel((*dx).clamp(-2400, 2400), (*dy).clamp(-2400, 2400));
+                    }
+                }
+                InputEvent::Key { code, down } => {
+                    let Some(k) = scan_code(code) else { continue };
+                    if *down {
+                        // Windows + L would lock the PC with the colleague shut out.
+                        if k == KEY_L && s.keys.iter().any(|h| META_KEYS.contains(h)) {
+                            continue;
+                        }
+                        if !s.keys.contains(&k) {
+                            s.keys.push(k);
+                        }
+                    } else {
+                        if !s.keys.contains(&k) {
+                            continue;
+                        }
+                        s.keys.retain(|h| *h != k);
+                    }
+                    refused |= !inject_key(k.0, k.1, *down, code);
+                }
+                InputEvent::Combo { codes } => {
+                    let keys: Vec<(u16, bool, &str)> =
+                        codes.iter().take(4).filter_map(|c| scan_code(c).map(|k| (k.0, k.1, c.as_str()))).collect();
+                    if keys.len() != codes.len().min(4) || keys.is_empty() {
                         continue;
                     }
-                    s.buttons &= !bit;
-                }
-                inject_button(*b, *down);
-            }
-            InputEvent::Wheel { dx, dy } => {
-                if !local_busy {
-                    inject_wheel((*dx).clamp(-2400, 2400), (*dy).clamp(-2400, 2400));
-                }
-            }
-            InputEvent::Key { code, down } => {
-                let Some(k) = scan_code(code) else { continue };
-                if *down {
-                    // Windows + L would lock the PC with the colleague shut out.
-                    if k == KEY_L && s.keys.iter().any(|h| META_KEYS.contains(h)) {
+                    let has_meta = keys.iter().any(|k| META_KEYS.contains(&(k.0, k.1)));
+                    if has_meta && keys.iter().any(|k| (k.0, k.1) == KEY_L) {
                         continue;
                     }
-                    if !s.keys.contains(&k) {
-                        s.keys.push(k);
-                    }
-                } else {
-                    if !s.keys.contains(&k) {
+                    if dry_run() {
+                        DRY_LOG.lock().push(format!("combo {}", keys.iter().map(|k| k.2).collect::<Vec<_>>().join("+")));
+                        refused |= TEST_BLOCKED.load(Ordering::SeqCst);
                         continue;
                     }
-                    s.keys.retain(|h| *h != k);
-                }
-                inject_key(k.0, k.1, *down, code);
-            }
-            InputEvent::Combo { codes } => {
-                let keys: Vec<(u16, bool, &str)> =
-                    codes.iter().take(4).filter_map(|c| scan_code(c).map(|k| (k.0, k.1, c.as_str()))).collect();
-                if keys.len() != codes.len().min(4) || keys.is_empty() {
-                    continue;
-                }
-                let has_meta = keys.iter().any(|k| META_KEYS.contains(&(k.0, k.1)));
-                if has_meta && keys.iter().any(|k| (k.0, k.1) == KEY_L) {
-                    continue;
-                }
-                if dry_run() {
-                    DRY_LOG.lock().push(format!("combo {}", keys.iter().map(|k| k.2).collect::<Vec<_>>().join("+")));
-                    continue;
-                }
-                for k in &keys {
-                    inject_key(k.0, k.1, true, k.2);
-                }
-                for k in keys.iter().rev() {
-                    inject_key(k.0, k.1, false, k.2);
+                    for k in &keys {
+                        refused |= !inject_key(k.0, k.1, true, k.2);
+                    }
+                    for k in keys.iter().rev() {
+                        refused |= !inject_key(k.0, k.1, false, k.2);
+                    }
                 }
             }
         }
+        // Tell the window (and the Stop bar) now and then, not for every key.
+        let now = clock();
+        let due = refused && (s.blocked_at == 0 || now - s.blocked_at >= BLOCKED_REPORT_MS);
+        if refused {
+            s.blocked_at = now;
+        }
+        due
+    };
+    if report {
+        if let Some(app) = APP.lock().clone() {
+            let _ = app.emit("lanx://remote", info());
+        }
     }
-    Ok(())
+    Ok(InputResult { blocked: refused })
 }
 
-fn inject_move(px: i32, py: i32) {
-    if dry_run() {
-        DRY_LOG.lock().push(format!("move {},{}", px, py));
-        return;
-    }
+/// Test copies: pretend Windows refuses (true) or accepts (false) their input.
+pub fn test_block(on: bool) {
+    TEST_BLOCKED.store(on, Ordering::SeqCst);
+}
+
+/// Each returns false when Windows refused the input.
+fn inject_move(px: i32, py: i32) -> bool {
     #[cfg(windows)]
     {
-        let (ax, ay) = to_absolute(px, py, win::desktop());
-        win::move_to(ax, ay);
+        if !dry_run() {
+            let (ax, ay) = to_absolute(px, py, win::desktop());
+            return win::move_to(ax, ay);
+        }
     }
+    DRY_LOG.lock().push(format!("move {},{}", px, py));
+    !TEST_BLOCKED.load(Ordering::SeqCst)
 }
 
-fn inject_button(b: u8, down: bool) {
-    if dry_run() {
-        DRY_LOG.lock().push(format!("button {} {}", b, if down { "down" } else { "up" }));
-        return;
-    }
+fn inject_button(b: u8, down: bool) -> bool {
     #[cfg(windows)]
-    win::button(b, down);
+    {
+        if !dry_run() {
+            return win::button(b, down);
+        }
+    }
+    DRY_LOG.lock().push(format!("button {} {}", b, if down { "down" } else { "up" }));
+    !TEST_BLOCKED.load(Ordering::SeqCst)
 }
 
-fn inject_wheel(dx: i32, dy: i32) {
-    if dry_run() {
-        DRY_LOG.lock().push(format!("wheel {},{}", dx, dy));
-        return;
-    }
+fn inject_wheel(dx: i32, dy: i32) -> bool {
     #[cfg(windows)]
-    win::wheel(dx, dy);
+    {
+        if !dry_run() {
+            return win::wheel(dx, dy);
+        }
+    }
+    DRY_LOG.lock().push(format!("wheel {},{}", dx, dy));
+    !TEST_BLOCKED.load(Ordering::SeqCst)
 }
 
-fn inject_key(scan: u16, ext: bool, down: bool, name: &str) {
-    if dry_run() {
-        DRY_LOG.lock().push(format!("key {} {}", name, if down { "down" } else { "up" }));
-        return;
-    }
+fn inject_key(scan: u16, ext: bool, down: bool, name: &str) -> bool {
     #[cfg(windows)]
-    win::key(scan, ext, down);
+    {
+        if !dry_run() {
+            return win::key(scan, ext, down);
+        }
+    }
     #[cfg(not(windows))]
     let _ = (scan, ext);
+    DRY_LOG.lock().push(format!("key {} {}", name, if down { "down" } else { "up" }));
+    !TEST_BLOCKED.load(Ordering::SeqCst)
 }
 
 /// Test copies: what remote control would have done (and forget it).
@@ -902,7 +998,27 @@ mod frame {
             if code == HC_ACTION as i32 {
                 let info = &*(lp as *const MSLLHOOKSTRUCT);
                 if info.flags & LLMHF_INJECTED == 0 {
-                    LOCAL_MOUSE_MS.store(clock(), Ordering::SeqCst);
+                    let now = clock();
+                    if wp as u32 == WM_MOUSEMOVE {
+                        // The pointer hasn't moved yet: the distance to where it is.
+                        let mut cur = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
+                        GetCursorPos(&mut cur);
+                        let d = ((info.pt.x - cur.x).abs() + (info.pt.y - cur.y).abs()) as i64;
+                        let (sum, since, real) = super::physical_move(
+                            super::PHYS_ACC.load(Ordering::SeqCst),
+                            super::PHYS_ACC_T.load(Ordering::SeqCst),
+                            now,
+                            d,
+                        );
+                        super::PHYS_ACC.store(sum, Ordering::SeqCst);
+                        super::PHYS_ACC_T.store(since, Ordering::SeqCst);
+                        if real {
+                            LOCAL_MOUSE_MS.store(now, Ordering::SeqCst);
+                        }
+                    } else {
+                        // A click or the wheel on this PC's own mouse.
+                        LOCAL_MOUSE_MS.store(now, Ordering::SeqCst);
+                    }
                 }
             }
             CallNextHookEx(std::ptr::null_mut(), code, wp, lp)
@@ -1100,6 +1216,20 @@ mod tests {
     }
 
     #[test]
+    fn only_real_movement_of_this_pcs_mouse_counts() {
+        // A few pixels of jitter don't count; a real move within 0.2 s does.
+        let (sum, since, real) = physical_move(0, 0, 1000, 3);
+        assert_eq!((sum, since, real), (3, 1000, false));
+        let (sum, since, real) = physical_move(sum, since, 1100, 3);
+        assert!(!real);
+        let (sum, since, real) = physical_move(sum, since, 1150, 3);
+        assert!(real && sum == 9 && since == 1000);
+        // Movements far apart don't add up.
+        let (sum, since, real) = physical_move(9, 1000, 1300, 3);
+        assert_eq!((sum, since, real), (3, 1300, false));
+    }
+
+    #[test]
     fn keys_map_by_place() {
         assert_eq!(scan_code("KeyA"), Some((0x1E, false)));
         assert_eq!(scan_code("KeyQ"), Some((0x10, false)));
@@ -1142,6 +1272,9 @@ mod tests {
             current: 0,
             keys: Vec::new(),
             buttons: 0,
+            last: None,
+            placed: None,
+            blocked_at: 0,
         });
         take_dry_log();
         // Another call can't use this permission.
@@ -1187,7 +1320,20 @@ mod tests {
         LOCAL_MOUSE_MS.store(clock(), Ordering::SeqCst);
         input(call, &[mv.clone(), InputEvent::Button { b: 0, down: true }, key("ShiftLeft", false)]).unwrap();
         assert_eq!(take_dry_log(), vec!["key ShiftLeft up"]);
+        // They moved while waiting: once this PC's mouse rests, their click
+        // happens where they now point (not where the pointer was left).
+        input(call, &[InputEvent::Move { x: 0.25, y: 0.25 }]).unwrap();
+        assert!(take_dry_log().is_empty(), "still waiting");
         LOCAL_MOUSE_MS.store(0, Ordering::SeqCst);
+        input(call, &[InputEvent::Button { b: 0, down: true }, InputEvent::Button { b: 0, down: false }]).unwrap();
+        assert_eq!(take_dry_log(), vec!["move 480,270", "button 0 down", "button 0 up"]);
+        // Windows refusing their input is reported (an admin program in front).
+        assert!(!input(call, &[key("KeyA", true), key("KeyA", false)]).unwrap().blocked);
+        test_block(true);
+        assert!(input(call, &[key("KeyA", true), key("KeyA", false)]).unwrap().blocked);
+        assert!(info().blocked);
+        test_block(false);
+        take_dry_log();
         // Too much at once is refused.
         assert!(input(call, &vec![mv.clone(); MAX_EVENTS + 1]).is_err());
         // Stop lets go of everything still held (Windows key here).

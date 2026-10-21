@@ -1207,8 +1207,10 @@ export const api = {
     if (isTauri) return invoke("remote_allow", { callId, width, height });
     throw new Error("Remote control needs the LANX app.");
   },
-  remoteInput: async (callId: string, events: RemoteInput[]): Promise<void> => {
+  /** LANX 2.1.0: says whether Windows refused some of it. */
+  remoteInput: async (callId: string, events: RemoteInput[]): Promise<{ blocked: boolean }> => {
     if (isTauri) return invoke("remote_input", { callId, events });
+    return { blocked: false };
   },
   remoteStop: async (): Promise<void> => {
     if (isTauri) return invoke("remote_stop");
