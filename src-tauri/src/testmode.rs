@@ -12,6 +12,10 @@
 //!   `Updates\install-dry-run.txt` in the data folder instead of starting it
 //! - `LANX_BACKUP_DELAY=5`   seconds before the first automatic-backup check
 //! - `LANX_RING_SECS=8`      how long a call rings before it counts as missed
+//! - `LANX_REMOTE_FRAME=1`  remote control also draws the orange frame and
+//!   watches the mouse (test copies otherwise only pretend; see remote.rs)
+//! - `LANX_REMOTE_ANY_SCREEN=1` remote control accepts the browser's fake
+//!   screen picture (another size than any real screen)
 //! - `LANX_WEBVIEW_BASE=dir` pick the WebView2 folder in `dir` the way a normal
 //!   installation picks it in %LOCALAPPDATA% (tests the blank-window fix)
 
@@ -70,4 +74,16 @@ pub fn ring_timeout_secs() -> u64 {
     var("LANX_RING_SECS")
         .and_then(|v| v.trim().parse().ok())
         .unwrap_or(45)
+}
+
+/// LANX 2.0: remote control on a test copy also shows the frame and watches
+/// the mouse (it still never moves the real mouse or types).
+pub fn remote_frame() -> bool {
+    var("LANX_REMOTE_FRAME").is_some()
+}
+
+/// LANX 2.0: the test browser's fake screen picture matches no real screen;
+/// remote control then uses the main screen.
+pub fn remote_any_screen() -> bool {
+    var("LANX_REMOTE_ANY_SCREEN").is_some()
 }

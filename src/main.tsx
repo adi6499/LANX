@@ -9,6 +9,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import App from "./App";
 import IslandApp from "./IslandApp";
+import RemoteBar from "./RemoteBar";
 import "./App.css";
 
 // The desktop app has no use for the browser's right-click menu (Reload,
@@ -31,14 +32,16 @@ const windowLabel = (() => {
   }
 })();
 const isIsland = windowLabel === "island" || location.hash === "#island";
+// LANX 2.0: and in the remote-control Stop bar.
+const isRemoteBar = windowLabel === "remote" || location.hash === "#remote";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{isIsland ? <IslandApp /> : <App />}</React.StrictMode>,
+  <React.StrictMode>{isIsland ? <IslandApp /> : isRemoteBar ? <RemoteBar /> : <App />}</React.StrictMode>,
 );
 
 // LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
 // WebView2 folder if a window stays blank).
-if (!isIsland && "__TAURI_INTERNALS__" in window) {
+if (!isIsland && !isRemoteBar && "__TAURI_INTERNALS__" in window) {
   requestAnimationFrame(() => {
     void import("@tauri-apps/api/core").then(({ invoke }) => invoke("ui_ready")).catch(() => {});
   });

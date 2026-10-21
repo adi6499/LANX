@@ -5,6 +5,7 @@ pub mod chat;
 pub mod meetings;
 pub mod office;
 pub mod org;
+pub mod remote;
 pub mod tools;
 
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};

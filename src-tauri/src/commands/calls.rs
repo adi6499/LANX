@@ -35,6 +35,7 @@ pub async fn call_decline(state: State<'_, AppState>, call_id: String) -> Result
 
 #[tauri::command]
 pub async fn call_hangup(state: State<'_, AppState>, call_id: String) -> Result<(), String> {
+    crate::remote::stop_for_call(&call_id);
     state.network.hangup_call(&call_id).await
 }
 

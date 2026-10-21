@@ -44,6 +44,22 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.0.0: remote control (like AnyDesk, on the office network)
+- **Control a colleague's PC during a call.** While you see their shared screen (a call where they share, or **Remote help**),
+  press the **mouse-pointer button** in the call bar. They get a question: *"Asha wants to control your PC"* → **Allow control** / **No**.
+  Nothing happens until they press Allow. Then your mouse, clicks, scrolling and typing work on their PC.
+- **Typing:** click their picture first; your keyboard then types on their PC (click outside the picture to stop typing).
+  Keys your own PC keeps for itself (Windows key, Alt + Tab, Windows + D / E / R) are under the **keyboard button**.
+- **Copy and paste between the two PCs** works while one controls the other (text only).
+- **Two screens?** Pick one when sharing; if the clicks land on the wrong one, press **Switch screen**.
+- **The person being helped stays in charge:** an **orange frame** around their screen and a **Stop bar** at the bottom show the
+  whole time; **their own mouse always wins** (move it and the helper's mouse waits); Stop, ending the call or stopping screen
+  sharing ends control at once. LANX also lets go of any key or button the helper was holding.
+- **No unattended access:** there is no password and no way in without someone pressing Allow on that PC, every time.
+- **What Windows keeps out of reach of every program:** the lock screen, Ctrl + Alt + Del, the "Do you want to allow this app…?"
+  prompts, and programs started "as administrator". The person being helped clicks those themselves.
+- Works between LANX 2.0 PCs on the office network (both need 2.0; older ones simply don't show the button).
+
 ### New in 1.9.0: admin
 - **Admin panel** (shield button at the bottom-left, next to Settings).
 - **LANX admin for the office (optional).** Admin → Office settings → "Make this computer the LANX admin". That computer then

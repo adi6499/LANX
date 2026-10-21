@@ -354,7 +354,7 @@ pub fn place_island(app: &AppHandle, w: &tauri::WebviewWindow) {
 /// removes the title bar of a frameless window as it appears); the window is
 /// not focusable, so typing in another program is never interrupted.
 #[cfg(windows)]
-fn show_without_focus(w: &tauri::WebviewWindow) {
+pub(crate) fn show_without_focus(w: &tauri::WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE};
     let _ = w.unminimize();
     let _ = w.show();
@@ -367,7 +367,7 @@ fn show_without_focus(w: &tauri::WebviewWindow) {
 }
 
 #[cfg(not(windows))]
-fn show_without_focus(w: &tauri::WebviewWindow) {
+pub(crate) fn show_without_focus(w: &tauri::WebviewWindow) {
     let _ = w.show();
 }
 

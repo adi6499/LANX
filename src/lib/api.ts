@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import type { RemoteInput } from "./remote";
 import {
   UserSettings,
   Profile,
@@ -24,6 +25,8 @@ import {
   RestoreNotice,
   CallInfo,
   CallEvent,
+  RemoteInfo,
+  ClipboardText,
   SpeedTestResult,
   MeetingInfo,
   MeetingEvent,
@@ -1176,6 +1179,38 @@ export const api = {
     return null;
   },
 
+  // ------------------------------------------------- remote control (2.0)
+  /** This PC's person pressed Allow: `width` × `height` = the shared screen picture. */
+  remoteAllow: async (callId: string, width: number, height: number): Promise<RemoteInfo> => {
+    if (isTauri) return invoke("remote_allow", { callId, width, height });
+    throw new Error("Remote control needs the LANX app.");
+  },
+  remoteInput: async (callId: string, events: RemoteInput[]): Promise<void> => {
+    if (isTauri) return invoke("remote_input", { callId, events });
+  },
+  remoteStop: async (): Promise<void> => {
+    if (isTauri) return invoke("remote_stop");
+  },
+  remoteNextScreen: async (callId: string): Promise<RemoteInfo> => {
+    if (isTauri) return invoke("remote_next_screen", { callId });
+    throw new Error("Remote control needs the LANX app.");
+  },
+  remoteInfo: async (): Promise<RemoteInfo | null> => {
+    if (isTauri) return invoke("remote_info");
+    return null;
+  },
+  remoteAttention: async (): Promise<void> => {
+    if (isTauri) return invoke("remote_attention");
+  },
+  clipboardRead: async (callId: string, since: number): Promise<ClipboardText> => {
+    if (isTauri) return invoke("clipboard_read", { callId, since });
+    return { seq: since, text: null };
+  },
+  clipboardWrite: async (callId: string, text: string): Promise<number> => {
+    if (isTauri) return invoke("clipboard_write", { callId, text });
+    return 0;
+  },
+
   // ------------------------------------------------------- 1.7.0: tools
   setChatPinned: async (conversationId: string, pinned: boolean): Promise<Conversation> => {
     if (isTauri) return invoke("set_chat_pinned", { conversationId, pinned });
@@ -1549,6 +1584,8 @@ export const events = {
   /** LANX 1.9.0: the admin asks to manage this computer. */
   onPolicyOffer: (cb: (p: OfficePolicy) => void) => on<OfficePolicy>("lanx://policy-offer", cb),
   onAdminNotice: (cb: (p: { text: string }) => void) => on<{ text: string }>("lanx://admin-notice", cb),
+  /** LANX 2.0: remote control on this PC started or stopped. */
+  onRemote: (cb: (r: RemoteInfo) => void) => on<RemoteInfo>("lanx://remote", cb),
   /** LANX 1.8.0: an intercom message arrived (play it unless quiet). */
   onIntercom: (cb: (e: IntercomEvent) => void) => on<IntercomEvent>("lanx://intercom", cb),
 };

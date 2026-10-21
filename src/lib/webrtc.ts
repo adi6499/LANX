@@ -69,11 +69,15 @@ export const getMeetingCam = () => getCamera("meeting");
 
 /** Screen sharing: the full screen resolution at up to 30 fps, tuned so text
  *  stays sharp. */
-export async function getScreen(): Promise<MediaStreamTrack | null> {
-  const s = await navigator.mediaDevices.getDisplayMedia({
-    video: { frameRate: { ideal: 30, max: 30 }, width: { max: 3840 }, height: { max: 2160 } },
-    audio: false,
-  });
+export async function getScreen(wholeScreen = false): Promise<MediaStreamTrack | null> {
+  const video: MediaTrackConstraints & { displaySurface?: string } = {
+    frameRate: { ideal: 30, max: 30 },
+    width: { max: 3840 },
+    height: { max: 2160 },
+  };
+  // LANX 2.0: remote control needs a whole screen, not a single window.
+  if (wholeScreen) video.displaySurface = "monitor";
+  const s = await navigator.mediaDevices.getDisplayMedia({ video, audio: false });
   const t = s.getVideoTracks()[0] ?? null;
   if (t) t.contentHint = "detail";
   return t;

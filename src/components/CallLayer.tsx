@@ -4,6 +4,8 @@ import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
 import { Recorder, recordingSupported } from "../lib/recorder";
 import { VOICE_BITRATE, getCamera, getMic, getScreen, tuneSdp, tuneSender, videoBudget } from "../lib/webrtc";
+import { CLIP_MAX, REMOTE_CHANNEL, RemoteInput, RemoteLink, RemoteMsg } from "../lib/remote";
+import { RemoteAskDialog, RemoteKeysButton, RemoteScreenButton, RemoteSurface } from "./remote/RemoteControl";
 import {
   Phone,
   PhoneOff,
@@ -18,6 +20,7 @@ import {
   MessageSquare,
   Circle,
   Square,
+  MousePointer2,
 } from "lucide-react";
 
 /** Imperative handle: the chat header's call buttons start calls here. */
@@ -68,7 +71,28 @@ interface CallState {
   /** LANX 1.4.0: the other side is recording / we are recording (since). */
   remoteRecording?: boolean;
   recordingSince?: number | null;
+  /** LANX 2.0 remote control. */
+  remote: RemoteUi;
 }
+
+interface RemoteUi {
+  /** Their LANX can do remote control (2.0 or newer). */
+  peer: boolean;
+  /** We control their PC. */
+  control: "off" | "asking" | "on";
+  /** They control ours. */
+  controlled: "off" | "asked" | "on";
+  /** Screens their picture could be (more than one: "Switch screen"). */
+  screens: number;
+  /** A short message ("Bharat said no"). */
+  note: string | null;
+  /** Why Allow didn't work yet (sharing a single window). */
+  problem: string | null;
+}
+
+const REMOTE_OFF: RemoteUi = { peer: false, control: "off", controlled: "off", screens: 1, note: null, problem: null };
+/** How long a request for control waits for an answer. */
+const ASK_TIMEOUT_MS = 60_000;
 
 const CONNECT_TIMEOUT_MS = 20_000;
 const DISCONNECT_GRACE_MS = 10_000;
@@ -138,8 +162,29 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const recorderRef = useRef<Recorder | null>(null);
   const callStateRef = useRef<CallState | null>(null);
   callStateRef.current = call;
+  // LANX 2.0 remote control.
+  const linkRef = useRef<RemoteLink | null>(null);
+  const remoteVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const clipSeqRef = useRef(0);
+  const lastClipRef = useRef<string | null>(null);
+  const deniedAtRef = useRef(0);
+  const askTimerRef = useRef<number | undefined>(undefined);
+  const noteTimerRef = useRef<number | undefined>(undefined);
 
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => (c ? { ...c, ...p } : c)), []);
+  const patchRemote = useCallback(
+    (p: Partial<RemoteUi>) => setCall((c) => (c ? { ...c, remote: { ...c.remote, ...p } } : c)),
+    []
+  );
+  /** A short message about remote control, gone after a few seconds. */
+  const remoteNote = useCallback(
+    (note: string) => {
+      patchRemote({ note });
+      window.clearTimeout(noteTimerRef.current);
+      noteTimerRef.current = window.setTimeout(() => patchRemote({ note: null }), 6000);
+    },
+    [patchRemote]
+  );
 
   /** LANX 1.4.0: the best voice and picture the office network allows. */
   const tuneCall = useCallback(() => {
@@ -192,6 +237,9 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     micRef.current = camRef.current = screenRef.current = null;
     videoSenderRef.current = null;
     remoteOfferRef.current = null;
+    linkRef.current?.close();
+    linkRef.current = null;
+    window.clearTimeout(askTimerRef.current);
     try {
       pcRef.current?.close();
     } catch {
@@ -222,6 +270,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const finish = useCallback(
     (text: string | null) => {
       void stopRecording();
+      if (callStateRef.current?.remote.controlled === "on") api.remoteStop().catch(() => {});
       releaseMedia();
       callIdRef.current = null;
       startingRef.current = false;
@@ -246,6 +295,10 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   // --------------------------------------------------------- connection
   const newPeer = useCallback(() => {
     const pc = new RTCPeerConnection({ iceServers: [] });
+    // LANX 2.0: the caller's remote-control channel (older callers have none).
+    pc.ondatachannel = (e) => {
+      if (e.channel.label === REMOTE_CHANNEL && pcRef.current === pc) adoptLink(new RemoteLink(e.channel));
+    };
     pc.ontrack = (e) => {
       const stream = remoteStreamRef.current;
       if (!stream.getTracks().includes(e.track)) stream.addTrack(e.track);
@@ -311,6 +364,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
           connectedAt: null,
           endText: null,
           expanded: false,
+          remote: REMOTE_OFF,
         });
         return;
       }
@@ -329,6 +383,10 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
           hangup();
         }
       } else if (ev.action === "media") {
+        if (ev.screen === false && callStateRef.current?.remote.control !== "off") {
+          window.clearTimeout(askTimerRef.current);
+          patchRemote({ control: "off" });
+        }
         setCall((c) =>
           c
             ? {
@@ -344,7 +402,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         finish(endReasonText(ev.reason, ev.call));
       }
     },
-    [armConnectTimeout, finish, hangup, patch]
+    [armConnectTimeout, finish, hangup, patch, patchRemote]
   );
 
   const handleEventRef = useRef(handleEvent);
@@ -415,6 +473,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         connectedAt: null,
         endText: null,
         expanded: false,
+        remote: REMOTE_OFF,
       });
       try {
         const mic = await getMic();
@@ -428,6 +487,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         const pc = newPeer();
         pc.addTransceiver(mic ?? "audio", { direction: "sendrecv", streams: [local] });
         videoSenderRef.current = pc.addTransceiver(cam ?? "video", { direction: "sendrecv", streams: [local] }).sender;
+        adoptLink(RemoteLink.create(pc));
         await pc.setLocalDescription(await pc.createOffer());
         await iceGathered(pc);
         if (!startingRef.current) return; // cancelled meanwhile
@@ -445,6 +505,261 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     },
     [finish, newPeer]
   );
+
+  // ---------------------------------------------------- remote control
+  function adoptLink(link: RemoteLink) {
+    linkRef.current?.close();
+    linkRef.current = link;
+    link.onMessage = (m) => handleRemoteRef.current(m);
+  }
+
+  const sendRemote = (m: RemoteMsg) => linkRef.current?.send(m);
+
+  const handleRemote = (m: RemoteMsg) => {
+    const c = callStateRef.current;
+    const id = callIdRef.current;
+    if (!c || !id) return;
+    const r = c.remote;
+    const first = c.info.peer_name.split(" ")[0] || "They";
+    switch (m.t) {
+      case "hello":
+        patchRemote({ peer: true });
+        break;
+      // --- they ask to control us
+      case "req":
+        if (r.controlled !== "off") break;
+        if (!screenRef.current) {
+          sendRemote({ t: "deny", why: "not-sharing" });
+        } else if (Date.now() - deniedAtRef.current < 8000) {
+          sendRemote({ t: "deny", why: "busy" });
+        } else {
+          patchRemote({ controlled: "asked", problem: null });
+          api.remoteAttention().catch(() => {});
+        }
+        break;
+      case "unreq":
+        if (r.controlled === "asked") patchRemote({ controlled: "off", problem: null });
+        break;
+      case "release":
+        if (r.controlled === "on") {
+          patchRemote({ controlled: "off" });
+          api.remoteStop().catch(() => {});
+          remoteNote(`${first} stopped controlling your PC.`);
+        }
+        break;
+      case "in":
+        if (r.controlled === "on" && Array.isArray(m.e)) {
+          api.remoteInput(id, m.e).catch(() => {
+            patchRemote({ controlled: "off" });
+            sendRemote({ t: "stop" });
+          });
+        }
+        break;
+      case "next-screen":
+        if (r.controlled === "on") {
+          api
+            .remoteNextScreen(id)
+            .then((info) => sendRemote({ t: "screens", screens: info.screens, screen: info.screen }))
+            .catch(() => {});
+        }
+        break;
+      // --- answers to our request
+      case "allow":
+        if (r.control === "asking") {
+          window.clearTimeout(askTimerRef.current);
+          patchRemote({ control: "on", screens: Math.max(1, Number(m.screens) || 1), note: null });
+          patch({ expanded: true });
+        }
+        break;
+      case "deny":
+        if (r.control === "asking") {
+          window.clearTimeout(askTimerRef.current);
+          patchRemote({ control: "off" });
+          remoteNote(
+            m.why === "not-sharing"
+              ? `${first} isn't sharing their screen yet.`
+              : m.why === "busy"
+                ? `${first} said no just now. Try again in a moment.`
+                : `${first} said no.`
+          );
+        }
+        break;
+      case "stop":
+        if (r.control !== "off") {
+          window.clearTimeout(askTimerRef.current);
+          patchRemote({ control: "off" });
+          remoteNote(`${first} took back control.`);
+        }
+        break;
+      case "screens":
+        patchRemote({ screens: Math.max(1, Number(m.screens) || 1) });
+        remoteNote(`Now on screen ${Number(m.screen) + 1} of ${m.screens}.`);
+        break;
+      // --- copy and paste between the PCs
+      case "clip":
+        if ((r.control === "on" || r.controlled === "on") && typeof m.text === "string" && m.text.length <= CLIP_MAX) {
+          lastClipRef.current = m.text;
+          api
+            .clipboardWrite(id, m.text)
+            .then((seq) => (clipSeqRef.current = seq))
+            .catch(() => {});
+        }
+        break;
+    }
+  };
+  const handleRemoteRef = useRef(handleRemote);
+  handleRemoteRef.current = handleRemote;
+
+  // This PC's remote control ended (the Stop bar, or the call check in Rust).
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    let gone = false;
+    events
+      .onRemote((info) => {
+        const c = callStateRef.current;
+        if (!info.active && c?.remote.controlled === "on") {
+          sendRemote({ t: "stop" });
+          patchRemote({ controlled: "off" });
+        }
+      })
+      .then((u) => (gone ? u() : (un = u)))
+      .catch(() => {});
+    return () => {
+      gone = true;
+      un?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Ask / cancel / stop controlling their PC. */
+  const toggleControl = () => {
+    const c = callStateRef.current;
+    if (!c) return;
+    const first = c.info.peer_name.split(" ")[0] || "They";
+    if (c.remote.control === "off") {
+      if (!c.remote.peer) {
+        remoteNote(`${first} needs LANX 2.0 or newer for remote control.`);
+        return;
+      }
+      sendRemote({ t: "req" });
+      patchRemote({ control: "asking", note: null });
+      window.clearTimeout(askTimerRef.current);
+      askTimerRef.current = window.setTimeout(() => {
+        if (callStateRef.current?.remote.control !== "asking") return;
+        sendRemote({ t: "unreq" });
+        patchRemote({ control: "off" });
+        remoteNote(`${first} didn't answer.`);
+      }, ASK_TIMEOUT_MS);
+    } else if (c.remote.control === "asking") {
+      window.clearTimeout(askTimerRef.current);
+      sendRemote({ t: "unreq" });
+      patchRemote({ control: "off" });
+    } else {
+      sendRemote({ t: "release" });
+      patchRemote({ control: "off" });
+    }
+  };
+
+  const sendInput = (e: RemoteInput[]) => {
+    if (callStateRef.current?.remote.control === "on") sendRemote({ t: "in", e });
+  };
+
+  /** The person being helped pressed Allow. */
+  const allowControl = async () => {
+    const id = callIdRef.current;
+    const track = screenRef.current;
+    if (!id) return;
+    if (!track) {
+      sendRemote({ t: "deny", why: "not-sharing" });
+      patchRemote({ controlled: "off" });
+      return;
+    }
+    const st = track.getSettings() as MediaTrackSettings & { displaySurface?: string };
+    if (st.displaySurface && st.displaySurface !== "monitor") {
+      patchRemote({ problem: "You're sharing a single window. Share your whole screen so they can control it." });
+      return;
+    }
+    try {
+      const info = await api.remoteAllow(id, st.width ?? 0, st.height ?? 0);
+      if (callStateRef.current?.remote.controlled !== "asked") {
+        api.remoteStop().catch(() => {}); // they cancelled meanwhile
+        return;
+      }
+      sendRemote({ t: "allow", screens: info.screens });
+      patchRemote({ controlled: "on", problem: null });
+    } catch (err) {
+      patchRemote({ problem: errorText(err) });
+    }
+  };
+
+  /** Swap the shared window for the whole screen, then allow. */
+  const wholeScreenAllow = async () => {
+    let track: MediaStreamTrack | null = null;
+    try {
+      track = await getScreen(true);
+    } catch {
+      return; // closed the picker
+    }
+    if (!track) return;
+    const old = screenRef.current;
+    track.onended = () => void stopScreen();
+    screenRef.current = track;
+    await videoSenderRef.current?.replaceTrack(track).catch(() => {});
+    old?.stop();
+    tuneCall();
+    patch({ screen: true });
+    patchRemote({ problem: null });
+    await allowControl();
+  };
+
+  const denyControl = () => {
+    deniedAtRef.current = Date.now();
+    sendRemote({ t: "deny", why: "no" });
+    patchRemote({ controlled: "off", problem: null });
+  };
+
+  /** The person being helped takes back control. */
+  const stopControlled = () => {
+    sendRemote({ t: "stop" });
+    patchRemote({ controlled: "off" });
+    api.remoteStop().catch(() => {});
+  };
+
+  // Copy and paste between the PCs while one controls the other: text you
+  // copy is sent across (checked once a second), and theirs lands on yours.
+  const clipActive = !!call && (call.remote.control === "on" || call.remote.controlled === "on");
+  useEffect(() => {
+    const id = callIdRef.current;
+    if (!clipActive || !id) return;
+    let busy = false;
+    let started = false;
+    const check = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const r = await api.clipboardRead(id, started ? clipSeqRef.current : 0);
+        if (!started) {
+          started = true; // what was copied before doesn't count
+          clipSeqRef.current = r.seq;
+          lastClipRef.current = r.text;
+        } else if (r.seq !== clipSeqRef.current) {
+          clipSeqRef.current = r.seq;
+          if (r.text && r.text !== lastClipRef.current && r.text.length <= CLIP_MAX) {
+            lastClipRef.current = r.text;
+            sendRemote({ t: "clip", text: r.text });
+          }
+        }
+      } catch {
+        /* the clipboard was busy */
+      } finally {
+        busy = false;
+      }
+    };
+    void check();
+    const t = window.setInterval(() => void check(), 1000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipActive]);
 
   // Tell the Dynamic Island about the call (ringing, connecting, live, over).
   const islandKey = call && call.status !== "ended" ? `${call.info.call_id}|${call.status}|${call.connectedAt ?? ""}` : "";
@@ -563,6 +878,13 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   };
 
   const stopScreen = useCallback(async () => {
+    // No picture, no remote control.
+    const r = callStateRef.current?.remote;
+    if (r?.controlled === "on" || r?.controlled === "asked") {
+      linkRef.current?.send(r.controlled === "on" ? { t: "stop" } : { t: "deny", why: "not-sharing" });
+      patchRemote({ controlled: "off", problem: null });
+      if (r.controlled === "on") api.remoteStop().catch(() => {});
+    }
     screenRef.current?.stop();
     screenRef.current = null;
     await videoSenderRef.current?.replaceTrack(camRef.current).catch(() => {});
@@ -570,7 +892,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     patch({ screen: false });
     const id = callIdRef.current;
     if (id) api.callMedia(id, { screen: false, video: !!camRef.current }).catch(() => {});
-  }, [patch, tuneCall]);
+  }, [patch, patchRemote, tuneCall]);
 
   const toggleScreen = async () => {
     if (!call) return;
@@ -669,6 +991,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
 
   // -------------------------------------------------------------- views
   const attachRemoteVideo = useCallback((el: HTMLVideoElement | null) => {
+    remoteVideoElRef.current = el;
     if (el && el.srcObject !== remoteStreamRef.current) {
       el.srcObject = remoteStreamRef.current;
       el.play().catch(() => {});
@@ -843,6 +1166,55 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       </span>
     ) : null;
   const elapsed = call.connectedAt ? clock(Date.now() - call.connectedAt) : "0:00";
+  const rc = call.remote;
+  const firstName = name.split(" ")[0] || "They";
+  const canControl = showRemoteVideo && call.remoteScreen;
+  const controlLabel =
+    rc.control === "on"
+      ? `Stop controlling ${firstName}'s PC`
+      : rc.control === "asking"
+        ? `Waiting for ${firstName} to allow… (click to cancel)`
+        : rc.peer
+          ? `Control ${firstName}'s PC (they must allow it)`
+          : `${firstName} needs LANX 2.0 or newer for remote control`;
+  const controlledBar =
+    rc.controlled === "on" ? (
+      <div
+        data-remote-controlled
+        className="flex items-center justify-between gap-2 bg-orange-500 px-3 py-1.5 text-[12px] font-semibold text-white"
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          <MousePointer2 className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{firstName} is controlling your PC · move your mouse to take over</span>
+        </span>
+        <button
+          type="button"
+          data-remote-stop
+          onClick={stopControlled}
+          className="shrink-0 rounded-full bg-white px-3 py-0.5 text-[11.5px] font-bold text-orange-600 hover:bg-orange-50"
+        >
+          Stop
+        </button>
+      </div>
+    ) : null;
+  const noteChip = rc.note ? (
+    <div
+      data-remote-note
+      className="pointer-events-none absolute bottom-16 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/80 px-3 py-1 text-[11.5px] text-white shadow-lg"
+    >
+      {rc.note}
+    </div>
+  ) : null;
+  const askDialog =
+    rc.controlled === "asked" ? (
+      <RemoteAskDialog
+        name={name}
+        problem={rc.problem}
+        onAllow={allowControl}
+        onDeny={denyControl}
+        onWholeScreen={wholeScreenAllow}
+      />
+    ) : null;
   const frame = call.expanded
     ? "fixed inset-4 z-[70]"
     : withVideo
@@ -852,10 +1224,14 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   return (
     <>
       {audioEl}
+      {askDialog}
       <div
         data-call-status="active"
-        className={`${frame} rounded-3xl bg-slate-950 text-white shadow-2xl shadow-black/40 overflow-hidden border border-white/10 lanx-rise flex flex-col`}
+        data-remote-state={`${rc.control}|${rc.controlled}|${rc.peer ? "peer" : "old"}`}
+        className={`${frame} rounded-3xl bg-slate-950 text-white shadow-2xl shadow-black/40 overflow-hidden border ${rc.controlled === "on" || rc.control === "on" ? "border-orange-500" : "border-white/10"} lanx-rise flex flex-col`}
       >
+        {controlledBar}
+        {noteChip}
         {withVideo ? (
           <div className="relative flex-1 min-h-0 bg-black">
             {showRemoteVideo ? (
@@ -873,7 +1249,10 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
                 <span className="text-xs text-white/60">{name}'s camera is off</span>
               </div>
             )}
-            {localPreview && (
+            {canControl && rc.control === "on" && (
+              <RemoteSurface video={() => remoteVideoElRef.current} name={name} send={sendInput} />
+            )}
+            {localPreview && rc.control !== "on" && (
               <video
                 ref={attachLocalVideo}
                 autoPlay
@@ -919,6 +1298,17 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
           <CtlButton label={call.screen ? "Stop sharing your screen" : "Share your screen"} onClick={toggleScreen} active={call.screen} accent>
             {call.screen ? <MonitorX className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
           </CtlButton>
+          {canControl && (
+            <span data-remote-ask={rc.control} className={rc.control === "asking" ? "animate-pulse" : ""}>
+              <CtlButton label={controlLabel} onClick={toggleControl} active={rc.control !== "off"} danger={rc.control === "on"}>
+                <MousePointer2 className={`h-4 w-4 ${rc.peer ? "" : "opacity-50"}`} />
+              </CtlButton>
+            </span>
+          )}
+          {canControl && rc.control === "on" && <RemoteKeysButton onCombo={(codes) => sendInput([{ t: "combo", codes }])} />}
+          {canControl && rc.control === "on" && rc.screens > 1 && (
+            <RemoteScreenButton onClick={() => sendRemote({ t: "next-screen" })} />
+          )}
           <CtlButton
             label={call.recordingSince ? "Stop recording" : `Record this call (${name.split(" ")[0]} will see it)`}
             onClick={() => void toggleRecord()}

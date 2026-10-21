@@ -6,6 +6,7 @@ pub mod export;
 pub mod networking;
 pub mod privacy;
 pub mod recordings;
+pub mod remote;
 pub mod security;
 pub mod shell;
 pub mod sound;
@@ -373,6 +374,14 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "remote" {
+                // LANX 2.0: the remote-control Stop bar only ever hides.
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                return;
+            }
             if window.label() == "island" {
                 // The alert window only ever hides.
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -485,6 +494,16 @@ pub fn run() {
             commands::backup::take_restore_notice,
             commands::backup::set_net_backup,
             commands::backup::net_backup_now,
+            commands::remote::remote_allow,
+            commands::remote::remote_input,
+            commands::remote::remote_stop,
+            commands::remote::remote_next_screen,
+            commands::remote::remote_info,
+            commands::remote::remote_attention,
+            commands::remote::clipboard_read,
+            commands::remote::clipboard_write,
+            commands::remote::remote_test_log,
+            commands::remote::remote_test_copy,
             commands::admin::get_admin_state,
             commands::admin::become_admin,
             commands::admin::save_policy,

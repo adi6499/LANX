@@ -490,6 +490,24 @@ export interface CallInfo {
   help?: "view" | "show" | null;
 }
 
+/** LANX 2.0: remote control on this PC (a colleague controls it). */
+export interface RemoteInfo {
+  active: boolean;
+  call_id: string;
+  peer_name: string;
+  /** How many screens the shared picture could be (more than one: "Switch screen"). */
+  screens: number;
+  screen: number;
+  /** Why it stopped: "stopped" | "call-ended". */
+  reason: string | null;
+}
+
+/** LANX 2.0: the clipboard (copy and paste between the two PCs). */
+export interface ClipboardText {
+  seq: number;
+  text: string | null;
+}
+
 /** LANX 1.8.0: an emergency alert. */
 export interface AlertAck {
   peer_id: string;
