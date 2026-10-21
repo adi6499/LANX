@@ -44,6 +44,12 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 1.9.1: no more white window
+- After a laptop wakes from sleep (or at a busy Windows start-up), LANX's window could turn **white for good** while LANX kept
+  running behind it. The window is drawn by Microsoft WebView2, whose helper programs can stop at such moments. LANX now notices
+  that and repairs itself: it loads the page again, or restarts itself (back in the tray if it was hidden there). Chats, messages
+  and files are never affected. At most 3 automatic restarts in 15 minutes, so it can never get stuck restarting.
+
 ### New in 1.9.0: admin
 - **Admin panel** (shield button at the bottom-left, next to Settings).
 - **LANX admin for the office (optional).** Admin → Office settings → "Make this computer the LANX admin". That computer then

@@ -12,6 +12,7 @@ pub mod sound;
 pub mod storage;
 pub mod testmode;
 pub mod webview_folder;
+pub mod window_doctor;
 
 use commands::AppState;
 use discovery::DiscoveryService;
@@ -92,6 +93,11 @@ pub(crate) fn quit_app(app: &AppHandle) {
 /// Restarts LANX (used after a restore is staged). The new copy waits for this
 /// one to exit, so the single-instance guard and WebView2 don't trip over it.
 pub fn relaunch(app: &AppHandle) {
+    relaunch_with(app, false);
+}
+
+/// Restarts LANX; `hidden`: the new LANX starts in the tray (LANX 1.9.1).
+pub fn relaunch_with(app: &AppHandle, hidden: bool) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -101,10 +107,12 @@ pub fn relaunch(app: &AppHandle) {
             state.network.stop();
         }
         if let Ok(exe) = std::env::current_exe() {
-            let _ = std::process::Command::new(exe)
-                .arg("--wait-for-exit")
-                .arg(std::process::id().to_string())
-                .spawn();
+            let mut cmd = std::process::Command::new(exe);
+            cmd.arg("--wait-for-exit").arg(std::process::id().to_string());
+            if hidden {
+                cmd.arg("--minimized");
+            }
+            let _ = cmd.spawn();
         }
         app.exit(0);
     });
@@ -349,6 +357,12 @@ pub fn run() {
                 }
                 Err(e) => eprintln!("[Island] Could not create the alert window: {}", e),
             }
+
+            // LANX 1.9.1: if WebView2 stops (a laptop waking up, a busy
+            // start-up), reload the page or restart LANX instead of staying white.
+            window_doctor::watch(app.handle(), "main");
+            window_doctor::watch(app.handle(), "island");
+            window_doctor::start_checks(app.handle());
 
             // LANX 1.7.0: "Send to → LANX" while LANX wasn't running, the
             // screenshot key and the Explorer menu entry (never for test copies).
