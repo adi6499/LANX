@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Archive, ArchiveRestore, Bell, BellOff, Check, FolderPlus, Pin, PinOff, Plus, Trash2, X } from "lucide-react";
 import type { ChatFolder, Conversation } from "../../types";
 import { MUTE_CHOICES, isMuted, muteText } from "../../lib/tools";
@@ -60,7 +61,9 @@ export function ChatMenu({
     onClose();
   };
 
-  return (
+  // Drawn at the top of the page, not inside the chat list: the list's glass
+  // panel would otherwise cut the menu off at its edge.
+  return createPortal(
     <div ref={ref} data-chat-menu style={{ left: pos.left, top: pos.top }} className="fixed z-50 w-60 rounded-[14px] lanx-menu p-1.5 shadow-xl lanx-menu-in">
       <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-semibold text-slate-400 truncate">{conv.peer_name}</div>
       {page === "main" && (
@@ -133,7 +136,8 @@ export function ChatMenu({
           </button>
         </>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { FloatingMenu } from "./FloatingMenu";
 import {
   Conversation,
   Message,
@@ -250,6 +251,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
   const [helpMenu, setHelpMenu] = useState(false);
+  const helpBtnRef = useRef<HTMLButtonElement>(null);
+  const secretBtnRef = useRef<HTMLButtonElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [secretMenu, setSecretMenu] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -914,6 +917,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 <div className="relative">
                   <button
                     type="button"
+                    ref={helpBtnRef}
                     data-remote-help
                     onClick={() => setHelpMenu((v) => !v)}
                     disabled={blocked}
@@ -923,7 +927,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     <LifeBuoy className="h-[17px] w-[17px]" />
                   </button>
                   {helpMenu && (
-                    <div data-remote-help-menu className="absolute right-0 top-11 z-30 w-72 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
+                    <FloatingMenu
+                      anchor={helpBtnRef}
+                      onClose={() => setHelpMenu(false)}
+                      data-remote-help-menu
+                      className="w-72 rounded-[14px] lanx-menu p-1.5 lanx-menu-in"
+                    >
                       <div className="px-2.5 py-2 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                         🛟 Remote help: a voice call where one of you shares the screen. {conversation.peer_name.split(" ")[0]} must agree, and chooses what to share.
                       </div>
@@ -951,7 +960,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                         <b>Show them my screen</b>
                         <span className="block text-[11px] text-slate-400">When you need help</span>
                       </button>
-                    </div>
+                    </FloatingMenu>
                   )}
                 </div>
               )}
@@ -969,6 +978,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 <div className="relative">
                   <button
                     type="button"
+                    ref={secretBtnRef}
                     onClick={() => setSecretMenu(!secretMenu)}
                     disabled={blocked}
                     title="Secret messages (disappear after reading)"
@@ -977,7 +987,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                     <Timer className="h-[17px] w-[17px]" />
                   </button>
                   {secretMenu && (
-                    <div className="absolute right-0 top-11 z-30 w-60 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
+                    <FloatingMenu
+                      anchor={secretBtnRef}
+                      onClose={() => setSecretMenu(false)}
+                      data-secret-menu
+                      className="w-60 rounded-[14px] lanx-menu p-1.5 lanx-menu-in"
+                    >
                       <div className="px-2.5 py-2 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                         New messages disappear for both of you this long after they are read. Screenshots of LANX are blocked while a secret chat is open.
                       </div>
@@ -1008,7 +1023,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                       >
                         Off — keep messages
                       </button>
-                    </div>
+                    </FloatingMenu>
                   )}
                 </div>
               )}

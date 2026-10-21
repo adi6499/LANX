@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Radio, X } from "lucide-react";
 import { api, errorText } from "../../lib/api";
+import { FloatingMenu } from "../FloatingMenu";
 
 /** LANX 1.8.0: the intercom — hold the button and talk; when you let go it
  *  plays by itself for the colleague (or everyone online in the group). */
@@ -31,6 +32,7 @@ export function IntercomButton({
   const timer = useRef<number | undefined>(undefined);
   const ctxRef = useRef<AudioContext | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
 
   // The microphone stays ready while the panel is open (no delay when you press).
   useEffect(() => {
@@ -63,7 +65,12 @@ export function IntercomButton({
         onError("No microphone found, or Windows blocked it (Settings → Privacy → Microphone).");
         setOpen(false);
       });
-    const close = (e: MouseEvent) => wrapRef.current && !wrapRef.current.contains(e.target as Node) && !recRef.current && setOpen(false);
+    const close = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      // (The panel is drawn at the top of the page, outside wrapRef.)
+      if (wrapRef.current?.contains(t) || t?.closest?.("[data-intercom-panel]") || recRef.current) return;
+      setOpen(false);
+    };
     window.addEventListener("mousedown", close);
     return () => {
       gone = true;
@@ -121,6 +128,7 @@ export function IntercomButton({
     <div ref={wrapRef} className="relative">
       <button
         type="button"
+        ref={btnRef}
         data-intercom
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
@@ -130,7 +138,12 @@ export function IntercomButton({
         <Radio className="h-[17px] w-[17px]" />
       </button>
       {open && (
-        <div data-intercom-panel className="absolute right-0 top-11 z-40 w-72 rounded-[18px] lanx-menu p-4 shadow-xl lanx-menu-in text-center">
+        <FloatingMenu
+          anchor={btnRef}
+          onClose={() => !recRef.current && setOpen(false)}
+          data-intercom-panel
+          className="w-72 rounded-[18px] lanx-menu p-4 shadow-xl lanx-menu-in text-center"
+        >
           <div className="flex items-center justify-between">
             <span className="text-[12.5px] font-bold text-slate-900 dark:text-white">📻 Intercom</span>
             <button type="button" onClick={() => setOpen(false)} className="lanx-tool p-1 text-slate-400">
@@ -165,7 +178,7 @@ export function IntercomButton({
           <p className="mt-3 h-4 text-[11px] text-slate-500 dark:text-slate-400" data-intercom-status>
             {status}
           </p>
-        </div>
+        </FloatingMenu>
       )}
     </div>
   );

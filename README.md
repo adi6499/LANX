@@ -44,6 +44,11 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.0.1: clearer menus
+- Menus are solid now, so their text is easy to read in dark mode too (the messages behind no longer show through).
+- The right-click menu in the chat list and the menus in a chat's top bar (Remote help, Secret messages, Intercom) are never
+  cut off at the edge of the panel, even in a small window.
+
 ### New in 2.0.0: remote control (like AnyDesk, on the office network)
 - **Control a colleague's PC during a call.** While you see their shared screen (a call where they share, or **Remote help**),
   press the **mouse-pointer button** in the call bar. They get a question: *"Asha wants to control your PC"* → **Allow control** / **No**.
