@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Cake, Check, MessageSquare, Palmtree, Siren, Trophy, UserRound, X } from "lucide-react";
+import { Building2, Cake, Check, MessageSquare, Palmtree, Siren, Trophy, UserRound, Users, X } from "lucide-react";
 import type { AlertInfo, Conversation, Message, Peer, Profile, SearchHit, UserSettings } from "../../types";
 import { api, errorText, events } from "../../lib/api";
 import { ALERT_KINDS, KUDOS_BADGES, alertKind, birthdayInfo, kudosBadge, stillOn } from "../../lib/office";
+import { effective, statusLine, statusPreset } from "../../lib/profile";
 
 /** LANX 1.8.0: the Office — emergency alerts, reception (visitors), kudos,
  *  birthdays and out-of-office. */
-export type OfficeTab = "emergency" | "reception" | "kudos" | "birthdays" | "away";
+export type OfficeTab = "emergency" | "reception" | "kudos" | "birthdays" | "away" | "today";
 
 const TABS: { id: OfficeTab; label: string; icon: React.ElementType }[] = [
+  { id: "today", label: "Who's in", icon: Users },
   { id: "emergency", label: "Emergency", icon: Siren },
   { id: "reception", label: "Reception", icon: UserRound },
   { id: "kudos", label: "Kudos", icon: Trophy },
@@ -162,6 +164,7 @@ export function OfficePanel({
           )}
           {tab === "birthdays" && <BirthdaysTab settings={settings} people={people} profiles={profiles} onSendWishes={onSendWishes} />}
           {tab === "away" && <AwayTab settings={settings} onSave={onSaveSettings} onNotice={onNotice} />}
+          {tab === "today" && <TodayTab settings={settings} people={people} profiles={profiles} onOpenPeer={onSendWishes} />}
         </div>
       </div>
     </div>
@@ -654,3 +657,89 @@ function AwayTab({ settings, onSave, onNotice }: { settings: UserSettings; onSav
     </div>
   );
 }
+
+// -------------------------------------------------- Who's in today (LANX 2.4.0)
+
+/** How a status counts: away (leave/road/lunch), in-but-elsewhere (wfh), or in. */
+function whereabouts(p: Profile | null, online: boolean): { group: "away" | "wfh" | "in" | "off"; label: string; emoji: string; color: string } {
+  const e = effective(p);
+  const st = e?.status ?? "";
+  if (st === "leave") return { group: "away", label: "On leave", emoji: "🌴", color: "#14b8a6" };
+  if (st === "road") return { group: "away", label: "On the road", emoji: "🚗", color: "#64748b" };
+  if (st === "wfh") return { group: "wfh", label: "Working from home", emoji: "🏠", color: "#0ea5e9" };
+  if (!online) return { group: "off", label: "Offline", emoji: "⚪", color: "#94a3b8" };
+  const preset = statusPreset(st);
+  return { group: "in", label: preset?.label ?? "In the office", emoji: preset?.emoji ?? "🟢", color: preset?.color ?? "#22c55e" };
+}
+
+function TodayTab({
+  settings,
+  people,
+  profiles,
+  onOpenPeer,
+}: {
+  settings: UserSettings;
+  people: Peer[];
+  profiles: Record<string, Profile>;
+  onOpenPeer: (peerId: string) => void;
+}) {
+  const me = {
+    id: settings.device_id,
+    name: `${settings.display_name} (you)`,
+    color: "#0ea5e9",
+    online: true,
+    profile: (settings.profile as Profile | undefined) ?? null,
+  };
+  const rows = [
+    me,
+    ...people.map((p) => ({ id: p.id, name: p.display_name, color: p.avatar_color, online: p.status === "online", profile: profiles[p.id] ?? null })),
+  ].map((r) => ({ ...r, w: whereabouts(r.profile ?? null, r.online) }));
+
+  const groups: { key: string; title: string; of: typeof rows }[] = [
+    { key: "in", title: "In the office", of: rows.filter((r) => r.w.group === "in") },
+    { key: "wfh", title: "Working from home", of: rows.filter((r) => r.w.group === "wfh") },
+    { key: "away", title: "Away", of: rows.filter((r) => r.w.group === "away") },
+    { key: "off", title: "Offline", of: rows.filter((r) => r.w.group === "off") },
+  ];
+  const inCount = rows.filter((r) => r.w.group === "in" || r.w.group === "wfh").length;
+
+  return (
+    <div data-today className="space-y-3">
+      <div className="rounded-xl lanx-group p-3 text-[12.5px] text-slate-700 dark:text-slate-200">
+        <b>{inCount}</b> of {rows.length} are working right now · {new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
+      </div>
+      {groups.map((g) =>
+        g.of.length === 0 ? null : (
+          <div key={g.key} data-today-group={g.key}>
+            <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">{g.title} · {g.of.length}</div>
+            <div className="space-y-1">
+              {g.of.map((r) => {
+                const line = statusLine(r.profile, { until: true });
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    data-today-person={r.name}
+                    onClick={() => r.id !== settings.device_id && onOpenPeer(r.id)}
+                    className="w-full flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left hover:bg-[var(--lanx-fill)]"
+                  >
+                    <span className="h-8 w-8 rounded-full flex items-center justify-center text-white text-[12px] font-bold shrink-0" style={{ backgroundColor: r.color }}>
+                      {r.name.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[12.5px] font-semibold text-slate-900 dark:text-white truncate">{r.name}</span>
+                      <span className="block text-[11px] truncate" style={{ color: r.w.color }}>
+                        {r.w.emoji} {line ? line.text : r.w.label}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+

@@ -64,6 +64,8 @@ interface SidebarProps {
   onBroadcast: () => void;
   /** LANX 2.3.0: raise an IT help ticket. */
   onRaiseHelp?: () => void;
+  /** LANX 2.4.0: send an end-of-day report. */
+  onEndOfDay?: () => void;
   /** LANX 1.5.0: starred messages from all chats. */
   onOpenStarred?: () => void;
   /** LANX 1.6.0: the Organiser, and how many cards wait for you. */
@@ -113,6 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewGroup,
   onBroadcast,
   onRaiseHelp,
+  onEndOfDay,
   onOpenStarred,
   onOpenOrganiser,
   organiserCount = 0,
@@ -329,6 +332,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         [UsersRound, "New group", "text-indigo-600", onNewGroup, "new-group"],
                         [Megaphone, "Message everyone", "text-amber-600", onBroadcast, "broadcast"],
                         ...(onRaiseHelp ? ([[LifeBuoy, "Get IT help", "text-rose-600", onRaiseHelp, "help"]] as [React.ElementType, string, string, () => void, string][]) : []),
+                        ...(onEndOfDay ? ([[ClipboardList, "End-of-day report", "text-slate-600", onEndOfDay, "endofday"]] as [React.ElementType, string, string, () => void, string][]) : []),
                       ] as [React.ElementType, string, string, () => void, string][]
                     ).map(([I, label, tone, run, id]) => (
                       <button

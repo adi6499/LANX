@@ -582,6 +582,8 @@ pub fn run() {
             commands::org::list_cards,
             commands::org::get_it_helpers,
             commands::org::set_it_helpers,
+            commands::org::get_report_to,
+            commands::org::set_report_to,
             commands::tools::set_chat_pinned,
             commands::tools::set_chat_muted,
             commands::tools::set_chat_archived,

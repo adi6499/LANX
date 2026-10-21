@@ -44,6 +44,14 @@ After the first setup an **animated guide** shows how everything works (reopen i
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.4.0: who's in today & end-of-day reports
+- **Who's in today** — Office button (building icon) → **Who's in**. See at a glance who is in the office, working from home, away
+  (on leave / on the road) or offline, from everyone's own status. Click a name to message them.
+- **End-of-day report** — compose button → **End-of-day report**. Jot what you did, what's pending and anything stuck, and send it
+  to your manager. They see it in their chat and in the **Organiser → Reports** tab, and can mark it seen.
+- (Team calendar and a documents library are already covered: meetings live in the **Organiser → Meetings**, and company
+  documents/links in the **Apps** button and shared folders.)
+
 ### New in 2.3.0: IT help desk & the Organiser's tasks
 - **Get IT help** — the pencil/compose button (top of the chat list) → **Get IT help**. Describe the problem, optionally send a
   picture of your screen, and pick your IT person. They get a **ticket** in their chat with your PC's details.

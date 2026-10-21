@@ -24,6 +24,7 @@ import {
   LifeBuoy,
   Monitor,
   Wrench,
+  ClipboardList,
 } from "lucide-react";
 import type { Message } from "../../types";
 import { api, errorText } from "../../lib/api";
@@ -43,6 +44,7 @@ import {
   taskDoneBy,
   ticketStatus,
   ticketTakenBy,
+  reportAcks,
   type CardKind,
 } from "./cardModel";
 import { whenText } from "../chat/chatUtils";
@@ -64,6 +66,7 @@ const STYLE: Record<CardKind, { bar: string; icon: React.ElementType }> = {
   visitor: { bar: "bg-orange-500/15 text-orange-700 dark:text-orange-300", icon: BellRing },
   kudos: { bar: "bg-yellow-400/20 text-yellow-800 dark:text-yellow-300", icon: Trophy },
   ticket: { bar: "bg-rose-500/15 text-rose-700 dark:text-rose-300", icon: LifeBuoy },
+  report: { bar: "bg-slate-500/15 text-slate-700 dark:text-slate-300", icon: ClipboardList },
 };
 
 const VISITOR_REPLIES: [string, string][] = [
@@ -663,6 +666,32 @@ export function CardView({
         {isCreator && canAct && st === "resolved" && (
           <button type="button" data-ticket-reopen disabled={busy} onClick={() => act("status", "open")} className={`${btn} bg-slate-500/10 text-slate-600 dark:text-slate-300`}>
             Reopen
+          </button>
+        )}
+      </>
+    );
+  } else if (card.kind === "report") {
+    const forMe = card.to.includes(myId);
+    const acked = reportAcks(msg);
+    const iAcked = acked.some((a) => a.id === myId);
+    const section = (label: string, text: string, tone: string) =>
+      text ? (
+        <div>
+          <div className={`text-[11px] font-bold uppercase tracking-wide ${tone}`}>{label}</div>
+          <p className="text-[12.5px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap break-words">{text}</p>
+        </div>
+      ) : null;
+    status = acked.length > 0 ? <span className="rounded-full bg-emerald-500 text-white px-2 py-0.5 text-[10px] font-bold normal-case">Seen</span> : null;
+    body = (
+      <>
+        <div className="text-[11px] text-slate-500">From {nameOf(creator)}{card.day ? ` · ${new Date(card.day * 1000).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })}` : ""}</div>
+        {section("Done", card.done, "text-emerald-600 dark:text-emerald-400")}
+        {section("Still to do", card.pending, "text-amber-600 dark:text-amber-400")}
+        {section("Blockers", card.blockers, "text-rose-600 dark:text-rose-400")}
+        {acked.length > 0 && <div className="text-[11px] text-slate-500">Seen by {acked.map((a) => a.name).join(", ")}</div>}
+        {forMe && canAct && !iAcked && (
+          <button type="button" data-report-ack disabled={busy} onClick={() => act(`ack:${myId}`, true)} className={`${btn} bg-emerald-500 hover:bg-emerald-600 text-white`}>
+            <Check className="h-3.5 w-3.5" /> Mark seen
           </button>
         )}
       </>

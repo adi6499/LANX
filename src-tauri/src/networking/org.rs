@@ -24,7 +24,7 @@ const MAX_PEOPLE: usize = 30;
 /// Meetings remind everyone this long before they start.
 const MEETING_REMINDER_SECS: i64 = 10 * 60;
 
-pub const CARD_KINDS: [&str; 10] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos", "ticket"];
+pub const CARD_KINDS: [&str; 11] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos", "ticket", "report"];
 
 /// LANX 1.8.0 kudos badges: id → (emoji, words).
 pub const KUDOS_BADGES: [(&str, &str, &str); 6] = [
@@ -46,6 +46,7 @@ pub fn card_min_version(content: &str) -> &'static str {
         Some("sync") => FEATURES_TOOLS,
         Some("visitor" | "kudos") => FEATURES_OFFICE,
         Some("ticket") => FEATURES_HELP,
+        Some("report") => FEATURES_REPORT,
         _ => FEATURES_ORG,
     }
 }
@@ -185,6 +186,20 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
             json!({ "kind": kind, "visitor": visitor, "company": text(v, "company", 80), "host": host,
                     "host_name": text(v, "host_name", 80), "note": text(v, "note", 300) })
         }
+        "report" => {
+            let to = ids(v, "to");
+            if to.is_empty() {
+                return Err("Choose who the report is for (your manager).".to_string());
+            }
+            let done = text(v, "done", 2000);
+            let pending = text(v, "pending", 2000);
+            let blockers = text(v, "blockers", 2000);
+            if done.is_empty() && pending.is_empty() && blockers.is_empty() {
+                return Err("Write at least one line.".to_string());
+            }
+            json!({ "kind": kind, "to": to, "done": done, "pending": pending, "blockers": blockers,
+                    "day": v.get("day").and_then(|x| x.as_i64()).filter(|d| *d > 0) })
+        }
         "ticket" => {
             let title = text(v, "title", MAX_TEXT);
             if title.is_empty() {
@@ -230,6 +245,7 @@ pub fn card_preview(content: &str) -> String {
         "visitor" => format!("🛎️ Visitor: {}{}", t("visitor"), if t("company").is_empty() { String::new() } else { format!(" ({})", t("company")) }),
         "kudos" => format!("{} Kudos to {}: {}", kudos_badge(&t("badge")).1, t("to_name"), kudos_badge(&t("badge")).2),
         "ticket" => format!("🛟 IT help: {}", t("title")),
+        "report" => "📋 End-of-day report".to_string(),
         _ => "Card".to_string(),
     };
     crate::storage::preview_text(&line)
@@ -279,6 +295,10 @@ pub fn card_fallback(content: &str) -> String {
             t("title"), t("details"), t("pc"), t("app"), t("os"),
             if v["shot"].as_bool() == Some(true) { "\n(A screenshot was sent in this chat.)" } else { "" }
         ),
+        "report" => {
+            let sec = |label: &str, k: &str| if t(k).is_empty() { String::new() } else { format!("\n{}:\n{}", label, t(k)) };
+            format!("📋 END-OF-DAY REPORT{}{}{}", sec("Done", "done"), sec("Still to do", "pending"), sec("Blockers", "blockers"))
+        }
         _ => content.to_string(),
     }
 }
@@ -392,6 +412,13 @@ pub fn check_card_change(card: &Value, creator: &str, actor: &str, key: &str, va
                 _ => no("Unknown ticket state"),
             }
         }
+        "report" if own("ack:") => {
+            let to: Vec<&str> = card["to"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
+            if !to.contains(&actor) {
+                return no("Only the manager it's for can tick it.");
+            }
+            Ok(json!(value.as_bool().unwrap_or(true)))
+        }
         "ticket" if own("taken:") => {
             let helpers: Vec<&str> = card["helpers"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
             if !helpers.contains(&actor) {
@@ -502,6 +529,12 @@ mod tests {
         assert_eq!((t["title"].as_str(), t["helpers"].as_array().map(|a| a.len()), t["shot"].as_bool()), (Some("Printer stuck"), Some(2), Some(true)));
         assert!(clean_card(&json!({ "kind": "ticket", "title": "x" })).is_err(), "needs a helper");
         assert!(clean_card(&json!({ "kind": "ticket", "helpers": ["it1"] })).is_err(), "needs a title");
+
+        // LANX 2.4.0 end-of-day report.
+        let r = clean_card(&json!({ "kind": "report", "to": ["mgr"], "done": " Shipped PO 12 ", "pending": "", "blockers": "none" })).unwrap();
+        assert_eq!((r["to"].as_array().map(|a| a.len()), r["done"].as_str()), (Some(1), Some("Shipped PO 12")));
+        assert!(clean_card(&json!({ "kind": "report", "to": ["mgr"] })).is_err(), "needs at least one line");
+        assert!(clean_card(&json!({ "kind": "report", "done": "x" })).is_err(), "needs a manager");
     }
 
     #[test]
@@ -531,6 +564,11 @@ mod tests {
         assert!(check_card_change(&tk, "asha", "chetan", "status", &json!("flying")).is_err());
         assert!(check_card_change(&tk, "asha", "it1", "taken:it1", &json!(true)).is_ok());
         assert!(check_card_change(&tk, "asha", "asha", "taken:asha", &json!(true)).is_err(), "only a helper takes it");
+
+        // Report: only the manager it's for can tick it.
+        let rp = clean_card(&json!({ "kind": "report", "to": ["mgr"], "done": "x" })).unwrap();
+        assert!(check_card_change(&rp, "asha", "mgr", "ack:mgr", &json!(true)).is_ok());
+        assert!(check_card_change(&rp, "asha", "bharat", "ack:bharat", &json!(true)).is_err());
 
         let ev = clean_card(&json!({ "kind": "event", "title": "Review", "start": 5 })).unwrap();
         assert!(check_card_change(&ev, "asha", "bharat", "rsvp:bharat", &json!("maybe")).is_ok());

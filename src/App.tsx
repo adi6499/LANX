@@ -41,6 +41,7 @@ import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
 import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
 import { SendToModal } from "./components/tools/SendToModal";
 import { HelpDeskModal } from "./components/HelpDeskModal";
+import { EndOfDayModal } from "./components/EndOfDayModal";
 import { withoutForwardMark } from "./components/chat/chatUtils";
 import { FileLibrary } from "./components/tools/FileLibrary";
 import { SyncPanel } from "./components/tools/SyncPanel";
@@ -174,6 +175,8 @@ export default function App() {
   const [forwarding, setForwarding] = useState<Message[] | null>(null);
   /** LANX 2.3.0: the IT help dialog is open. */
   const [showHelpDesk, setShowHelpDesk] = useState(false);
+  /** LANX 2.4.0: the end-of-day report dialog. */
+  const [showEndOfDay, setShowEndOfDay] = useState(false);
   const [filesMode, setFilesMode] = useState<"transfers" | "library" | "sync">("transfers");
   const [historyQuery, setHistoryQuery] = useState("");
   // ---- LANX 1.8.0
@@ -1299,6 +1302,7 @@ export default function App() {
         onNewGroup={() => setShowNewGroup(true)}
         onBroadcast={() => setShowBroadcast(true)}
         onRaiseHelp={() => setShowHelpDesk(true)}
+        onEndOfDay={() => setShowEndOfDay(true)}
         onOpenStarred={() => setShowStarred(true)}
         onOpenOrganiser={() => setShowOrganiser(true)}
         organiserCount={organiserCount}
@@ -1681,6 +1685,24 @@ export default function App() {
             addSentFiles(sent);
             setActiveConversationId(conversationId);
             setActiveTab("messages");
+          }}
+        />
+      )}
+
+      {showEndOfDay && (
+        <EndOfDayModal
+          conversations={conversations}
+          peers={peers}
+          myId={settings.device_id}
+          onClose={() => setShowEndOfDay(false)}
+          onError={showError}
+          onSent={(ids) => {
+            setNotice(ids.length === 1 ? "Report sent." : `Report sent to ${ids.length} people.`);
+            api.getConversations().then(setConversations).catch(() => {});
+            if (ids[0]) {
+              setActiveConversationId(ids[0]);
+              setActiveTab("messages");
+            }
           }}
         />
       )}

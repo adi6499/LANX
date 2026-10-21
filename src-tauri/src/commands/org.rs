@@ -46,3 +46,21 @@ pub fn set_it_helpers(state: State<AppState>, peer_ids: Vec<String>) -> Result<(
     Ok(())
 }
 
+/// LANX 2.4.0: who the end-of-day report goes to (saved, pre-ticked next time).
+#[tauri::command]
+pub fn get_report_to(state: State<AppState>) -> Vec<String> {
+    state
+        .db
+        .get_setting("report_to")
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn set_report_to(state: State<AppState>, peer_ids: Vec<String>) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    let ids: Vec<String> = peer_ids.into_iter().filter(|p| !p.is_empty() && p.len() <= 64).take(20).collect();
+    state.db.set_setting("report_to", &serde_json::to_string(&ids).map_err(err)?).map_err(err)?;
+    Ok(())
+}
+

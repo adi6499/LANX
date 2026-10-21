@@ -1120,6 +1120,13 @@ export const api = {
   setItHelpers: async (peerIds: string[]): Promise<void> => {
     if (isTauri) return invoke("set_it_helpers", { peerIds });
   },
+  getReportTo: async (): Promise<string[]> => {
+    if (isTauri) return invoke("get_report_to");
+    return [];
+  },
+  setReportTo: async (peerIds: string[]): Promise<void> => {
+    if (isTauri) return invoke("set_report_to", { peerIds });
+  },
 
   listCards: async (): Promise<SearchHit[]> => {
     if (isTauri) return invoke("list_cards");
