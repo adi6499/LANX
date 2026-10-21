@@ -59,6 +59,9 @@ After the first setup an **animated guide** shows how everything works (reopen i
 - **What Windows keeps out of reach of every program:** the lock screen, Ctrl + Alt + Del, the "Do you want to allow this app…?"
   prompts, and programs started "as administrator". The person being helped clicks those themselves.
 - Works between LANX 2.0 PCs on the office network (both need 2.0; older ones simply don't show the button).
+- **You choose who gets an update.** Sharing a new LANX no longer offers it to everyone. Settings → Updates lists who needs it:
+  tick the colleagues and press **Send update** (offline ones get it when they come online); **Don't send** takes an offer back.
+  Updated PCs don't pass it on by themselves any more. "Send it to everyone automatically" brings back the old way (off by default).
 
 ### New in 1.9.1: no more white window
 - After a laptop wakes from sleep (or at a busy Windows start-up), LANX's window could turn **white for good** while LANX kept
