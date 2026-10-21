@@ -946,6 +946,8 @@ fn show_banner(app: &AppHandle, s: &Screen) {
         {
             Ok(w) => {
                 let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+                // LANX 1.9.1: the Stop bar must not stay white either.
+                crate::window_doctor::watch(app, "remote");
                 w
             }
             Err(e) => {
