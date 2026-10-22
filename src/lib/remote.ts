@@ -21,7 +21,7 @@ export type RemoteMsg =
   /** Asking no longer (they pressed Cancel). */
   | { t: "unreq" }
   | { t: "allow"; screens: number }
-  | { t: "deny"; why?: "no" | "not-sharing" | "busy" }
+  | { t: "deny"; why?: "no" | "not-sharing" | "busy" | "no-control-here" }
   /** The person being helped took control back (or the bar's Stop). */
   | { t: "stop" }
   /** The person in control let go. */

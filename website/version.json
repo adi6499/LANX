@@ -8,5 +8,13 @@
   "size": "6.0 MB",
   "date": "2026-10-21",
   "dateText": "21 Oct 2026",
-  "windows": "Windows 10 / 11, 64-bit"
+  "windows": "Windows 10 / 11, 64-bit",
+  "linux": {
+    "deb": {
+      "file": "/files/LANX-2.4.0-linux-amd64.deb",
+      "bytes": 6924592,
+      "size": "6.6 MB",
+      "sha256": "9e9747fee9afaa7c5ecdc9b131e26c40ef56665291d7fdce1047e972bfffb8e8"
+    }
+  }
 }

@@ -29,6 +29,19 @@ After the first setup an **animated guide** shows how everything works (reopen i
 > code-signed. Copy the installer over a USB drive or a shared folder (`\\PC-NAME\share`) and it does
 > not appear; for internet distribution you need a code-signing certificate (setup is ready).
 
+### LANX for Linux
+LANX also runs on Linux desktops (Ubuntu 22.04 or newer, Debian 12 or newer, Linux Mint 21 or newer, and most
+others) and talks to the Windows copies on the same network.
+- **Ubuntu / Debian / Mint:** download `LANX-<version>-linux-amd64.deb`, double-click it (or run
+  `sudo apt install ./LANX-<version>-linux-amd64.deb`), then start **LANX** from the applications menu.
+- **Any other distribution:** download `LANX-<version>-linux-amd64.AppImage`, right-click → Properties → allow
+  executing (or `chmod +x`), then double-click it. AppImages need `libfuse2` (`sudo apt install libfuse2` on Ubuntu).
+- **Firewall:** most Linux desktops have none turned on. If yours does (`sudo ufw status` says active), allow LANX:
+  `sudo ufw allow 52925/udp` and `sudo ufw allow 52926/tcp`.
+- **What is different on Linux:** the screenshot tool (Ctrl + Alt + S), "Send to → LANX" in the file manager and
+  automatic update sharing are Windows-only. A Linux PC can see and control a colleague's Windows screen during
+  Remote help, but cannot itself be controlled yet. New Linux versions come from the download page.
+
 ### Everyday use
 - **Chat:** pick a colleague on the left (or **Peers → Chat**). Enter sends, Shift+Enter = new line.
 - **Send files:** press the 📎 paperclip, or **drag files (or whole folders) into the chat**. No size limit.
@@ -399,6 +412,21 @@ Tauri 2 (Rust) · React 19 + TypeScript · Tailwind 4 · SQLite (WAL) · Windows
 
 > **Never zip the whole folder.** `node_modules` and `src-tauri/target` are rebuilt automatically and
 > are ~11 GB — that is why the old `LANAPPLICATION.zip` was 2.9 GB. Use `npm run pack-source`.
+
+### Building LANX for Linux (from this Windows PC)
+Linux programs can only be built on Linux, so the build runs inside Docker (Docker Desktop must be running):
+
+| What | Command |
+|---|---|
+| Does the Rust code compile on Linux? (fast) | `node linux/build.mjs --check` |
+| Build the Linux files | `node linux/build.mjs` → `release/LANX-<version>-linux-amd64.deb` and `.AppImage` (+ `.sha256.txt`) |
+
+The first run builds the `lanx-linux-builder` image (Ubuntu 22.04 + Rust + Node + WebKitGTK; see `linux/Dockerfile`)
+and downloads the Rust crates; later runs reuse both (Docker volumes `lanx-linux-work` and `lanx-linux-cargo`).
+Ubuntu 22.04 is used on purpose so the result runs on 22.04 and newer. `src-tauri/tauri.linux.conf.json` holds the
+Linux-only bundle settings (deb + AppImage). Windows-only code is behind `#[cfg(windows)]`; the Linux side has
+fallbacks (sounds via `paplay`/`pw-play`/`aplay`, no screenshot hotkey, no remote control *of* a Linux PC, no update
+sharing). The front end hides those features through `src/lib/platform.ts`.
 
 ### Download website
 The `website/` folder is the public download page (hosted on Vercel from this repository, root directory

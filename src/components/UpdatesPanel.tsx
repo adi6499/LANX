@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ColleagueUpdate, UpdateStatus } from "../types";
 import { api, errorText } from "../lib/api";
 import { formatSize } from "../lib/format";
+import { IS_WINDOWS, OS_NAME } from "../lib/platform";
 import { ArrowUpCircle, CircleCheck, FileCheck2, Loader2, MessageSquare, ShieldCheck, Share2, Users } from "lucide-react";
 
 interface UpdatesPanelProps {
@@ -105,6 +106,22 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
       const problems = r.problems.length ? `\n${r.problems.join("\n")}` : "";
       return `Sent the installer to ${r.sent_to} colleague${r.sent_to === 1 ? "" : "s"} in their chat. They open it from there.${problems}`;
     });
+
+  if (!IS_WINDOWS)
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 rounded-xl lanx-group p-3">
+          <ArrowUpCircle className="h-5 w-5 text-sky-500 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">This computer runs LANX {status.current_version} for {OS_NAME}</div>
+            <div className="text-[11px] text-slate-500">
+              New Linux versions come from the LANX download page (the .deb or AppImage file). The automatic update exchange on this
+              tab is between Windows PCs: their installer cannot run here, so this computer never asks for it or passes it on.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
 
   return (
     <div className="space-y-4">

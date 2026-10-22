@@ -209,6 +209,8 @@ pub fn apply_send_to(enabled: bool) {
         return;
     }
     let Ok(exe) = std::env::current_exe() else { return };
+    #[cfg(not(windows))]
+    let _ = exe; // the "Send to" menu is a Windows thing
     #[cfg(windows)]
     std::thread::spawn(move || {
         use std::os::windows::process::CommandExt;

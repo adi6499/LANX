@@ -190,7 +190,9 @@ fn play_bytes(bytes: &'static [u8], volume: u32) {
 }
 
 #[cfg(not(windows))]
-fn play_bytes(_bytes: &'static [u8], _volume: u32) {}
+fn play_bytes(bytes: &'static [u8], volume: u32) {
+    unix_audio::play(bytes, volume, false);
+}
 
 #[cfg(windows)]
 fn loop_bytes(bytes: &'static [u8], volume: u32) {
@@ -209,7 +211,9 @@ fn loop_bytes(bytes: &'static [u8], volume: u32) {
 }
 
 #[cfg(not(windows))]
-fn loop_bytes(_bytes: &'static [u8], _volume: u32) {}
+fn loop_bytes(bytes: &'static [u8], volume: u32) {
+    unix_audio::play(bytes, volume, true);
+}
 
 /// Starts a ringtone ("ringtone" or "ringback") that repeats until
 /// `stop_loop`.
@@ -233,7 +237,115 @@ pub fn stop() {
 }
 
 #[cfg(not(windows))]
-pub fn stop() {}
+pub fn stop() {
+    unix_audio::stop();
+}
+
+/// LANX for Linux: sounds go through the desktop's own player (PulseAudio's
+/// `paplay`, PipeWire's `pw-play`, ALSA's `aplay`), whichever is installed.
+/// Each WAV buffer is written once to a small file in the temp folder.
+#[cfg(not(windows))]
+mod unix_audio {
+    use std::path::PathBuf;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
+
+    static CURRENT: Mutex<Option<Child>> = Mutex::new(None);
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+    fn player() -> Option<&'static str> {
+        static P: OnceLock<Option<&'static str>> = OnceLock::new();
+        *P.get_or_init(|| {
+            ["paplay", "pw-play", "aplay", "ffplay"].into_iter().find(|name| {
+                Command::new(name)
+                    .arg("--version")
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok()
+            })
+        })
+    }
+
+    fn file_for(bytes: &'static [u8]) -> Option<PathBuf> {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in bytes.iter().step_by(97).take(4096) {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        let path = std::env::temp_dir().join(format!("lanx-sound-{:016x}-{}.wav", h, bytes.len()));
+        if !path.exists() {
+            std::fs::write(&path, bytes).ok()?;
+        }
+        Some(path)
+    }
+
+    fn spawn(player: &str, path: &PathBuf, volume: u32) -> Option<Child> {
+        let mut c = Command::new(player);
+        match player {
+            "paplay" => {
+                c.arg(format!("--volume={}", volume.min(100) * 65536 / 100));
+            }
+            "pw-play" => {
+                c.arg(format!("--volume={:.2}", volume.min(100) as f32 / 100.0));
+            }
+            "aplay" => {
+                c.arg("-q");
+            }
+            "ffplay" => {
+                c.args(["-nodisp", "-autoexit", "-loglevel", "quiet", "-volume", &volume.min(100).to_string()]);
+            }
+            _ => {}
+        }
+        c.arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().ok()
+    }
+
+    pub fn play(bytes: &'static [u8], volume: u32, repeat: bool) {
+        if bytes.is_empty() {
+            return;
+        }
+        let (Some(player), Some(path)) = (player(), file_for(bytes)) else { return };
+        stop();
+        let my_gen = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        std::thread::spawn(move || loop {
+            let Some(mut child) = spawn(player, &path, volume) else { return };
+            if let Ok(mut cur) = CURRENT.lock() {
+                *cur = Some(child);
+            } else {
+                let _ = child.wait();
+                return;
+            }
+            // Wait for this playback to finish (or be killed by `stop`).
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(80));
+                let done = match CURRENT.lock() {
+                    Ok(mut cur) => match cur.as_mut() {
+                        Some(c) => c.try_wait().map(|s| s.is_some()).unwrap_or(true),
+                        None => true,
+                    },
+                    Err(_) => true,
+                };
+                if done {
+                    break;
+                }
+            }
+            if !repeat || !super::LOOPING.load(Ordering::SeqCst) || GENERATION.load(Ordering::SeqCst) != my_gen {
+                return;
+            }
+        });
+    }
+
+    pub fn stop() {
+        GENERATION.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut cur) = CURRENT.lock() {
+            if let Some(mut c) = cur.take() {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+        }
+    }
+}
 
 /// Plays a built-in sound by name, or the custom file when name == "custom".
 pub fn play(name: &str, custom_path: &str, volume: u32) {

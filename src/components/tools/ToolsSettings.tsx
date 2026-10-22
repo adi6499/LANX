@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { IS_WINDOWS } from "../../lib/platform";
 import { Moon, Scissors, Send } from "lucide-react";
 import type { QuietHours, ToolsStatus, UserSettings } from "../../types";
 import { api } from "../../lib/api";
@@ -57,6 +58,7 @@ export function ToolsSettings({ form, onChange }: { form: UserSettings; onChange
         </div>
       </div>
 
+      {IS_WINDOWS && (<>
       <button type="button" data-hotkey-toggle onClick={() => onChange({ screenshot_hotkey: !(form.screenshot_hotkey ?? true) })} className="w-full rounded-xl lanx-group p-3 flex items-start gap-3 text-left">
         <Scissors className="h-4 w-4 mt-0.5 text-sky-500 shrink-0" />
         <span className="flex-1">
@@ -81,6 +83,7 @@ export function ToolsSettings({ form, onChange }: { form: UserSettings; onChange
         </span>
         {sw(form.send_to_menu ?? true)}
       </button>
+      </>)}
     </>
   );
 }

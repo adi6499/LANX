@@ -797,6 +797,12 @@ impl NetworkService {
             accepted,
             reason,
         };
+        if cfg!(not(any(windows, test))) {
+            // LANX for Linux: the shared file is a Windows installer. New Linux
+            // versions come from the download page. (The exchange itself is
+            // tested on every platform, so tests keep going.)
+            return ack(false, Some("This computer runs LANX for Linux; it gets new versions from the download page.".to_string()));
+        }
         if !can_get_updates(peer) {
             return ack(false, Some("Updates are only accepted from known colleagues.".to_string()));
         }

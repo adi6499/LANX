@@ -39,6 +39,7 @@ import { StarredModal } from "./components/chat/StarredModal";
 import { OrganiserPanel, countNeedsMe } from "./components/org/OrganiserPanel";
 import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
 import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
+import { IS_WINDOWS } from "./lib/platform";
 import { SendToModal } from "./components/tools/SendToModal";
 import { HelpDeskModal } from "./components/HelpDeskModal";
 import { EndOfDayModal } from "./components/EndOfDayModal";
@@ -1390,7 +1391,7 @@ export default function App() {
             }}
             onUnblock={() => activePeer && handleUpdateTrust(activePeer.id, "unverified")}
             onSendSticker={handleSendSticker}
-            onScreenshot={handleScreenshot}
+            onScreenshot={IS_WINDOWS ? handleScreenshot : undefined}
             onShareFolder={handleShareFolder}
             onUnmute={() => activeConversation && chatTools.mute(activeConversation.id, 0)}
             onIntercomSent={addSentFiles}

@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { CallEvent, CallInfo, Conversation, Profile } from "../types";
 import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
+import { IS_WINDOWS } from "../lib/platform";
 import { Recorder, recordingSupported } from "../lib/recorder";
 import { VOICE_BITRATE, getCamera, getMic, getScreen, liveReceiver, pictureStats, tuneSdp, tuneSender, videoBudget } from "../lib/webrtc";
 import { CLIP_MAX, REMOTE_CHANNEL, RemoteInput, RemoteLink, RemoteMsg } from "../lib/remote";
@@ -538,7 +539,10 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       // --- they ask to control us
       case "req":
         if (r.controlled !== "off") break;
-        if (!screenRef.current) {
+        if (!IS_WINDOWS) {
+          // LANX for Linux can control a Windows PC, but cannot be controlled yet.
+          sendRemote({ t: "deny", why: "no-control-here" });
+        } else if (!screenRef.current) {
           sendRemote({ t: "deny", why: "not-sharing" });
         } else if (Date.now() - deniedAtRef.current < 8000) {
           sendRemote({ t: "deny", why: "busy" });
@@ -609,6 +613,8 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
           remoteNote(
             m.why === "not-sharing"
               ? `${first} isn't sharing their screen yet.`
+              : m.why === "no-control-here"
+                ? `${first}'s computer runs LANX for Linux, which can't be controlled yet (you can still see their screen).`
               : m.why === "busy"
                 ? `${first} said no just now. Try again in a moment.`
                 : `${first} said no.`

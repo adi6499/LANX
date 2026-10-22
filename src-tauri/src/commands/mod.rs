@@ -351,7 +351,13 @@ pub fn get_system_info(app: AppHandle, state: State<AppState>) -> Result<SystemI
         local_ips,
         database_path: state.db.get_path().to_string_lossy().to_string(),
         database_size_bytes: state.db.get_db_size_bytes(),
-        os: "Windows".to_string(),
+        os: match std::env::consts::OS {
+            "windows" => "Windows",
+            "linux" => "Linux",
+            "macos" => "macOS",
+            other => other,
+        }
+        .to_string(),
         app_version: app.package_info().version.to_string(),
         fingerprint: state.identity.fingerprint(),
         tcp_listening: state.network.is_listening(),

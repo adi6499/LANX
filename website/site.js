@@ -42,9 +42,18 @@
         date: v.dateText || v.date,
         sha256: v.sha256,
       };
+      var lx = v.linux || {};
+      var linuxThere = !!(lx.deb || lx.appimage);
+      document.querySelectorAll("[data-linux-only]").forEach(function (el) { el.hidden = !linuxThere; });
+      document.querySelectorAll("[data-linux-deb]").forEach(function (el) { el.hidden = !lx.deb; });
+      document.querySelectorAll("[data-linux-appimage]").forEach(function (el) { el.hidden = !lx.appimage; });
+      if (lx.deb) { map.debSize = lx.deb.size; map.debSha = lx.deb.sha256; }
+      if (lx.appimage) { map.appSize = lx.appimage.size; map.appSha = lx.appimage.sha256; }
       document.querySelectorAll("[data-v]").forEach(function (el) {
         var k = el.getAttribute("data-v");
-        if (k === "dlHref" && v.file) el.href = v.file;
+        if (k === "debHref" && lx.deb) el.href = lx.deb.file;
+        else if (k === "appHref" && lx.appimage) el.href = lx.appimage.file;
+        else if (k === "dlHref" && v.file) el.href = v.file;
         else if (k === "sigHref" && v.sig) el.href = v.sig;
         else if (k === "shaHref" && v.sha256File) el.href = v.sha256File;
         else if (map[k]) el.textContent = map[k];

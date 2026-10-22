@@ -139,6 +139,14 @@ fn wait_for_previous_instance() {
             CloseHandle(h);
         }
     }
+    #[cfg(not(windows))]
+    {
+        // Linux: wait (up to 20 s) for the previous copy to be gone.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while std::path::Path::new(&format!("/proc/{pid}")).exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
     // Give WebView2 a moment to let go of its data folder.
     std::thread::sleep(std::time::Duration::from_millis(1200));
 }
