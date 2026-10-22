@@ -53,7 +53,7 @@ console.log(`\nLANX ${version}  ←  ${src}`);
 // 1. Copy the installer and its companions, remove older ones.
 fs.mkdirSync(filesDir, { recursive: true });
 for (const old of fs.readdirSync(filesDir)) {
-  if (/^LANX-Setup-/i.test(old) && !old.startsWith(name)) {
+  if (/^LANX-(Setup-|\d+\.\d+\.\d+-linux-)/i.test(old) && !old.startsWith(name) && !old.startsWith(`LANX-${version}-linux-`)) {
     fs.unlinkSync(path.join(filesDir, old));
     console.log(`  removed old   files\\${old}`);
   }
@@ -79,6 +79,31 @@ if (fs.existsSync(shaSrc)) {
 fs.writeFileSync(path.join(filesDir, name + ".sha256.txt"), `${sha256}  ${name}\n`);
 console.log(`  checksum      ${sha256}`);
 
+// 2b. LANX for Linux: the .deb and .AppImage of the SAME version, if they were
+//     built (node linux/build.mjs) and sit next to the installer.
+//     Files over 50 MB (the AppImage is ~80 MB) are left out unless you pass
+//     --appimage: GitHub/Vercel cope badly with big files in a repository.
+const linux = {};
+const MAX_SITE_FILE = 50 * 1048576;
+const withAppImage = process.argv.includes("--appimage");
+for (const [key, ext] of [["deb", "deb"], ["appimage", "AppImage"]]) {
+  const lname = `LANX-${version}-linux-amd64.${ext}`;
+  const lsrc = path.join(path.dirname(src), lname);
+  if (!fs.existsSync(lsrc)) continue;
+  const lbytes = fs.readFileSync(lsrc);
+  if (lbytes.length > MAX_SITE_FILE && !withAppImage) {
+    console.log(`  skipped       ${lname} (${(lbytes.length / 1048576).toFixed(0)} MB is too big for the repository; add --appimage to force it)`);
+    continue;
+  }
+  fs.writeFileSync(path.join(filesDir, lname), lbytes);
+  const lsha = crypto.createHash("sha256").update(lbytes).digest("hex");
+  fs.writeFileSync(path.join(filesDir, lname + ".sha256.txt"), `${lsha}  ${lname}
+`);
+  linux[key] = { file: `/files/${lname}`, bytes: lbytes.length, size: (lbytes.length / 1048576).toFixed(1) + " MB", sha256: lsha };
+  console.log(`  copied        files\\${lname}  (${linux[key].size})`);
+}
+if (!Object.keys(linux).length) console.log(`  (no Linux files for ${version} next to the installer — the Linux section stays hidden)`);
+
 // 3. version.json
 const stat = fs.statSync(src);
 const date = stat.mtime;
@@ -96,6 +121,7 @@ const info = {
   date: iso,
   dateText,
   windows: "Windows 10 / 11, 64-bit",
+  linux: Object.keys(linux).length ? linux : undefined,
 };
 fs.writeFileSync(path.join(here, "version.json"), JSON.stringify(info, null, 2) + "\n");
 console.log(`  wrote         version.json`);
@@ -113,6 +139,25 @@ setText("sha256", sha256);
 html = html.replace(/href="[^"]*"(\s+data-v="dlHref")/g, `href="${info.file}"$1`);
 html = html.replace(/href="[^"]*"(\s+data-v="sigHref")/g, `href="${info.sig || info.file}"$1`);
 html = html.replace(/href="[^"]*"(\s+data-v="shaHref")/g, `href="${info.sha256File}"$1`);
+if (linux.deb) {
+  setText("debSize", linux.deb.size);
+  setText("debSha", linux.deb.sha256);
+  html = html.replace(/href="[^"]*"(\s+data-v="debHref")/g, `href="${linux.deb.file}"$1`);
+}
+if (linux.appimage) {
+  setText("appSize", linux.appimage.size);
+  setText("appSha", linux.appimage.sha256);
+  html = html.replace(/href="[^"]*"(\s+data-v="appHref")/g, `href="${linux.appimage.file}"$1`);
+}
+for (const [key, attr] of [["deb", "data-linux-deb"], ["appimage", "data-linux-appimage"]]) {
+  html = linux[key]
+    ? html.replace(new RegExp(`(${attr})\\s+hidden`, "g"), "$1")
+    : html.replace(new RegExp(`(${attr})(?!\\s+hidden)`, "g"), "$1 hidden");
+}
+// Show the Linux parts only when there is something to download.
+html = Object.keys(linux).length
+  ? html.replace(/(data-linux-only)\s+hidden/g, "$1")
+  : html.replace(/(data-linux-only)(?!\s+hidden)/g, "$1 hidden");
 fs.writeFileSync(htmlPath, html);
 console.log(`  updated       index.html`);
 

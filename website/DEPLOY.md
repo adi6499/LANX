@@ -54,7 +54,9 @@ git push origin main
 
 The first command copies the newest installer into `website\files` (with its `.sig` and checksum),
 removes the old one, and updates the version, size, date and checksum shown on the page (in both
-`vercel.json` files: the one in `website` and the one at the top of the repository). The push
+`vercel.json` files: the one in `website` and the one at the top of the repository). If the Linux
+files of the same version are in `release\` too (`node linux/build.mjs` makes them), they go on the
+page as well and the "LANX for Linux" section appears; without them it stays hidden. The push
 makes Vercel publish it. Only what is on the **main** branch reaches Vercel, so if you work on another
 branch, the website commit must be put on main too (easiest: ask Claude "put LANX x.y.z on the website").
 

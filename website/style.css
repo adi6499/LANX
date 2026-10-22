@@ -43,6 +43,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
@@ -135,6 +136,17 @@ h1 { font-size: clamp(34px, 4.6vw, 54px); font-weight: 850; letter-spacing: -0.0
 
 .shot { margin: 0; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: var(--bg-2); }
 .shot img { width: 100%; }
+
+.also-linux { margin: 12px 0 0; font-size: 14px; color: var(--fg-3); }
+.also-linux a { font-weight: 600; }
+.dl-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; max-width: 900px; margin: 0 auto; }
+.dl-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; display: grid; gap: 12px; align-content: start; }
+.dl-card p { margin: 0; color: var(--fg-2); font-size: 14.5px; }
+.dl-card .btn { justify-self: start; }
+.dl-card .dim { opacity: .8; font-weight: 500; }
+.dl-card .small { font-size: 12px; color: var(--fg-3); }
+.dl-card .small code { word-break: break-all; }
+@media (max-width: 640px) { .dl-cards { grid-template-columns: 1fr; } .dl-card .btn { width: 100%; justify-content: center; } }
 
 /* ---------- strip ---------- */
 .strip {

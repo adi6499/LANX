@@ -64,6 +64,7 @@
           <span>·</span>
           <span>64-bit</span>
         </p>
+        <p class="also-linux" data-linux-only>Using Linux? <a href="#linux">LANX for Linux is below.</a></p>
         <details class="verify">
           <summary>Check the file · release signature</summary>
           <div class="verify-body">
@@ -226,6 +227,7 @@
             <li>About 30 MB of disk space</li>
             <li>All PCs on the same office network</li>
             <li>Microsoft Edge WebView2 (already part of Windows; the installer adds it if missing)</li>
+            <li data-linux-only>Linux: Ubuntu 22.04+, Debian 12+, Mint 21+ (.deb) or any distribution (AppImage)</li>
           </ul>
           <h3>Upgrading</h3>
           <p>Just run the new installer. It replaces the old copy and keeps every chat and file. Or install it on one PC and let LANX offer it to the others.</p>
@@ -233,6 +235,32 @@
           <p>In <code>%APPDATA%\LANX</code> on each PC, and nowhere else. Received files land in Downloads.</p>
         </aside>
       </div>
+    </section>
+
+    <!-- ===== Linux ===== -->
+    <section class="section" id="linux" data-linux-only>
+      <h2>LANX for Linux</h2>
+      <p class="sub">The same LANX, for Ubuntu, Debian, Mint and most other distributions. It talks to the Windows copies on your network.</p>
+      <div class="dl-cards">
+        <article class="dl-card" data-linux-deb>
+          <h3>Ubuntu · Debian · Mint</h3>
+          <p>A <b>.deb</b> package for Ubuntu 22.04 or newer, Debian 12 or newer and Linux Mint 21 or newer. Double-click it, or run <code>sudo apt install ./LANX-x.y.z-linux-amd64.deb</code>. Then start LANX from the applications menu.</p>
+          <a class="btn" href="/files/LANX-2.4.0-linux-amd64.deb" data-v="debHref" download>Download .deb <span class="dim">(<span data-v="debSize">6.6 MB</span>)</span></a>
+          <p class="sha small">SHA-256 <code data-v="debSha">44e94f9176c69fd129d131e70fa7b8842658e33063fe532be678775a9445d997</code></p>
+        </article>
+        <article class="dl-card" data-linux-appimage hidden>
+          <h3>Any other distribution</h3>
+          <p>An <b>AppImage</b> that runs without installing. Right-click it → Properties → allow executing (or <code>chmod +x</code>), then double-click. Needs <code>libfuse2</code> on Ubuntu (<code>sudo apt install libfuse2</code>).</p>
+          <a class="btn" href="/files/LANX-2.4.0-linux-amd64.AppImage" data-v="appHref" download>Download AppImage <span class="dim">(<span data-v="appSize">…</span>)</span></a>
+          <p class="sha small">SHA-256 <code data-v="appSha">…</code></p>
+        </article>
+      </div>
+      <p class="note">
+        <b>Firewall:</b> most Linux desktops have none switched on. If yours does (<code>sudo ufw status</code> says active), allow LANX with
+        <code>sudo ufw allow 52925/udp</code> and <code>sudo ufw allow 52926/tcp</code>.
+        <b>What's different on Linux:</b> the screenshot key, "Send to LANX" in the file manager and automatic update sharing are Windows-only;
+        a Linux PC can see and control a colleague's Windows screen during Remote help but cannot itself be controlled yet. New Linux versions come from this page.
+      </p>
     </section>
 
     <!-- ===== What's new ===== -->
