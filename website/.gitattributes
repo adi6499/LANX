@@ -1,0 +1,6 @@
+# Installer files are binary / must never be changed by Git
+files/** -text
+*.exe binary
+*.sig -text
+*.ico binary
+*.png binary
