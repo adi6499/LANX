@@ -211,6 +211,11 @@ Tauri 2 (Rust) · React 19 + TypeScript · Tailwind 4 · SQLite (WAL) · Windows
 > **Never zip the whole folder.** `node_modules` and `src-tauri/target` are rebuilt automatically and
 > are ~11 GB — that is why the old `LANAPPLICATION.zip` was 2.9 GB. Use `npm run pack-source`.
 
+### Download website
+The `website/` folder is the public download page (hosted on Vercel from this repository, root directory
+`website`). After a release, `node website/update-website.mjs` puts the new installer on it; commit and push
+`main` to publish. See `website/DEPLOY.md`.
+
 To release a new version, bump `version` in `package.json`, `src-tauri/Cargo.toml` and
 `src-tauri/tauri.conf.json`, then `npm run release`. It writes `release/LANX-Setup-<version>.exe`
 plus `.sha256.txt` and `.sig` (the LANX release signature that lets colleagues' LANX accept it as an
