@@ -24,11 +24,14 @@ The website is on GitHub at https://github.com/adi6499/LANX, in the `website` fo
 2. **Add New… → Project**.
 3. Find **LANX** in the list and press **Import** (if GitHub is not connected yet, Vercel asks you to
    connect it and to allow access to the LANX repository).
-4. On the import screen:
-   - **Root Directory** → press **Edit** → choose `website` → Continue.
-   - **Framework Preset** → *Other*.
-   - Leave Build Command and Output Directory empty (switch nothing on).
-5. Press **Deploy**. After a minute Vercel shows the address, something like
+4. **Change nothing** on the import screen and press **Deploy**. The `vercel.json` at the top of the
+   repository already tells Vercel to serve the `website` folder with no build step.
+   - If Vercel offers to "configure this repository as a project with multiple services" or shows a
+     suggested `vercel.json` with `services`, **skip / dismiss it**. That suggestion comes from Vercel
+     looking at the LANX app code; LANX is a Windows program, not a web service, and the website
+     needs none of that.
+   - (Setting **Root Directory** to `website` also works; it is simply not needed.)
+5. After a minute Vercel shows the address, something like
    `https://lanx-xxxx.vercel.app`. That's the site; the download link is `<that address>/download`.
 
 To get a nicer address: in the Vercel project → **Settings → Domains**, add `lanx.vercel.app` (if free)
@@ -44,13 +47,14 @@ After `npm run release` has made `release\LANX-Setup-x.y.z.exe`, in the LANAPPLI
 
 ```
 node website/update-website.mjs
-git add website
+git add website vercel.json
 git commit -m "Website: LANX x.y.z"
 git push origin main
 ```
 
 The first command copies the newest installer into `website\files` (with its `.sig` and checksum),
-removes the old one, and updates the version, size, date and checksum shown on the page. The push
+removes the old one, and updates the version, size, date and checksum shown on the page (in both
+`vercel.json` files: the one in `website` and the one at the top of the repository). The push
 makes Vercel publish it. Only what is on the **main** branch reaches Vercel, so if you work on another
 branch, the website commit must be put on main too (easiest: ask Claude "put LANX x.y.z on the website").
 

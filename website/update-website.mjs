@@ -116,17 +116,21 @@ html = html.replace(/href="[^"]*"(\s+data-v="shaHref")/g, `href="${info.sha256Fi
 fs.writeFileSync(htmlPath, html);
 console.log(`  updated       index.html`);
 
-// 5. vercel.json — the /download and /latest links.
-const vPath = path.join(here, "vercel.json");
-const v = JSON.parse(fs.readFileSync(vPath, "utf8"));
-for (const r of v.redirects || []) if (r.source === "/download" || r.source === "/latest") r.destination = info.file;
-fs.writeFileSync(vPath, JSON.stringify(v, null, 2) + "\n");
-console.log(`  updated       vercel.json`);
+// 5. vercel.json — the /download and /latest links. There are two copies:
+//    website/vercel.json (used when Vercel's Root Directory is "website") and
+//    the one at the repository root (used when it is not). Keep both in step.
+for (const vPath of [path.join(here, "vercel.json"), path.resolve(here, "..", "vercel.json")]) {
+  if (!fs.existsSync(vPath)) continue;
+  const v = JSON.parse(fs.readFileSync(vPath, "utf8"));
+  for (const r of v.redirects || []) if (r.source === "/download" || r.source === "/latest") r.destination = info.file;
+  fs.writeFileSync(vPath, JSON.stringify(v, null, 2) + "\n");
+  console.log(`  updated       ${path.relative(path.resolve(here, ".."), vPath)}`);
+}
 
 console.log(`
 Done. The website now offers LANX ${version} (${size}).
 Next, publish it (Vercel follows the main branch on GitHub):
-    git add website
+    git add website vercel.json
     git commit -m "Website: LANX ${version}"
     git push origin main
 `);
