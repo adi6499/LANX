@@ -17,8 +17,11 @@ pkill -x Xvfb 2>/dev/null; sleep 0.5; rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
 Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
 sleep 2
 export DISPLAY=:99
+# WSL has WSLg's Wayland display too; without this GTK would open the window
+# on the user's real desktop instead of the virtual screen.
+unset WAYLAND_DISPLAY
+export GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 WEBKIT_DISABLE_COMPOSITING_MODE=1
 export LANX_PROFILE=smoke
-export WEBKIT_DISABLE_COMPOSITING_MODE=1
 rm -rf "$HOME/.local/share/com.lanx.desktop-smoke" "$HOME/.local/share/LANX-smoke" 2>/dev/null
 
 echo "== starting LANX (test profile 'smoke')"

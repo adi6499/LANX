@@ -208,6 +208,14 @@ fn fatal_startup_error(app: &tauri::App, message: String) -> ! {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // LANX for Linux: WebKitGTK's DMA-BUF renderer shows a blank window on some
+    // PCs (virtual machines, some NVIDIA drivers). The older renderer works
+    // everywhere; people who know better can set the variable themselves.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // SAFETY: set before any other thread exists (first thing in `run`).
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
     wait_for_previous_instance();
     let profile = testmode::profile();
     if profile.is_none() || testmode::webview_base().is_some() {
