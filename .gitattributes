@@ -1,0 +1,8 @@
+# Shell scripts and the Dockerfile must keep Unix line endings (they run in Linux).
+*.sh text eol=lf
+linux/Dockerfile text eol=lf
+# Installer files are binary.
+*.exe binary
+*.sig -text
+*.deb binary
+*.AppImage binary
