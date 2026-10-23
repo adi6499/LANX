@@ -36,6 +36,7 @@ import {
   FileText,
   Calculator,
   MessageCircle,
+  Mic,
 } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
@@ -78,6 +79,8 @@ interface SidebarProps {
   onOpenPdf?: () => void;
   onOpenCalc?: () => void;
   onInviteWhatsApp?: () => void;
+  onDictate?: () => void;
+  onOpenVoice?: () => void;
   /** LANX 1.5.0: starred messages from all chats. */
   onOpenStarred?: () => void;
   /** LANX 1.6.0: the Organiser, and how many cards wait for you. */
@@ -133,6 +136,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenPdf,
   onOpenCalc,
   onInviteWhatsApp,
+  onDictate,
+  onOpenVoice,
   onOpenStarred,
   onOpenOrganiser,
   organiserCount = 0,
@@ -439,6 +444,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {onOpenPdf && (
                         <button type="button" data-tools-item="pdf" onClick={() => { setToolsMenu(false); onOpenPdf(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
                           <FileText className="h-4 w-4 text-rose-600" /> PDF tools
+                        </button>
+                      )}
+                      {onDictate && (
+                        <button type="button" data-tools-item="voice" onClick={() => { setToolsMenu(false); onDictate(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
+                          <Mic className="h-4 w-4 text-red-600" /> Voice typing <span className="ml-auto text-[10px] text-slate-400">Ctrl+Alt+Space</span>
+                        </button>
+                      )}
+                      {onOpenVoice && (
+                        <button type="button" data-tools-item="voice-settings" onClick={() => { setToolsMenu(false); onOpenVoice(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
+                          <Mic className="h-4 w-4 text-slate-500" /> Voice settings
                         </button>
                       )}
                       {onOpenCalc && (

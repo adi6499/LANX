@@ -723,9 +723,39 @@ export interface Note {
   kind: "note" | "checklist";
   color: string;
   pinned: boolean;
+  /** Voice recordings on the note (files kept by LANX), with transcripts. */
+  audio: NoteAudio[];
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
+}
+
+export interface NoteAudio {
+  file: string;
+  secs: number;
+  at: number;
+  transcript: string;
+}
+
+/** What the speech engine returns. */
+export interface Transcript {
+  text: string;
+  segments: { start_ms: number; end_ms: number; text: string }[];
+  language: string;
+  audio_secs: number;
+  took_ms: number;
+  model: string;
+}
+
+export interface VoiceModel {
+  id: string;
+  name: string;
+  about: string;
+  file: string;
+  url: string;
+  downloaded: boolean;
+  bytes: number;
+  partial_bytes: number;
 }
 
 /** A personal calendar event. Times are Unix seconds. */

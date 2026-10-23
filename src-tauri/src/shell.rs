@@ -20,6 +20,12 @@ static HOTKEY_THREAD: AtomicU32 = AtomicU32::new(0);
 static HOTKEY_OK: AtomicBool = AtomicBool::new(false);
 
 pub const HOTKEY_LABEL: &str = "Ctrl + Alt + S";
+/// LANX 2.5.0: dictation.
+pub const DICTATE_LABEL: &str = "Ctrl + Alt + Space";
+static DICTATE_ON: AtomicBool = AtomicBool::new(true);
+static DICTATE_OK: AtomicBool = AtomicBool::new(false);
+/// The window that was in front when dictation started (where the text goes).
+static DICTATE_TARGET: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
 
 /// The whole desktop (every screen).
 #[cfg(windows)]
@@ -120,12 +126,28 @@ pub fn start_hotkey(app: AppHandle, enabled: bool) {
                 eprintln!("[Screenshot] {} is already used by another app", HOTKEY_LABEL);
             }
         };
+        // LANX 2.5.0: Ctrl + Alt + Space starts / stops dictation.
+        let set_dictate = |on: bool| {
+            UnregisterHotKey(std::ptr::null_mut(), 2);
+            let ok = on && RegisterHotKey(std::ptr::null_mut(), 2, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x20) != 0;
+            DICTATE_OK.store(ok, Ordering::SeqCst);
+            if on && !ok {
+                eprintln!("[Dictation] {} is already used by another app", DICTATE_LABEL);
+            }
+        };
         set(enabled);
+        set_dictate(DICTATE_ON.load(Ordering::SeqCst));
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             if msg.message == WM_HOTKEY {
-                on_hotkey(&app);
+                if msg.wParam == 2 {
+                    on_dictate_hotkey(&app);
+                } else {
+                    on_hotkey(&app);
+                }
             } else if msg.message == WM_APP + 1 {
                 set(msg.wParam != 0);
+            } else if msg.message == WM_APP + 2 {
+                set_dictate(msg.wParam != 0);
             }
         }
     });
@@ -133,6 +155,80 @@ pub fn start_hotkey(app: AppHandle, enabled: bool) {
 
 #[cfg(not(windows))]
 pub fn start_hotkey(_app: AppHandle, _enabled: bool) {}
+
+/// Dictation hotkey pressed: remember which program is in front (the text
+/// goes back there) and tell the window to start or stop listening.
+#[cfg(windows)]
+fn on_dictate_hotkey(app: &AppHandle) {
+    use tauri::{Emitter, Manager};
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    // SAFETY: a plain query of the foreground window.
+    let fg = unsafe { GetForegroundWindow() } as isize;
+    let ours = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0);
+    DICTATE_TARGET.store(if fg == ours { 0 } else { fg }, Ordering::SeqCst);
+    let _ = app.emit_to("main", "lanx://dictate", fg != ours);
+}
+
+/// Turns the dictation hotkey on or off (after a settings change).
+pub fn set_dictation_hotkey(enabled: bool) {
+    DICTATE_ON.store(enabled, Ordering::SeqCst);
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_APP};
+        let tid = HOTKEY_THREAD.load(Ordering::SeqCst);
+        if tid != 0 {
+            PostThreadMessageW(tid, WM_APP + 2, enabled as usize, 0);
+        }
+    }
+}
+
+pub fn dictation_hotkey_working() -> bool {
+    DICTATE_OK.load(Ordering::SeqCst)
+}
+
+/// Types text into the program that was in front when dictation started.
+/// Ok(false) when there is none (LANX itself was in front).
+#[cfg(windows)]
+pub fn type_into_target(_app: &AppHandle, text: &str) -> Result<bool, String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindow, SetForegroundWindow};
+    let target = DICTATE_TARGET.swap(0, Ordering::SeqCst);
+    if target == 0 || crate::testmode::profile().is_some() {
+        return Ok(false);
+    }
+    let hwnd = target as windows_sys::Win32::Foundation::HWND;
+    // SAFETY: Win32 calls on a window handle we recorded moments ago.
+    unsafe {
+        if IsWindow(hwnd) == 0 {
+            return Ok(false);
+        }
+        SetForegroundWindow(hwnd);
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let mut inputs: Vec<INPUT> = Vec::with_capacity(text.encode_utf16().count() * 2);
+        for unit in text.encode_utf16() {
+            for flags in [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP] {
+                let mut inp: INPUT = std::mem::zeroed();
+                inp.r#type = INPUT_KEYBOARD;
+                inp.Anonymous.ki = KEYBDINPUT { wVk: 0, wScan: unit, dwFlags: flags, time: 0, dwExtraInfo: 0 };
+                inputs.push(inp);
+            }
+        }
+        // In batches: very long texts in one SendInput can be dropped.
+        for chunk in inputs.chunks(200) {
+            let sent = SendInput(chunk.len() as u32, chunk.as_ptr(), std::mem::size_of::<INPUT>() as i32);
+            if sent == 0 {
+                return Err("Windows did not accept the typed text (the program may be running as administrator).".to_string());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(8));
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(not(windows))]
+pub fn type_into_target(_app: &AppHandle, _text: &str) -> Result<bool, String> {
+    Ok(false)
+}
 
 /// Turns the hotkey on or off (after a settings change).
 pub fn set_hotkey(enabled: bool) {

@@ -10,6 +10,7 @@ pub mod docs;
 pub mod calendar;
 pub mod share;
 pub mod wallpaper;
+pub mod voice;
 pub mod remote;
 pub mod tools;
 

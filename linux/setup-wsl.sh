@@ -7,7 +7,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 need_apt=0
-for p in build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libasound2-dev rsync file curl ca-certificates desktop-file-utils squashfs-tools libfuse2; do
+for p in build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libasound2-dev rsync file curl ca-certificates desktop-file-utils squashfs-tools libfuse2 cmake clang libclang-dev; do
   dpkg -s "$p" >/dev/null 2>&1 || need_apt=1
 done
 if [ "$need_apt" = 1 ]; then
@@ -15,7 +15,7 @@ if [ "$need_apt" = 1 ]; then
   apt-get update
   apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libgtk-3-dev \
     libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev libasound2-dev \
-    rsync file curl wget ca-certificates git xz-utils desktop-file-utils squashfs-tools libfuse2
+    rsync file curl wget ca-certificates git xz-utils desktop-file-utils squashfs-tools libfuse2 cmake clang libclang-dev
 fi
 
 # Node 22 (Vite 8 needs 20.19+).

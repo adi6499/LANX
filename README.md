@@ -81,6 +81,12 @@ others) and talks to the Windows copies on the same network.
   Ctrl+V in the WhatsApp chat), notes, calendar events and saved PDFs; **WhatsApp a colleague** from their phone number in
   the info panel; and **Invite on WhatsApp** (compose ✎ menu) sends the download link to new users. WhatsApp Desktop is used
   when installed, else WhatsApp Web.
+- **Voice typing** (like Wispr Flow) and **voice memos**. Press **Ctrl + Alt + Space** anywhere in Windows (or inside LANX),
+  speak, press it again: the words are typed where your cursor was — a LANX message or note, or Word, Outlook, Excel… Speech
+  is turned into text **on this PC** (nothing is sent anywhere); it needs a one-time download of a speech model
+  (wrench button → Voice settings: Fast 75 MB, Balanced 148 MB or Best 488 MB; English, Hindi, Marathi and more, or
+  detect automatically). In **Notes**, **Record** keeps a voice memo on the note; **Write out** turns it into text and
+  **Into note** adds the words to the note. On Linux the shortcut works inside LANX.
 
 ### New in 2.4.0: who's in today & end-of-day reports
 - **Who's in today** — Office button (building icon) → **Who's in**. See at a glance who is in the office, working from home, away
@@ -437,6 +443,14 @@ Tauri 2 (Rust) · React 19 + TypeScript · Tailwind 4 · SQLite (WAL) · Windows
 
 > **Never zip the whole folder.** `node_modules` and `src-tauri/target` are rebuilt automatically and
 > are ~11 GB — that is why the old `LANAPPLICATION.zip` was 2.9 GB. Use `npm run pack-source`.
+
+### Speech engine (whisper.cpp)
+Voice typing uses `whisper-rs` (whisper.cpp). Building it needs **CMake** and **libclang** besides the usual Rust toolchain:
+on this PC both were installed for the user with `python -m pip install --user cmake libclang`, and
+`scripts/with-cmake.mjs` (used by `npm run app` / `npm run release`) puts them on the PATH / `LIBCLANG_PATH` for the build.
+The Linux build box needs `apt-get install cmake clang libclang-dev` (linux/setup-wsl.sh does it). The speech model files
+are not in the repository or the installer: LANX downloads the chosen one from Hugging Face into `%APPDATA%\LANX\models`
+on first use.
 
 ### Building LANX for Linux (from this Windows PC)
 Linux programs can only be built on Linux, so the build runs inside Docker (Docker Desktop must be running):

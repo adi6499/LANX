@@ -29,6 +29,8 @@ tokio-util = "0.7"
 uuid = { version = "1", features = ["v4", "serde"] }
 sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
+# LANX 2.5.0: speech to text on this PC (whisper.cpp). Needs cmake + a C++ compiler to build.
+whisper-rs = "0.14"
 dirs = "6.0"
 parking_lot = "0.12"
 thiserror = "2"

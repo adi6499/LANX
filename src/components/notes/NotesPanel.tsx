@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ListChecks, Pin, PinOff, Plus, RotateCcw, Search, Send, StickyNote, Trash2, X, Download, Copy } from "lucide-react";
+import { ListChecks, Pin, PinOff, Plus, RotateCcw, Search, Send, StickyNote, Trash2, X, Download, Copy, Mic, Square, Play, Pause, FileText, Loader2, ArrowDownToLine, Settings2 } from "lucide-react";
+import type { NoteAudio } from "../../types";
+import { decodeToPcm, fmtSecs, loadDictationPrefs } from "../../lib/voice";
 import type { Note } from "../../types";
 import { api, errorText } from "../../lib/api";
 
@@ -51,6 +53,7 @@ export function NotesPanel({
   onError,
   onSendText,
   initialNote,
+  onOpenVoiceSettings,
 }: {
   onClose: () => void;
   onError: (text: string) => void;
@@ -58,6 +61,8 @@ export function NotesPanel({
   onSendText: (text: string) => void;
   /** Open with this note already created (e.g. "Save to notes" from a message). */
   initialNote?: { title?: string; body: string } | null;
+  /** Voice settings (speech model, language). */
+  onOpenVoiceSettings?: () => void;
 }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [bin, setBin] = useState<Note[]>([]);
@@ -103,7 +108,7 @@ export function NotesPanel({
 
   const createNote = async (title: string, body: string, kind: "note" | "checklist") => {
     try {
-      const saved = await api.saveNote({ id: "", title, body, kind, color: "yellow", pinned: false, created_at: 0, updated_at: 0, deleted_at: null });
+      const saved = await api.saveNote({ id: "", title, body, kind, color: "yellow", pinned: false, audio: [], created_at: 0, updated_at: 0, deleted_at: null });
       await load();
       setCurrent(saved);
       setShowBin(false);
@@ -342,6 +347,13 @@ export function NotesPanel({
                     </div>
                   )}
                 </div>
+                <NoteRecordings
+                  note={current}
+                  onChange={(audio) => change({ audio }, true)}
+                  onInsert={(text) => change({ body: (currentRef.current?.body ?? current.body).trimEnd() + (current.body.trim() ? "\n\n" : "") + text }, true)}
+                  onError={onError}
+                  onOpenVoiceSettings={onOpenVoiceSettings}
+                />
                 <div className="flex items-center gap-1 px-3 py-2 border-t lanx-line text-[11.5px]">
                   <span className="text-slate-400 mr-auto">Edited {when(current.updated_at)}</span>
                   <button type="button" data-note-send onClick={() => onSendText(asText(current))} className="px-2.5 py-1 rounded-full hover:bg-[var(--lanx-fill)] text-sky-600 dark:text-sky-400 font-semibold inline-flex items-center gap-1"><Send className="h-3.5 w-3.5" /> Send to chat</button>
@@ -354,6 +366,141 @@ export function NotesPanel({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** LANX 2.5.0: voice recordings on a note — record, play, write out (speech to
+ *  text on this PC), put the words into the note. */
+function NoteRecordings({
+  note,
+  onChange,
+  onInsert,
+  onError,
+  onOpenVoiceSettings,
+}: {
+  note: Note;
+  onChange: (audio: NoteAudio[]) => void;
+  onInsert: (text: string) => void;
+  onError: (t: string) => void;
+  onOpenVoiceSettings?: () => void;
+}) {
+  const [recording, setRecording] = useState<{ rec: MediaRecorder; stream: MediaStream; started: number } | null>(null);
+  const [secs, setSecs] = useState(0);
+  const [playing, setPlaying] = useState<{ file: string; url: string } | null>(null);
+  const [working, setWorking] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const list = note.audio ?? [];
+
+  useEffect(() => {
+    if (!recording) return;
+    const t = window.setInterval(() => setSecs((Date.now() - recording.started) / 1000), 250);
+    return () => window.clearInterval(t);
+  }, [recording]);
+  useEffect(() => () => { if (playing) URL.revokeObjectURL(playing.url); }, [playing]);
+
+  const start = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      const type = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+      const rec = new MediaRecorder(stream, { mimeType: type || undefined, audioBitsPerSecond: 48_000 });
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, { type: rec.mimeType });
+        const ext = /ogg/.test(rec.mimeType) ? "ogg" : /mp4/.test(rec.mimeType) ? "m4a" : "webm";
+        try {
+          const saved = await api.saveNoteAudio(new Uint8Array(await blob.arrayBuffer()), ext);
+          const dur = (Date.now() - started) / 1000;
+          onChange([...(list ?? []), { file: saved.file, secs: Math.round(dur * 10) / 10, at: Math.floor(Date.now() / 1000), transcript: "" }]);
+        } catch (e) {
+          onError(errorText(e));
+        }
+      };
+      const started = Date.now();
+      rec.start(1000);
+      setRecording({ rec, stream, started });
+      setSecs(0);
+    } catch (e) {
+      onError(`Microphone: ${errorText(e)}`);
+    }
+  };
+  const stop = () => {
+    recording?.rec.stop();
+    setRecording(null);
+  };
+  const play = async (a: NoteAudio) => {
+    if (playing?.file === a.file) {
+      audioRef.current?.pause();
+      setPlaying(null);
+      return;
+    }
+    try {
+      const bytes = await api.readFileBytes(a.file);
+      const url = URL.createObjectURL(new Blob([bytes.slice(0)]));
+      setPlaying({ file: a.file, url });
+    } catch (e) {
+      onError(errorText(e));
+    }
+  };
+  const writeOut = async (a: NoteAudio) => {
+    setWorking(a.file);
+    try {
+      const prefs = await loadDictationPrefs();
+      const models = await api.voiceModels();
+      if (!models.find((m) => m.id === prefs.model)?.downloaded) {
+        onError("Writing out needs the speech model first (one-time download in Voice settings).");
+        onOpenVoiceSettings?.();
+        return;
+      }
+      const pcm = await decodeToPcm(await api.readFileBytes(a.file));
+      const t = await api.transcribe(pcm, prefs.model, prefs.lang);
+      const text = t.text.trim() || "(no words were heard)";
+      onChange(list.map((x) => (x.file === a.file ? { ...x, transcript: text } : x)));
+    } catch (e) {
+      onError(errorText(e));
+    } finally {
+      setWorking(null);
+    }
+  };
+  const remove = async (a: NoteAudio) => {
+    onChange(list.filter((x) => x.file !== a.file));
+    api.deleteNoteAudio(a.file).catch(() => {});
+    if (playing?.file === a.file) setPlaying(null);
+  };
+
+  return (
+    <div data-note-recordings className="px-4 py-2 border-t lanx-line space-y-1.5">
+      <div className="flex items-center gap-2">
+        {recording ? (
+          <button type="button" data-note-rec-stop onClick={stop} className="px-3 py-1 rounded-full bg-red-500 text-white text-[12px] font-semibold inline-flex items-center gap-1.5"><Square className="h-3 w-3" /> Stop · {fmtSecs(secs)}</button>
+        ) : (
+          <button type="button" data-note-rec onClick={start} className="px-3 py-1 rounded-full lanx-group text-[12px] font-semibold text-red-600 inline-flex items-center gap-1.5"><Mic className="h-3.5 w-3.5" /> Record</button>
+        )}
+        <span className="text-[11px] text-slate-400">Record a voice memo; "Write out" turns it into text on this PC.</span>
+        {onOpenVoiceSettings && <button type="button" onClick={onOpenVoiceSettings} className="ml-auto lanx-tool p-1 text-slate-400" title="Voice settings"><Settings2 className="h-3.5 w-3.5" /></button>}
+      </div>
+      {list.map((a) => (
+        <div key={a.file} data-note-audio className="rounded-xl lanx-group px-3 py-2 text-[12px]">
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => play(a)} className="h-7 w-7 rounded-full bg-slate-700 text-white flex items-center justify-center">{playing?.file === a.file ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}</button>
+            <span className="font-semibold text-slate-700 dark:text-slate-200">{fmtSecs(a.secs)}</span>
+            <span className="text-slate-400">{new Date(a.at * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+            <span className="ml-auto flex items-center gap-1">
+              <button type="button" data-note-writeout onClick={() => writeOut(a)} disabled={working === a.file} className="px-2 py-0.5 rounded-full lanx-group text-[11px] font-semibold text-sky-700 dark:text-sky-300 inline-flex items-center gap-1">{working === a.file ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />} {a.transcript ? "Write out again" : "Write out"}</button>
+              <button type="button" onClick={() => remove(a)} className="lanx-tool p-1 text-slate-400 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+            </span>
+          </div>
+          {a.transcript && (
+            <div className="mt-1.5 flex items-start gap-2">
+              <p data-note-transcript className="flex-1 text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{a.transcript}</p>
+              <button type="button" data-note-insert onClick={() => onInsert(a.transcript)} title="Put the words into the note" className="shrink-0 px-2 py-0.5 rounded-full lanx-group text-[11px] font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1"><ArrowDownToLine className="h-3 w-3" /> Into note</button>
+            </div>
+          )}
+        </div>
+      ))}
+      {playing && <audio ref={audioRef} src={playing.url} autoPlay onEnded={() => setPlaying(null)} className="hidden" />}
     </div>
   );
 }

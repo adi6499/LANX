@@ -9,8 +9,8 @@
     "preview": "vite preview",
     "test": "tsc --noEmit && cd src-tauri && cargo test",
     "tauri": "tauri",
-    "app": "tauri dev",
-    "release": "node scripts/release-key.mjs && tauri build && node scripts/release.mjs",
+    "app": "node scripts/with-cmake.mjs dev",
+    "release": "node scripts/release-key.mjs && node scripts/with-cmake.mjs build && node scripts/release.mjs",
     "pack-source": "node scripts/pack-source.mjs"
   },
   "dependencies": {

@@ -628,12 +628,27 @@ pub struct Note {
     pub color: String,
     #[serde(default)]
     pub pinned: bool,
+    /// Voice recordings attached to the note (files in LANX's data folder).
+    #[serde(default)]
+    pub audio: Vec<NoteAudio>,
     #[serde(default)]
     pub created_at: i64,
     #[serde(default)]
     pub updated_at: i64,
     #[serde(default)]
     pub deleted_at: Option<i64>,
+}
+
+/// A voice recording on a note, with its transcript once made.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NoteAudio {
+    pub file: String,
+    #[serde(default)]
+    pub secs: f32,
+    #[serde(default)]
+    pub at: i64,
+    #[serde(default)]
+    pub transcript: String,
 }
 
 fn default_note_kind() -> String {

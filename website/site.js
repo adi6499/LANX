@@ -48,6 +48,7 @@
       document.querySelectorAll("[data-linux-deb]").forEach(function (el) { el.hidden = !lx.deb; });
       document.querySelectorAll("[data-linux-appimage]").forEach(function (el) { el.hidden = !lx.appimage; });
       if (lx.deb) { map.debSize = lx.deb.size; map.debSha = lx.deb.sha256; }
+      map.linuxVersion = (lx.deb && lx.deb.version) || (lx.appimage && lx.appimage.version) || v.version;
       if (lx.appimage) { map.appSize = lx.appimage.size; map.appSha = lx.appimage.sha256; }
       document.querySelectorAll("[data-v]").forEach(function (el) {
         var k = el.getAttribute("data-v");

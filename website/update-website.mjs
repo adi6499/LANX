@@ -53,7 +53,7 @@ console.log(`\nLANX ${version}  ←  ${src}`);
 // 1. Copy the installer and its companions, remove older ones.
 fs.mkdirSync(filesDir, { recursive: true });
 for (const old of fs.readdirSync(filesDir)) {
-  if (/^LANX-(Setup-|\d+\.\d+\.\d+-linux-)/i.test(old) && !old.startsWith(name) && !old.startsWith(`LANX-${version}-linux-`)) {
+  if (/^LANX-Setup-/i.test(old) && !old.startsWith(name)) {
     fs.unlinkSync(path.join(filesDir, old));
     console.log(`  removed old   files\\${old}`);
   }
@@ -86,8 +86,16 @@ console.log(`  checksum      ${sha256}`);
 const linux = {};
 const MAX_SITE_FILE = 50 * 1048576;
 const withAppImage = process.argv.includes("--appimage");
+// The Linux files of this version — or, when none were built, the newest Linux version there is.
+const linuxVersions = fs.readdirSync(path.dirname(src))
+  .map((n) => /^LANX-(\d+\.\d+\.\d+)-linux-amd64\.deb$/i.exec(n)?.[1])
+  .filter(Boolean)
+  .sort((a, b) => newer(semver("LANX-Setup-" + b + ".exe"), semver("LANX-Setup-" + a + ".exe")));
+const linuxVersion = linuxVersions.includes(version) ? version : linuxVersions[0];
+if (linuxVersion && linuxVersion !== version) console.log(`  note          no Linux files for ${version}; the website keeps Linux ${linuxVersion}`);
 for (const [key, ext] of [["deb", "deb"], ["appimage", "AppImage"]]) {
-  const lname = `LANX-${version}-linux-amd64.${ext}`;
+  if (!linuxVersion) break;
+  const lname = `LANX-${linuxVersion}-linux-amd64.${ext}`;
   const lsrc = path.join(path.dirname(src), lname);
   if (!fs.existsSync(lsrc)) continue;
   const lbytes = fs.readFileSync(lsrc);
@@ -99,7 +107,7 @@ for (const [key, ext] of [["deb", "deb"], ["appimage", "AppImage"]]) {
   const lsha = crypto.createHash("sha256").update(lbytes).digest("hex");
   fs.writeFileSync(path.join(filesDir, lname + ".sha256.txt"), `${lsha}  ${lname}
 `);
-  linux[key] = { file: `/files/${lname}`, bytes: lbytes.length, size: (lbytes.length / 1048576).toFixed(1) + " MB", sha256: lsha };
+  linux[key] = { file: `/files/${lname}`, bytes: lbytes.length, size: (lbytes.length / 1048576).toFixed(1) + " MB", sha256: lsha, version: linuxVersion };
   console.log(`  copied        files\\${lname}  (${linux[key].size})`);
 }
 if (!Object.keys(linux).length) console.log(`  (no Linux files for ${version} next to the installer — the Linux section stays hidden)`);
@@ -139,6 +147,15 @@ setText("sha256", sha256);
 html = html.replace(/href="[^"]*"(\s+data-v="dlHref")/g, `href="${info.file}"$1`);
 html = html.replace(/href="[^"]*"(\s+data-v="sigHref")/g, `href="${info.sig || info.file}"$1`);
 html = html.replace(/href="[^"]*"(\s+data-v="shaHref")/g, `href="${info.sha256File}"$1`);
+// Old Linux files go once the ones to keep are known.
+const keepLinux = Object.values(linux).map((l) => path.basename(l.file));
+for (const old of fs.readdirSync(filesDir)) {
+  if (/^LANX-\d+\.\d+\.\d+-linux-/i.test(old) && !keepLinux.some((k) => old.startsWith(k))) {
+    fs.unlinkSync(path.join(filesDir, old));
+    console.log(`  removed old   files\\${old}`);
+  }
+}
+setText("linuxVersion", linux.deb?.version ?? linux.appimage?.version ?? version);
 if (linux.deb) {
   setText("debSize", linux.deb.size);
   setText("debSha", linux.deb.sha256);

@@ -47,6 +47,8 @@ import {
   Note,
   CalendarEvent,
   Occurrence,
+  Transcript,
+  VoiceModel,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -1625,6 +1627,42 @@ export const api = {
   },
   clearWallpaperFile: async (): Promise<void> => {
     if (isTauri) return invoke("clear_wallpaper_file");
+  },
+
+  /** Voice (2.5.0): the speech model, dictation and note recordings. */
+  voiceModels: async (): Promise<VoiceModel[]> => {
+    if (isTauri) return invoke("voice_models");
+    return [];
+  },
+  voiceModelChunk: async (id: string, offset: number, bytes: Uint8Array): Promise<number> => {
+    if (isTauri) return invoke("voice_model_chunk", bytes, { headers: { "x-model": id, "x-offset": String(offset) } });
+    return offset + bytes.length;
+  },
+  voiceModelFinish: async (id: string): Promise<VoiceModel> => {
+    if (isTauri) return invoke("voice_model_finish", { id });
+    return previewOnly();
+  },
+  voiceModelDelete: async (id: string): Promise<void> => {
+    if (isTauri) return invoke("voice_model_delete", { id });
+  },
+  /** 16 kHz mono samples → text (on this PC). */
+  transcribe: async (pcm: Float32Array, model: string, lang: string): Promise<Transcript> => {
+    if (isTauri) return invoke("transcribe", new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), { headers: { "x-model": model, "x-lang": lang } });
+    return previewOnly();
+  },
+  typeText: async (text: string): Promise<boolean> => {
+    if (isTauri) return invoke("type_text", { text });
+    return false;
+  },
+  setDictationHotkey: async (enabled: boolean): Promise<void> => {
+    if (isTauri) return invoke("set_dictation_hotkey", { enabled });
+  },
+  saveNoteAudio: async (bytes: Uint8Array, ext: string): Promise<{ file: string; bytes: number }> => {
+    if (isTauri) return invoke("save_note_audio", bytes, { headers: { "x-ext": ext } });
+    return { file: `preview-${Date.now()}.${ext}`, bytes: bytes.length };
+  },
+  deleteNoteAudio: async (file: string): Promise<void> => {
+    if (isTauri) return invoke("delete_note_audio", { file });
   },
 
 };

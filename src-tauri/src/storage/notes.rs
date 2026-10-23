@@ -38,6 +38,10 @@ pub fn clean_note(mut n: Note) -> Note {
     if n.id.trim().is_empty() || uuid::Uuid::parse_str(&n.id).is_err() {
         n.id = uuid::Uuid::new_v4().to_string();
     }
+    n.audio.truncate(50);
+    for a in &mut n.audio {
+        a.transcript = a.transcript.chars().take(MAX_BODY).collect();
+    }
     n
 }
 
@@ -65,6 +69,7 @@ impl Database {
             kind: r.get(3)?,
             color: r.get(4)?,
             pinned: r.get::<_, i64>(5)? != 0,
+            audio: serde_json::from_str(&r.get::<_, String>(9)?).unwrap_or_default(),
             created_at: r.get(6)?,
             updated_at: r.get(7)?,
             deleted_at: r.get(8)?,
@@ -75,10 +80,10 @@ impl Database {
     pub fn list_notes(&self, deleted: bool) -> Result<Vec<Note>> {
         let conn = self.conn.lock();
         let mut st = conn.prepare(if deleted {
-            "SELECT id, title, body, kind, color, pinned, created_at, updated_at, deleted_at FROM notes
+            "SELECT id, title, body, kind, color, pinned, created_at, updated_at, deleted_at, audio FROM notes
              WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC"
         } else {
-            "SELECT id, title, body, kind, color, pinned, created_at, updated_at, deleted_at FROM notes
+            "SELECT id, title, body, kind, color, pinned, created_at, updated_at, deleted_at, audio FROM notes
              WHERE deleted_at IS NULL ORDER BY pinned DESC, updated_at DESC"
         })?;
         let rows = st.query_map([], Self::row_to_note)?;
@@ -88,7 +93,7 @@ impl Database {
     pub fn get_note(&self, id: &str) -> Result<Option<Note>> {
         let conn = self.conn.lock();
         conn.query_row(
-            "SELECT id, title, body, kind, color, pinned, created_at, updated_at, deleted_at FROM notes WHERE id = ?1",
+            "SELECT id, title, body, kind, color, pinned, created_at, updated_at, deleted_at, audio FROM notes WHERE id = ?1",
             params![id],
             Self::row_to_note,
         )
@@ -107,11 +112,11 @@ impl Database {
         n.created_at = existing.unwrap_or(t);
         n.deleted_at = None;
         conn.execute(
-            "INSERT INTO notes (id, title, body, kind, color, pinned, created_at, updated_at, deleted_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)
+            "INSERT INTO notes (id, title, body, kind, color, pinned, audio, created_at, updated_at, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?9, ?7, ?8, NULL)
              ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body, kind = excluded.kind,
-               color = excluded.color, pinned = excluded.pinned, updated_at = excluded.updated_at, deleted_at = NULL",
-            params![n.id, n.title, n.body, n.kind, n.color, n.pinned as i64, n.created_at, n.updated_at],
+               color = excluded.color, pinned = excluded.pinned, audio = excluded.audio, updated_at = excluded.updated_at, deleted_at = NULL",
+            params![n.id, n.title, n.body, n.kind, n.color, n.pinned as i64, n.created_at, n.updated_at, serde_json::to_string(&n.audio).unwrap_or_else(|_| "[]".into())],
         )?;
         Ok(n)
     }
@@ -153,6 +158,7 @@ mod tests {
             kind: "note".into(),
             color: "blue".into(),
             pinned: false,
+            audio: vec![],
             created_at: 0,
             updated_at: 0,
             deleted_at: None,

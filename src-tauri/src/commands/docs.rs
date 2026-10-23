@@ -32,10 +32,14 @@ fn allowed(path: &Path, download_dir: &Path) -> bool {
     if p.starts_with(&d) {
         return true;
     }
-    // The wallpaper copy LANX keeps in its own data folder.
-    let w = super::wallpaper::wallpaper_dir();
-    let w = std::fs::canonicalize(&w).unwrap_or(w);
-    p.starts_with(&w)
+    // The wallpaper copy and the note recordings LANX keeps in its own data folder.
+    for dir in [super::wallpaper::wallpaper_dir(), super::voice::notes_audio_dir()] {
+        let d = std::fs::canonicalize(&dir).unwrap_or(dir);
+        if p.starts_with(&d) {
+            return true;
+        }
+    }
+    false
 }
 
 /// May the window read / share this file? (Used by the WhatsApp sharing too.)

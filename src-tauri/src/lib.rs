@@ -12,6 +12,7 @@ pub mod shell;
 pub mod sound;
 pub mod storage;
 pub mod testmode;
+pub mod voice;
 pub mod webview_folder;
 pub mod window_doctor;
 
@@ -387,6 +388,9 @@ pub fn run() {
             shell::remember_send(shell::send_paths(&args));
             if profile.is_none() {
                 let s = db.get_settings().ok();
+                // LANX 2.5.0: the dictation hotkey follows its preference (on unless turned off).
+                let dict_on = db.get_setting("pref_dictation").map(|v| !v.contains("\"hotkey\":false")).unwrap_or(true);
+                shell::set_dictation_hotkey(dict_on);
                 shell::start_hotkey(app.handle().clone(), s.as_ref().map(|s| s.screenshot_hotkey).unwrap_or(true));
                 shell::apply_send_to(s.as_ref().map(|s| s.send_to_menu).unwrap_or(true));
             }
@@ -619,6 +623,15 @@ pub fn run() {
             commands::share::share_whatsapp,
             commands::wallpaper::pick_wallpaper,
             commands::wallpaper::clear_wallpaper_file,
+            commands::voice::voice_models,
+            commands::voice::voice_model_chunk,
+            commands::voice::voice_model_finish,
+            commands::voice::voice_model_delete,
+            commands::voice::transcribe,
+            commands::voice::type_text,
+            commands::voice::set_dictation_hotkey,
+            commands::voice::save_note_audio,
+            commands::voice::delete_note_audio,
             commands::tools::set_chat_pinned,
             commands::tools::set_chat_muted,
             commands::tools::set_chat_archived,

@@ -47,6 +47,8 @@ import { PdfStudio } from "./components/pdf/PdfStudio";
 import { CalcPanel } from "./components/tools/CalcPanel";
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
+import { DictationOverlay } from "./components/voice/DictationOverlay";
+import { VoiceSettingsModal } from "./components/voice/VoiceSettingsModal";
 import { HelpDeskModal } from "./components/HelpDeskModal";
 import { EndOfDayModal } from "./components/EndOfDayModal";
 import { withoutForwardMark } from "./components/chat/chatUtils";
@@ -189,6 +191,8 @@ export default function App() {
   const [shareText, setShareText] = useState<string | null>(null);
   const [shareFile, setShareFile] = useState<string | null>(null);
   const [meetingPrefill, setMeetingPrefill] = useState<MeetingPrefill | null>(null);
+  const [showVoice, setShowVoice] = useState(false);
+  const [dictateNow, setDictateNow] = useState<{ start: number } | null>(null);
   /** LANX 2.3.0: the IT help dialog is open. */
   const [showHelpDesk, setShowHelpDesk] = useState(false);
   /** LANX 2.4.0: the end-of-day report dialog. */
@@ -1332,6 +1336,8 @@ export default function App() {
         onOpenPdf={() => setPdfPath({ path: null })}
         onOpenCalc={() => setShowCalc(true)}
         onInviteWhatsApp={() => setShowInvite(true)}
+        onDictate={() => setDictateNow({ start: Date.now() })}
+        onOpenVoice={() => setShowVoice(true)}
         onOpenStarred={() => setShowStarred(true)}
         onOpenOrganiser={() => setShowOrganiser(true)}
         organiserCount={organiserCount}
@@ -1762,6 +1768,7 @@ export default function App() {
           onClose={() => setShowNotes(false)}
           onError={(t) => setNotice(t)}
           onSendText={(text) => setShareText(text)}
+          onOpenVoiceSettings={() => setShowVoice(true)}
         />
       )}
       {showCalendar && (
@@ -1791,6 +1798,8 @@ export default function App() {
       )}
       {showCalc && <CalcPanel onClose={() => setShowCalc(false)} onError={(t) => setNotice(t)} />}
       {showInvite && <WhatsAppInviteModal onClose={() => setShowInvite(false)} onError={(t) => setNotice(t)} />}
+      {showVoice && <VoiceSettingsModal onClose={() => setShowVoice(false)} onError={(t) => setNotice(t)} />}
+      <DictationOverlay onError={(t) => setNotice(t)} onOpenSettings={() => setShowVoice(true)} external={dictateNow} />
       {(shareText !== null || shareFile !== null) && (
         <SendToModal
           paths={shareFile ? [shareFile] : []}
