@@ -5,6 +5,11 @@ pub mod chat;
 pub mod meetings;
 pub mod office;
 pub mod org;
+pub mod notes;
+pub mod docs;
+pub mod calendar;
+pub mod share;
+pub mod wallpaper;
 pub mod remote;
 pub mod tools;
 

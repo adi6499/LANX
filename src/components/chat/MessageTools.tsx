@@ -18,6 +18,8 @@ import {
   StarOff,
   Trash2,
   Undo2,
+  StickyNote,
+  MessageCircle,
 } from "lucide-react";
 import type { Message, Reaction } from "../../types";
 import { QUICK_REACTIONS, followUpChoices, localInputValue, whenChoices, whenText } from "./chatUtils";
@@ -40,6 +42,9 @@ export interface MessageActions {
   forward?: (m: Message) => void;
   /** LANX 2.2.0: "remind me if no reply" (messages you sent). */
   followUp?: (m: Message, at: number) => void;
+  /** LANX 2.5.0: keep the text as a note; share it on WhatsApp. */
+  saveNote?: (m: Message) => void;
+  whatsapp?: (m: Message) => void;
 }
 
 const EDIT_WINDOW = 24 * 3600;
@@ -169,6 +174,8 @@ export function MessageTools({
               {canAct && item(<Reply className="h-4 w-4" />, "Reply", done(() => actions.reply(msg)))}
               {canAct && isText && !secret && actions.makeTask && item(<ClipboardCheck className="h-4 w-4" />, "Make a task…", done(() => actions.makeTask!(msg)), false, "make-task")}
               {isText && !secret && item(<Copy className="h-4 w-4" />, "Copy text", done(() => navigator.clipboard.writeText(msg.content).catch(() => {})))}
+              {isText && !secret && actions.saveNote && item(<StickyNote className="h-4 w-4" />, "Save to notes", done(() => actions.saveNote!(msg)), false, "save-note")}
+              {isText && !secret && actions.whatsapp && item(<MessageCircle className="h-4 w-4" />, "Share on WhatsApp", done(() => actions.whatsapp!(msg)), false, "whatsapp")}
               {canForward && actions.forward && item(<Forward className="h-4 w-4" />, "Forward…", done(() => actions.forward!(msg)), false, "forward")}
               {canEdit && item(<Pencil className="h-4 w-4" />, "Edit", done(() => actions.edit(msg)), false, "edit")}
               {canAct && !secret &&

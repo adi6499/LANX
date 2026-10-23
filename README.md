@@ -57,6 +57,31 @@ others) and talks to the Windows copies on the same network.
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.5.0: work tools — Notes, Calendar, PDF tools, calculator, live wallpapers, WhatsApp
+- **Notes** (sticky-note button above the chat list): a notebook that stays on this PC (and in your daily backup). Plain notes
+  and **checklists**, colours, pin to the top, search, "Save to notes" from any message, send a note to a chat, save it as a
+  text file, and a 30-day **Recently deleted** bin.
+- **Calendar** (calendar button): **month, week, day and agenda** views, your own events with repeats (daily / weekly /
+  monthly / yearly, until a date), reminders, colours, a place and notes; **drag** an event to move it, drag its bottom edge
+  to change the end; click a day or a time to add one. The calendar also shows the Organiser's **meetings** and **task
+  deadlines**, colleagues' **birthdays** and your **holidays** (Settings ⚙ in the calendar; one click adds the national
+  holidays). **Invite colleagues…** turns an event into a meeting in a chat (they get the invite, RSVP and reminder).
+  Search, and **save as .ics** for Outlook, Google Calendar or a phone.
+- **PDF tools** (wrench button → PDF tools, or **Edit PDF** on any PDF in a chat): **erase** anything — it is removed for
+  good when you save, not just covered — **highlight**, **draw**, add **text**, **stamps** (APPROVED, PAID, RECEIVED, URGENT…
+  with the date) and your drawn **signature**; rotate, delete and reorder pages; add pages from other PDFs or **pictures**;
+  save only the picked pages; then **Send to chat** or **WhatsApp** it.
+- **Calculator & GST** (wrench button): a calculator with history, a **GST** breakdown (CGST/SGST or IGST at 5/12/18/28 %,
+  inclusive or exclusive) and a **unit converter** (length, weight, area incl. guntha/bigha, volume, temperature, pressure,
+  power, speed).
+- **Live wallpapers** (Settings → Appearance → Live wallpaper): six built-in moving wallpapers (Aurora, Ocean, Night sky,
+  Bokeh, Rain, Meadow) drawn by LANX itself, or **your own picture or video** (mp4/webm/mov) looping behind the glass panels,
+  with darken and blur sliders. "Animations off" keeps them still.
+- **Share on WhatsApp**: any message (⋯ → Share on WhatsApp), any file (**WhatsApp** on the file: LANX copies it, you press
+  Ctrl+V in the WhatsApp chat), notes, calendar events and saved PDFs; **WhatsApp a colleague** from their phone number in
+  the info panel; and **Invite on WhatsApp** (compose ✎ menu) sends the download link to new users. WhatsApp Desktop is used
+  when installed, else WhatsApp Web.
+
 ### New in 2.4.0: who's in today & end-of-day reports
 - **Who's in today** — Office button (building icon) → **Who's in**. See at a glance who is in the office, working from home, away
   (on leave / on the road) or offline, from everyone's own status. Click a name to message them.

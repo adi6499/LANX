@@ -2,6 +2,8 @@ mod chat;
 pub mod admin;
 pub mod office;
 pub mod tools;
+pub mod notes;
+pub mod calendar;
 pub mod models;
 pub mod schema;
 #[cfg(test)]

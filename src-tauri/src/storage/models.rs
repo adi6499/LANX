@@ -611,6 +611,87 @@ pub struct Reminder {
     pub set_at: i64,
 }
 
+/// LANX 2.5.0: a personal note (the Notes app). Lives only on this PC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Note {
+    /// Empty when the window creates a new note; the database fills it in.
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    /// "note" or "checklist" (lines starting with "[ ] " / "[x] ").
+    #[serde(default = "default_note_kind")]
+    pub kind: String,
+    #[serde(default = "default_note_color")]
+    pub color: String,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub deleted_at: Option<i64>,
+}
+
+fn default_note_kind() -> String {
+    "note".to_string()
+}
+fn default_note_color() -> String {
+    "yellow".to_string()
+}
+
+/// LANX 2.5.0: an event in the Calendar (personal; meetings with colleagues
+/// are Organiser cards). Times are Unix seconds; all-day events run from
+/// local midnight to local midnight.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarEvent {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub details: String,
+    #[serde(default)]
+    pub location: String,
+    pub start: i64,
+    pub end: i64,
+    #[serde(default)]
+    pub all_day: bool,
+    #[serde(default = "default_event_color")]
+    pub color: String,
+    /// "none" | "daily" | "weekly" | "monthly" | "yearly"
+    #[serde(default = "default_repeat")]
+    pub repeat: String,
+    /// Last day (Unix seconds, any time that day) the repeat still happens.
+    #[serde(default)]
+    pub repeat_until: Option<i64>,
+    /// Minutes before the start (all-day: before 9:00 that day), or none.
+    #[serde(default)]
+    pub reminder_mins: Option<i64>,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+fn default_event_color() -> String {
+    "blue".to_string()
+}
+fn default_repeat() -> String {
+    "none".to_string()
+}
+
+/// One happening of an event (repeats expanded).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Occurrence {
+    pub event: CalendarEvent,
+    pub start: i64,
+    pub end: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferRecord {
     pub id: String,

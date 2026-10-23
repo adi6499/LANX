@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   AlertCircle,
   Zap,
+  MessageCircle,
 } from "lucide-react";
 import { TransferActions, TransferProgress, TransferRecord } from "../types";
 import { fileExtension, formatEta, formatSize, formatSpeed, transferTiming } from "../lib/format";
@@ -201,6 +202,16 @@ export const FileCard: React.FC<FileCardProps> = ({
             {folder ? <FolderOpen className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
             {folder ? "Open folder" : "Open"}
           </button>
+          {actions.editPdf && /\.pdf$/i.test(t.file_name) && (
+            <button type="button" data-file-edit-pdf className={`${btn} ${ghost}`} onClick={() => actions.editPdf!(t.id)} title="Erase, highlight, sign, stamp, rotate…">
+              <FileText className="h-3 w-3" /> Edit PDF
+            </button>
+          )}
+          {actions.whatsapp && !folder && (
+            <button type="button" data-file-whatsapp className={`${btn} ${ghost}`} onClick={() => actions.whatsapp!(t.id)} title="Copies the file; paste it in WhatsApp">
+              <MessageCircle className="h-3 w-3" /> WhatsApp
+            </button>
+          )}
           <button type="button" className={`${btn} ${ghost}`} onClick={() => actions.reveal(t.id)}>
             <FolderOpen className="h-3 w-3" /> Show in folder
           </button>

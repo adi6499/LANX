@@ -41,6 +41,12 @@ import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
 import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
 import { IS_WINDOWS } from "./lib/platform";
 import { SendToModal } from "./components/tools/SendToModal";
+import { NotesPanel } from "./components/notes/NotesPanel";
+import { CalendarPanel, type MeetingPrefill } from "./components/calendar/CalendarPanel";
+import { PdfStudio } from "./components/pdf/PdfStudio";
+import { CalcPanel } from "./components/tools/CalcPanel";
+import { WallpaperLayer } from "./components/WallpaperLayer";
+import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { HelpDeskModal } from "./components/HelpDeskModal";
 import { EndOfDayModal } from "./components/EndOfDayModal";
 import { withoutForwardMark } from "./components/chat/chatUtils";
@@ -174,6 +180,15 @@ export default function App() {
   const [sendRequest, setSendRequest] = useState<string[] | null>(null);
   /** LANX 2.2.0: messages being forwarded (the chat picker is open). */
   const [forwarding, setForwarding] = useState<Message[] | null>(null);
+  // LANX 2.5.0: work tools.
+  const [showNotes, setShowNotes] = useState<false | { initial: { title?: string; body: string } | null }>(false);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [pdfPath, setPdfPath] = useState<null | { path: string | null }>(null);
+  const [showCalc, setShowCalc] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [shareText, setShareText] = useState<string | null>(null);
+  const [shareFile, setShareFile] = useState<string | null>(null);
+  const [meetingPrefill, setMeetingPrefill] = useState<MeetingPrefill | null>(null);
   /** LANX 2.3.0: the IT help dialog is open. */
   const [showHelpDesk, setShowHelpDesk] = useState(false);
   /** LANX 2.4.0: the end-of-day report dialog. */
@@ -1101,6 +1116,13 @@ export default function App() {
       retry: (id) => api.retryTransfer(id).then((t) => setTransfers((prev) => upsertTransfer(prev, t))).catch(showError),
       open: (id) => api.openTransferFile(id).catch(showError),
       reveal: (id) => api.revealTransferFile(id).catch(showError),
+      editPdf: (id) => api.transferFilePath(id).then((p) => setPdfPath({ path: p })).catch(showError),
+      whatsapp: (id) =>
+        api
+          .transferFilePath(id)
+          .then((p) => api.shareWhatsApp({ file: p }))
+          .then((r) => r === "copied" && setNotice("The file is copied — pick the chat in WhatsApp and press Ctrl+V to send it."))
+          .catch(showError),
     }),
     [showError]
   );
@@ -1275,7 +1297,8 @@ export default function App() {
     {callLayer}
     {meetingLayer}
     {alertLayer}
-    <div className="h-screen w-screen flex overflow-hidden lanx-window">
+    <div className="h-screen w-screen flex overflow-hidden lanx-window relative">
+      <WallpaperLayer reduceMotion={!!settings.reduce_motion} />
       <Sidebar
         settings={settings}
         conversations={conversations}
@@ -1304,6 +1327,11 @@ export default function App() {
         onBroadcast={() => setShowBroadcast(true)}
         onRaiseHelp={() => setShowHelpDesk(true)}
         onEndOfDay={() => setShowEndOfDay(true)}
+        onOpenNotes={() => setShowNotes({ initial: null })}
+        onOpenCalendar={() => setShowCalendar(true)}
+        onOpenPdf={() => setPdfPath({ path: null })}
+        onOpenCalc={() => setShowCalc(true)}
+        onInviteWhatsApp={() => setShowInvite(true)}
         onOpenStarred={() => setShowStarred(true)}
         onOpenOrganiser={() => setShowOrganiser(true)}
         organiserCount={organiserCount}
@@ -1397,6 +1425,8 @@ export default function App() {
             onIntercomSent={addSentFiles}
             onRemoteHelp={(help) => activeConversation && callRef.current?.start(activeConversation, false, help)}
             onForward={(msgs) => setForwarding(msgs)}
+            onSaveNote={(m) => setShowNotes({ initial: { title: "", body: withoutForwardMark(m.content) } })}
+            onShareWhatsApp={(m) => api.shareWhatsApp({ text: withoutForwardMark(m.content) }).catch(showError)}
           />
         )}
 
@@ -1726,6 +1756,114 @@ export default function App() {
         />
       )}
 
+      {showNotes !== false && (
+        <NotesPanel
+          initialNote={showNotes.initial}
+          onClose={() => setShowNotes(false)}
+          onError={(t) => setNotice(t)}
+          onSendText={(text) => setShareText(text)}
+        />
+      )}
+      {showCalendar && (
+        <CalendarPanel
+          myName={settings.display_name}
+          myBirthday={settings.profile?.birthday}
+          profiles={profiles}
+          peerNames={Object.fromEntries(peers.map((p) => [p.id, p.display_name]))}
+          onClose={() => setShowCalendar(false)}
+          onError={(t) => setNotice(t)}
+          onOpenCard={(conversationId, messageId) => {
+            setActiveConversationId(conversationId);
+            setActiveTab("messages");
+            setJumpTo(messageId);
+          }}
+          onSendText={(text) => setShareText(text)}
+          onInvite={(prefill) => setMeetingPrefill(prefill)}
+        />
+      )}
+      {pdfPath && (
+        <PdfStudio
+          initialPath={pdfPath.path}
+          onClose={() => setPdfPath(null)}
+          onError={(t) => setNotice(t)}
+          onSendFile={(path) => setShareFile(path)}
+        />
+      )}
+      {showCalc && <CalcPanel onClose={() => setShowCalc(false)} onError={(t) => setNotice(t)} />}
+      {showInvite && <WhatsAppInviteModal onClose={() => setShowInvite(false)} onError={(t) => setNotice(t)} />}
+      {(shareText !== null || shareFile !== null) && (
+        <SendToModal
+          paths={shareFile ? [shareFile] : []}
+          title="Send to…"
+          items={shareText !== null ? [shareText.slice(0, 120)] : undefined}
+          conversations={conversations}
+          peers={peers}
+          onClose={() => {
+            setShareText(null);
+            setShareFile(null);
+          }}
+          onSend={async (conversationIds, peerIds) => {
+            const ids = [...conversationIds];
+            for (const p of peerIds) {
+              try {
+                const c = await api.getOrCreateConversation(p);
+                setConversations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]));
+                ids.push(c.id);
+              } catch (e) {
+                showError(e);
+              }
+            }
+            for (const id of ids) {
+              try {
+                if (shareFile) await api.sendFiles(id, [shareFile]);
+                else if (shareText !== null) await api.sendMessage(id, shareText);
+              } catch (e) {
+                showError(e);
+              }
+            }
+            setShareText(null);
+            setShareFile(null);
+            if (ids.length) setNotice(`Sent to ${ids.length} chat${ids.length === 1 ? "" : "s"}.`);
+          }}
+        />
+      )}
+      {meetingPrefill && (
+        <SendToModal
+          paths={[]}
+          title="Which chat holds the meeting?"
+          items={[`📅 ${meetingPrefill.title}`]}
+          conversations={conversations}
+          peers={peers}
+          onClose={() => setMeetingPrefill(null)}
+          onSend={async (conversationIds, peerIds) => {
+            try {
+              let c = conversationIds.length ? conversations.find((x) => x.id === conversationIds[0]) ?? null : null;
+              if (!c && peerIds.length) {
+                c = await api.getOrCreateConversation(peerIds[0]);
+                const conv = c;
+                setConversations((prev) => (prev.some((x) => x.id === conv.id) ? prev : [conv, ...prev]));
+              }
+              if (!c) return;
+              const attendees = (c.kind === "direct" ? [settings.device_id, c.peer_id] : [settings.device_id]);
+              await api.sendCard(c.id, {
+                kind: "event",
+                title: meetingPrefill.title,
+                start: meetingPrefill.start,
+                minutes: meetingPrefill.minutes,
+                attendees,
+                place: meetingPrefill.place,
+                video: true,
+                agenda: meetingPrefill.agenda,
+              });
+              setNotice(`Meeting invite sent in ${c.peer_name}.`);
+            } catch (e) {
+              showError(e);
+            } finally {
+              setMeetingPrefill(null);
+            }
+          }}
+        />
+      )}
       {forwarding && forwarding.length > 0 && (
         <SendToModal
           paths={[]}

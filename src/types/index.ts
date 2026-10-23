@@ -419,6 +419,9 @@ export interface TransferActions {
   retry: (id: string) => void;
   open: (id: string) => void;
   reveal: (id: string) => void;
+  /** LANX 2.5.0: open a PDF in the PDF tools; share a file on WhatsApp. */
+  editPdf?: (id: string) => void;
+  whatsapp?: (id: string) => void;
 }
 
 export const SECRET_TIMERS: { secs: number; label: string }[] = [
@@ -708,4 +711,43 @@ export interface MeetingEvent {
   sdp: string | null;
   text: string | null;
   reason: string | null;
+}
+
+// ---------------------------------------------------------------- 2.5.0: work tools
+/** A personal note (Notes app). */
+export interface Note {
+  id: string;
+  title: string;
+  body: string;
+  /** "note" | "checklist" (lines "[ ] …" / "[x] …") */
+  kind: "note" | "checklist";
+  color: string;
+  pinned: boolean;
+  created_at: number;
+  updated_at: number;
+  deleted_at: number | null;
+}
+
+/** A personal calendar event. Times are Unix seconds. */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  details: string;
+  location: string;
+  start: number;
+  end: number;
+  all_day: boolean;
+  color: string;
+  repeat: "none" | "daily" | "weekly" | "monthly" | "yearly";
+  repeat_until: number | null;
+  reminder_mins: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/** One happening of an event (repeats expanded by LANX). */
+export interface Occurrence {
+  event: CalendarEvent;
+  start: number;
+  end: number;
 }

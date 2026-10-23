@@ -125,6 +125,10 @@
   .lanx-window {
     background: var(--lanx-wall);
   }
+  /* LANX 2.5.0: with a live wallpaper the window itself is see-through. */
+  .lanx-has-wallpaper .lanx-window {
+    background: transparent;
+  }
 
   /* Glass: see-through panels that blur and pick up the colour behind them */
   .lanx-glass,

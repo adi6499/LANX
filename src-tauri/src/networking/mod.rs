@@ -1,5 +1,6 @@
 pub mod calls;
 pub mod chat;
+mod calendar;
 pub mod everyday;
 pub mod lanes;
 pub mod extras;

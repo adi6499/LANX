@@ -44,6 +44,9 @@ import {
   AdminState,
   AppLink,
   OfficePolicy,
+  Note,
+  CalendarEvent,
+  Occurrence,
 } from "../types";
 
 export interface MessageStatusUpdatedPayload {
@@ -416,6 +419,10 @@ let mockBackups: BackupOverview = {
 
 const previewOnly = () =>
   Promise.reject("This needs the LANX desktop app — the browser preview cannot open network connections.");
+
+let mockNotes: Note[] = [];
+let mockEvents: CalendarEvent[] = [];
+const mockPrefs: Record<string, string> = {};
 
 export const api = {
   /** LANX 1.3.0: say hello to every computer on the local network; returns
@@ -1512,6 +1519,114 @@ export const api = {
       });
     return previewOnly();
   },
+  // -------------------------------------------------- 2.5.0: work tools
+  /** Notes app. */
+  listNotes: async (deleted = false): Promise<Note[]> => {
+    if (isTauri) return invoke("list_notes", { deleted });
+    return mockNotes.filter((n) => (deleted ? n.deleted_at !== null : n.deleted_at === null));
+  },
+  saveNote: async (note: Note): Promise<Note> => {
+    if (isTauri) return invoke("save_note", { note });
+    const t = Math.floor(Date.now() / 1000);
+    const saved = { ...note, id: note.id || `note-${t}-${Math.random().toString(36).slice(2, 8)}`, created_at: note.created_at || t, updated_at: t, deleted_at: null };
+    mockNotes = [saved, ...mockNotes.filter((n) => n.id !== saved.id)];
+    return saved;
+  },
+  deleteNote: async (id: string, forGood = false): Promise<boolean> => {
+    if (isTauri) return invoke("delete_note", { id, forGood });
+    mockNotes = forGood ? mockNotes.filter((n) => n.id !== id) : mockNotes.map((n) => (n.id === id ? { ...n, deleted_at: Math.floor(Date.now() / 1000) } : n));
+    return true;
+  },
+  restoreNote: async (id: string): Promise<boolean> => {
+    if (isTauri) return invoke("restore_note", { id });
+    mockNotes = mockNotes.map((n) => (n.id === id ? { ...n, deleted_at: null } : n));
+    return true;
+  },
+
+  /** Calendar. */
+  listEvents: async (from: number, to: number): Promise<Occurrence[]> => {
+    if (isTauri) return invoke("list_events", { from, to });
+    return mockEvents.filter((e) => e.end > from && e.start < to).map((e) => ({ event: e, start: e.start, end: e.end }));
+  },
+  listAllEvents: async (): Promise<CalendarEvent[]> => {
+    if (isTauri) return invoke("list_all_events");
+    return mockEvents;
+  },
+  saveEvent: async (event: CalendarEvent): Promise<CalendarEvent> => {
+    if (isTauri) return invoke("save_event", { event });
+    const t = Math.floor(Date.now() / 1000);
+    const saved = { ...event, id: event.id || `ev-${t}-${Math.random().toString(36).slice(2, 8)}`, created_at: event.created_at || t, updated_at: t };
+    mockEvents = [...mockEvents.filter((e) => e.id !== saved.id), saved];
+    return saved;
+  },
+  deleteEvent: async (id: string): Promise<boolean> => {
+    if (isTauri) return invoke("delete_event", { id });
+    mockEvents = mockEvents.filter((e) => e.id !== id);
+    return true;
+  },
+  exportEventsIcs: async (): Promise<string> => {
+    if (isTauri) return invoke("export_events_ics");
+    return "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
+  },
+
+  /** Small remembered preferences of the 2.5.0 tools (JSON texts). */
+  getPref: async (key: string): Promise<string | null> => {
+    if (isTauri) return invoke("get_pref", { key });
+    return mockPrefs[key] ?? null;
+  },
+  setPref: async (key: string, value: string): Promise<void> => {
+    if (isTauri) return invoke("set_pref", { key, value });
+    mockPrefs[key] = value;
+  },
+
+  /** Files for the PDF tools. */
+  pickDocuments: async (kind: "pdf" | "images" | "any" = "pdf"): Promise<string[]> => {
+    if (isTauri) return invoke("pick_documents", { kind });
+    return [];
+  },
+  transferFilePath: async (transferId: string): Promise<string> => {
+    if (isTauri) return invoke("transfer_file_path", { transferId });
+    return previewOnly();
+  },
+  readFileBytes: async (path: string): Promise<Uint8Array> => {
+    if (isTauri) return new Uint8Array(await invoke<ArrayBuffer>("read_file_bytes", { path }));
+    return previewOnly();
+  },
+  /** Saves bytes to a file the user picks (test copies: the download folder). Null = cancelled. */
+  saveFileBytes: async (fileName: string, bytes: Uint8Array, kind: "pdf" | "txt" | "ics" = "pdf"): Promise<string | null> => {
+    if (isTauri) return invoke("save_file_bytes", bytes, { headers: { "x-file-name": encodeURIComponent(fileName), "x-kind": kind } });
+    const url = URL.createObjectURL(new Blob([bytes.slice(0)]));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return fileName;
+  },
+  saveTextFile: async (fileName: string, text: string, kind: "txt" | "ics" = "txt"): Promise<string | null> => {
+    return api.saveFileBytes(fileName, new TextEncoder().encode(text), kind);
+  },
+  openDocument: async (path: string): Promise<void> => {
+    if (isTauri) return invoke("open_document", { path });
+  },
+
+  /** Share on WhatsApp: text (and number) straight in; a file goes to the
+   *  clipboard and WhatsApp opens. Returns "copied" or "opened". */
+  shareWhatsApp: async (req: { text?: string; phone?: string; file?: string }): Promise<"copied" | "opened"> => {
+    if (isTauri) return invoke("share_whatsapp", { req });
+    window.open(`https://wa.me/?text=${encodeURIComponent(req.text ?? "")}`, "_blank");
+    return "opened";
+  },
+
+  /** Live wallpaper from a file: LANX keeps a copy in its data folder. */
+  pickWallpaper: async (): Promise<{ path: string; name: string; kind: "image" | "video"; bytes: number } | null> => {
+    if (isTauri) return invoke("pick_wallpaper");
+    return null;
+  },
+  clearWallpaperFile: async (): Promise<void> => {
+    if (isTauri) return invoke("clear_wallpaper_file");
+  },
+
 };
 
 const mockAdmin: { my_policy: OfficePolicy | null; policy: OfficePolicy | null; offer: OfficePolicy | null; peers: AdminState["peers"] } = {

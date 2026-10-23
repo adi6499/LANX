@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const LATEST_SCHEMA_VERSION: i64 = 12;
+pub const LATEST_SCHEMA_VERSION: i64 = 13;
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(
@@ -485,6 +485,54 @@ pub fn run_migrations(conn: &mut Connection) -> Result<()> {
         tx.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
             (12, now),
+        )?;
+        tx.commit()?;
+    }
+
+    if current_version < 13 {
+        // v13 (LANX 2.5.0): the Notes app and the Calendar.
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS notes (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL DEFAULT '',
+                kind TEXT NOT NULL DEFAULT 'note',
+                color TEXT NOT NULL DEFAULT 'yellow',
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                deleted_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at);
+            CREATE TABLE IF NOT EXISTS events (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                details TEXT NOT NULL DEFAULT '',
+                location TEXT NOT NULL DEFAULT '',
+                start INTEGER NOT NULL,
+                end INTEGER NOT NULL,
+                all_day INTEGER NOT NULL DEFAULT 0,
+                color TEXT NOT NULL DEFAULT 'blue',
+                repeat TEXT NOT NULL DEFAULT 'none',
+                repeat_until INTEGER,
+                reminder_mins INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                deleted_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS idx_events_start ON events(start);
+            CREATE TABLE IF NOT EXISTS event_alerts (
+                event_id TEXT NOT NULL,
+                occurrence INTEGER NOT NULL,
+                PRIMARY KEY (event_id, occurrence)
+            );
+            ",
+        )?;
+        tx.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            (13, now),
         )?;
         tx.commit()?;
     }

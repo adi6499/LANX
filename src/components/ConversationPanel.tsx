@@ -137,6 +137,9 @@ interface ConversationPanelProps {
   onRemoteHelp?: (help: "view" | "show") => void;
   /** LANX 2.2.0: forward these messages (opens the chat picker). */
   onForward?: (messages: Message[]) => void;
+  /** LANX 2.5.0 */
+  onSaveNote?: (m: Message) => void;
+  onShareWhatsApp?: (m: Message) => void;
 }
 
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
@@ -229,6 +232,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onIntercomSent,
   onRemoteHelp,
   onForward,
+  onSaveNote,
+  onShareWhatsApp,
   onJumped,
   onCardPosted,
 }) => {
@@ -474,6 +479,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     deleteEveryone: (m) => void run(() => api.deleteMessageEveryone(m.id)),
     makeTask: (m) => setCreateCard({ kind: "task", title: m.content.slice(0, 200), fromMessage: m.id }),
     forward: onForward ? (m) => onForward([m]) : undefined,
+    saveNote: onSaveNote,
+    whatsapp: onShareWhatsApp,
     followUp: (m, at) => void run(() => api.setReminder(m.id, at, true)),
   };
   // LANX 1.6.0: names on cards, and who can be picked when making one.

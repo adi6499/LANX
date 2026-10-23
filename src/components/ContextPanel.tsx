@@ -19,6 +19,7 @@ import {
   Timer,
   Gauge,
   Stethoscope,
+  MessageCircle,
 } from "lucide-react";
 import { FileIcon } from "./FileCard";
 import { PeerPicker, groupPickReason } from "./NewGroupModal";
@@ -420,6 +421,17 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
                   <dt className="text-slate-400">{k}</dt>
                   <dd className="flex items-center gap-1 min-w-0 text-slate-700 dark:text-slate-200 font-medium">
                     <span className="truncate select-text">{v}</span>
+                    {k === "Phone" && /^\+?[\d\s().-]{10,}$/.test(String(v)) && String(v).replace(/\D/g, "").length >= 10 && (
+                      <button
+                        type="button"
+                        data-whatsapp-peer
+                        title="Message on WhatsApp"
+                        onClick={() => api.shareWhatsApp({ phone: String(v) }).catch(() => {})}
+                        className="shrink-0 text-emerald-600 hover:text-emerald-700"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {(k === "Phone" || k === "Email") && (
                       <button
                         type="button"

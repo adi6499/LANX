@@ -570,6 +570,8 @@ impl NetworkService {
             };
             self.events.notify_island(&self.db, AlertKind::Ring, &title, &text, alert);
         }
+        // LANX 2.5.0: calendar reminders.
+        self.calendar_alerts(now);
         for s in self.db.due_scheduled(now).unwrap_or_default() {
             let _ = self.db.delete_scheduled(&s.id);
             match self

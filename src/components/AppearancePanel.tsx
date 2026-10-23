@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Check, Laptop, Moon, Sparkles, Sun } from "lucide-react";
 import { UserSettings } from "../types";
+import { WallpaperSection } from "./WallpaperSection";
 import {
   ACCENT_PRESETS,
   BACKGROUND_PRESETS,
@@ -309,6 +310,10 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             ? "Solid panels: no see-through effect. Easiest to read and lightest on older computers."
             : "Slide Transparency to the left for solid panels, or press Solid, if LANX ever feels slow on an older computer."}
         </p>
+      </Section>
+
+      <Section title="Live wallpaper" hint="Behind everything, through the glass">
+        <WallpaperSection onError={() => {}} />
       </Section>
 
       <Section title="Motion">

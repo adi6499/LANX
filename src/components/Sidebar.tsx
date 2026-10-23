@@ -30,6 +30,12 @@ import {
   BellRing,
   LifeBuoy,
   X as XIcon,
+  StickyNote,
+  CalendarDays,
+  Wrench,
+  FileText,
+  Calculator,
+  MessageCircle,
 } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
@@ -66,6 +72,12 @@ interface SidebarProps {
   onRaiseHelp?: () => void;
   /** LANX 2.4.0: send an end-of-day report. */
   onEndOfDay?: () => void;
+  /** LANX 2.5.0: notes, calendar, PDF tools, calculator, WhatsApp invite. */
+  onOpenNotes?: () => void;
+  onOpenCalendar?: () => void;
+  onOpenPdf?: () => void;
+  onOpenCalc?: () => void;
+  onInviteWhatsApp?: () => void;
   /** LANX 1.5.0: starred messages from all chats. */
   onOpenStarred?: () => void;
   /** LANX 1.6.0: the Organiser, and how many cards wait for you. */
@@ -116,6 +128,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onBroadcast,
   onRaiseHelp,
   onEndOfDay,
+  onOpenNotes,
+  onOpenCalendar,
+  onOpenPdf,
+  onOpenCalc,
+  onInviteWhatsApp,
   onOpenStarred,
   onOpenOrganiser,
   organiserCount = 0,
@@ -145,6 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [statusMenu, setStatusMenu] = useState(false);
   const [view, setView] = useState<ListView>("all");
   const [composeMenu, setComposeMenu] = useState(false);
+  const [toolsMenu, setToolsMenu] = useState(false);
   const [menu, setMenu] = useState<{ conv: Conversation; x: number; y: number } | null>(null);
   const folders = settings.chat_folders ?? [];
   const activeView = view === "all" || view === "unread" || view === "archived" || folders.some((f) => f.id === view) ? view : "all";
@@ -333,6 +351,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         [Megaphone, "Message everyone", "text-amber-600", onBroadcast, "broadcast"],
                         ...(onRaiseHelp ? ([[LifeBuoy, "Get IT help", "text-rose-600", onRaiseHelp, "help"]] as [React.ElementType, string, string, () => void, string][]) : []),
                         ...(onEndOfDay ? ([[ClipboardList, "End-of-day report", "text-slate-600", onEndOfDay, "endofday"]] as [React.ElementType, string, string, () => void, string][]) : []),
+                        ...(onInviteWhatsApp ? ([[MessageCircle, "Invite on WhatsApp", "text-emerald-600", onInviteWhatsApp, "whatsapp-invite"]] as [React.ElementType, string, string, () => void, string][]) : []),
                       ] as [React.ElementType, string, string, () => void, string][]
                     ).map(([I, label, tone, run, id]) => (
                       <button
@@ -397,6 +416,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 )}
               </button>
+            )}
+            {onOpenCalendar && (
+              <button type="button" data-open-calendar onClick={onOpenCalendar} title="Calendar: your events, meetings, deadlines, birthdays, holidays" className="lanx-tool flex h-8 w-8 items-center justify-center text-sky-600 dark:text-sky-400">
+                <CalendarDays className="h-[17px] w-[17px]" />
+              </button>
+            )}
+            {onOpenNotes && (
+              <button type="button" data-open-notes onClick={onOpenNotes} title="Notes" className="lanx-tool flex h-8 w-8 items-center justify-center text-amber-500">
+                <StickyNote className="h-[17px] w-[17px]" />
+              </button>
+            )}
+            {(onOpenPdf || onOpenCalc) && (
+              <div className="relative">
+                <button type="button" data-open-tools onClick={() => setToolsMenu((v) => !v)} title="Tools: PDF tools, calculator" className={`lanx-tool flex h-8 w-8 items-center justify-center text-slate-600 dark:text-slate-300 ${toolsMenu ? "!bg-[var(--lanx-fill)]" : ""}`}>
+                  <Wrench className="h-[17px] w-[17px]" />
+                </button>
+                {toolsMenu && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setToolsMenu(false)} />
+                    <div data-tools-menu className="absolute left-0 top-9 z-40 w-48 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
+                      {onOpenPdf && (
+                        <button type="button" data-tools-item="pdf" onClick={() => { setToolsMenu(false); onOpenPdf(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
+                          <FileText className="h-4 w-4 text-rose-600" /> PDF tools
+                        </button>
+                      )}
+                      {onOpenCalc && (
+                        <button type="button" data-tools-item="calc" onClick={() => { setToolsMenu(false); onOpenCalc(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
+                          <Calculator className="h-4 w-4 text-slate-600" /> Calculator &amp; GST
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
             {onOpenStarred && (
               <button
