@@ -389,8 +389,8 @@ pub fn run() {
             if profile.is_none() {
                 let s = db.get_settings().ok();
                 // LANX 2.5.0: the dictation hotkey follows its preference (on unless turned off).
-                let dict_on = db.get_setting("pref_dictation").map(|v| !v.contains("\"hotkey\":false")).unwrap_or(true);
-                shell::set_dictation_hotkey(dict_on);
+                let (dict_on, mods, vk) = commands::voice::dictation_startup(db.get_setting("pref_dictation").as_deref());
+                shell::set_dictation_hotkey(dict_on, mods, vk);
                 shell::start_hotkey(app.handle().clone(), s.as_ref().map(|s| s.screenshot_hotkey).unwrap_or(true));
                 shell::apply_send_to(s.as_ref().map(|s| s.send_to_menu).unwrap_or(true));
             }
@@ -628,6 +628,7 @@ pub fn run() {
             commands::voice::voice_model_finish,
             commands::voice::voice_model_delete,
             commands::voice::transcribe,
+            commands::voice::transcribe_cancel,
             commands::voice::type_text,
             commands::voice::set_dictation_hotkey,
             commands::voice::save_note_audio,

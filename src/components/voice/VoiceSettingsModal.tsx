@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Download, Loader2, Mic, Trash2, X } from "lucide-react";
 import { api, errorText } from "../../lib/api";
-import { DEFAULT_DICTATION, DICTATE_SHORTCUT, type DictationPrefs, LANGS, downloadModel, loadDictationPrefs, saveDictationPrefs } from "../../lib/voice";
+import { DEFAULT_DICTATION, DEFAULT_KEYS, type DictationPrefs, type HotkeyCombo, LANGS, comboFromEvent, downloadModel, hotkeyLabel, loadDictationPrefs, saveDictationPrefs } from "../../lib/voice";
 import { IS_WINDOWS } from "../../lib/platform";
 
 /** LANX 2.5.0: Voice settings — the speech model (downloaded once), language,
@@ -11,6 +11,10 @@ export function VoiceSettingsModal({ onClose, onError }: { onClose: () => void; 
   const [models, setModels] = useState<Awaited<ReturnType<typeof api.voiceModels>>>([]);
   const [busy, setBusy] = useState<{ id: string; done: number; total: number } | null>(null);
   const abort = useRef<AbortController | null>(null);
+  /** LANX 2.5.1: "Change" pressed — the next key press becomes the shortcut. */
+  const [capturing, setCapturing] = useState(false);
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
 
   const refresh = () => api.voiceModels().then(setModels).catch((e) => onError(errorText(e)));
   useEffect(() => {
@@ -28,6 +32,44 @@ export function VoiceSettingsModal({ onClose, onError }: { onClose: () => void; 
       onError(errorText(e));
     }
   };
+
+  /** Try the keys with Windows first; keep them only if it accepts them. */
+  const applyKeys = async (keys: HotkeyCombo) => {
+    const before = prefsRef.current;
+    const next = { ...before, keys, hotkey: true };
+    setPrefs(next);
+    try {
+      const ok = await api.setDictationHotkey(true, keys);
+      if (!ok) {
+        setPrefs(before);
+        await api.setDictationHotkey(before.hotkey, before.keys).catch(() => {});
+        onError(`${hotkeyLabel(keys)} is already used by another program. Choose different keys.`);
+        return;
+      }
+      await api.setPref("dictation", JSON.stringify(next));
+      window.dispatchEvent(new CustomEvent("lanx:dictation-prefs", { detail: next }));
+    } catch (e) {
+      onError(errorText(e));
+    }
+  };
+  useEffect(() => {
+    if (!capturing) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        setCapturing(false);
+        return;
+      }
+      const k = comboFromEvent(e);
+      if (!k) return; // a modifier alone, or a key the shortcut cannot use
+      setCapturing(false);
+      void applyKeys(k);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capturing]);
 
   const get = async (id: string, url: string) => {
     abort.current = new AbortController();
@@ -74,7 +116,7 @@ export function VoiceSettingsModal({ onClose, onError }: { onClose: () => void; 
                 {prefs.model === m.id && <Check className="h-3 w-3" strokeWidth={3} />}
               </button>
               <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold text-slate-900 dark:text-white">{m.name} <span className="text-[11px] font-medium text-slate-400">· {m.id}</span></div>
+                <div className="text-[13px] font-semibold text-slate-900 dark:text-white">{m.name} <span className="text-[11px] font-medium text-slate-400">· {m.id}</span>{m.id === "tiny" && <span className="ml-1.5 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600">best for dictation</span>}</div>
                 <div className="text-[11.5px] text-slate-500">{m.about}</div>
                 {busy?.id === m.id && (
                   <div className="mt-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
@@ -102,14 +144,25 @@ export function VoiceSettingsModal({ onClose, onError }: { onClose: () => void; 
             <select value={prefs.lang} onChange={(e) => set({ lang: e.target.value })} className="lanx-field mt-1 w-full rounded-[10px] px-2 py-1.5 text-[12.5px] font-normal text-slate-900 dark:text-white">
               {LANGS.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
+            <span className="block mt-1 text-[10.5px] font-normal text-slate-400">Choosing the language is about twice as fast as Detect automatically.</span>
           </label>
           <div className="space-y-2 pt-4">
-            <label className="flex items-center gap-2 text-[12.5px] text-slate-700 dark:text-slate-200"><input type="checkbox" checked={prefs.hotkey} onChange={(e) => set({ hotkey: e.target.checked })} /> Shortcut {DICTATE_SHORTCUT} {IS_WINDOWS ? "anywhere in Windows" : "inside LANX"}</label>
+            <label className="flex items-center gap-2 text-[12.5px] text-slate-700 dark:text-slate-200"><input type="checkbox" checked={prefs.hotkey} onChange={(e) => set({ hotkey: e.target.checked })} /> Shortcut {IS_WINDOWS ? "anywhere in Windows" : "inside LANX"}</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <span data-dictation-shortcut className={`rounded-lg px-2.5 py-1 text-[12.5px] font-semibold ${capturing ? "bg-sky-500/15 text-sky-600 dark:text-sky-400" : "lanx-group text-slate-800 dark:text-slate-100"}`}>
+                {capturing ? "Press the keys you want…" : hotkeyLabel(prefs.keys)}
+              </span>
+              <button type="button" data-shortcut-change onClick={() => setCapturing((c) => !c)} className="px-2.5 py-1 rounded-full bg-sky-500 hover:bg-sky-600 text-white text-[11.5px] font-semibold">{capturing ? "Cancel" : "Change"}</button>
+              {hotkeyLabel(prefs.keys) !== hotkeyLabel(DEFAULT_KEYS) && (
+                <button type="button" data-shortcut-reset onClick={() => applyKeys(DEFAULT_KEYS)} className="text-[11.5px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">Reset to {hotkeyLabel(DEFAULT_KEYS)}</button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400">Hold Ctrl, Alt, Shift or Win and press a letter, number or F-key (an F-key may also be on its own).</p>
             {IS_WINDOWS && <label className="flex items-center gap-2 text-[12.5px] text-slate-700 dark:text-slate-200"><input type="checkbox" checked={prefs.typeInto} onChange={(e) => set({ typeInto: e.target.checked })} /> Type the words into the program that was in front</label>}
           </div>
         </div>
         <div className="mt-3 rounded-xl lanx-group p-3 text-[11.5px] text-slate-600 dark:text-slate-300">
-          <b>How to dictate:</b> put the cursor where the text should go (a message, a note, Word, an email…), press <b>{DICTATE_SHORTCUT}</b>, speak, press it again (or Done). The words appear there a moment later. In Notes, <b>Record</b> keeps the sound too and can write it out afterwards.
+          <b>How to dictate:</b> put the cursor where the text should go (a message, a note, Word, an email…), press <b>{hotkeyLabel(prefs.keys)}</b>, speak, press it again (or Done). The words appear there a moment later. In Notes, <b>Record</b> keeps the sound too and can write it out afterwards.
         </div>
         <div className="mt-3 flex justify-end">
           <button type="button" onClick={onClose} className="px-4 py-1.5 rounded-full bg-slate-700 hover:bg-slate-800 text-white text-[12.5px] font-semibold">Done</button>

@@ -803,6 +803,8 @@ pub struct SystemInfo {
     pub fingerprint: String,
     pub tcp_listening: bool,
     pub udp_listening: bool,
+    /// LANX 2.5.2: the TCP port actually in use (0 while none is).
+    pub tcp_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

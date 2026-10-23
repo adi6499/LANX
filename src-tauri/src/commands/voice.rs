@@ -55,10 +55,84 @@ pub fn type_text(app: AppHandle, text: String) -> Result<bool, String> {
     crate::shell::type_into_target(&app, &text)
 }
 
-/// Turns the dictation hotkey on or off.
+/// LANX 2.5.2: "Cancel" while the words are being written down.
 #[tauri::command]
-pub fn set_dictation_hotkey(enabled: bool) {
-    crate::shell::set_dictation_hotkey(enabled);
+pub fn transcribe_cancel() {
+    crate::voice::cancel_transcription();
+}
+
+/// Turns the dictation shortcut on or off and picks its keys. Returns false
+/// when Windows refused the keys (another program has them).
+#[tauri::command]
+pub async fn set_dictation_hotkey(enabled: bool, keys: Option<HotkeyCombo>) -> bool {
+    let (mods, vk) = match &keys {
+        Some(k) => (k.mods(), crate::shell::vk_for_code(&k.key).unwrap_or(0)),
+        None => (crate::shell::DEFAULT_DICTATE_MODS, crate::shell::DEFAULT_DICTATE_VK),
+    };
+    if enabled && vk == 0 {
+        return false;
+    }
+    crate::shell::set_dictation_hotkey(enabled, mods, vk);
+    if !enabled || !crate::shell::hotkey_thread_running() {
+        return true;
+    }
+    // The listener thread registers the keys; give it a moment, then report.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    crate::shell::dictation_hotkey_working()
+}
+
+/// LANX 2.5.1: the dictation shortcut as the window stores it
+/// (`KeyboardEvent.code`-style key name plus modifiers).
+#[derive(serde::Deserialize, Clone, Default)]
+pub struct HotkeyCombo {
+    #[serde(default)]
+    pub ctrl: bool,
+    #[serde(default)]
+    pub alt: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub win: bool,
+    #[serde(default)]
+    pub key: String,
+}
+
+impl HotkeyCombo {
+    /// Windows modifier flags: Alt 1, Ctrl 2, Shift 4, Win 8.
+    pub fn mods(&self) -> u32 {
+        (self.alt as u32) | ((self.ctrl as u32) << 1) | ((self.shift as u32) << 2) | ((self.win as u32) << 3)
+    }
+}
+
+/// What the saved dictation preference says at start-up: on/off and the keys
+/// (the default keys when none were chosen or the saved ones make no sense).
+pub fn dictation_startup(pref: Option<&str>) -> (bool, u32, u32) {
+    let v: serde_json::Value = pref.and_then(|p| serde_json::from_str(p).ok()).unwrap_or(serde_json::Value::Null);
+    let on = v.get("hotkey").and_then(|b| b.as_bool()).unwrap_or(true);
+    let keys: Option<HotkeyCombo> = v.get("keys").cloned().and_then(|k| serde_json::from_value(k).ok());
+    match keys.and_then(|k| crate::shell::vk_for_code(&k.key).map(|vk| (k.mods(), vk))) {
+        Some((mods, vk)) => (on, mods, vk),
+        None => (on, crate::shell::DEFAULT_DICTATE_MODS, crate::shell::DEFAULT_DICTATE_VK),
+    }
+}
+
+#[cfg(test)]
+mod hotkey_tests {
+    use super::*;
+
+    #[test]
+    fn keys_from_the_saved_preference() {
+        assert_eq!(dictation_startup(None), (true, 3, b'D' as u32));
+        assert_eq!(dictation_startup(Some(r#"{"hotkey":false}"#)), (false, 3, b'D' as u32));
+        let saved = r#"{"hotkey":true,"keys":{"ctrl":true,"alt":false,"shift":true,"win":false,"key":"F9"}}"#;
+        assert_eq!(dictation_startup(Some(saved)), (true, 2 | 4, 0x78));
+        let odd = r#"{"keys":{"ctrl":true,"key":"Nonsense"}}"#;
+        assert_eq!(dictation_startup(Some(odd)), (true, 3, b'D' as u32), "unknown keys fall back to the default");
+        assert_eq!(crate::shell::vk_for_code("Space"), Some(0x20));
+        assert_eq!(crate::shell::vk_for_code("Digit7"), Some(b'7' as u32));
+        assert_eq!(crate::shell::vk_for_code("Numpad3"), Some(0x63));
+        assert_eq!(crate::shell::vk_for_code("KeyÄ"), None);
+    }
 }
 
 pub fn notes_audio_dir() -> PathBuf {

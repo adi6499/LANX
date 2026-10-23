@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Settings2, Square, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { api, errorText } from "../../lib/api";
-import { DEFAULT_DICTATION, DICTATE_SHORTCUT, type DictationPrefs, type PcmRecorder, fmtSecs, insertAtCursor, loadDictationPrefs, startPcmRecorder } from "../../lib/voice";
+import { DEFAULT_DICTATION, type DictationPrefs, type PcmRecorder, fmtSecs, hotkeyLabel, insertAtCursor, loadDictationPrefs, matchesCombo, saveDictationPrefs, startPcmRecorder } from "../../lib/voice";
 
-/** LANX 2.5.0: dictation, like Wispr Flow. Press Ctrl + Alt + Space (anywhere
+/** LANX 2.5.0: dictation, like Wispr Flow. Press the voice shortcut (anywhere
  *  in Windows, or inside LANX), speak, press it again: the words are typed
  *  where you were — the LANX message box or note, or the program that was in
  *  front. */
@@ -16,6 +16,9 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
   const [level, setLevel] = useState(0);
   const [secs, setSecs] = useState(0);
   const [lastText, setLastText] = useState<string | null>(null);
+  /** LANX 2.5.2: seconds spent writing the words down, and whether "Cancel" was pressed. */
+  const [workSecs, setWorkSecs] = useState(0);
+  const cancelled = useRef(false);
   const rec = useRef<PcmRecorder | null>(null);
   const fromOutside = useRef(false);
   const prefs = useRef<DictationPrefs>(DEFAULT_DICTATION);
@@ -46,6 +49,7 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
     if (!r || phaseRef.current !== "listening") return;
     rec.current = null;
     setPhase("working");
+    cancelled.current = false;
     try {
       const pcm = await r.stop();
       if (pcm.length < 16_000 / 2) {
@@ -53,6 +57,7 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
         return;
       }
       const t = await api.transcribe(pcm, prefs.current.model, prefs.current.lang);
+      if (cancelled.current) return;
       const text = t.text.trim();
       if (!text) {
         onError("I didn't catch any words. Try speaking a little closer to the microphone.");
@@ -70,11 +75,33 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
         onError("Typed text copied — press Ctrl+V where you want it.");
       }
     } catch (e) {
-      onError(errorText(e));
+      if (!cancelled.current && !/Cancelled/.test(errorText(e))) onError(errorText(e));
     } finally {
       setPhase("idle");
     }
   }, [onError]);
+
+  const cancelWork = useCallback(() => {
+    cancelled.current = true;
+    api.transcribeCancel().catch(() => {});
+    setPhase("idle");
+  }, []);
+
+  /** LANX 2.5.2: switch dictation to the Fast model (download it first if needed). */
+  const useFast = useCallback(async () => {
+    const models = await api.voiceModels().catch(() => []);
+    const next: DictationPrefs = { ...prefs.current, model: "tiny" };
+    if (models.find((m) => m.id === "tiny")?.downloaded) {
+      prefs.current = next;
+      await saveDictationPrefs(next).catch(() => {});
+      onError("Dictation now uses the Fast model. Press the shortcut and speak again.");
+      cancelWork();
+    } else {
+      cancelWork();
+      onError("Download the Fast model in Voice settings (75 MB, one time) — then dictation takes a few seconds.");
+      onOpenSettings();
+    }
+  }, [onError, onOpenSettings, cancelWork]);
 
   const toggle = useCallback((outside: boolean) => (phaseRef.current === "listening" ? void stop() : void start(outside)), [start, stop]);
 
@@ -82,8 +109,13 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
   useEffect(() => {
     let un: (() => void) | null = null;
     listen<boolean>("lanx://dictate", (e) => toggle(!!e.payload)).then((f) => (un = f)).catch(() => {});
+    loadDictationPrefs().then((p) => (prefs.current = p)).catch(() => {});
+    const onPrefs = (e: Event) => {
+      prefs.current = (e as CustomEvent<DictationPrefs>).detail;
+    };
+    window.addEventListener("lanx:dictation-prefs", onPrefs);
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.altKey && e.code === "Space") {
+      if (matchesCombo(e, prefs.current.keys)) {
         e.preventDefault();
         toggle(false);
       } else if (e.key === "Escape" && phaseRef.current === "listening") {
@@ -96,6 +128,7 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
     return () => {
       un?.();
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("lanx:dictation-prefs", onPrefs);
     };
   }, [toggle]);
 
@@ -113,10 +146,17 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
     }, 100);
     return () => window.clearInterval(t);
   }, [phase]);
+  useEffect(() => {
+    if (phase !== "working") return;
+    const started = Date.now();
+    setWorkSecs(0);
+    const t = window.setInterval(() => setWorkSecs(Math.round((Date.now() - started) / 1000)), 500);
+    return () => window.clearInterval(t);
+  }, [phase]);
 
   if (phase === "idle" && !lastText) return null;
   return (
-    <div data-dictation={phase} className="fixed left-1/2 -translate-x-1/2 bottom-6 z-[70] flex items-center gap-3 rounded-full bg-slate-900/90 text-white px-4 py-2 shadow-2xl backdrop-blur lanx-rise">
+    <div data-dictation={phase} className="fixed left-1/2 -translate-x-1/2 bottom-[92px] z-[70] flex items-center gap-3 rounded-full bg-slate-900/90 text-white px-4 py-2 shadow-2xl backdrop-blur lanx-rise">
       {phase === "listening" && (
         <>
           <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-red-500">
@@ -129,14 +169,21 @@ export function DictationOverlay({ onError, onOpenSettings, external }: { onErro
             ))}
           </div>
           <span className="text-[12.5px] font-semibold">Listening… {fmtSecs(secs)}</span>
-          <span className="text-[11px] text-white/70">{DICTATE_SHORTCUT} or</span>
+          <span className="text-[11px] text-white/70">{hotkeyLabel(prefs.current.keys)} or</span>
           <button type="button" data-dictation-stop onClick={() => stop()} className="h-7 px-3 rounded-full bg-white text-slate-900 text-[12px] font-semibold inline-flex items-center gap-1"><Square className="h-3 w-3" /> Done</button>
         </>
       )}
       {phase === "working" && (
         <>
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span className="text-[12.5px] font-semibold">Writing it down…</span>
+          <span className="text-[12.5px] font-semibold">Writing it down… {workSecs > 2 ? `${workSecs} s` : ""}</span>
+          {workSecs >= 6 && prefs.current.model !== "tiny" && (
+            <button type="button" data-dictation-use-fast onClick={useFast} className="h-7 px-3 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white text-[12px] font-semibold">Use the Fast model</button>
+          )}
+          {workSecs >= 6 && prefs.current.model === "tiny" && prefs.current.lang === "auto" && (
+            <span className="text-[11px] text-white/70">Tip: choose the language in Voice settings (twice as fast)</span>
+          )}
+          <button type="button" data-dictation-cancel onClick={cancelWork} className="h-7 px-3 rounded-full bg-white/15 hover:bg-white/25 text-white text-[12px] font-semibold">Cancel</button>
         </>
       )}
       {phase === "idle" && lastText && (

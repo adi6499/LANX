@@ -336,6 +336,8 @@ export interface SystemInfo {
   fingerprint: string;
   tcp_listening: boolean;
   udp_listening: boolean;
+  /** LANX 2.5.2: the TCP port actually in use (0 while none is). */
+  tcp_port: number;
 }
 
 export interface ConnectionTestResult {

@@ -664,6 +664,7 @@ export const api = {
       fingerprint: "3F:9A:12:C4:77:0B:E1:5D",
       tcp_listening: true,
       udp_listening: true,
+      tcp_port: 52926,
     };
   },
 
@@ -1650,12 +1651,18 @@ export const api = {
     if (isTauri) return invoke("transcribe", new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), { headers: { "x-model": model, "x-lang": lang } });
     return previewOnly();
   },
+  /** LANX 2.5.2: stop writing the words down. */
+  transcribeCancel: async (): Promise<void> => {
+    if (isTauri) return invoke("transcribe_cancel");
+  },
   typeText: async (text: string): Promise<boolean> => {
     if (isTauri) return invoke("type_text", { text });
     return false;
   },
-  setDictationHotkey: async (enabled: boolean): Promise<void> => {
-    if (isTauri) return invoke("set_dictation_hotkey", { enabled });
+  /** LANX 2.5.1: on/off and which keys; false = Windows refused the keys (another program has them). */
+  setDictationHotkey: async (enabled: boolean, keys?: { ctrl: boolean; alt: boolean; shift: boolean; win: boolean; key: string }): Promise<boolean> => {
+    if (isTauri) return invoke("set_dictation_hotkey", { enabled, keys: keys ?? null });
+    return true;
   },
   saveNoteAudio: async (bytes: Uint8Array, ext: string): Promise<{ file: string; bytes: number }> => {
     if (isTauri) return invoke("save_note_audio", bytes, { headers: { "x-ext": ext } });

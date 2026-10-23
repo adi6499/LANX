@@ -1,7 +1,7 @@
 //! LANX 2.5.0: speech to text, on this PC, no internet (whisper.cpp through
 //! `whisper-rs`). The model file is downloaded once by the window (it needs the
 //! internet for that one download) into LANX's data folder; after that
-//! everything runs locally. Used by dictation (Ctrl + Alt + Space) and by the
+//! everything runs locally. Used by dictation (the voice shortcut) and by the
 //! voice recordings in Notes.
 
 use std::path::PathBuf;
@@ -11,9 +11,9 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 
 /// The models people can choose. Sizes are what Hugging Face serves.
 pub const MODELS: [ModelInfo; 3] = [
-    ModelInfo { id: "tiny", name: "Fast", file: "ggml-tiny.bin", min_bytes: 70_000_000, about: "75 MB · quickest, fine for short clear sentences" },
-    ModelInfo { id: "base", name: "Balanced", file: "ggml-base.bin", min_bytes: 140_000_000, about: "148 MB · good English and Hindi, the usual choice" },
-    ModelInfo { id: "small", name: "Best", file: "ggml-small.bin", min_bytes: 460_000_000, about: "488 MB · most accurate, slower on older PCs" },
+    ModelInfo { id: "tiny", name: "Fast", file: "ggml-tiny.bin", min_bytes: 70_000_000, about: "75 MB · a sentence is written in a few seconds; fine for short, clear speech" },
+    ModelInfo { id: "base", name: "Balanced", file: "ggml-base.bin", min_bytes: 140_000_000, about: "148 MB · good English and Hindi, the usual choice; about twice as slow as Fast" },
+    ModelInfo { id: "small", name: "Best", file: "ggml-small.bin", min_bytes: 460_000_000, about: "488 MB · most accurate but slow: a 7-second sentence took 33 s on a new laptop (73 s with language on Detect automatically) — not for dictation" },
 ];
 pub const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 /// The most audio one request may carry (16 kHz mono f32): 10 minutes.
@@ -190,6 +190,11 @@ struct Loaded {
     ctx: WhisperContext,
 }
 static CONTEXT: OnceLock<Mutex<Option<Loaded>>> = OnceLock::new();
+/// LANX 2.5.2: set by "Cancel" in the window; the engine stops at its next step.
+static ABORT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn cancel_transcription() {
+    ABORT.store(true, std::sync::atomic::Ordering::SeqCst);
+}
 fn slot() -> &'static Mutex<Option<Loaded>> {
     CONTEXT.get_or_init(|| Mutex::new(None))
 }
@@ -212,6 +217,7 @@ pub fn transcribe(model_id: &str, language: &str, samples: &[f32]) -> Result<Tra
     if !has_speech(samples) {
         return Ok(Transcript { text: String::new(), segments: vec![], language: language.to_string(), audio_secs, took_ms: 0, model: model_id.to_string() });
     }
+    ABORT.store(false, std::sync::atomic::Ordering::SeqCst);
     let mut guard = slot().lock().map_err(|_| "Speech engine busy".to_string())?;
     if guard.as_ref().map(|l| l.id != model_id).unwrap_or(true) {
         let mut cp = WhisperContextParameters::default();
@@ -222,7 +228,7 @@ pub fn transcribe(model_id: &str, language: &str, samples: &[f32]) -> Result<Tra
     let loaded = guard.as_ref().unwrap();
     let mut state = loaded.ctx.create_state().map_err(|e| format!("Speech engine: {e:?}"))?;
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 8) as i32;
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 12) as i32;
     params.set_n_threads(threads);
     let lang = if language.is_empty() || language == "auto" { "auto" } else { language };
     params.set_language(Some(lang));
@@ -234,12 +240,27 @@ pub fn transcribe(model_id: &str, language: &str, samples: &[f32]) -> Result<Tra
     params.set_suppress_blank(true);
     params.set_no_context(true);
     params.set_token_timestamps(false);
+    params.set_abort_callback_safe(|| ABORT.load(std::sync::atomic::Ordering::Relaxed));
     // Whisper needs at least a second of audio; pad short clips with silence.
     let mut audio = samples.to_vec();
     if audio.len() < SAMPLE_RATE as usize * 3 / 2 {
         audio.resize(SAMPLE_RATE as usize * 3 / 2, 0.0);
     }
-    state.full(params, &audio).map_err(|e| format!("Speech engine: {e:?}"))?;
+    // LANX 2.5.2: a short clip needs only part of the engine's 30-second
+    // window. A shorter window makes a 7-second sentence 2-3× quicker.
+    let secs_used = (audio.len() as f32 / SAMPLE_RATE as f32).max(1.5);
+    let ctx = ((secs_used / 30.0) * 1500.0).ceil() as i32 + 128;
+    params.set_audio_ctx(ctx.clamp(320, 1500));
+    state.full(params, &audio).map_err(|e| {
+        if ABORT.load(std::sync::atomic::Ordering::SeqCst) {
+            "Cancelled".to_string()
+        } else {
+            format!("Speech engine: {e:?}")
+        }
+    })?;
+    if ABORT.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("Cancelled".to_string());
+    }
     let n = state.full_n_segments().map_err(|e| format!("Speech engine: {e:?}"))?;
     let mut segments = Vec::with_capacity(n as usize);
     for i in 0..n {

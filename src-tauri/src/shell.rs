@@ -20,8 +20,13 @@ static HOTKEY_THREAD: AtomicU32 = AtomicU32::new(0);
 static HOTKEY_OK: AtomicBool = AtomicBool::new(false);
 
 pub const HOTKEY_LABEL: &str = "Ctrl + Alt + S";
-/// LANX 2.5.0: dictation.
-pub const DICTATE_LABEL: &str = "Ctrl + Alt + Space";
+/// LANX 2.5.1: the dictation shortcut is the user's choice (Voice settings),
+/// kept as Windows modifier flags (Alt 1, Ctrl 2, Shift 4, Win 8) and a
+/// virtual-key code. The default is Ctrl + Alt + D.
+pub const DEFAULT_DICTATE_MODS: u32 = 2 | 1;
+pub const DEFAULT_DICTATE_VK: u32 = b'D' as u32;
+static DICTATE_MODS: AtomicU32 = AtomicU32::new(DEFAULT_DICTATE_MODS);
+static DICTATE_VK: AtomicU32 = AtomicU32::new(DEFAULT_DICTATE_VK);
 static DICTATE_ON: AtomicBool = AtomicBool::new(true);
 static DICTATE_OK: AtomicBool = AtomicBool::new(false);
 /// The window that was in front when dictation started (where the text goes).
@@ -126,13 +131,14 @@ pub fn start_hotkey(app: AppHandle, enabled: bool) {
                 eprintln!("[Screenshot] {} is already used by another app", HOTKEY_LABEL);
             }
         };
-        // LANX 2.5.0: Ctrl + Alt + Space starts / stops dictation.
+        // LANX 2.5.0: the dictation shortcut starts / stops listening.
         let set_dictate = |on: bool| {
             UnregisterHotKey(std::ptr::null_mut(), 2);
-            let ok = on && RegisterHotKey(std::ptr::null_mut(), 2, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x20) != 0;
+            let (mods, vk) = (DICTATE_MODS.load(Ordering::SeqCst), DICTATE_VK.load(Ordering::SeqCst));
+            let ok = on && vk != 0 && RegisterHotKey(std::ptr::null_mut(), 2, mods | MOD_NOREPEAT, vk) != 0;
             DICTATE_OK.store(ok, Ordering::SeqCst);
             if on && !ok {
-                eprintln!("[Dictation] {} is already used by another app", DICTATE_LABEL);
+                eprintln!("[Dictation] {} is already used by another app", dictate_label());
             }
         };
         set(enabled);
@@ -169,8 +175,11 @@ fn on_dictate_hotkey(app: &AppHandle) {
     let _ = app.emit_to("main", "lanx://dictate", fg != ours);
 }
 
-/// Turns the dictation hotkey on or off (after a settings change).
-pub fn set_dictation_hotkey(enabled: bool) {
+/// Turns the dictation shortcut on or off and sets its keys (after a
+/// settings change, and at start-up from the saved preference).
+pub fn set_dictation_hotkey(enabled: bool, mods: u32, vk: u32) {
+    DICTATE_MODS.store(mods, Ordering::SeqCst);
+    DICTATE_VK.store(vk, Ordering::SeqCst);
     DICTATE_ON.store(enabled, Ordering::SeqCst);
     #[cfg(windows)]
     unsafe {
@@ -184,6 +193,98 @@ pub fn set_dictation_hotkey(enabled: bool) {
 
 pub fn dictation_hotkey_working() -> bool {
     DICTATE_OK.load(Ordering::SeqCst)
+}
+
+/// Whether the shortcut listener thread exists (never in test copies).
+pub fn hotkey_thread_running() -> bool {
+    HOTKEY_THREAD.load(Ordering::SeqCst) != 0
+}
+
+/// The Windows key code for a key named the way the browser names it
+/// (`KeyboardEvent.code`): "KeyD", "Digit3", "F9", "Space", "Comma"…
+pub fn vk_for_code(code: &str) -> Option<u32> {
+    let c = code.trim();
+    if let Some(l) = c.strip_prefix("Key") {
+        let b = l.as_bytes();
+        return (b.len() == 1 && b[0].is_ascii_uppercase()).then(|| b[0] as u32);
+    }
+    if let Some(d) = c.strip_prefix("Digit") {
+        let b = d.as_bytes();
+        return (b.len() == 1 && b[0].is_ascii_digit()).then(|| b[0] as u32);
+    }
+    if let Some(d) = c.strip_prefix("Numpad") {
+        let b = d.as_bytes();
+        if b.len() == 1 && b[0].is_ascii_digit() {
+            return Some(0x60 + (b[0] - b'0') as u32);
+        }
+        return match d {
+            "Multiply" => Some(0x6A),
+            "Add" => Some(0x6B),
+            "Subtract" => Some(0x6D),
+            "Decimal" => Some(0x6E),
+            "Divide" => Some(0x6F),
+            _ => None,
+        };
+    }
+    if let Some(n) = c.strip_prefix('F') {
+        if let Ok(n) = n.parse::<u32>() {
+            return (1..=24).contains(&n).then(|| 0x70 + n - 1);
+        }
+    }
+    Some(match c {
+        "Space" => 0x20,
+        "Backquote" => 0xC0,
+        "Minus" => 0xBD,
+        "Equal" => 0xBB,
+        "BracketLeft" => 0xDB,
+        "BracketRight" => 0xDD,
+        "Backslash" => 0xDC,
+        "Semicolon" => 0xBA,
+        "Quote" => 0xDE,
+        "Comma" => 0xBC,
+        "Period" => 0xBE,
+        "Slash" => 0xBF,
+        "Insert" => 0x2D,
+        "Delete" => 0x2E,
+        "Home" => 0x24,
+        "End" => 0x23,
+        "PageUp" => 0x21,
+        "PageDown" => 0x22,
+        "ArrowUp" => 0x26,
+        "ArrowDown" => 0x28,
+        "ArrowLeft" => 0x25,
+        "ArrowRight" => 0x27,
+        "Pause" => 0x13,
+        "ScrollLock" => 0x91,
+        "CapsLock" => 0x14,
+        _ => return None,
+    })
+}
+
+/// "Ctrl + Alt + D" for the current dictation keys.
+pub fn dictate_label() -> String {
+    let (mods, vk) = (DICTATE_MODS.load(Ordering::SeqCst), DICTATE_VK.load(Ordering::SeqCst));
+    let mut parts: Vec<String> = Vec::new();
+    if mods & 2 != 0 {
+        parts.push("Ctrl".to_string());
+    }
+    if mods & 1 != 0 {
+        parts.push("Alt".to_string());
+    }
+    if mods & 4 != 0 {
+        parts.push("Shift".to_string());
+    }
+    if mods & 8 != 0 {
+        parts.push("Win".to_string());
+    }
+    parts.push(match vk {
+        0x20 => "Space".to_string(),
+        0x30..=0x39 | 0x41..=0x5A => char::from(vk as u8).to_string(),
+        0x70..=0x87 => format!("F{}", vk - 0x70 + 1),
+        0x60..=0x69 => format!("Numpad {}", vk - 0x60),
+        other => format!("key {}", other),
+    });
+    parts.join(" + ")
 }
 
 /// Types text into the program that was in front when dictation started.

@@ -35,6 +35,23 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 
 pub const DEFAULT_TCP_PORT: u16 = 52926;
+
+/// LANX 2.5.2: which ports to try on the `tries`-th attempt to listen. The
+/// chosen port first (always), and from the third attempt on also the next
+/// few ports and then ports further away — Windows reserves ranges of about
+/// a hundred ports for Hyper-V / WSL, so stepping 101 leaves any such range.
+pub fn port_candidates(port: u16, tries: u32) -> Vec<u16> {
+    let mut out = vec![port];
+    if tries >= 2 {
+        for d in 1..=4u16 {
+            out.extend(port.checked_add(d));
+        }
+        for k in 1..=20u16 {
+            out.extend(port.checked_add(101 * k));
+        }
+    }
+    out
+}
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(3000);
 const ACK_TIMEOUT: Duration = Duration::from_secs(8);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -159,9 +176,42 @@ impl NetworkService {
                 .get_settings()
                 .map(|s| s.tcp_messaging_port)
                 .unwrap_or(DEFAULT_TCP_PORT);
-            match TcpListener::bind((crate::testmode::bind_addr(), port)).await {
-                Ok(listener) => this.serve(listener).await,
-                Err(e) => eprintln!("[Network] Cannot listen on TCP port {}: {}", port, e),
+            // LANX 2.5.1: right after an upgrade the old copy may still hold
+            // the port for a few seconds. A copy that gave up here could never
+            // be reached by colleagues (their downloads from this PC failed
+            // with "Try again"), so keep trying until the port is ours.
+            // LANX 2.5.2: Windows also reserves whole port ranges for Hyper-V
+            // and WSL (netsh … show excludedportrange), and then the port never
+            // frees up. After a few tries LANX moves to the next free port; the
+            // discovery beacon tells colleagues which port to use.
+            let mut tries = 0u32;
+            'bind: loop {
+                for candidate in port_candidates(port, tries) {
+                    match TcpListener::bind((crate::testmode::bind_addr(), candidate)).await {
+                        Ok(listener) => {
+                            if candidate != port {
+                                eprintln!("[Network] TCP port {} is not available on this PC; using {} instead", port, candidate);
+                            } else if tries > 0 {
+                                eprintln!("[Network] TCP port {} is free now (after {} tries)", port, tries);
+                            }
+                            if tries > 0 {
+                                this.port_came_late();
+                            }
+                            this.serve(listener).await;
+                            break 'bind;
+                        }
+                        Err(e) => {
+                            if tries == 0 && candidate == port {
+                                eprintln!("[Network] Cannot listen on TCP port {} ({}); trying again", port, e);
+                            }
+                        }
+                    }
+                }
+                tries += 1;
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+                }
             }
         });
 
@@ -173,6 +223,7 @@ impl NetworkService {
                     _ = this.cancel_token.cancelled() => break,
                     _ = tokio::time::sleep(Duration::from_secs(5 * 60)) => {
                         this.remind_about_update();
+                        this.reoffer_stalled_updates(update::STALLED_OFFER_SECS);
                     }
                 }
             }
@@ -255,6 +306,11 @@ impl NetworkService {
 
     pub fn is_listening(&self) -> bool {
         self.bound_port.load(Ordering::SeqCst) != 0
+    }
+
+    /// The TCP port actually in use (0 until the listener is up).
+    pub fn bound_port(&self) -> u16 {
+        self.bound_port.load(Ordering::SeqCst)
     }
 
     pub fn stop(&self) {

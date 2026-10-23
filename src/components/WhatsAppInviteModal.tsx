@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import { api, errorText } from "../lib/api";
 
-const DEFAULT_LINK = "https://github.com/adi6499/LANX";
+const DEFAULT_LINK = "https://lanx-website.vercel.app";
 
 /** LANX 2.5.0: invite people to LANX over WhatsApp (the download link goes in the message). */
 export function WhatsAppInviteModal({ onClose, onError }: { onClose: () => void; onError: (t: string) => void }) {

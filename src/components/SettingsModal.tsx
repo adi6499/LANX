@@ -766,7 +766,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="p-3 rounded-xl lanx-group">
                     <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Receiving messages</div>
-                    {status(systemInfo?.tcp_listening, `Listening on TCP ${settings.tcp_messaging_port}`, `TCP port ${settings.tcp_messaging_port} is in use`)}
+                    {status(
+                      systemInfo?.tcp_listening,
+                      systemInfo?.tcp_port && systemInfo.tcp_port !== settings.tcp_messaging_port
+                        ? `Listening on TCP ${systemInfo.tcp_port} (Windows has reserved port ${settings.tcp_messaging_port} on this PC, so LANX uses the next free one — colleagues are told automatically)`
+                        : `Listening on TCP ${settings.tcp_messaging_port}`,
+                      `TCP port ${settings.tcp_messaging_port} is in use or reserved by Windows — LANX keeps trying and will move to the next free port`
+                    )}
                   </div>
                   <div className="p-3 rounded-xl lanx-group">
                     <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Finding colleagues</div>

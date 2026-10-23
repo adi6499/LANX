@@ -42,6 +42,7 @@ import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
 import { ShieldCheck } from "lucide-react";
 import { isMuted } from "../lib/tools";
+import { useDictationLabel } from "../lib/voice";
 import { stagger } from "../lib/motion";
 import { Avatar } from "./Avatar";
 import { CLEAR_AFTER, EMPTY_PROFILE, STATUS_PRESETS, effective, statusLine, statusPreset } from "../lib/profile";
@@ -168,6 +169,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [view, setView] = useState<ListView>("all");
   const [composeMenu, setComposeMenu] = useState(false);
   const [toolsMenu, setToolsMenu] = useState(false);
+  const dictateLabel = useDictationLabel();
   const [menu, setMenu] = useState<{ conv: Conversation; x: number; y: number } | null>(null);
   const folders = settings.chat_folders ?? [];
   const activeView = view === "all" || view === "unread" || view === "archived" || folders.some((f) => f.id === view) ? view : "all";
@@ -440,7 +442,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {toolsMenu && (
                   <>
                     <div className="fixed inset-0 z-30" onClick={() => setToolsMenu(false)} />
-                    <div data-tools-menu className="absolute left-0 top-9 z-40 w-48 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
+                    <div data-tools-menu className="absolute right-0 top-9 z-40 w-48 rounded-[14px] lanx-menu p-1.5 lanx-menu-in">
                       {onOpenPdf && (
                         <button type="button" data-tools-item="pdf" onClick={() => { setToolsMenu(false); onOpenPdf(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
                           <FileText className="h-4 w-4 text-rose-600" /> PDF tools
@@ -448,7 +450,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       )}
                       {onDictate && (
                         <button type="button" data-tools-item="voice" onClick={() => { setToolsMenu(false); onDictate(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
-                          <Mic className="h-4 w-4 text-red-600" /> Voice typing <span className="ml-auto text-[10px] text-slate-400">Ctrl+Alt+Space</span>
+                          <Mic className="h-4 w-4 text-red-600" /> Voice typing <span className="ml-auto whitespace-nowrap text-[10px] text-slate-400">{dictateLabel}</span>
                         </button>
                       )}
                       {onOpenVoice && (

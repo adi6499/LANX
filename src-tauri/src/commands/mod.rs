@@ -368,6 +368,7 @@ pub fn get_system_info(app: AppHandle, state: State<AppState>) -> Result<SystemI
         fingerprint: state.identity.fingerprint(),
         tcp_listening: state.network.is_listening(),
         udp_listening: state.discovery.is_listening(),
+        tcp_port: state.network.bound_port(),
     })
 }
 

@@ -1,0 +1,5 @@
+# LANX 2.5.1: link the C and C++ runtime into lanx.exe itself, so a PC without
+# the "Microsoft Visual C++ Redistributable" can still start LANX (the speech
+# engine added C++ code in 2.5.0, which otherwise needs msvcp140.dll).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v1.2)
+# LANX — Local Network Messenger (v2.5.2)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -7,7 +7,7 @@ no internet, no server, no accounts. Computers find each other automatically. Ev
 ## For users
 
 ### Install
-1. Run **`LANX-Setup-1.2.4.exe`**.
+1. Download the installer from **https://lanx-website.vercel.app** (or get it from a colleague through LANX) and run it.
 2. Windows asks *"Do you want to allow this app to make changes?"* → **Yes** (the installer needs
    this once, to install for all users and to allow LANX through Windows Firewall).
 3. LANX opens. Type your name → **Launch LANX**. Done.
@@ -57,6 +57,30 @@ others) and talks to the Windows copies on the same network.
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.5.2: a port Windows took away, updates that stalled, voice typing, your own shortcut
+- **Colleagues can reach this PC again even when Windows has taken LANX's port.** Windows reserves whole ranges of
+  ports for Hyper-V and WSL (`netsh interface ipv4 show excludedportrange protocol=tcp`); when LANX's port 52926 falls
+  inside one, LANX could not open it, stayed silent about it, and nobody could fetch files or updates from that PC —
+  their LANX showed *"could not be installed yet · Try again"*. LANX now keeps trying, and after a few seconds moves to
+  the next free port; the discovery beacon tells every colleague (old versions too) which port to use. **Settings →
+  Diagnostics** says which port is in use and why. The same keeps LANX reachable right after an upgrade, while the old
+  copy still holds the port for a moment.
+- **An update offer that stalled is offered again by itself** (accepted by a colleague, never fetched because their LANX
+  could not reach this PC): at once when the port opens late, otherwise after 10 minutes, at most once an hour.
+- **"Writing it down…" shows how long it has been and has a Cancel button**, and offers *Use the Fast model* when it is
+  taking long. The Best (small) speech model is slow on an office PC (measured: a 7-second sentence took 33 s, 73 s with
+  the language on *Detect automatically*); the model notes in Voice settings say so, and Fast is marked *best for dictation*.
+- **Voice typing is quicker**: a short clip now uses only the part of the engine's 30-second window it needs (a sentence
+  takes about a third of the time), and the engine uses up to 12 CPU threads.
+- The wrench menu no longer gets cut off at the sidebar's edge, and the dictation bubble sits above the message box.
+- **Voice typing works**: in 2.5.0 the microphone listener failed to load (*"Failed to load worklet module script"*),
+  because the window only runs scripts that are LANX's own files. The listener is such a file now, with a fallback.
+- **Choose your own voice-typing shortcut** (wrench → Voice settings → *Change*, then press the keys). The default is
+  now **Ctrl + Alt + D**. LANX tells you if another program already uses the keys you picked.
+- **No "Visual C++ Redistributable" needed**: the speech engine added C++ code in 2.5.0, which made LANX depend on
+  `msvcp140.dll`; a PC without it could not start LANX. The runtime is built into `lanx.exe` now.
+- **Invite on WhatsApp** links to the download page (https://lanx-website.vercel.app) instead of the code repository.
+
 ### New in 2.5.0: work tools — Notes, Calendar, PDF tools, calculator, live wallpapers, WhatsApp
 - **Notes** (sticky-note button above the chat list): a notebook that stays on this PC (and in your daily backup). Plain notes
   and **checklists**, colours, pin to the top, search, "Save to notes" from any message, send a note to a chat, save it as a
@@ -81,7 +105,7 @@ others) and talks to the Windows copies on the same network.
   Ctrl+V in the WhatsApp chat), notes, calendar events and saved PDFs; **WhatsApp a colleague** from their phone number in
   the info panel; and **Invite on WhatsApp** (compose ✎ menu) sends the download link to new users. WhatsApp Desktop is used
   when installed, else WhatsApp Web.
-- **Voice typing** (like Wispr Flow) and **voice memos**. Press **Ctrl + Alt + Space** anywhere in Windows (or inside LANX),
+- **Voice typing** (like Wispr Flow) and **voice memos**. Press the voice shortcut (**Ctrl + Alt + D**; change it in Voice settings) anywhere in Windows (or inside LANX),
   speak, press it again: the words are typed where your cursor was — a LANX message or note, or Word, Outlook, Excel… Speech
   is turned into text **on this PC** (nothing is sent anywhere); it needs a one-time download of a speech model
   (wrench button → Voice settings: Fast 75 MB, Balanced 148 MB or Best 488 MB; English, Hindi, Marathi and more, or

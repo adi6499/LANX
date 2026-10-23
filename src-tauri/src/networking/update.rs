@@ -58,6 +58,11 @@ const CHAT_SENT_SETTING: &str = "update_chat_sent";
 const SEND_MODE_SETTING: &str = "update_send_mode";
 /// JSON map peer id -> version they were chosen to get.
 const SEND_TO_SETTING: &str = "update_send_to";
+/// LANX 2.5.1: an accepted offer that has not started fetching after this
+/// long (their LANX could not reach this PC at the time) is offered again.
+pub(crate) const STALLED_OFFER_SECS: i64 = 10 * 60;
+/// …but not more often than this, per colleague.
+const REOFFER_EVERY: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Clone, Debug)]
 pub struct UpdateConfig {
@@ -106,6 +111,8 @@ pub struct UpdateRuntime {
     installing: Option<String>,
     /// Installer starts recorded instead of run (dry run).
     pub(crate) dry_runs: Vec<String>,
+    /// LANX 2.5.1: when a stalled offer was last made again, per colleague.
+    reoffered: HashMap<String, Instant>,
 }
 
 fn default_origin() -> String {
@@ -714,6 +721,56 @@ impl NetworkService {
         }
         self.events.update_changed();
         Ok(picked.len())
+    }
+
+    /// LANX 2.5.1: the messaging port opened late (see `NetworkService::start`).
+    /// Colleagues who tried to fetch an update meanwhile failed, and an old
+    /// LANX only tries again by itself when this PC comes online anew — so
+    /// offer those updates again right away.
+    pub(crate) fn port_came_late(&self) {
+        self.reoffer_stalled_updates(0);
+    }
+
+    /// Outgoing update offers a colleague accepted but never started fetching
+    /// (older than `min_age` seconds, colleague online): their LANX tried to
+    /// connect to this PC and failed. Withdraw the offer and make it again, so
+    /// their LANX tries afresh — at most once an hour per colleague.
+    pub(crate) fn reoffer_stalled_updates(&self, min_age: i64) {
+        let Some(share) = self.shared_installer() else { return };
+        let now = now_secs();
+        let online: HashSet<String> = self
+            .db
+            .list_peers()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| p.status == "online")
+            .map(|p| p.id)
+            .collect();
+        for (t, r) in self.db.update_transfers("outgoing").unwrap_or_default() {
+            if t.status != "pending"
+                || r.version != share.release.version
+                || now - t.created_at < min_age
+                || !online.contains(&t.peer_id)
+            {
+                continue;
+            }
+            {
+                let mut u = self.updates.lock();
+                if u.reoffered.get(&t.peer_id).is_some_and(|at| at.elapsed() < REOFFER_EVERY) {
+                    continue;
+                }
+                u.reoffered.insert(t.peer_id.clone(), Instant::now());
+            }
+            let this = self.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = this.cancel_transfer(&t.id).await;
+                if let Ok(Some(mut c)) = this.db.get_transfer(&t.id) {
+                    c.error_reason = Some("Offered again: their LANX could not reach this PC the first time.".to_string());
+                    let _ = this.db.save_transfer(&c);
+                }
+                this.maybe_offer_update(&t.peer_id);
+            });
+        }
     }
 
     /// "Don't send": takes colleagues off the list and withdraws an offer
