@@ -1,13 +1,13 @@
 {
-  "version": "2.5.0",
-  "file": "/files/LANX-Setup-2.5.0.exe",
-  "sig": "/files/LANX-Setup-2.5.0.exe.sig",
-  "sha256File": "/files/LANX-Setup-2.5.0.exe.sha256.txt",
-  "sha256": "5f79c6cc146a616df2b869e365610f7d96f6fd081d9d103b272b774446f1e60b",
-  "bytes": 7275742,
-  "size": "6.9 MB",
-  "date": "2026-10-23",
-  "dateText": "23 Oct 2026",
+  "version": "2.5.3",
+  "file": "/files/LANX-Setup-2.5.3.exe",
+  "sig": "/files/LANX-Setup-2.5.3.exe.sig",
+  "sha256File": "/files/LANX-Setup-2.5.3.exe.sha256.txt",
+  "sha256": "4c821c40f779bd8b4e549a9b0bceb32087cd32c542e6efd6c2081a56ae5068f9",
+  "bytes": 7353278,
+  "size": "7.0 MB",
+  "date": "2026-10-24",
+  "dateText": "24 Oct 2026",
   "windows": "Windows 10 / 11, 64-bit",
   "linux": {
     "deb": {
