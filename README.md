@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.5.3)
+# LANX — Local Network Messenger (v2.6.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,17 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.6.0: memes & GIFs (a hidden tool)
+- Type **/meme** (or **/gif**, optionally with a word: `/meme monday`) in any chat to open the picker. Nothing in the
+  menus — it is for the people who know.
+- **Templates**: Imgflip's classic meme pictures. Click one, type the top and bottom text, and LANX draws the caption
+  itself (no account, works offline once the list is cached for a week).
+- **GIFs**: search, trending and categories from Tenor (the same GIF service WhatsApp uses), with its strictest content
+  filter. Needs a free Tenor key once — the GIFs tab explains the five-minute setup; everything else works without it.
+- Every meme has **Send** (into the chat you were in, or pick chats), **Copy** (the picture and the file go on the
+  clipboard, so Ctrl + V works in WhatsApp, Outlook, Word…), **Share on WhatsApp**, and a heart for **Favourites**.
+  **Recent** keeps what you used. Files are kept in LANX's own folder.
 
 ### New in 2.5.3: no white window at start-up
 - **The window appears only once the page has drawn**, and the page has LANX's colour and logo from its very first

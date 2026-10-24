@@ -13,6 +13,7 @@ pub mod wallpaper;
 pub mod voice;
 pub mod remote;
 pub mod tools;
+pub mod memes;
 
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};
 use crate::networking::NetworkService;

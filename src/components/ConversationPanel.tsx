@@ -115,6 +115,8 @@ interface ConversationPanelProps {
   onSendVoice?: (data: Blob, durationMs: number, ext: string) => Promise<void>;
   quickReplies?: string[];
   onSaveQuickReplies?: (list: string[]) => void;
+  /** LANX 2.6.0: "/meme cats" typed in the box opens the hidden meme picker. */
+  onOpenMemes?: (query: string) => void;
   /** A message changed or went away here (instant feedback). */
   onMessageChanged?: (m: Message) => void;
   onMessageRemoved?: (id: string) => void;
@@ -222,6 +224,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onSendVoice,
   quickReplies = [],
   onSaveQuickReplies,
+  onOpenMemes,
   onMessageChanged,
   onMessageRemoved,
   jumpTo = null,
@@ -510,6 +513,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const handleSend = async () => {
     const text = inputText;
     if (!text.trim()) return;
+    const memeCmd = /^\/(meme|memes|gif|gifs)\b\s*(.*)$/i.exec(text.trim());
+    if (memeCmd && onOpenMemes) {
+      setInputText("");
+      onOpenMemes(memeCmd[2].trim());
+      return;
+    }
     if (editing) {
       try {
         const m = await api.editMessage(editing.id, text, mentionsIn(text));
@@ -1488,6 +1497,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   replies={quickReplies}
                   filter={quickFilter}
                   active={quickIdx}
+                  hint={onOpenMemes && /^\/(m|me|mem|meme|memes|g|gi|gif|gifs)(\s|$)/i.test(inputText) ? "Press Enter to open memes & GIFs (add a word to search)" : undefined}
                   onPick={pickQuick}
                   onSave={(l) => onSaveQuickReplies?.(l)}
                   onClose={() => setQuickClosed(true)}

@@ -84,6 +84,7 @@ export function QuickReplyPicker({
   onPick,
   onSave,
   onClose,
+  hint,
 }: {
   replies: string[];
   filter: string;
@@ -91,6 +92,8 @@ export function QuickReplyPicker({
   onPick: (text: string) => void;
   onSave: (list: string[]) => void;
   onClose: () => void;
+  /** LANX 2.6.0: what Enter does when the text is a command, not a quick reply. */
+  hint?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -111,7 +114,9 @@ export function QuickReplyPicker({
         </button>
       </div>
       <div className="max-h-60 overflow-y-auto">
-        {shown.length === 0 && !editing && <p className="px-2 py-2 text-[12px] text-slate-400">No quick reply matches. Press Esc to type normally.</p>}
+        {shown.length === 0 && !editing && (
+          <p data-quick-hint className={`px-2 py-2 text-[12px] ${hint ? "font-semibold text-sky-600 dark:text-sky-400" : "text-slate-400"}`}>{hint ?? "No quick reply matches. Press Esc to type normally."}</p>
+        )}
         {(editing ? replies : shown).map((r, i) => (
           <div key={r} className="flex items-center gap-1">
             <button

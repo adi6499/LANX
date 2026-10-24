@@ -32,8 +32,8 @@ fn allowed(path: &Path, download_dir: &Path) -> bool {
     if p.starts_with(&d) {
         return true;
     }
-    // The wallpaper copy and the note recordings LANX keeps in its own data folder.
-    for dir in [super::wallpaper::wallpaper_dir(), super::voice::notes_audio_dir()] {
+    // The wallpaper copy, the note recordings and the memes LANX keeps in its own data folder.
+    for dir in [super::wallpaper::wallpaper_dir(), super::voice::notes_audio_dir(), super::memes::memes_dir()] {
         let d = std::fs::canonicalize(&dir).unwrap_or(dir);
         if p.starts_with(&d) {
             return true;

@@ -4,12 +4,12 @@
   "redirects": [
     {
       "source": "/download",
-      "destination": "/files/LANX-Setup-2.5.3.exe",
+      "destination": "/files/LANX-Setup-2.6.0.exe",
       "permanent": false
     },
     {
       "source": "/latest",
-      "destination": "/files/LANX-Setup-2.5.3.exe",
+      "destination": "/files/LANX-Setup-2.6.0.exe",
       "permanent": false
     }
   ],

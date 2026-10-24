@@ -47,6 +47,7 @@ const NotesPanel = lazy(() => import("./components/notes/NotesPanel").then((m) =
 const CalendarPanel = lazy(() => import("./components/calendar/CalendarPanel").then((m) => ({ default: m.CalendarPanel })));
 const PdfStudio = lazy(() => import("./components/pdf/PdfStudio").then((m) => ({ default: m.PdfStudio })));
 const CalcPanel = lazy(() => import("./components/tools/CalcPanel").then((m) => ({ default: m.CalcPanel })));
+const MemePanel = lazy(() => import("./components/memes/MemePanel").then((m) => ({ default: m.MemePanel })));
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
@@ -190,6 +191,8 @@ export default function App() {
   const [pdfPath, setPdfPath] = useState<null | { path: string | null }>(null);
   const [showCalc, setShowCalc] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  /** LANX 2.6.0: the hidden meme picker (/meme in a chat). */
+  const [showMemes, setShowMemes] = useState<{ query: string } | null>(null);
   const [shareText, setShareText] = useState<string | null>(null);
   const [shareFile, setShareFile] = useState<string | null>(null);
   const [meetingPrefill, setMeetingPrefill] = useState<MeetingPrefill | null>(null);
@@ -1412,6 +1415,7 @@ export default function App() {
             profiles={profiles}
             onSendVoice={handleSendVoice}
             quickReplies={settings.quick_replies ?? []}
+            onOpenMemes={(q) => setShowMemes({ query: q })}
             onSaveQuickReplies={(list) => {
               const updated = { ...settings, quick_replies: list };
               setSettings(updated);
@@ -1807,6 +1811,20 @@ export default function App() {
       {showCalc && (
         <Suspense fallback={null}>
           <CalcPanel onClose={() => setShowCalc(false)} onError={(t) => setNotice(t)} />
+        </Suspense>
+      )}
+      {showMemes && (
+        <Suspense fallback={null}>
+          <MemePanel
+            initialQuery={showMemes.query}
+            chatName={activeConversation?.peer_name ?? null}
+            onClose={() => setShowMemes(null)}
+            onError={(t) => setNotice(t)}
+            onSendToChat={async (path) => {
+              if (activeConversation) await api.sendFiles(activeConversation.id, [path]);
+              else setShareFile(path);
+            }}
+          />
         </Suspense>
       )}
       {showInvite && <WhatsAppInviteModal onClose={() => setShowInvite(false)} onError={(t) => setNotice(t)} />}

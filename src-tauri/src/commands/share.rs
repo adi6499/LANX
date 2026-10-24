@@ -68,7 +68,7 @@ fn desktop_app_installed() -> bool {
 
 /// Puts a file on the clipboard the way Explorer's "Copy" does, so WhatsApp
 /// (and anything else) can paste it.
-fn copy_file_to_clipboard(path: &PathBuf) -> Result<(), String> {
+pub(crate) fn copy_file_to_clipboard(path: &PathBuf) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
