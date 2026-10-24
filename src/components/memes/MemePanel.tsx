@@ -58,6 +58,12 @@ export function MemePanel({
   const [loading, setLoading] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /** LANX 2.8.0: after "Send", the picker shrinks towards the chat and closes. */
+  const [closing, setClosing] = useState(false);
+  const shrinkAndClose = () => {
+    setClosing(true);
+    window.setTimeout(onClose, 420);
+  };
   // The caption editor.
   const [editing, setEditing] = useState<MemeItem | null>(null);
   const [caption, setCaption] = useState<Caption>({ top: "", bottom: "", size: 1 });
@@ -175,6 +181,9 @@ export function MemePanel({
         if (kind === "send") {
           await onSendToChat(path);
           onError(chatName ? `Sent to ${chatName}.` : "Choose who gets it.");
+          void rememberRecent(item).then(() => loadRecent().then(setRecent));
+          shrinkAndClose();
+          return;
         } else if (kind === "copy") {
           await api.copyFileToClipboard(path);
           onError("Copied. Paste it with Ctrl + V — in WhatsApp, Outlook, Word…");
@@ -243,8 +252,14 @@ export function MemePanel({
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm lanx-fade" onMouseDown={onClose}>
-      <div data-meme-panel className="w-[900px] max-w-[96vw] h-[640px] max-h-[92vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
+    <div className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm lanx-fade ${closing ? "pointer-events-none" : ""}`} style={closing ? { opacity: 0, transition: "opacity .4s ease" } : undefined} onMouseDown={onClose}>
+      <div
+        data-meme-panel
+        data-meme-closing={closing ? "1" : undefined}
+        className="w-[900px] max-w-[96vw] h-[640px] max-h-[92vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise"
+        style={closing ? { transform: "scale(0.25) translate(-120%, 160%)", opacity: 0, transition: "transform .42s cubic-bezier(.4,0,.2,1), opacity .35s ease" } : undefined}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center gap-2">
           {editing ? (
             <button type="button" data-meme-back onClick={() => { setEditing(null); setMade(null); }} className="lanx-tool p-1.5 text-slate-500"><ArrowLeft className="h-4 w-4" /></button>
