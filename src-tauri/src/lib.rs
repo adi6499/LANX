@@ -31,12 +31,21 @@ use tauri::{AppHandle, Manager, WindowEvent};
 static TRAY_HINT_SHOWN: AtomicBool = AtomicBool::new(false);
 /// LANX 1.3.0: the main window's page has loaded (see webview_folder.rs).
 static UI_READY: AtomicBool = AtomicBool::new(false);
+/// LANX 2.5.3: started with --minimized (stays in the tray until clicked).
+static START_HIDDEN: AtomicBool = AtomicBool::new(false);
+/// LANX 2.5.3: the main window has been shown once at start-up.
+static SHOWN_ONCE: AtomicBool = AtomicBool::new(false);
 
-/// The main window's page calls this once it has drawn itself.
+/// The main window's page calls this once it has drawn itself. LANX 2.5.3:
+/// that is when the window is shown, so start-up never shows a blank white
+/// window (a reload later never pops the window up again).
 #[tauri::command]
 fn ui_ready(window: tauri::Window) {
     if window.label() == "main" {
         UI_READY.store(true, Ordering::SeqCst);
+        if !START_HIDDEN.load(Ordering::SeqCst) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
+            show_main_window(window.app_handle());
+        }
     }
 }
 
@@ -396,14 +405,24 @@ pub fn run() {
             }
 
             let start_hidden = std::env::args().any(|a| a == "--minimized");
+            START_HIDDEN.store(start_hidden, Ordering::SeqCst);
             if let Some(w) = app.get_webview_window("main") {
                 if profile.is_some() {
                     let _ = w.set_title(&format!("LANX — test profile {}", profile.as_deref().unwrap_or("")));
                 }
-                if !start_hidden {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
+            }
+            // LANX 2.5.3: the window is shown by ui_ready, once its page has
+            // drawn. If the page never reports in, show it after 6 seconds
+            // anyway — the blank-window watchdog needs to see it.
+            {
+                let app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                    if !START_HIDDEN.load(Ordering::SeqCst) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
+                        eprintln!("[Window] the page did not report in; showing the window anyway");
+                        show_main_window(&app);
+                    }
+                });
             }
             Ok(())
         })

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import {
   UserSettings,
   Peer,
@@ -41,10 +41,12 @@ import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
 import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
 import { IS_WINDOWS } from "./lib/platform";
 import { SendToModal } from "./components/tools/SendToModal";
-import { NotesPanel } from "./components/notes/NotesPanel";
-import { CalendarPanel, type MeetingPrefill } from "./components/calendar/CalendarPanel";
-import { PdfStudio } from "./components/pdf/PdfStudio";
-import { CalcPanel } from "./components/tools/CalcPanel";
+import type { MeetingPrefill } from "./components/calendar/CalendarPanel";
+// LANX 2.5.3: loaded when first opened, so start-up stays quick.
+const NotesPanel = lazy(() => import("./components/notes/NotesPanel").then((m) => ({ default: m.NotesPanel })));
+const CalendarPanel = lazy(() => import("./components/calendar/CalendarPanel").then((m) => ({ default: m.CalendarPanel })));
+const PdfStudio = lazy(() => import("./components/pdf/PdfStudio").then((m) => ({ default: m.PdfStudio })));
+const CalcPanel = lazy(() => import("./components/tools/CalcPanel").then((m) => ({ default: m.CalcPanel })));
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
@@ -1763,15 +1765,18 @@ export default function App() {
       )}
 
       {showNotes !== false && (
-        <NotesPanel
-          initialNote={showNotes.initial}
-          onClose={() => setShowNotes(false)}
-          onError={(t) => setNotice(t)}
-          onSendText={(text) => setShareText(text)}
-          onOpenVoiceSettings={() => setShowVoice(true)}
-        />
+        <Suspense fallback={null}>
+          <NotesPanel
+            initialNote={showNotes.initial}
+            onClose={() => setShowNotes(false)}
+            onError={(t) => setNotice(t)}
+            onSendText={(text) => setShareText(text)}
+            onOpenVoiceSettings={() => setShowVoice(true)}
+          />
+        </Suspense>
       )}
       {showCalendar && (
+        <Suspense fallback={null}>
         <CalendarPanel
           myName={settings.display_name}
           myBirthday={settings.profile?.birthday}
@@ -1787,16 +1792,23 @@ export default function App() {
           onSendText={(text) => setShareText(text)}
           onInvite={(prefill) => setMeetingPrefill(prefill)}
         />
+        </Suspense>
       )}
       {pdfPath && (
-        <PdfStudio
-          initialPath={pdfPath.path}
-          onClose={() => setPdfPath(null)}
-          onError={(t) => setNotice(t)}
-          onSendFile={(path) => setShareFile(path)}
-        />
+        <Suspense fallback={null}>
+          <PdfStudio
+            initialPath={pdfPath.path}
+            onClose={() => setPdfPath(null)}
+            onError={(t) => setNotice(t)}
+            onSendFile={(path) => setShareFile(path)}
+          />
+        </Suspense>
       )}
-      {showCalc && <CalcPanel onClose={() => setShowCalc(false)} onError={(t) => setNotice(t)} />}
+      {showCalc && (
+        <Suspense fallback={null}>
+          <CalcPanel onClose={() => setShowCalc(false)} onError={(t) => setNotice(t)} />
+        </Suspense>
+      )}
       {showInvite && <WhatsAppInviteModal onClose={() => setShowInvite(false)} onError={(t) => setNotice(t)} />}
       {showVoice && <VoiceSettingsModal onClose={() => setShowVoice(false)} onError={(t) => setNotice(t)} />}
       <DictationOverlay onError={(t) => setNotice(t)} onOpenSettings={() => setShowVoice(true)} external={dictateNow} />

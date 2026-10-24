@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.5.2)
+# LANX — Local Network Messenger (v2.5.3)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,13 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.5.3: no white window at start-up
+- **The window appears only once the page has drawn**, and the page has LANX's colour and logo from its very first
+  paint — so start-up never shows a blank white window (the 1.9.1 repair still handles WebView2 stopping later).
+  If the page never reports in, the window is shown after 6 seconds anyway.
+- **Quicker start-up**: the big tools (PDF engine, calendar, notes, calculator) load the first time you open them
+  instead of at start-up — the start-up code is about half the size.
 
 ### New in 2.5.2: a port Windows took away, updates that stalled, voice typing, your own shortcut
 - **Colleagues can reach this PC again even when Windows has taken LANX's port.** Windows reserves whole ranges of

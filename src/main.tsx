@@ -38,6 +38,8 @@ const isRemoteBar = windowLabel === "remote" || location.hash === "#remote";
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>{isIsland ? <IslandApp /> : isRemoteBar ? <RemoteBar /> : <App />}</React.StrictMode>,
 );
+// LANX 2.5.3: the start-up logo (index.html) goes once the app has drawn.
+requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("lanx-splash")?.remove()));
 
 // LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
 // WebView2 folder if a window stays blank).
