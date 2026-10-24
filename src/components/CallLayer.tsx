@@ -4,7 +4,7 @@ import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
 import { IS_WINDOWS } from "../lib/platform";
 import { Recorder, recordingSupported } from "../lib/recorder";
-import { VOICE_BITRATE, getCamera, getMic, getScreen, liveReceiver, pictureStats, tuneSdp, tuneSender, videoBudget } from "../lib/webrtc";
+import { VOICE_BITRATE, getCamera, getMic, getScreen, liveReceiver, pictureStats, preferCodecs, tuneSdp, tuneSender, videoBudget, watchQuality } from "../lib/webrtc";
 import { CLIP_MAX, REMOTE_CHANNEL, RemoteInput, RemoteLink, RemoteMsg } from "../lib/remote";
 import { RemoteAskDialog, RemoteKeysButton, RemoteScreenButton, RemoteSurface } from "./remote/RemoteControl";
 import {
@@ -150,6 +150,8 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const [, setTick] = useState(0);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  /** LANX 2.8.0: the quality watch of the current connection (stops with it). */
+  const watchRef = useRef<(() => void) | null>(null);
   const callIdRef = useRef<string | null>(null);
   const startingRef = useRef(false);
   const pendingRef = useRef<CallEvent[]>([]);
@@ -206,6 +208,11 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     }
     const screen = !!screenRef.current;
     void tuneSender(videoSenderRef.current, { ...videoBudget(2, screen), screen, live: liveRef.current });
+    watchRef.current?.();
+    watchRef.current = watchQuality(pc, () => videoSenderRef.current, () => videoBudget(2, !!screenRef.current), {
+      screen: () => !!screenRef.current,
+      live: () => liveRef.current,
+    });
   }, []);
 
   /** Uses this camera for the call and keeps it going: if it stops by itself
@@ -256,6 +263,8 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     } catch {
       /* already closed */
     }
+    watchRef.current?.();
+    watchRef.current = null;
     pcRef.current = null;
     remoteStreamRef.current = new MediaStream();
     localStreamRef.current = new MediaStream();
@@ -499,6 +508,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         pc.addTransceiver(mic ?? "audio", { direction: "sendrecv", streams: [local] });
         videoSenderRef.current = pc.addTransceiver(cam ?? "video", { direction: "sendrecv", streams: [local] }).sender;
         adoptLink(RemoteLink.create(pc));
+        preferCodecs(pc);
         await pc.setLocalDescription(await pc.createOffer());
         await iceGathered(pc);
         if (!startingRef.current) return; // cancelled meanwhile
@@ -879,6 +889,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         t.sender.setStreams?.(local);
         if (kind === "video") videoSenderRef.current = t.sender;
       }
+      preferCodecs(pc);
       await pc.setLocalDescription(await pc.createAnswer());
       await iceGathered(pc);
       if (callIdRef.current !== id) return; // they hung up meanwhile

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.7.1)
+# LANX — Local Network Messenger (v2.8.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,17 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.8.0: calls that feel live; a real meme search
+- **Calls and meetings are real-time again.** 2.5.0's "best quality" settings (Full HD at 6 Mbps, 128 kbps voice)
+  stuttered and lagged on office laptops and Wi-Fi: the encoder and the network could not keep up, so sound and
+  picture queued. LANX now asks for H.264 first (laptops encode it in hardware), starts at HD and sensible bitrates,
+  keeps the motion smooth rather than the picture sharp, uses 64 kbps voice with loss repair, and **watches every
+  call**: when the encoder or the network struggles (dropped packets, long round trips, "cpu"/"bandwidth" limits) the
+  picture steps down a notch at once and climbs back after ten quiet seconds. Voice always goes first.
+- **Meme search finds hundreds.** Words typed on the Fresh tab now search every feed at once (nine feeds, including
+  a Desi one and the service's own mix) instead of filtering the few on screen; "More memes" brings another round of
+  new ones each time.
 
 ### New in 2.7.1: the music library pages are never empty
 - **Artists** offers the well-known singers for your languages (looked up once a day) above the ones you follow;

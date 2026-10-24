@@ -123,11 +123,16 @@ export async function loadTemplates(force = false): Promise<MemeItem[]> {
 // ------------------------------------------------------------ fresh memes (Reddit, through meme-api.com)
 
 export const FRESH_FEEDS: { id: string; name: string }[] = [
+  { id: "mix", name: "Mix" },
   { id: "wholesomememes", name: "Wholesome" },
   { id: "cleanmemes", name: "Clean" },
   { id: "memes", name: "Popular" },
+  { id: "desimemes", name: "Desi" },
   { id: "meirl", name: "Me irl" },
+  { id: "me_irl", name: "Me_irl" },
   { id: "ProgrammerHumor", name: "Office & IT" },
+  { id: "dankmemes", name: "Dank" },
+  { id: "funny", name: "Funny" },
 ];
 
 interface RedditMeme {
@@ -140,9 +145,10 @@ interface RedditMeme {
   preview?: string[];
 }
 
-/** A batch of recent memes from one feed. Anything marked adult or spoiler is left out. */
-export async function loadFresh(feed: string, count = 30): Promise<MemeItem[]> {
-  const res = await fetch(`https://meme-api.com/gimme/${encodeURIComponent(feed)}/${count}`);
+/** A batch of recent memes from one feed ("mix" = the service's own mix).
+ *  Anything marked adult or spoiler is left out. */
+export async function loadFresh(feed: string, count = 50): Promise<MemeItem[]> {
+  const res = await fetch(feed === "mix" ? `https://meme-api.com/gimme/${count}` : `https://meme-api.com/gimme/${encodeURIComponent(feed)}/${count}`);
   if (!res.ok) throw new Error(`The meme feed answered ${res.status}`);
   const data = (await res.json()) as { memes?: RedditMeme[] };
   return (data.memes ?? [])
@@ -158,6 +164,46 @@ export async function loadFresh(feed: string, count = 30): Promise<MemeItem[]> {
         kind: /\.gif$/i.test(m.url) ? ("gif" as const) : ("image" as const),
       };
     });
+}
+
+/** Memes from every feed at once (hundreds), without repeats. */
+export async function fetchPool(feeds: string[] = FRESH_FEEDS.map((f) => f.id), perFeed = 50): Promise<MemeItem[]> {
+  const batches = await Promise.allSettled(feeds.map((f) => loadFresh(f, perFeed)));
+  const out: MemeItem[] = [];
+  const seen = new Set<string>();
+  for (const b of batches) {
+    if (b.status !== "fulfilled") continue;
+    for (const m of b.value) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        out.push(m);
+      }
+    }
+  }
+  return out;
+}
+
+/** A real search: pools fresh memes from all feeds and keeps the ones whose
+ *  title has every word (or, failing that, any word). Each round brings new
+ *  ones, so "More memes" keeps finding more. */
+export async function searchFresh(query: string, rounds = 2): Promise<MemeItem[]> {
+  const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
+  if (!words.length) return [];
+  const found: MemeItem[] = [];
+  const seen = new Set<string>();
+  for (let r = 0; r < rounds; r++) {
+    const pool = await fetchPool();
+    const all = pool.filter((m) => words.every((w) => m.title.toLowerCase().includes(w)));
+    const any = pool.filter((m) => words.some((w) => m.title.toLowerCase().includes(w)));
+    for (const m of (all.length >= 6 ? all : [...all, ...any.filter((x) => !all.includes(x))])) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        found.push(m);
+      }
+    }
+    if (found.length >= 40) break;
+  }
+  return found;
 }
 
 // ------------------------------------------------------------ Tenor GIFs

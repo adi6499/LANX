@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { Conversation, MeetingEvent, MeetingInfo, MeetingPerson, Peer, Profile } from "../types";
 import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
-import { VOICE_BITRATE, clock, getMeetingCam, getMic, getScreen, iceGathered, tuneSdp, tuneSender, videoBudget } from "../lib/webrtc";
+import { VOICE_BITRATE, clock, getMeetingCam, getMic, getScreen, iceGathered, preferCodecs, tuneSdp, tuneSender, videoBudget, watchQuality } from "../lib/webrtc";
 import { Recorder, recordingSupported, type RecTile } from "../lib/recorder";
 import {
   Check,
@@ -82,6 +82,8 @@ interface Conn {
   connected: boolean;
   grace: number | null;
   timer: number | null;
+  /** LANX 2.8.0: stops this connection's quality watch. */
+  stop?: () => void;
 }
 
 interface Me {
@@ -168,6 +170,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         const c = connsRef.current.get(id);
         if (!c) return;
         clearTimers(c);
+        c.stop?.();
         c.pc.ontrack = null;
         c.pc.onconnectionstatechange = null;
         c.pc.close();
@@ -240,6 +243,10 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
           c.tries = 0;
           clearTimers(c);
           applyQuality();
+          c.stop?.();
+          c.stop = watchQuality(pc, () => c.video?.sender ?? null, () => videoBudget(meetingRef.current?.people.length ?? 2, !!screenRef.current), {
+            screen: () => !!screenRef.current,
+          });
         } else if (s === "disconnected") {
           if (!c.grace)
             c.grace = window.setTimeout(() => {
@@ -266,6 +273,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       try {
         await c.audio.sender.replaceTrack(micRef.current);
         await c.video.sender.replaceTrack(currentVideo());
+        preferCodecs(c.pc);
         await c.pc.setLocalDescription(await c.pc.createOffer());
         await iceGathered(c.pc);
         if (connsRef.current.get(id) !== c) return;
@@ -297,6 +305,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         }
         await c.audio?.sender.replaceTrack(micRef.current);
         await c.video?.sender.replaceTrack(currentVideo());
+        preferCodecs(c.pc);
         await c.pc.setLocalDescription(await c.pc.createAnswer());
         await iceGathered(c.pc);
         if (connsRef.current.get(from) !== c) return;

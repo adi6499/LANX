@@ -45,10 +45,12 @@ export async function getMic(): Promise<MediaStreamTrack | null> {
   }
 }
 
-/** The camera: Full HD for one-to-one calls, HD for meetings (many pictures
- *  are sent at once). Falls back to whatever the camera can do. */
+/** The camera: HD for one-to-one calls, a little less for meetings (many
+ *  pictures are sent at once). LANX 2.8.0: Full HD looked sharp on paper but
+ *  stuttered on office laptops (the encoder could not keep up); HD at a
+ *  steady 30 fps feels live. Falls back to whatever the camera can do. */
 export async function getCamera(kind: "call" | "meeting"): Promise<MediaStreamTrack | null> {
-  const hd = kind === "call" ? { width: 1920, height: 1080 } : { width: 1280, height: 720 };
+  const hd = kind === "call" ? { width: 1280, height: 720 } : { width: 960, height: 540 };
   for (const video of [
     { width: { ideal: hd.width }, height: { ideal: hd.height }, frameRate: { ideal: 30, max: 30 } },
     true as const,
@@ -89,12 +91,13 @@ const OPUS: Record<string, string> = {
   usedtx: "0", // never drop to "comfort noise"
   stereo: "0",
   "sprop-stereo": "0",
-  maxaveragebitrate: "128000", // studio-clear voice
+  maxaveragebitrate: "64000", // LANX 2.8.0: clear voice; more only adds delay
   maxplaybackrate: "48000",
   minptime: "10",
+  ptime: "20",
 };
-/** Start sharp instead of ramping up from a blurry picture. */
-const VIDEO_START = "x-google-start-bitrate=2500;x-google-min-bitrate=300";
+/** Start at a sensible rate and climb (2.8.0: starting high stalled on Wi-Fi). */
+const VIDEO_START = "x-google-start-bitrate=1000;x-google-min-bitrate=250";
 
 function mergeParams(existing: string, extra: Record<string, string>) {
   const map = new Map<string, string>();
@@ -153,28 +156,121 @@ type SendParams = RTCRtpSendParameters & { degradationPreference?: string };
  *  cameras, and voice always first. */
 export async function tuneSender(
   sender: RTCRtpSender | null | undefined,
-  opts: { maxBitrate: number; scale?: number; screen?: boolean; audio?: boolean; live?: boolean }
+  opts: { maxBitrate: number; scale?: number; screen?: boolean; audio?: boolean; live?: boolean; fps?: number }
 ): Promise<void> {
   if (!sender) return;
   try {
     const p = sender.getParameters() as SendParams;
     if (!p.encodings?.length) return; // not negotiated yet
     const e = p.encodings[0] as Encoding;
-    e.maxBitrate = opts.maxBitrate;
+    e.maxBitrate = Math.round(opts.maxBitrate);
     e.priority = "high";
     e.networkPriority = "high";
     if (!opts.audio) {
-      e.scaleResolutionDownBy = opts.scale ?? 1;
-      e.maxFramerate = 30;
+      e.scaleResolutionDownBy = Math.max(1, opts.scale ?? 1);
+      e.maxFramerate = opts.fps ?? 30;
       // A shown screen keeps its sharpness; while someone controls it
       // (`live`, LANX 2.1.0) the frame rate matters as much, or every
-      // click looks late.
-      p.degradationPreference = opts.screen && !opts.live ? "maintain-resolution" : "balanced";
+      // click looks late. A camera (2.8.0) keeps its motion smooth: a
+      // softer picture is fine, a stuttering one is not.
+      p.degradationPreference = opts.screen ? (opts.live ? "balanced" : "maintain-resolution") : "maintain-framerate";
     }
     await sender.setParameters(p);
   } catch {
     /* an older WebView ignores what it doesn't know */
   }
+}
+
+/** LANX 2.8.0: ask for H.264 first (office laptops encode it in hardware, so
+ *  the CPU stays free and frames are never late), then VP8 (cheap), then the
+ *  heavier ones. Call before an offer or answer is made. */
+export function preferCodecs(pc: RTCPeerConnection): void {
+  try {
+    const caps = RTCRtpReceiver.getCapabilities?.("video");
+    if (!caps?.codecs?.length) return;
+    const rank = (c: { mimeType: string; sdpFmtpLine?: string }) => {
+      const m = c.mimeType.toLowerCase();
+      const f = (c.sdpFmtpLine ?? "").toLowerCase();
+      if (m === "video/h264") return f.includes("packetization-mode=1") ? (f.includes("42e01f") || f.includes("42001f") ? 0 : 1) : 2;
+      if (m === "video/vp8") return 3;
+      if (m === "video/vp9") return 4;
+      if (m === "video/av1") return 5;
+      return 6; // rtx / red / ulpfec stay after their codecs
+    };
+    const ordered = [...caps.codecs].sort((a, b) => rank(a) - rank(b));
+    for (const t of pc.getTransceivers()) {
+      const kind = t.receiver.track?.kind ?? t.sender.track?.kind;
+      if (kind === "video" && typeof t.setCodecPreferences === "function") t.setCodecPreferences(ordered);
+    }
+  } catch {
+    /* an older WebView: the default order is used */
+  }
+}
+
+/** LANX 2.8.0: keeps a call real-time. Every two seconds it reads how the
+ *  picture is doing (encoder or network limited? packets lost? round trip?)
+ *  and steps the picture down a notch at once — smaller and lighter, never
+ *  late — then back up after ten quiet seconds. Returns a stop function. */
+export function watchQuality(
+  pc: RTCPeerConnection,
+  getSender: () => RTCRtpSender | null | undefined,
+  getBudget: () => { maxBitrate: number; scale: number },
+  opts: { screen: () => boolean; live?: () => boolean; onLevel?: (level: number, why: string) => void }
+): () => void {
+  const SCALE = [1, 1.5, 2, 3];
+  const RATE = [1, 0.6, 0.4, 0.25];
+  const FPS = [30, 30, 24, 20];
+  let level = 0;
+  let good = 0;
+  let applied = -1;
+  const apply = (why: string) => {
+    const b = getBudget();
+    void tuneSender(getSender(), {
+      maxBitrate: Math.max(200_000, b.maxBitrate * RATE[level]),
+      scale: b.scale * SCALE[level],
+      screen: opts.screen(),
+      live: opts.live?.() ?? false,
+      fps: FPS[level],
+    });
+    if (applied !== level) opts.onLevel?.(level, why);
+    applied = level;
+  };
+  const timer = window.setInterval(async () => {
+    if (pc.connectionState !== "connected") return;
+    let reason = "none";
+    let lost = 0;
+    let rtt = 0;
+    try {
+      (await pc.getStats()).forEach((x) => {
+        if (x.type === "outbound-rtp" && x.kind === "video") reason = x.qualityLimitationReason ?? "none";
+        if (x.type === "remote-inbound-rtp" && x.kind === "video") {
+          lost = Math.max(lost, x.fractionLost ?? 0);
+          rtt = Math.max(rtt, x.roundTripTime ?? 0);
+        }
+        if (x.type === "candidate-pair" && x.state === "succeeded" && x.nominated) rtt = Math.max(rtt, x.currentRoundTripTime ?? 0);
+      });
+    } catch {
+      return;
+    }
+    const bad = reason === "cpu" || reason === "bandwidth" || lost > 0.03 || rtt > 0.2;
+    const fine = reason === "none" && lost < 0.01 && rtt < 0.12;
+    if (bad) {
+      good = 0;
+      if (level < 3) {
+        level += 1;
+        apply(reason !== "none" ? reason : lost > 0.03 ? "loss" : "delay");
+      }
+    } else if (fine) {
+      good += 1;
+      if (good >= 5 && level > 0) {
+        level -= 1;
+        good = 0;
+        apply("recovered");
+      }
+    } else good = 0;
+    if (applied < 0) apply("start");
+  }, 2000);
+  return () => window.clearInterval(timer);
 }
 
 /** LANX 2.1.0: show each frame of a shared screen as soon as it arrives
@@ -217,16 +313,18 @@ export async function pictureStats(
   return { stats: { fps: Math.round(fps), delayMs: Math.round((wait + decode + rtt / 2) * 1000) }, snap: now };
 }
 
-/** Voice: 128 kbps Opus (far beyond phone quality). */
-export const VOICE_BITRATE = 128_000;
+/** Voice: 64 kbps Opus with loss repair — clear, and never a queue of sound. */
+export const VOICE_BITRATE = 64_000;
 
-/** Video for a call or meeting of `people` (us included). */
+/** Video for a call or meeting of `people` (us included). LANX 2.8.0: office
+ *  Wi-Fi and laptop encoders are the limit, not the wire — budgets that
+ *  stay smooth; the quality watch climbs or steps down from here. */
 export function videoBudget(people: number, screen: boolean): { maxBitrate: number; scale: number } {
-  if (screen) return { maxBitrate: people <= 2 ? 8_000_000 : people <= 4 ? 6_000_000 : 3_000_000, scale: 1 };
-  if (people <= 2) return { maxBitrate: 6_000_000, scale: 1 };
-  if (people <= 4) return { maxBitrate: 2_500_000, scale: 1 };
-  if (people <= 6) return { maxBitrate: 1_500_000, scale: 1.5 };
-  return { maxBitrate: 1_000_000, scale: 2 };
+  if (screen) return { maxBitrate: people <= 2 ? 5_000_000 : people <= 4 ? 3_000_000 : 2_000_000, scale: 1 };
+  if (people <= 2) return { maxBitrate: 2_500_000, scale: 1 };
+  if (people <= 4) return { maxBitrate: 1_200_000, scale: 1.5 };
+  if (people <= 6) return { maxBitrate: 800_000, scale: 2 };
+  return { maxBitrate: 600_000, scale: 2 };
 }
 
 /** "4:05" / "1:02:09" */

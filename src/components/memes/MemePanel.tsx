@@ -11,6 +11,7 @@ import {
   isTemplate,
   loadFavourites,
   loadFresh,
+  searchFresh,
   loadMemePrefs,
   loadRecent,
   loadTemplates,
@@ -82,24 +83,29 @@ export function MemePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fresh: a batch from the chosen feed (and "More" adds another).
+  // Fresh: a batch from the chosen feed (and "More" adds another); with words
+  // in the search box, a real search across every feed (hundreds of memes).
+  const merge = (replace: boolean, batch: MemeItem[]) =>
+    setFreshItems((old) => {
+      const base = replace ? [] : old;
+      const seen = new Set(base.map((m) => m.id));
+      return [...base, ...batch.filter((m) => !seen.has(m.id))];
+    });
   const loadMore = (replace: boolean) => {
     setLoading(true);
     setProblem(null);
-    loadFresh(feed)
-      .then((batch) => setFreshItems((old) => {
-        const base = replace ? [] : old;
-        const seen = new Set(base.map((m) => m.id));
-        return [...base, ...batch.filter((m) => !seen.has(m.id))];
-      }))
+    const q = query.trim();
+    (q ? searchFresh(q, replace ? 2 : 1) : loadFresh(feed))
+      .then((batch) => merge(replace, batch))
       .catch((e) => setProblem(`Fresh memes could not be loaded (is the internet on?): ${errorText(e)}`))
       .finally(() => setLoading(false));
   };
   useEffect(() => {
     if (tab !== "fresh") return;
-    loadMore(true);
+    const t = window.setTimeout(() => loadMore(true), query.trim() ? 450 : 0);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, feed]);
+  }, [tab, feed, query]);
 
   // Templates: the classic pictures (cached for a week).
   useEffect(() => {
@@ -195,10 +201,9 @@ export function MemePanel({
   };
   const isFav = (item: MemeItem) => favs.some((f) => f.id === item.id);
 
-  const q = query.trim().toLowerCase();
   const shown: MemeItem[] =
     tab === "fresh"
-      ? freshItems.filter((t) => !q || t.title.toLowerCase().includes(q))
+      ? freshItems
       : tab === "templates"
       ? templates.filter((t) => !query.trim() || t.title.toLowerCase().includes(query.trim().toLowerCase()))
       : tab === "gifs"
@@ -293,7 +298,7 @@ export function MemePanel({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder={tab === "gifs" ? "Search GIFs (e.g. monday, deadline, thank you)…" : tab === "templates" ? "Search templates (e.g. drake, distracted, cat)…" : tab === "fresh" ? "Filter these memes by their title…" : "Search…"}
+                  placeholder={tab === "gifs" ? "Search GIFs (e.g. monday, deadline, thank you)…" : tab === "templates" ? "Search templates (e.g. drake, distracted, cat)…" : tab === "fresh" ? "Search fresh memes (e.g. monday, boss, work from home)…" : "Search…"}
                   className="lanx-field w-full rounded-[12px] pl-9 pr-3 py-2 text-[13px] text-slate-900 dark:text-white"
                 />
               </div>
@@ -306,7 +311,8 @@ export function MemePanel({
                 {FRESH_FEEDS.map((f) => (
                   <button key={f.id} type="button" data-meme-feed={f.id} onClick={() => setFeed(f.id)} className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${feed === f.id ? "bg-sky-500 text-white" : "lanx-group text-slate-600 dark:text-slate-300"}`}>{f.name}</button>
                 ))}
-                <button type="button" data-meme-more disabled={loading} onClick={() => loadMore(false)} className="ml-auto px-2.5 py-1 rounded-full lanx-group text-[11px] font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50 inline-flex items-center gap-1"><RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> More memes</button>
+                <span className="ml-auto text-[11px] text-slate-400">{freshItems.length ? `${freshItems.length} memes` : ""}</span>
+                <button type="button" data-meme-more disabled={loading} onClick={() => loadMore(false)} className="px-2.5 py-1 rounded-full lanx-group text-[11px] font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50 inline-flex items-center gap-1"><RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> More memes</button>
               </div>
             )}
             {tab === "gifs" && !prefs.tenorKey && (
@@ -337,7 +343,7 @@ export function MemePanel({
               {loading && !shown.length && <div className="flex items-center justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}
               {!loading && !shown.length && !problem && tab !== "gifs" && (
                 <p className="px-1 py-10 text-center text-[12.5px] text-slate-400">
-                  {tab === "favs" ? "No favourites yet — press the heart on any meme." : tab === "recent" ? "Nothing sent, copied or shared yet." : tab === "fresh" ? "No memes in this feed right now — try another feed or More memes." : "No template matches that."}
+                  {tab === "favs" ? "No favourites yet — press the heart on any meme." : tab === "recent" ? "Nothing sent, copied or shared yet." : tab === "fresh" ? (query.trim() ? "No fresh meme matches those words right now — try other words or press More memes (each round brings new ones)." : "No memes in this feed right now — try another feed or More memes.") : "No template matches that."}
                 </p>
               )}
               <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
