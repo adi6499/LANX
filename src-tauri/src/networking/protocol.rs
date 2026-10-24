@@ -91,6 +91,8 @@ pub const FEATURES_REPORT: &str = "2.4.0";
 pub const FEATURES_MUSIC: &str = "2.7.0";
 /// LANX 2.9.0: games between two colleagues (`Game` packets, "game" cards).
 pub const FEATURES_GAMES: &str = "2.9.0";
+/// LANX 2.9.1: the Chain Reaction game (a 2.9.0 copy would refuse it).
+pub const FEATURES_CHAIN_REACTION: &str = "2.9.1";
 
 /// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
 /// whose reason is the colleague's status (waiting | accepted | declined | …).

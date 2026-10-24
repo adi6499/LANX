@@ -14,7 +14,7 @@ use crate::storage::models::Peer;
 use serde::Serialize;
 
 /// The games LANX knows. Anything else is refused on both sides.
-pub const GAME_IDS: [&str; 4] = ["tictactoe", "connect4", "reversi", "chess"];
+pub const GAME_IDS: [&str; 5] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction"];
 /// The steps a match can take.
 pub const GAME_ACTIONS: [&str; 7] = ["accept", "decline", "move", "resign", "rematch", "leave", "state"];
 /// A step's data as JSON is at most this long (a whole chess game is ~2 KB).
@@ -26,7 +26,16 @@ pub fn game_name(id: &str) -> &'static str {
         "connect4" => "Connect Four",
         "reversi" => "Reversi",
         "chess" => "Chess",
+        "chainreaction" => "Chain Reaction",
         _ => "Game",
+    }
+}
+
+/// The oldest LANX that knows this game.
+pub fn game_min_version(id: &str) -> &'static str {
+    match id {
+        "chainreaction" => FEATURES_CHAIN_REACTION,
+        _ => FEATURES_GAMES,
     }
 }
 
@@ -75,12 +84,16 @@ impl NetworkService {
             return Err(format!("{} is offline right now.", peer.display_name));
         }
         let mut chan = self.connect_peer(&peer).await.map_err(|_| format!("Could not reach {}'s LANX.", peer.display_name))?;
-        if !version_at_least(&chan.remote.app_version, FEATURES_GAMES) {
+        let min = game_min_version(&p.game);
+        if !version_at_least(&chan.remote.app_version, min) {
             let v = chan.remote.app_version.clone();
             chan.close().await;
             return Err(format!(
-                "{}'s LANX ({}) is older than 2.9.0 and has no games yet. Send them the update from Settings → Updates.",
-                peer.display_name, v
+                "{}'s LANX ({}) is older than {} and does not have {} yet. Send them the update from Settings → Updates.",
+                peer.display_name,
+                v,
+                min,
+                game_name(&p.game)
             ));
         }
         let reply = NetworkService::send_acked(&mut chan, PacketPayload::Game(p)).await;
@@ -143,6 +156,14 @@ mod tests {
     #[test]
     fn games_have_names() {
         assert_eq!(game_name("connect4"), "Connect Four");
+        assert_eq!(game_name("chainreaction"), "Chain Reaction");
         assert_eq!(game_name("nope"), "Game");
+    }
+
+    #[test]
+    fn newer_games_need_newer_copies() {
+        assert_eq!(game_min_version("chess"), FEATURES_GAMES);
+        assert_eq!(game_min_version("chainreaction"), FEATURES_CHAIN_REACTION);
+        assert!(check_game_step(&step("chainreaction", "move")).is_ok());
     }
 }

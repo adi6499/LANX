@@ -8,7 +8,7 @@
 
 import { Chess, type Square } from "chess.js";
 
-export type GameId = "tictactoe" | "connect4" | "reversi" | "chess";
+export type GameId = "tictactoe" | "connect4" | "reversi" | "chess" | "chainreaction";
 
 /** How a game stands after its moves: still on, or over and who won. */
 export interface Outcome {
@@ -249,6 +249,102 @@ function chessOutcome(moves: string[]): Outcome {
   return ON;
 }
 
+// ---------------------------------------------------------------- Chain Reaction
+// Moves: "0".."53" (cell = row * 9 + col). You may only place an orb in an
+// empty cell or one you own. A cell explodes when it holds as many orbs as
+// it has neighbours (2 in a corner, 3 on an edge, 4 inside): one orb goes to
+// each neighbour, which becomes yours — and may explode in turn. Once both
+// players have moved, whoever has no orbs left has lost. Player 0 is red.
+
+export const CR_ROWS = 6;
+export const CR_COLS = 9;
+export interface CRCell {
+  owner: 0 | 1 | null;
+  n: number;
+}
+export type CRBoard = CRCell[];
+
+/** How many orbs make a cell explode: its number of neighbours. */
+export const crCritical = (i: number): number => {
+  const r = Math.floor(i / CR_COLS);
+  const c = i % CR_COLS;
+  return 4 - (r === 0 || r === CR_ROWS - 1 ? 1 : 0) - (c === 0 || c === CR_COLS - 1 ? 1 : 0);
+};
+
+function crNeighbours(i: number): number[] {
+  const r = Math.floor(i / CR_COLS);
+  const c = i % CR_COLS;
+  const out: number[] = [];
+  if (r > 0) out.push(i - CR_COLS);
+  if (r < CR_ROWS - 1) out.push(i + CR_COLS);
+  if (c > 0) out.push(i - 1);
+  if (c < CR_COLS - 1) out.push(i + 1);
+  return out;
+}
+
+export const crEmpty = (): CRBoard => Array.from({ length: CR_ROWS * CR_COLS }, () => ({ owner: null, n: 0 }));
+
+export function crCounts(b: CRBoard): [number, number] {
+  let red = 0;
+  let blue = 0;
+  for (const c of b) {
+    if (c.owner === 0) red += c.n;
+    else if (c.owner === 1) blue += c.n;
+  }
+  return [red, blue];
+}
+
+/** Places an orb for `player`: the boards right after placing and after each
+ *  wave of explosions (the last one is the result), or null when not allowed. */
+export function crPlace(b: CRBoard, cell: number, player: 0 | 1): CRBoard[] | null {
+  if (!Number.isInteger(cell) || cell < 0 || cell >= b.length) return null;
+  if (b[cell].owner !== null && b[cell].owner !== player) return null;
+  let cur = b.map((c) => ({ ...c }));
+  cur[cell] = { owner: player, n: cur[cell].n + 1 };
+  const waves = [cur];
+  for (let guard = 0; guard < 400; guard++) {
+    const hot: number[] = [];
+    cur.forEach((c, i) => {
+      if (c.n >= crCritical(i)) hot.push(i);
+    });
+    if (!hot.length) break;
+    const next = cur.map((c) => ({ ...c }));
+    for (const i of hot) {
+      next[i].n -= crCritical(i);
+      if (next[i].n === 0) next[i].owner = null;
+      for (const j of crNeighbours(i)) {
+        next[j].n += 1;
+        next[j].owner = player;
+      }
+    }
+    cur = next;
+    waves.push(cur);
+    if (crCounts(cur)[1 - player] === 0) break; // the other side is wiped out: won
+  }
+  return waves;
+}
+
+/** Replays the moves; null when one of them is not allowed. */
+export function crBoard(moves: string[]): CRBoard | null {
+  let b = crEmpty();
+  for (let i = 0; i < moves.length; i++) {
+    if (i >= 2 && crCounts(b).some((n) => n === 0)) return null; // the game was already over
+    const waves = crPlace(b, Number(moves[i]), (i % 2) as 0 | 1);
+    if (!waves) return null;
+    b = waves[waves.length - 1];
+  }
+  return b;
+}
+
+function crOutcome(moves: string[]): Outcome {
+  const b = crBoard(moves);
+  if (!b || moves.length < 2) return ON;
+  const [red, blue] = crCounts(b);
+  if (red === 0) return win(1, "the board is all blue");
+  if (blue === 0) return win(0, "the board is all red");
+  return ON;
+}
+
 // ---------------------------------------------------------------- shared
 
 /** True when every move is allowed, in order, from the start. */
@@ -263,6 +359,8 @@ export function validateMoves(game: GameId, moves: string[]): boolean {
       return reversiBoard(moves) !== null;
     case "chess":
       return chessGame(moves) !== null;
+    case "chainreaction":
+      return crBoard(moves) !== null;
     default:
       return false;
   }
@@ -278,6 +376,8 @@ export function outcome(game: GameId, moves: string[]): Outcome {
       return reversiOutcome(moves);
     case "chess":
       return chessOutcome(moves);
+    case "chainreaction":
+      return crOutcome(moves);
     default:
       return ON;
   }

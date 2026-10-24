@@ -12,7 +12,7 @@
 import { api, errorText } from "./api";
 import type { Message, Peer } from "../types";
 
-export type GameId = "tictactoe" | "connect4" | "reversi" | "chess";
+export type GameId = "tictactoe" | "connect4" | "reversi" | "chess" | "chainreaction";
 export type SoloId = "2048" | "snake" | "mines";
 
 export interface GameMeta {
@@ -28,12 +28,13 @@ export const GAMES: GameMeta[] = [
   { id: "connect4", name: "Connect Four", blurb: "Drop discs, line up four.", players: 2, emoji: "🔴" },
   { id: "reversi", name: "Reversi", blurb: "Flip the board to your colour.", players: 2, emoji: "⚫" },
   { id: "chess", name: "Chess", blurb: "The real thing, full rules.", players: 2, emoji: "♞" },
+  { id: "chainreaction", name: "Chain Reaction", blurb: "Fill cells with orbs; explode across the board.", players: 2, emoji: "💥" },
   { id: "2048", name: "2048", blurb: "Slide and merge the tiles.", players: 1, emoji: "🔢" },
   { id: "snake", name: "Snake", blurb: "Eat, grow, don't bite yourself.", players: 1, emoji: "🐍" },
   { id: "mines", name: "Minesweeper", blurb: "Clear the field. Mind the mines.", players: 1, emoji: "💣" },
 ];
 
-export const LAN_GAMES: GameId[] = ["tictactoe", "connect4", "reversi", "chess"];
+export const LAN_GAMES: GameId[] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction"];
 export const isLanGame = (id: string): id is GameId => (LAN_GAMES as string[]).includes(id);
 export const gameMeta = (id: string): GameMeta | undefined => GAMES.find((g) => g.id === id);
 export const gameName = (id: string): string => gameMeta(id)?.name ?? "Game";

@@ -9,7 +9,7 @@ import type { Peer } from "../../types";
 import { Avatar } from "../Avatar";
 import * as games from "../../lib/games";
 import { GAMES, type GameCardData, type GameId, type GameMeta, type Match, type SoloId } from "../../lib/games";
-import { ChessBoard, ChessMoves, ConnectFourBoard, ReversiBoard, TicTacToeBoard, type BoardProps } from "./Boards";
+import { ChainReactionBoard, ChessBoard, ChessMoves, ConnectFourBoard, ReversiBoard, TicTacToeBoard, type BoardProps } from "./Boards";
 import { Game2048, Minesweeper, SnakeGame } from "./Solo";
 
 interface Props {
@@ -27,7 +27,7 @@ interface Props {
 }
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors active:scale-95 disabled:opacity-50 disabled:active:scale-100";
-const SEAT_LABEL: Record<GameId, [string, string]> = { tictactoe: ["✕", "○"], connect4: ["Red", "Yellow"], reversi: ["Black", "White"], chess: ["White", "Black"] };
+const SEAT_LABEL: Record<GameId, [string, string]> = { tictactoe: ["✕", "○"], connect4: ["Red", "Yellow"], reversi: ["Black", "White"], chess: ["White", "Black"], chainreaction: ["Red", "Blue"] };
 
 function statsLine(id: string): string {
   const s = games.statsFor(id);
@@ -343,6 +343,7 @@ function MatchView({ match: m, myId, onMove, onBack, onError }: { match: Match; 
               {m.game === "connect4" && <ConnectFourBoard {...board} />}
               {m.game === "reversi" && <ReversiBoard {...board} />}
               {m.game === "chess" && <ChessBoard {...board} />}
+              {m.game === "chainreaction" && <ChainReactionBoard {...board} />}
             </>
           )}
         </div>

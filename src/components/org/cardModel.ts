@@ -107,7 +107,7 @@ export interface GameCard {
   kind: "game";
   /** The match id. */
   id: string;
-  game: "tictactoe" | "connect4" | "reversi" | "chess";
+  game: "tictactoe" | "connect4" | "reversi" | "chess" | "chainreaction";
   to: string;
   to_name: string;
   from_name: string;

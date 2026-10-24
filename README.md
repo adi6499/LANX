@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.9.0)
+# LANX — Local Network Messenger (v2.9.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,12 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.9.1: Chain Reaction
+- **Chain Reaction** joins the games (`/game chain`): place orbs in empty cells or your own; a cell bursts when it
+  holds as many orbs as it has neighbours (2 in a corner, 3 on an edge, 4 inside), spreading to the neighbours and
+  taking them over — chains go off wave by wave on both PCs. Once both have played, a player with no orbs left has
+  lost. The other side needs 2.9.1 for this game (the other four work with 2.9.0).
 
 ### New in 2.9.0: games with colleagues (hidden)
 - **Type `/game` in any chat** (or `/game chess`, `/arcade`) and a games window opens — it is in no menu, like memes

@@ -2,16 +2,23 @@
 // position from the list of moves and reports the move a player makes; the
 // rules live in lib/gameRules.ts and the match in lib/games.ts.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Square } from "chess.js";
 import {
   C4_COLS,
   C4_ROWS,
+  CR_COLS,
   c4Grid,
   c4WinCells,
   chessGame,
   chessSan,
   chessTargets,
+  crBoard,
+  crCounts,
+  crCritical,
+  crEmpty,
+  crPlace,
+  type CRBoard,
   reversiBoard,
   reversiCount,
   reversiLegal,
@@ -145,6 +152,93 @@ export function ReversiBoard({ moves, canPlay, turn, onMove }: BoardProps) {
   );
 }
 
+// ---------------------------------------------------------------- Chain Reaction
+
+/** Where 1–4 orbs sit inside a cell (percent of the cell's inner square; an orb is 42% wide). */
+const ORB_POS: CSSProperties[][] = [
+  [{ left: "29%", top: "29%" }],
+  [{ left: "2%", top: "29%" }, { left: "56%", top: "29%" }],
+  [{ left: "29%", top: "2%" }, { left: "2%", top: "56%" }, { left: "56%", top: "56%" }],
+  [{ left: "2%", top: "2%" }, { left: "56%", top: "2%" }, { left: "2%", top: "56%" }, { left: "56%", top: "56%" }],
+];
+const ORB_COLOUR = ["bg-rose-500", "bg-sky-500"];
+
+export function ChainReactionBoard({ moves, canPlay, turn, onMove }: BoardProps) {
+  const final = useMemo(() => crBoard(moves) ?? crEmpty(), [moves]);
+  // The last move's explosions, wave by wave, so both PCs see the chain go off.
+  const waves = useMemo(() => {
+    if (!moves.length) return null;
+    const prev = crBoard(moves.slice(0, -1));
+    return prev ? crPlace(prev, Number(moves[moves.length - 1]), ((moves.length - 1) % 2) as 0 | 1) : null;
+  }, [moves]);
+  const [frame, setFrame] = useState<CRBoard | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!waves || waves.length < 2) {
+      setFrame(null);
+      setBusy(false);
+      return;
+    }
+    let k = 0;
+    setBusy(true);
+    setFrame(waves[0]);
+    const t = window.setInterval(() => {
+      k += 1;
+      if (k >= waves.length) {
+        window.clearInterval(t);
+        setFrame(null);
+        setBusy(false);
+        return;
+      }
+      setFrame(waves[k]);
+    }, 170);
+    return () => window.clearInterval(t);
+  }, [waves]);
+  const board = frame ?? final;
+  const [red, blue] = crCounts(final);
+  return (
+    <div data-game-board="chainreaction" data-cr-busy={busy ? "1" : undefined} className="flex w-full flex-col items-center gap-2">
+      <div className="flex items-center gap-4 text-[12.5px] font-semibold" data-cr-counts>
+        <span className="inline-flex items-center gap-1.5" data-cr-red>
+          <span className="h-3.5 w-3.5 rounded-full bg-rose-500" /> {red}
+        </span>
+        <span className="inline-flex items-center gap-1.5" data-cr-blue>
+          <span className="h-3.5 w-3.5 rounded-full bg-sky-500" /> {blue}
+        </span>
+      </div>
+      {/* Nine columns that shrink with the window: never wider than the space beside the side panel. */}
+      <div className="grid w-full max-w-[470px] gap-[3px] rounded-xl bg-slate-900 p-[6px]" style={{ gridTemplateColumns: `repeat(${CR_COLS}, minmax(0, 1fr))` }}>
+        {board.map((c, i) => {
+          const can = canPlay && !busy && (c.owner === null || c.owner === turn);
+          const near = c.n > 0 && c.n === crCritical(i) - 1;
+          const shown = Math.min(c.n, 4);
+          return (
+            <button
+              key={i}
+              type="button"
+              data-cr-cell={i}
+              data-cr-owner={c.owner ?? ""}
+              data-cr-count={c.n}
+              disabled={!can}
+              onClick={() => onMove(String(i))}
+              className={`aspect-square w-full min-w-0 rounded-md flex items-center justify-center bg-slate-800 ${can ? `cursor-pointer ${turn === 0 ? "hover:bg-rose-500/25" : "hover:bg-sky-500/25"}` : ""} disabled:cursor-default`}
+            >
+              {c.n > 0 && (
+                <span className={`relative block h-[72%] w-[72%] ${near ? "animate-pulse" : ""}`}>
+                  {Array.from({ length: shown }, (_, k) => (
+                    <span key={k} className={`absolute h-[42%] w-[42%] rounded-full shadow-md ${ORB_COLOUR[c.owner ?? 0]} lanx-pop`} style={ORB_POS[shown - 1][k]} />
+                  ))}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div className="max-w-[400px] text-center text-[11px] text-slate-500">A corner bursts at 2 orbs, an edge at 3, the middle at 4 — and takes the neighbours with it.</div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Chess
 
 const GLYPH: Record<string, string> = { wk: "♔", wq: "♕", wr: "♖", wb: "♗", wn: "♘", wp: "♙", bk: "♚", bq: "♛", br: "♜", bb: "♝", bn: "♞", bp: "♟" };
@@ -178,9 +272,23 @@ export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
     else setFrom(null);
   };
 
+  // The board takes the room it has (up to 54 px a square) instead of overflowing.
+  const wrap = useRef<HTMLDivElement>(null);
+  const [cell, setCell] = useState(54);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const fit = () => setCell(Math.max(28, Math.min(54, Math.floor(el.clientWidth / 8))));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const ranks = flip ? [...board].reverse() : board;
   return (
-    <div data-game-board="chess" className="rounded-xl overflow-hidden ring-1 ring-black/20 shadow-lg select-none" style={{ width: 8 * 54 }}>
+    <div ref={wrap} className="flex w-full max-w-[432px] justify-center">
+    <div data-game-board="chess" className="rounded-xl overflow-hidden ring-1 ring-black/20 shadow-lg select-none" style={{ width: cell * 8 }}>
       {ranks.map((row, ri) => {
         const rank = flip ? ri + 1 : 8 - ri;
         const cells = flip ? [...row].reverse() : row;
@@ -200,7 +308,8 @@ export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
                   type="button"
                   data-chess-square={sq}
                   onClick={() => tap(sq, piece)}
-                  className={`relative h-[54px] w-[54px] flex items-center justify-center text-[38px] leading-none ${dark ? "bg-[#769656]" : "bg-[#eeeed2]"} ${isFrom ? "!bg-amber-300" : ""} ${wasLast && !isFrom ? "!bg-yellow-200/80" : ""} ${check ? "!bg-red-400" : ""} ${canPlay ? "cursor-pointer" : "cursor-default"}`}
+                  style={{ width: cell, height: cell, fontSize: Math.round(cell * 0.7) }}
+                  className={`relative flex items-center justify-center leading-none ${dark ? "bg-[#769656]" : "bg-[#eeeed2]"} ${isFrom ? "!bg-amber-300" : ""} ${wasLast && !isFrom ? "!bg-yellow-200/80" : ""} ${check ? "!bg-red-400" : ""} ${canPlay ? "cursor-pointer" : "cursor-default"}`}
                 >
                   {piece && <span className={`lanx-pop ${piece.color === "w" ? "text-white drop-shadow-[0_1px_1px_rgba(0,0,0,.8)]" : "text-black"}`}>{GLYPH[`${piece.color}${piece.type}`]}</span>}
                   {isTarget && <span className={`absolute ${piece ? "inset-0 ring-4 ring-inset ring-slate-900/40 rounded-sm" : "h-4 w-4 rounded-full bg-slate-900/35"}`} />}
@@ -212,6 +321,7 @@ export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
           </div>
         );
       })}
+    </div>
     </div>
   );
 }

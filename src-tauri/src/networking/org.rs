@@ -59,7 +59,10 @@ pub fn card_min_version(content: &str) -> &'static str {
         Some("ticket") => FEATURES_HELP,
         Some("report") => FEATURES_REPORT,
         Some("music") => FEATURES_MUSIC,
-        Some("game") => FEATURES_GAMES,
+        Some("game") => {
+            let g = parse_card(content).and_then(|c| c["game"].as_str().map(String::from)).unwrap_or_default();
+            super::games::game_min_version(&g)
+        }
         _ => FEATURES_ORG,
     }
 }
@@ -655,6 +658,9 @@ mod game_card_tests {
         assert!(card_preview(&text).contains("Chess"));
         assert!(card_fallback(&text).contains("Update LANX"));
         assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "ludo", "to": "x" })).is_err(), "unknown game");
+        let chain = clean_card(&json!({ "kind": "game", "id": "m2", "game": "chainreaction", "to": "peer-b" })).unwrap().to_string();
+        assert_eq!(card_min_version(&chain), FEATURES_CHAIN_REACTION, "Chain Reaction needs 2.9.1 on the other side");
+        assert!(card_preview(&chain).contains("Chain Reaction"));
         assert!(clean_card(&json!({ "kind": "game", "id": "../m", "game": "chess", "to": "x" })).is_err(), "odd id");
         assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "chess" })).is_err(), "no opponent");
         // Only the two players record how it ended.
