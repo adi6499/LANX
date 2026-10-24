@@ -6,8 +6,11 @@ import {
   type MemeItem,
   type MemePrefs,
   DEFAULT_MEME_PREFS,
+  FRESH_FEEDS,
   captionTemplate,
+  isTemplate,
   loadFavourites,
+  loadFresh,
   loadMemePrefs,
   loadRecent,
   loadTemplates,
@@ -21,7 +24,7 @@ import {
   toggleFavourite,
 } from "../../lib/memes";
 
-type Tab = "templates" | "gifs" | "favs" | "recent";
+type Tab = "fresh" | "templates" | "gifs" | "favs" | "recent";
 type Act = "send" | "copy" | "wa";
 
 /** LANX 2.6.0: the hidden meme & GIF picker. Opened by typing `/meme` (or
@@ -40,7 +43,9 @@ export function MemePanel({
   onError: (t: string) => void;
   onSendToChat: (path: string) => Promise<void> | void;
 }) {
-  const [tab, setTab] = useState<Tab>("templates");
+  const [tab, setTab] = useState<Tab>("fresh");
+  const [feed, setFeed] = useState(FRESH_FEEDS[0].id);
+  const [freshItems, setFreshItems] = useState<MemeItem[]>([]);
   const [query, setQuery] = useState(initialQuery ?? "");
   const [templates, setTemplates] = useState<MemeItem[]>([]);
   const [gifs, setGifs] = useState<MemeItem[]>([]);
@@ -76,6 +81,25 @@ export function MemePanel({
     return () => window.removeEventListener("keydown", onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fresh: a batch from the chosen feed (and "More" adds another).
+  const loadMore = (replace: boolean) => {
+    setLoading(true);
+    setProblem(null);
+    loadFresh(feed)
+      .then((batch) => setFreshItems((old) => {
+        const base = replace ? [] : old;
+        const seen = new Set(base.map((m) => m.id));
+        return [...base, ...batch.filter((m) => !seen.has(m.id))];
+      }))
+      .catch((e) => setProblem(`Fresh memes could not be loaded (is the internet on?): ${errorText(e)}`))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => {
+    if (tab !== "fresh") return;
+    loadMore(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, feed]);
 
   // Templates: the classic pictures (cached for a week).
   useEffect(() => {
@@ -171,8 +195,11 @@ export function MemePanel({
   };
   const isFav = (item: MemeItem) => favs.some((f) => f.id === item.id);
 
+  const q = query.trim().toLowerCase();
   const shown: MemeItem[] =
-    tab === "templates"
+    tab === "fresh"
+      ? freshItems.filter((t) => !q || t.title.toLowerCase().includes(q))
+      : tab === "templates"
       ? templates.filter((t) => !query.trim() || t.title.toLowerCase().includes(query.trim().toLowerCase()))
       : tab === "gifs"
         ? gifs
@@ -222,7 +249,8 @@ export function MemePanel({
           <h3 className="text-[15px] font-bold text-slate-900 dark:text-white">{editing ? `Caption: ${editing.title}` : "Memes & GIFs"}</h3>
           {!editing && <span className="text-[11px] text-slate-400">hidden tool · type /meme in any chat</span>}
           <div className="ml-auto flex items-center gap-1.5">
-            {!editing && tabBtn("templates", "Templates")}
+            {!editing && tabBtn("fresh", "Fresh")}
+            {!editing && tabBtn("templates", `Templates${templates.length ? ` · ${templates.length}` : ""}`)}
             {!editing && tabBtn("gifs", "GIFs")}
             {!editing && tabBtn("favs", `Favourites${favs.length ? ` · ${favs.length}` : ""}`)}
             {!editing && tabBtn("recent", "Recent")}
@@ -265,7 +293,7 @@ export function MemePanel({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder={tab === "gifs" ? "Search GIFs (e.g. monday, deadline, thank you)…" : tab === "templates" ? "Search templates (e.g. drake, distracted, cat)…" : "Search…"}
+                  placeholder={tab === "gifs" ? "Search GIFs (e.g. monday, deadline, thank you)…" : tab === "templates" ? "Search templates (e.g. drake, distracted, cat)…" : tab === "fresh" ? "Filter these memes by their title…" : "Search…"}
                   className="lanx-field w-full rounded-[12px] pl-9 pr-3 py-2 text-[13px] text-slate-900 dark:text-white"
                 />
               </div>
@@ -273,8 +301,17 @@ export function MemePanel({
                 <button type="button" title="Refresh the template list" onClick={() => { setTemplates([]); loadTemplates(true).then(setTemplates).catch((e) => onError(errorText(e))); }} className="lanx-tool p-2 text-slate-500"><RefreshCw className="h-4 w-4" /></button>
               )}
             </div>
+            {tab === "fresh" && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {FRESH_FEEDS.map((f) => (
+                  <button key={f.id} type="button" data-meme-feed={f.id} onClick={() => setFeed(f.id)} className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${feed === f.id ? "bg-sky-500 text-white" : "lanx-group text-slate-600 dark:text-slate-300"}`}>{f.name}</button>
+                ))}
+                <button type="button" data-meme-more disabled={loading} onClick={() => loadMore(false)} className="ml-auto px-2.5 py-1 rounded-full lanx-group text-[11px] font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50 inline-flex items-center gap-1"><RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> More memes</button>
+              </div>
+            )}
             {tab === "gifs" && !prefs.tenorKey && (
               <div data-meme-key-box className="mt-3 rounded-xl lanx-group p-4 text-[12.5px] text-slate-600 dark:text-slate-300">
+                <b>Only GIFs need a key — Fresh memes and the templates work without one.</b><br />
                 <b>GIFs need a free Tenor key (one time, about five minutes).</b>
                 <ol className="mt-1.5 list-decimal pl-5 space-y-0.5 text-[12px]">
                   <li>Open console.cloud.google.com and sign in with a Google account.</li>
@@ -300,7 +337,7 @@ export function MemePanel({
               {loading && !shown.length && <div className="flex items-center justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}
               {!loading && !shown.length && !problem && tab !== "gifs" && (
                 <p className="px-1 py-10 text-center text-[12.5px] text-slate-400">
-                  {tab === "favs" ? "No favourites yet — press the heart on any meme." : tab === "recent" ? "Nothing sent, copied or shared yet." : "No template matches that."}
+                  {tab === "favs" ? "No favourites yet — press the heart on any meme." : tab === "recent" ? "Nothing sent, copied or shared yet." : tab === "fresh" ? "No memes in this feed right now — try another feed or More memes." : "No template matches that."}
                 </p>
               )}
               <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
@@ -308,15 +345,15 @@ export function MemePanel({
                   <div
                     key={item.id}
                     data-meme-item={item.id}
-                    title={item.source === "imgflip" ? `${item.title} — click to add your own text` : item.title}
+                    title={isTemplate(item) ? `${item.title} — click to add your own text` : item.title}
                     onClick={() => {
-                      if (item.source === "imgflip") {
+                      if (isTemplate(item)) {
                         setEditing(item);
                         setMade(null);
                         setCaption({ top: "", bottom: "", size: 1 });
                       }
                     }}
-                    className={`group relative aspect-square rounded-xl overflow-hidden lanx-group ${item.source === "imgflip" ? "cursor-pointer" : ""}`}
+                    className={`group relative aspect-square rounded-xl overflow-hidden lanx-group ${isTemplate(item) ? "cursor-pointer" : ""}`}
                   >
                     <img src={item.preview} alt={item.title} loading="lazy" className="h-full w-full object-cover" />
                     <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition flex items-center gap-1">
@@ -333,7 +370,7 @@ export function MemePanel({
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between text-[10.5px] text-slate-400">
-              <span>{tab === "templates" ? "Templates: Imgflip · captions drawn by LANX" : tab === "gifs" ? (prefs.tenorKey ? "Powered by Tenor" : "") : ""}</span>
+              <span>{tab === "templates" ? "Templates: Imgflip and memegen.link · captions drawn by LANX" : tab === "fresh" ? "Fresh memes: Reddit, through meme-api.com · adult or spoiler posts are left out" : tab === "gifs" ? (prefs.tenorKey ? "Powered by Tenor" : "") : ""}</span>
               {tab === "gifs" && prefs.tenorKey && (
                 <button type="button" onClick={() => { setPrefs({ ...prefs, tenorKey: "" }); void saveMemePrefs({ ...prefs, tenorKey: "" }); }} className="underline">change key</button>
               )}

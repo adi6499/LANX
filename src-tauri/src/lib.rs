@@ -641,6 +641,7 @@ pub fn run() {
             commands::calendar::set_pref,
             commands::share::share_whatsapp,
             commands::memes::save_meme_file,
+            commands::memes::download_meme,
             commands::memes::copy_file_to_clipboard,
             commands::wallpaper::pick_wallpaper,
             commands::wallpaper::clear_wallpaper_file,

@@ -1676,6 +1676,11 @@ export const api = {
     if (isTauri) return invoke("save_meme_file", bytes, { headers: { "x-ext": ext, "x-name": name.replace(/[^\x20-\x7e]/g, "").slice(0, 60) } });
     return { file: `preview-meme-${Date.now()}.${ext}`, bytes: bytes.length };
   },
+  /** LANX 2.7.0: a meme picture downloaded by LANX itself (hosts the page may not fetch from). */
+  downloadMeme: async (url: string, ext: string, name: string): Promise<{ file: string; bytes: number }> => {
+    if (isTauri) return invoke("download_meme", { url, ext, name });
+    return { file: `preview-meme-${Date.now()}.${ext}`, bytes: 0 };
+  },
   /** LANX 2.6.0: the file (and, for a picture, the picture) onto the clipboard. */
   copyFileToClipboard: async (path: string): Promise<void> => {
     if (isTauri) return invoke("copy_file_to_clipboard", { path });

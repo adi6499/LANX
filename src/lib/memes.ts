@@ -6,7 +6,9 @@
  *  content filter is on). Favourites and recent memes stay on this PC. */
 import { api } from "./api";
 
-export type MemeSource = "imgflip" | "tenor" | "mine";
+export type MemeSource = "imgflip" | "memegen" | "reddit" | "tenor" | "mine";
+/** A template is a blank picture you caption yourself. */
+export const isTemplate = (m: MemeItem) => m.source === "imgflip" || m.source === "memegen";
 
 export interface MemeItem {
   id: string;
@@ -77,35 +79,85 @@ interface ImgflipMeme {
   box_count: number;
 }
 
-/** The classic templates (cached for a week, so the picker works offline). */
+async function imgflipTemplates(): Promise<MemeItem[]> {
+  const res = await fetch("https://api.imgflip.com/get_memes");
+  if (!res.ok) throw new Error(`Imgflip answered ${res.status}`);
+  const data = (await res.json()) as { success: boolean; data?: { memes: ImgflipMeme[] } };
+  return (data.data?.memes ?? []).map((m) => ({
+    id: `imgflip-${m.id}`,
+    source: "imgflip" as const,
+    title: m.name,
+    preview: m.url,
+    full: m.url,
+    kind: "image" as const,
+    width: m.width,
+    height: m.height,
+    boxes: m.box_count,
+  }));
+}
+/** memegen.link: about 200 more blank templates (free, no key). */
+async function memegenTemplates(): Promise<MemeItem[]> {
+  const res = await fetch("https://api.memegen.link/templates/");
+  if (!res.ok) throw new Error(`memegen answered ${res.status}`);
+  const data = (await res.json()) as { id: string; name: string; blank: string; lines?: number }[];
+  return data
+    .filter((t) => t.id && t.blank)
+    .map((t) => ({ id: `memegen-${t.id}`, source: "memegen" as const, title: t.name || t.id, preview: t.blank, full: t.blank, kind: "image" as const, boxes: t.lines }));
+}
+
+/** The templates from both sources (cached for a week, so the picker works offline). */
 export async function loadTemplates(force = false): Promise<MemeItem[]> {
   const cache = await readJson<{ at: number; items: MemeItem[] }>("memes_cache", { at: 0, items: [] });
   const fresh = Date.now() - cache.at < TEMPLATE_CACHE_DAYS * 86_400_000;
-  if (!force && fresh && cache.items.length) return cache.items;
-  try {
-    const res = await fetch("https://api.imgflip.com/get_memes");
-    if (!res.ok) throw new Error(`Imgflip answered ${res.status}`);
-    const data = (await res.json()) as { success: boolean; data?: { memes: ImgflipMeme[] } };
-    const items: MemeItem[] = (data.data?.memes ?? []).map((m) => ({
-      id: `imgflip-${m.id}`,
-      source: "imgflip",
-      title: m.name,
-      preview: m.url,
-      full: m.url,
-      kind: "image",
-      width: m.width,
-      height: m.height,
-      boxes: m.box_count,
-    }));
-    if (items.length) {
-      await api.setPref("memes_cache", JSON.stringify({ at: Date.now(), items })).catch(() => {});
-      return items;
-    }
-  } catch (e) {
+  if (!force && fresh && cache.items.length > 150) return cache.items;
+  const [a, b] = await Promise.allSettled([imgflipTemplates(), memegenTemplates()]);
+  const items: MemeItem[] = [...(a.status === "fulfilled" ? a.value : []), ...(b.status === "fulfilled" ? b.value : [])];
+  if (!items.length) {
     if (cache.items.length) return cache.items;
-    throw e;
+    throw (a.status === "rejected" ? a.reason : b.status === "rejected" ? b.reason : new Error("No templates"));
   }
-  return cache.items;
+  await api.setPref("memes_cache", JSON.stringify({ at: Date.now(), items })).catch(() => {});
+  return items;
+}
+
+// ------------------------------------------------------------ fresh memes (Reddit, through meme-api.com)
+
+export const FRESH_FEEDS: { id: string; name: string }[] = [
+  { id: "wholesomememes", name: "Wholesome" },
+  { id: "cleanmemes", name: "Clean" },
+  { id: "memes", name: "Popular" },
+  { id: "meirl", name: "Me irl" },
+  { id: "ProgrammerHumor", name: "Office & IT" },
+];
+
+interface RedditMeme {
+  postLink: string;
+  subreddit: string;
+  title: string;
+  url: string;
+  nsfw: boolean;
+  spoiler: boolean;
+  preview?: string[];
+}
+
+/** A batch of recent memes from one feed. Anything marked adult or spoiler is left out. */
+export async function loadFresh(feed: string, count = 30): Promise<MemeItem[]> {
+  const res = await fetch(`https://meme-api.com/gimme/${encodeURIComponent(feed)}/${count}`);
+  if (!res.ok) throw new Error(`The meme feed answered ${res.status}`);
+  const data = (await res.json()) as { memes?: RedditMeme[] };
+  return (data.memes ?? [])
+    .filter((m) => m && !m.nsfw && !m.spoiler && /^https:\/\/i\.redd\.it\/[\w-]+\.(png|jpe?g|gif)$/i.test(m.url))
+    .map((m) => {
+      const previews = m.preview ?? [];
+      return {
+        id: `reddit-${m.url.split("/").pop()?.split(".")[0] ?? m.postLink}`,
+        source: "reddit" as const,
+        title: m.title,
+        preview: previews[Math.min(2, previews.length - 1)] || m.url,
+        full: m.url,
+        kind: /\.gif$/i.test(m.url) ? ("gif" as const) : ("image" as const),
+      };
+    });
 }
 
 // ------------------------------------------------------------ Tenor GIFs
@@ -182,14 +234,22 @@ export async function saveMeme(bytes: Uint8Array, ext: string, name: string): Pr
   return saved.file;
 }
 
-/** The item as a file on this PC (fetched or, for a captioned meme, drawn). */
+/** The item as a file on this PC (fetched or, for a captioned meme, drawn).
+ *  Reddit's picture host does not let the page fetch, so LANX downloads
+ *  those itself (and anything else whose fetch is refused). */
 export async function materialize(item: MemeItem): Promise<string> {
   if (item.source === "mine" && item.full.startsWith("blob:")) {
     const bytes = await fetchBytes(item.full);
     return saveMeme(bytes, "png", item.title);
   }
-  const bytes = await fetchBytes(item.full);
-  return saveMeme(bytes, extOf(item.full, item.kind), item.title);
+  const ext = extOf(item.full, item.kind);
+  if (item.source === "reddit") return (await api.downloadMeme(item.full, ext, item.title)).file;
+  try {
+    const bytes = await fetchBytes(item.full);
+    return saveMeme(bytes, ext, item.title);
+  } catch {
+    return (await api.downloadMeme(item.full, ext, item.title)).file;
+  }
 }
 
 // ------------------------------------------------------------ captions (drawn by LANX)

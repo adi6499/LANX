@@ -24,7 +24,18 @@ const MAX_PEOPLE: usize = 30;
 /// Meetings remind everyone this long before they start.
 const MEETING_REMINDER_SECS: i64 = 10 * 60;
 
-pub const CARD_KINDS: [&str; 11] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos", "ticket", "report"];
+pub const CARD_KINDS: [&str; 12] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos", "ticket", "report", "music"];
+
+/// LANX 2.7.0: where a song card's links may point (the music service's CDN
+/// and JioSaavn's own site), so a card can never make LANX fetch anything else.
+fn music_link(v: &Value, key: &str, hosts: &[&str]) -> String {
+    let s = v.get(key).and_then(|x| x.as_str()).unwrap_or("").trim();
+    if s.len() > 600 || !s.starts_with("https://") {
+        return String::new();
+    }
+    let host = s[8..].split('/').next().unwrap_or("");
+    if hosts.iter().any(|h| host == *h || host.ends_with(&format!(".{h}"))) { s.to_string() } else { String::new() }
+}
 
 /// LANX 1.8.0 kudos badges: id → (emoji, words).
 pub const KUDOS_BADGES: [(&str, &str, &str); 6] = [
@@ -47,6 +58,7 @@ pub fn card_min_version(content: &str) -> &'static str {
         Some("visitor" | "kudos") => FEATURES_OFFICE,
         Some("ticket") => FEATURES_HELP,
         Some("report") => FEATURES_REPORT,
+        Some("music") => FEATURES_MUSIC,
         _ => FEATURES_ORG,
     }
 }
@@ -213,6 +225,19 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
                     "pc": text(v, "pc", 80), "app": text(v, "app", 40), "os": text(v, "os", 60),
                     "shot": v.get("shot").and_then(|x| x.as_bool()).unwrap_or(false) })
         }
+        "music" => {
+            let title = text(v, "title", 160);
+            if title.is_empty() {
+                return Err("Pick a song first.".to_string());
+            }
+            let stream = music_link(v, "stream", &["saavncdn.com"]);
+            if stream.is_empty() {
+                return Err("This song has no stream LANX can play.".to_string());
+            }
+            json!({ "kind": kind, "id": text(v, "id", 64), "title": title, "artist": text(v, "artist", 160),
+                    "cover": music_link(v, "cover", &["saavncdn.com"]), "url": music_link(v, "url", &["jiosaavn.com"]),
+                    "stream": stream, "duration": v.get("duration").and_then(|x| x.as_i64()).filter(|d| *d > 0).unwrap_or(0) })
+        }
         "kudos" => {
             let to = text(v, "to", 64);
             if to.is_empty() {
@@ -246,6 +271,7 @@ pub fn card_preview(content: &str) -> String {
         "kudos" => format!("{} Kudos to {}: {}", kudos_badge(&t("badge")).1, t("to_name"), kudos_badge(&t("badge")).2),
         "ticket" => format!("🛟 IT help: {}", t("title")),
         "report" => "📋 End-of-day report".to_string(),
+        "music" => format!("🎵 {} — {}", t("title"), t("artist")),
         _ => "Card".to_string(),
     };
     crate::storage::preview_text(&line)
@@ -299,6 +325,7 @@ pub fn card_fallback(content: &str) -> String {
             let sec = |label: &str, k: &str| if t(k).is_empty() { String::new() } else { format!("\n{}:\n{}", label, t(k)) };
             format!("📋 END-OF-DAY REPORT{}{}{}", sec("Done", "done"), sec("Still to do", "pending"), sec("Blockers", "blockers"))
         }
+        "music" => format!("🎵 SONG: {} — {}{}\n(Update LANX to play it here.)", t("title"), t("artist"), if t("url").is_empty() { String::new() } else { format!("\n{}", t("url")) }),
         _ => content.to_string(),
     }
 }
@@ -580,5 +607,37 @@ mod tests {
         let c = clean_card(&json!({ "kind": "poll", "question": "Lunch?", "options": ["Canteen", "Dhaba"] })).unwrap().to_string();
         assert_eq!(card_fallback(&c), "📊 POLL: Lunch?\n1. Canteen\n2. Dhaba\n(Update LANX to answer here.)");
         assert_eq!(card_preview(&c), "📊 Poll: Lunch?");
+    }
+}
+
+#[cfg(test)]
+mod music_card_tests {
+    use super::*;
+
+    #[test]
+    fn a_song_card_is_checked_and_tidied() {
+        let good = json!({ "kind": "music", "id": "abc", "title": "Tum Hi Ho &amp; more", "artist": "Mithoon",
+            "cover": "https://c.saavncdn.com/430/x-500x500.jpg", "url": "https://www.jiosaavn.com/song/tum-hi-ho/x",
+            "stream": "https://aac.saavncdn.com/430/x_320.mp4", "duration": 262 });
+        let c = clean_card(&good).expect("a proper song card");
+        assert_eq!(c["kind"], "music");
+        assert_eq!(c["stream"], "https://aac.saavncdn.com/430/x_320.mp4");
+        assert_eq!(c["duration"], 262);
+        let text = c.to_string();
+        assert!(card_min_version(&text) == FEATURES_MUSIC, "older copies get text instead");
+        assert!(card_preview(&text).starts_with("🎵 "), "{}", card_preview(&text));
+        let fallback = card_fallback(&text);
+        assert!(fallback.contains("Mithoon") && fallback.contains("https://www.jiosaavn.com/song/tum-hi-ho/x") && fallback.contains("Update LANX"), "{fallback}");
+
+        // Links that are not the music service's are dropped; a foreign stream means no card.
+        let odd = json!({ "kind": "music", "title": "X", "artist": "Y", "cover": "https://evil.example/a.jpg",
+            "url": "javascript:alert(1)", "stream": "https://aac.saavncdn.com/ok.mp4" });
+        let c = clean_card(&odd).unwrap();
+        assert_eq!(c["cover"], "");
+        assert_eq!(c["url"], "");
+        let foreign = json!({ "kind": "music", "title": "X", "artist": "Y", "stream": "https://evil.example/x.mp4" });
+        assert!(clean_card(&foreign).is_err());
+        let untitled = json!({ "kind": "music", "stream": "https://aac.saavncdn.com/ok.mp4" });
+        assert!(clean_card(&untitled).is_err());
     }
 }

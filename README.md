@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.6.0)
+# LANX — Local Network Messenger (v2.7.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -57,11 +57,29 @@ others) and talks to the Windows copies on the same network.
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 2.7.0: music
+- **A music app inside LANX** — wrench menu → *Music*, or type **/music** (or **/song**, **/play**, with words:
+  `/music tum hi ho`) in any chat. *Discover* shows what's trending, charts, new songs and albums for the languages
+  you pick; search finds songs, singers, films, albums and playlists; an artist page has the top songs and albums; an
+  album or chart opens with Play and Shuffle. Songs stream from JioSaavn through the same service as the MusicFlow app.
+- **Your library**: favourite songs, followed artists, saved albums, your own playlists (+ on any song), recently
+  played and most listened — all kept on this PC.
+- **The player**: shuffle, repeat (all / one), previous, next, seek, volume and a queue. **Now playing** fills the
+  screen with the covers fanned out (click a side cover to jump), a blurred album-art backdrop, synced **lyrics**
+  (from lrclib.net, when they exist) and a floating player. A little player at the bottom right keeps playing while you
+  chat after you close the app.
+- **Song cards**: "Send" puts a song card in the chat; the colleague presses **Play in LANX** (or "Play next"). Colleagues
+  on older versions see the title and a link instead. Cards only accept links on the music service's own hosts.
+- **Share on WhatsApp** sends the song's title and link; the heart keeps **Favourites**, and **Recent** remembers what
+  played. Searches go to the music service; nothing from your chats does.
+
 ### New in 2.6.0: memes & GIFs (a hidden tool)
 - Type **/meme** (or **/gif**, optionally with a word: `/meme monday`) in any chat to open the picker. Nothing in the
   menus — it is for the people who know.
-- **Templates**: Imgflip's classic meme pictures. Click one, type the top and bottom text, and LANX draws the caption
-  itself (no account, works offline once the list is cached for a week).
+- **Fresh** (the first tab): new memes from Reddit's wholesome, clean, popular, "me irl" and office/IT feeds, through
+  meme-api.com — no key; anything marked adult or spoiler is left out. *More memes* loads another batch.
+- **Templates**: about 300 classic meme pictures (Imgflip and memegen.link). Click one, type the top and bottom text, and
+  LANX draws the caption itself (no account, works offline once the list is cached for a week).
 - **GIFs**: search, trending and categories from Tenor (the same GIF service WhatsApp uses), with its strictest content
   filter. Needs a free Tenor key once — the GIFs tab explains the five-minute setup; everything else works without it.
 - Every meme has **Send** (into the chat you were in, or pick chats), **Copy** (the picture and the file go on the

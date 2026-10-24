@@ -86,6 +86,10 @@ pub const FEATURES_HELP: &str = "2.3.0";
 /// Oldest app version with the 2.4.0 end-of-day report card (kind "report").
 pub const FEATURES_REPORT: &str = "2.4.0";
 
+/// Oldest app version with the 2.7.0 song card (kind "music"): a song from the
+/// music picker that plays inside LANX. Older peers get the title and a link.
+pub const FEATURES_MUSIC: &str = "2.7.0";
+
 /// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
 /// whose reason is the colleague's status (waiting | accepted | declined | …).
 #[derive(Debug, Clone, Serialize, Deserialize)]

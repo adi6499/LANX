@@ -1,31 +1,5 @@
 import { useState } from "react";
-import {
-  AlertTriangle,
-  BarChart3,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  Circle,
-  ClipboardCheck,
-  Clock,
-  FolderOpen,
-  FolderSync,
-  BellRing,
-  Trophy,
-  FileSignature,
-  Link2,
-  ListChecks,
-  MapPin,
-  Megaphone,
-  Plus,
-  Video,
-  X,
-  XCircle,
-  LifeBuoy,
-  Monitor,
-  Wrench,
-  ClipboardList,
-} from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarDays, Check, CheckCircle2, Circle, ClipboardCheck, Clock, FolderOpen, FolderSync, BellRing, Trophy, FileSignature, Link2, ListChecks, MapPin, Megaphone, Plus, Video, X, XCircle, LifeBuoy, Monitor, Wrench, ClipboardList, Music2, Play } from "lucide-react";
 import type { Message } from "../../types";
 import { api, errorText } from "../../lib/api";
 import {
@@ -67,6 +41,7 @@ const STYLE: Record<CardKind, { bar: string; icon: React.ElementType }> = {
   kudos: { bar: "bg-yellow-400/20 text-yellow-800 dark:text-yellow-300", icon: Trophy },
   ticket: { bar: "bg-rose-500/15 text-rose-700 dark:text-rose-300", icon: LifeBuoy },
   report: { bar: "bg-slate-500/15 text-slate-700 dark:text-slate-300", icon: ClipboardList },
+  music: { bar: "bg-pink-500/15 text-pink-700 dark:text-pink-300", icon: Music2 },
 };
 
 const VISITOR_REPLIES: [string, string][] = [
@@ -669,6 +644,27 @@ export function CardView({
           </button>
         )}
       </>
+    );
+  } else if (card.kind === "music") {
+    const song = { id: card.id, title: card.title, artist: card.artist, album: "", cover: card.cover, url: card.url, stream: card.stream, duration: card.duration, language: "", year: "" };
+    body = (
+      <div className="flex items-center gap-3">
+        <div className="h-14 w-14 shrink-0 rounded-lg overflow-hidden lanx-group flex items-center justify-center">
+          {card.cover ? <img src={card.cover} alt="" className="h-full w-full object-cover" loading="lazy" /> : <Music2 className="h-6 w-6 text-slate-400" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] font-semibold text-slate-900 dark:text-white">{card.title}</div>
+          <div className="truncate text-[11.5px] text-slate-500">{card.artist}{card.duration ? ` · ${Math.floor(card.duration / 60)}:${String(card.duration % 60).padStart(2, "0")}` : ""}</div>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <button type="button" data-music-card-play onClick={() => window.dispatchEvent(new CustomEvent("lanx:play-song", { detail: song }))} className={`${btn} bg-pink-500 hover:bg-pink-600 text-white`}>
+              <Play className="h-3.5 w-3.5" /> Play in LANX
+            </button>
+            <button type="button" data-music-card-queue onClick={() => window.dispatchEvent(new CustomEvent("lanx:queue-song", { detail: song }))} className={`${btn} bg-slate-500/10 text-slate-600 dark:text-slate-300`}>
+              Play next
+            </button>
+          </div>
+        </div>
+      </div>
     );
   } else if (card.kind === "report") {
     const forMe = card.to.includes(myId);

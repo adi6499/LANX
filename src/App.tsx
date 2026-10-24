@@ -48,6 +48,8 @@ const CalendarPanel = lazy(() => import("./components/calendar/CalendarPanel").t
 const PdfStudio = lazy(() => import("./components/pdf/PdfStudio").then((m) => ({ default: m.PdfStudio })));
 const CalcPanel = lazy(() => import("./components/tools/CalcPanel").then((m) => ({ default: m.CalcPanel })));
 const MemePanel = lazy(() => import("./components/memes/MemePanel").then((m) => ({ default: m.MemePanel })));
+const MusicApp = lazy(() => import("./components/music/MusicApp").then((m) => ({ default: m.MusicApp })));
+const MusicPlayer = lazy(() => import("./components/music/MusicPlayer").then((m) => ({ default: m.MusicPlayer })));
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
@@ -193,6 +195,9 @@ export default function App() {
   const [showInvite, setShowInvite] = useState(false);
   /** LANX 2.6.0: the hidden meme picker (/meme in a chat). */
   const [showMemes, setShowMemes] = useState<{ query: string } | null>(null);
+  /** LANX 2.7.0: the hidden music picker (/music in a chat) and a song card to send through "Send to…". */
+  const [showMusic, setShowMusic] = useState<{ query: string } | null>(null);
+  const [shareCard, setShareCard] = useState<{ card: Record<string, unknown>; preview: string } | null>(null);
   const [shareText, setShareText] = useState<string | null>(null);
   const [shareFile, setShareFile] = useState<string | null>(null);
   const [meetingPrefill, setMeetingPrefill] = useState<MeetingPrefill | null>(null);
@@ -1340,6 +1345,7 @@ export default function App() {
         onOpenCalendar={() => setShowCalendar(true)}
         onOpenPdf={() => setPdfPath({ path: null })}
         onOpenCalc={() => setShowCalc(true)}
+        onOpenMusic={() => setShowMusic({ query: "" })}
         onInviteWhatsApp={() => setShowInvite(true)}
         onDictate={() => setDictateNow({ start: Date.now() })}
         onOpenVoice={() => setShowVoice(true)}
@@ -1416,6 +1422,7 @@ export default function App() {
             onSendVoice={handleSendVoice}
             quickReplies={settings.quick_replies ?? []}
             onOpenMemes={(q) => setShowMemes({ query: q })}
+            onOpenMusic={(q) => setShowMusic({ query: q })}
             onSaveQuickReplies={(list) => {
               const updated = { ...settings, quick_replies: list };
               setSettings(updated);
@@ -1812,6 +1819,53 @@ export default function App() {
         <Suspense fallback={null}>
           <CalcPanel onClose={() => setShowCalc(false)} onError={(t) => setNotice(t)} />
         </Suspense>
+      )}
+      <Suspense fallback={null}>
+        <MusicPlayer onOpenMusic={() => setShowMusic({ query: "" })} />
+      </Suspense>
+      {showMusic && (
+        <Suspense fallback={null}>
+          <MusicApp
+            initialQuery={showMusic.query}
+            chatName={activeConversation?.peer_name ?? null}
+            onClose={() => setShowMusic(null)}
+            onError={(t) => setNotice(t)}
+            onSendCard={async (card, preview) => {
+              if (activeConversation) await api.sendCard(activeConversation.id, card);
+              else setShareCard({ card, preview });
+            }}
+          />
+        </Suspense>
+      )}
+      {shareCard && (
+        <SendToModal
+          paths={[]}
+          title="Send the song to…"
+          items={[shareCard.preview]}
+          conversations={conversations}
+          peers={peers}
+          onClose={() => setShareCard(null)}
+          onSend={async (conversationIds, peerIds) => {
+            const ids = [...conversationIds];
+            for (const p of peerIds) {
+              try {
+                const c = await api.getOrCreateConversation(p);
+                setConversations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]));
+                ids.push(c.id);
+              } catch (e) {
+                showError(e);
+              }
+            }
+            for (const id of ids) {
+              try {
+                await api.sendCard(id, shareCard.card);
+              } catch (e) {
+                showError(e);
+              }
+            }
+            setShareCard(null);
+          }}
+        />
       )}
       {showMemes && (
         <Suspense fallback={null}>

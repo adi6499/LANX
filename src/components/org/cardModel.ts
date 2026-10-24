@@ -1,7 +1,7 @@
 /** LANX 1.6.0: reading cards — what a card says and what people did with it. */
 import type { CardEntry, Message } from "../../types";
 
-export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync" | "visitor" | "kudos" | "ticket" | "report";
+export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync" | "visitor" | "kudos" | "ticket" | "report" | "music";
 
 export interface NoticeCard {
   kind: "notice";
@@ -91,7 +91,18 @@ export interface ReportCard {
   blockers: string;
   day: number | null;
 }
-export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard | TicketCard | ReportCard;
+/** LANX 2.7.0: a song from the music picker; it plays inside LANX. */
+export interface MusicCard {
+  kind: "music";
+  id: string;
+  title: string;
+  artist: string;
+  cover: string;
+  url: string;
+  stream: string;
+  duration: number;
+}
+export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard | TicketCard | ReportCard | MusicCard;
 
 export const KIND_LABEL: Record<CardKind, string> = {
   notice: "Notice",
@@ -105,6 +116,7 @@ export const KIND_LABEL: Record<CardKind, string> = {
   kudos: "Kudos",
   ticket: "IT help",
   report: "Report",
+  music: "Song",
 };
 
 export function parseCard(m: Message): Card | null {

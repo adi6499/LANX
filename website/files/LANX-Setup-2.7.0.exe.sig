@@ -1,0 +1,7 @@
+{
+  "format": "lanx-release-1",
+  "version": "2.7.0",
+  "sha256": "c6437d3ab3407b1af5231682041e08eec719325d76c68d51a6c62f792e581443",
+  "size": 7384276,
+  "signature": "719fd7cdeb613de9022574ee401074f1640d34ba2f3bc2ddf4dfc349f3869a8203694e96b8e907defbb93b0e57d0fdb05ca46f787036f999eb84a974e10a3e06"
+}

@@ -117,6 +117,8 @@ interface ConversationPanelProps {
   onSaveQuickReplies?: (list: string[]) => void;
   /** LANX 2.6.0: "/meme cats" typed in the box opens the hidden meme picker. */
   onOpenMemes?: (query: string) => void;
+  /** LANX 2.7.0: "/music tum hi ho" opens the hidden music picker. */
+  onOpenMusic?: (query: string) => void;
   /** A message changed or went away here (instant feedback). */
   onMessageChanged?: (m: Message) => void;
   onMessageRemoved?: (id: string) => void;
@@ -225,6 +227,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   quickReplies = [],
   onSaveQuickReplies,
   onOpenMemes,
+  onOpenMusic,
   onMessageChanged,
   onMessageRemoved,
   jumpTo = null,
@@ -517,6 +520,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     if (memeCmd && onOpenMemes) {
       setInputText("");
       onOpenMemes(memeCmd[2].trim());
+      return;
+    }
+    const musicCmd = /^\/(music|song|songs|play)\b\s*(.*)$/i.exec(text.trim());
+    if (musicCmd && onOpenMusic) {
+      setInputText("");
+      onOpenMusic(musicCmd[2].trim());
       return;
     }
     if (editing) {
@@ -1497,7 +1506,13 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   replies={quickReplies}
                   filter={quickFilter}
                   active={quickIdx}
-                  hint={onOpenMemes && /^\/(m|me|mem|meme|memes|g|gi|gif|gifs)(\s|$)/i.test(inputText) ? "Press Enter to open memes & GIFs (add a word to search)" : undefined}
+                  hint={
+                    onOpenMusic && /^\/(mu|mus|musi|music|s|so|son|song|songs|p|pl|pla|play)(\s|$)/i.test(inputText)
+                      ? "Press Enter to open music (add a song or singer to search)"
+                      : onOpenMemes && /^\/(m|me|mem|meme|memes|g|gi|gif|gifs)(\s|$)/i.test(inputText)
+                        ? "Press Enter to open memes & GIFs (add a word to search)"
+                        : undefined
+                  }
                   onPick={pickQuick}
                   onSave={(l) => onSaveQuickReplies?.(l)}
                   onClose={() => setQuickClosed(true)}

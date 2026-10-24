@@ -26,7 +26,7 @@ pub fn save_meme_file(state: State<AppState>, request: tauri::ipc::Request<'_>) 
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
     let ext = header("x-ext")
         .map(|s| s.to_ascii_lowercase())
-        .filter(|s| ["png", "jpg", "jpeg", "gif", "webp", "mp4"].contains(&s.as_str()))
+        .filter(|s| ["png", "jpg", "jpeg", "gif", "webp", "mp4", "m4a"].contains(&s.as_str()))
         .unwrap_or_else(|| "png".to_string());
     let hint: String = header("x-name")
         .unwrap_or_default()
@@ -55,6 +55,65 @@ pub fn save_meme_file(state: State<AppState>, request: tauri::ipc::Request<'_>) 
     let path = dir.join(&name);
     std::fs::write(&path, bytes).map_err(err)?;
     Ok(SavedMeme { file: path.to_string_lossy().to_string(), bytes: bytes.len() as u64 })
+}
+
+/// Picture hosts the picker may download from (nothing else, ever).
+const DOWNLOAD_HOSTS: [&str; 6] = ["i.redd.it", "preview.redd.it", "i.imgflip.com", "api.memegen.link", "media.tenor.com", "c.tenor.com"];
+
+/// Downloads a meme picture into LANX's meme folder (for hosts the page itself
+/// may not fetch from). `ext` = png | jpg | gif | webp.
+#[tauri::command]
+pub async fn download_meme(state: State<'_, AppState>, url: String, ext: String, name: String) -> Result<SavedMeme, String> {
+    state.network.privacy.guard()?;
+    let u = url.trim().to_string();
+    let host = u.strip_prefix("https://").and_then(|r| r.split('/').next()).unwrap_or("");
+    if host.is_empty() || !DOWNLOAD_HOSTS.contains(&host) || u.len() > 600 || u.contains('\'') || u.contains('"') {
+        return Err("LANX only downloads memes from the meme services it knows.".to_string());
+    }
+    let ext = ext.to_ascii_lowercase();
+    if !["png", "jpg", "jpeg", "gif", "webp"].contains(&ext.as_str()) {
+        return Err("Not a picture.".to_string());
+    }
+    let hint: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == ' ' || *c == '-').take(40).collect::<String>().trim().replace(' ', "-").to_ascii_lowercase();
+    let dir = memes_dir();
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let short = &uuid::Uuid::new_v4().to_string()[..6];
+    let path = dir.join(if hint.is_empty() { format!("meme-{stamp}-{short}.{ext}") } else { format!("{hint}-{stamp}-{short}.{ext}") });
+    let target = path.clone();
+    tauri::async_runtime::spawn_blocking(move || fetch_to_file(&u, &target)).await.map_err(err)??;
+    let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if bytes < 100 {
+        let _ = std::fs::remove_file(&path);
+        return Err("The picture could not be downloaded.".to_string());
+    }
+    Ok(SavedMeme { file: path.to_string_lossy().to_string(), bytes })
+}
+
+#[cfg(windows)]
+fn fetch_to_file(url: &str, target: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let t = target.to_string_lossy().replace('\'', "''");
+    let script = format!("[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; Invoke-WebRequest -Uri '{url}' -OutFile '{t}' -UseBasicParsing -TimeoutSec 40 -Headers @{{ 'User-Agent' = 'LANX' }}");
+    let out = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(err)?;
+    if !out.status.success() {
+        return Err("The picture could not be downloaded (no internet, or the post is gone).".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn fetch_to_file(url: &str, target: &std::path::Path) -> Result<(), String> {
+    let out = std::process::Command::new("curl").args(["-fsSL", "--max-time", "40", "-A", "LANX", "-o"]).arg(target).arg(url).output().map_err(err)?;
+    if !out.status.success() {
+        return Err("The picture could not be downloaded.".to_string());
+    }
+    Ok(())
 }
 
 /// Puts a file LANX chose, received or saved on the clipboard: as the file
