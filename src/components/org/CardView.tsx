@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, BarChart3, CalendarDays, Check, CheckCircle2, Circle, ClipboardCheck, Clock, FolderOpen, FolderSync, BellRing, Trophy, FileSignature, Link2, ListChecks, MapPin, Megaphone, Plus, Video, X, XCircle, LifeBuoy, Monitor, Wrench, ClipboardList, Music2, Play } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarDays, Check, CheckCircle2, Circle, ClipboardCheck, Clock, FolderOpen, FolderSync, BellRing, Trophy, FileSignature, Link2, ListChecks, MapPin, Megaphone, Plus, Video, X, XCircle, LifeBuoy, Monitor, Wrench, ClipboardList, Music2, Play, Gamepad2 } from "lucide-react";
 import type { Message } from "../../types";
 import { api, errorText } from "../../lib/api";
 import {
@@ -25,6 +25,7 @@ import { whenText } from "../chat/chatUtils";
 import { ConfirmButton, ago, useSync } from "../tools/SyncPanel";
 import { formatSize } from "../../lib/format";
 import { kudosBadge } from "../../lib/office";
+import { gameMeta } from "../../lib/games";
 
 /** LANX 1.6.0: a card in a chat — notice, poll, task, approval, checklist or
  *  meeting — with what people did with it and the buttons to take part. */
@@ -42,6 +43,7 @@ const STYLE: Record<CardKind, { bar: string; icon: React.ElementType }> = {
   ticket: { bar: "bg-rose-500/15 text-rose-700 dark:text-rose-300", icon: LifeBuoy },
   report: { bar: "bg-slate-500/15 text-slate-700 dark:text-slate-300", icon: ClipboardList },
   music: { bar: "bg-pink-500/15 text-pink-700 dark:text-pink-300", icon: Music2 },
+  game: { bar: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300", icon: Gamepad2 },
 };
 
 const VISITOR_REPLIES: [string, string][] = [
@@ -661,6 +663,34 @@ export function CardView({
             </button>
             <button type="button" data-music-card-queue onClick={() => window.dispatchEvent(new CustomEvent("lanx:queue-song", { detail: song }))} className={`${btn} bg-slate-500/10 text-slate-600 dark:text-slate-300`}>
               Play next
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  } else if (card.kind === "game") {
+    const invited = card.to === myId;
+    const meta = gameMeta(card.game);
+    const name = meta?.name ?? "a game";
+    const result = msg.card_state?.find((e) => e.key === "result")?.value;
+    body = (
+      <div className="flex items-center gap-3">
+        <div className="h-12 w-12 shrink-0 rounded-xl bg-indigo-500/10 flex items-center justify-center text-2xl">{meta?.emoji ?? "🎮"}</div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13.5px] font-semibold text-slate-900 dark:text-white">
+            {invited ? `${card.from_name || "A colleague"} challenges you to ${name}` : `You challenged ${card.to_name || "a colleague"} to ${name}`}
+          </div>
+          <div className="text-[11.5px] text-slate-500">
+            {typeof result === "string" ? result : invited ? "Press Play — the board opens right here in LANX." : "When they press Play on their LANX, the game starts."}
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <button
+              type="button"
+              data-game-card-play
+              onClick={() => window.dispatchEvent(new CustomEvent("lanx:game-open", { detail: { card, message: msg } }))}
+              className={`${btn} bg-indigo-600 hover:bg-indigo-700 text-white`}
+            >
+              <Play className="h-3.5 w-3.5" /> {invited ? "Play" : "Open game"}
             </button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.8.0)
+# LANX — Local Network Messenger (v2.9.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,16 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.9.0: games with colleagues (hidden)
+- **Type `/game` in any chat** (or `/game chess`, `/arcade`) and a games window opens — it is in no menu, like memes
+  and music. **Tic-tac-toe, Connect Four, Reversi and chess** against a colleague over the office network: press
+  **Challenge** next to someone who is online, they get a card in the chat and press **Play**, and the board opens on
+  both PCs. Moves travel straight between the two computers (no server); chess uses the full rules (castling, en
+  passant, promotion, checkmate, stalemate, repetition). Resign, Rematch (colours swap), and a small note appears when
+  a colleague moves while your games window is closed. **Pass & play** puts two people at one PC.
+- **2048, Snake and Minesweeper** to play alone; a scoreboard keeps wins, losses and best scores on this PC.
+- Colleagues on older LANX see the challenge as text ("Update LANX to 2.9.0 to play it here"); games need 2.9.0 on both sides.
 
 ### New in 2.8.0: calls that feel live; a real meme search
 - **Calls and meetings are real-time again.** 2.5.0's "best quality" settings (Full HD at 6 Mbps, 128 kbps voice)

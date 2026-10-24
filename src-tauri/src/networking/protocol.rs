@@ -89,6 +89,8 @@ pub const FEATURES_REPORT: &str = "2.4.0";
 /// Oldest app version with the 2.7.0 song card (kind "music"): a song from the
 /// music picker that plays inside LANX. Older peers get the title and a link.
 pub const FEATURES_MUSIC: &str = "2.7.0";
+/// LANX 2.9.0: games between two colleagues (`Game` packets, "game" cards).
+pub const FEATURES_GAMES: &str = "2.9.0";
 
 /// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
 /// whose reason is the colleague's status (waiting | accepted | declined | …).
@@ -102,6 +104,27 @@ pub struct PolicyPayload {
 pub struct PolicyAnswerPayload {
     pub version: i64,
     pub status: String,
+}
+
+/// LANX 2.9.0: one step of a game between two colleagues (accepting a
+/// challenge, a move, resigning, a rematch…). Answered with `Ack`. The game
+/// itself lives in the UI on both computers; LANX only carries the steps.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GamePayload {
+    /// The match: the id of the challenge card.
+    pub match_id: String,
+    /// tictactoe | connect4 | reversi | chess
+    pub game: String,
+    /// accept | decline | move | resign | rematch | leave | state
+    pub action: String,
+    /// Counts up within a match, so a step that arrives late or twice is ignored.
+    #[serde(default)]
+    pub seq: u64,
+    /// The step itself (the whole move list, the round number…), small JSON.
+    #[serde(default)]
+    pub data: serde_json::Value,
+    #[serde(default)]
+    pub at: i64,
 }
 
 /// LANX 1.8.0: an emergency alert. Answered with `Ack`.
@@ -530,6 +553,8 @@ pub enum PacketPayload {
     // LANX 1.9.0 (only sent to peers reporting app_version >= 1.9.0)
     Policy(PolicyPayload),
     PolicyAnswer(PolicyAnswerPayload),
+    // LANX 2.9.0 (only sent to peers reporting app_version >= 2.9.0)
+    Game(GamePayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

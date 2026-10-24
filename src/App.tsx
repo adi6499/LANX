@@ -41,6 +41,7 @@ import { ChatFoldersModal, type ChatTools } from "./components/tools/ChatMenu";
 import { ScreenshotEditor } from "./components/tools/ScreenshotEditor";
 import { IS_WINDOWS } from "./lib/platform";
 import { SendToModal } from "./components/tools/SendToModal";
+import * as games from "./lib/games";
 import type { MeetingPrefill } from "./components/calendar/CalendarPanel";
 // LANX 2.5.3: loaded when first opened, so start-up stays quick.
 const NotesPanel = lazy(() => import("./components/notes/NotesPanel").then((m) => ({ default: m.NotesPanel })));
@@ -50,6 +51,7 @@ const CalcPanel = lazy(() => import("./components/tools/CalcPanel").then((m) => 
 const MemePanel = lazy(() => import("./components/memes/MemePanel").then((m) => ({ default: m.MemePanel })));
 const MusicApp = lazy(() => import("./components/music/MusicApp").then((m) => ({ default: m.MusicApp })));
 const MusicPlayer = lazy(() => import("./components/music/MusicPlayer").then((m) => ({ default: m.MusicPlayer })));
+const GamesPanel = lazy(() => import("./components/games/GamesPanel").then((m) => ({ default: m.GamesPanel })));
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
@@ -198,6 +200,36 @@ export default function App() {
   /** LANX 2.7.0: the hidden music picker (/music in a chat) and a song card to send through "Send to…". */
   const [showMusic, setShowMusic] = useState<{ query: string } | null>(null);
   const [shareCard, setShareCard] = useState<{ card: Record<string, unknown>; preview: string } | null>(null);
+  /** LANX 2.9.0: the hidden games window (/game in a chat), and a small note when a colleague moves while it is closed. */
+  const [showGames, setShowGames] = useState<{ query: string; matchId: string | null } | null>(null);
+  const [gameNudge, setGameNudge] = useState<{ text: string; matchId: string } | null>(null);
+  const showGamesRef = useRef(false);
+  showGamesRef.current = !!showGames;
+  const peersForGamesRef = useRef<Peer[]>([]);
+  peersForGamesRef.current = peers;
+  useEffect(() => {
+    games.onNudge((text, m) => {
+      if (showGamesRef.current) return;
+      setGameNudge({ text, matchId: m.id });
+    });
+    const open = (e: Event) => {
+      const d = ((e as CustomEvent).detail ?? {}) as { matchId?: string; card?: games.GameCardData; message?: Parameters<typeof games.openFromCard>[1] };
+      setGameNudge(null);
+      if (d.card && d.message) {
+        games
+          .openFromCard(d.card, d.message, myIdRef.current, peersForGamesRef.current)
+          .then((m) => setShowGames({ query: "", matchId: m.id }))
+          .catch((err) => setNotice(errorText(err)));
+      } else {
+        setShowGames({ query: "", matchId: d.matchId ?? null });
+      }
+    };
+    window.addEventListener("lanx:game-open", open);
+    return () => {
+      games.onNudge(null);
+      window.removeEventListener("lanx:game-open", open);
+    };
+  }, []);
   const [shareText, setShareText] = useState<string | null>(null);
   const [shareFile, setShareFile] = useState<string | null>(null);
   const [meetingPrefill, setMeetingPrefill] = useState<MeetingPrefill | null>(null);
@@ -646,6 +678,8 @@ export default function App() {
     // LANX 1.9.0: the LANX admin asks to manage this computer.
     add(events.onPolicyOffer((p) => setPolicyOffer(p)));
     add(events.onAdminNotice(({ text }) => setNotice(text)));
+    // LANX 2.9.0: a colleague's step in a game.
+    add(events.onGame((e) => games.receive(e as games.GameEvent)));
     add(
       events.onIntercom(async (e) => {
         if (lockedRef.current || e.quiet) return;
@@ -1422,6 +1456,7 @@ export default function App() {
             quickReplies={settings.quick_replies ?? []}
             onOpenMemes={(q) => setShowMemes({ query: q })}
             onOpenMusic={(q) => setShowMusic({ query: q })}
+            onOpenGames={(q) => setShowGames({ query: q, matchId: null })}
             onSaveQuickReplies={(list) => {
               const updated = { ...settings, quick_replies: list };
               setSettings(updated);
@@ -1822,6 +1857,45 @@ export default function App() {
       <Suspense fallback={null}>
         <MusicPlayer onOpenMusic={() => setShowMusic({ query: "" })} />
       </Suspense>
+      {showGames && settings && (
+        <Suspense fallback={null}>
+          <GamesPanel
+            initialQuery={showGames.query}
+            openMatchId={showGames.matchId}
+            peers={peers}
+            myId={settings.device_id}
+            myName={settings.display_name}
+            chatPeerId={activeConversation?.peer_id || null}
+            onClose={() => setShowGames(null)}
+            onError={(t) => setNotice(t)}
+            onSendCard={async (card, peerId) => {
+              const c = await api.getOrCreateConversation(peerId);
+              setConversations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]));
+              await api.sendCard(c.id, card as unknown as Record<string, unknown>);
+            }}
+          />
+        </Suspense>
+      )}
+      {gameNudge && !showGames && (
+        <div data-game-nudge className="fixed bottom-[92px] right-5 z-[55] flex items-center gap-2 rounded-full lanx-sheet px-3 py-2 text-[12.5px] shadow-lg lanx-rise">
+          <span className="text-base">🎮</span>
+          <span className="max-w-[320px] truncate text-slate-800 dark:text-slate-100">{gameNudge.text}</span>
+          <button
+            type="button"
+            data-game-nudge-open
+            onClick={() => {
+              setShowGames({ query: "", matchId: gameNudge.matchId });
+              setGameNudge(null);
+            }}
+            className="rounded-full bg-indigo-600 px-2.5 py-1 text-[11.5px] font-semibold text-white hover:bg-indigo-700"
+          >
+            Open
+          </button>
+          <button type="button" onClick={() => setGameNudge(null)} className="rounded-full p-1 text-slate-500 hover:bg-slate-500/10" aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       {showMusic && (
         <Suspense fallback={null}>
           <MusicApp

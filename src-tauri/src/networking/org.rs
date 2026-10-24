@@ -24,7 +24,7 @@ const MAX_PEOPLE: usize = 30;
 /// Meetings remind everyone this long before they start.
 const MEETING_REMINDER_SECS: i64 = 10 * 60;
 
-pub const CARD_KINDS: [&str; 12] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos", "ticket", "report", "music"];
+pub const CARD_KINDS: [&str; 13] = ["notice", "poll", "task", "approval", "checklist", "event", "sync", "visitor", "kudos", "ticket", "report", "music", "game"];
 
 /// LANX 2.7.0: where a song card's links may point (the music service's CDN
 /// and JioSaavn's own site), so a card can never make LANX fetch anything else.
@@ -59,6 +59,7 @@ pub fn card_min_version(content: &str) -> &'static str {
         Some("ticket") => FEATURES_HELP,
         Some("report") => FEATURES_REPORT,
         Some("music") => FEATURES_MUSIC,
+        Some("game") => FEATURES_GAMES,
         _ => FEATURES_ORG,
     }
 }
@@ -225,6 +226,21 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
                     "pc": text(v, "pc", 80), "app": text(v, "app", 40), "os": text(v, "os", 60),
                     "shot": v.get("shot").and_then(|x| x.as_bool()).unwrap_or(false) })
         }
+        "game" => {
+            let game = text(v, "game", 20);
+            if !super::games::GAME_IDS.contains(&game.as_str()) {
+                return Err("Unknown game.".to_string());
+            }
+            let id = text(v, "id", 64);
+            if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return Err("Bad challenge.".to_string());
+            }
+            let to = text(v, "to", 64);
+            if to.is_empty() {
+                return Err("Choose who to play with.".to_string());
+            }
+            json!({ "kind": kind, "id": id, "game": game, "to": to, "to_name": text(v, "to_name", 80), "from_name": text(v, "from_name", 80) })
+        }
         "music" => {
             let title = text(v, "title", 160);
             if title.is_empty() {
@@ -272,6 +288,7 @@ pub fn card_preview(content: &str) -> String {
         "ticket" => format!("🛟 IT help: {}", t("title")),
         "report" => "📋 End-of-day report".to_string(),
         "music" => format!("🎵 {} — {}", t("title"), t("artist")),
+        "game" => format!("🎮 {}: {} vs {}", super::games::game_name(&t("game")), t("from_name"), t("to_name")),
         _ => "Card".to_string(),
     };
     crate::storage::preview_text(&line)
@@ -326,6 +343,7 @@ pub fn card_fallback(content: &str) -> String {
             format!("📋 END-OF-DAY REPORT{}{}{}", sec("Done", "done"), sec("Still to do", "pending"), sec("Blockers", "blockers"))
         }
         "music" => format!("🎵 SONG: {} — {}{}\n(Update LANX to play it here.)", t("title"), t("artist"), if t("url").is_empty() { String::new() } else { format!("\n{}", t("url")) }),
+        "game" => format!("🎮 GAME: {} challenges you to {}.\n(Update LANX to 2.9.0 to play it here.)", t("from_name"), super::games::game_name(&t("game"))),
         _ => content.to_string(),
     }
 }
@@ -406,6 +424,17 @@ pub fn check_card_change(card: &Value, creator: &str, actor: &str, key: &str, va
         }
         // LANX 1.8.0: the person the visitor came for answers; reception
         // marks them as met (or gone).
+        // LANX 2.9.0: how the match ended ("Asha won", "Draw"…), set by either player.
+        "game" if key == "result" => {
+            let to = card["to"].as_str().unwrap_or("");
+            if actor != creator && actor != to {
+                return no("Only the two players can record the result.");
+            }
+            match value.as_str() {
+                Some(s) if !s.is_empty() => Ok(json!(s.chars().take(80).collect::<String>())),
+                _ => no("Say how it ended."),
+            }
+        }
         "visitor" if key == "reply" => {
             if actor != card["host"].as_str().unwrap_or("") {
                 return no("Only the person the visitor came for can answer.");
@@ -611,6 +640,30 @@ mod tests {
 }
 
 #[cfg(test)]
+mod game_card_tests {
+    use super::*;
+
+    #[test]
+    fn a_challenge_card_is_checked_and_tidied() {
+        let good = json!({ "kind": "game", "id": "m-7f3a", "game": "chess", "to": "peer-b", "to_name": "Bharat", "from_name": "Asha", "extra": 1 });
+        let c = clean_card(&good).unwrap();
+        assert_eq!(c["kind"], "game");
+        assert_eq!(c["game"], "chess");
+        assert!(c.get("extra").is_none(), "unknown fields are dropped");
+        let text = c.to_string();
+        assert!(card_min_version(&text) == FEATURES_GAMES, "older copies get text instead");
+        assert!(card_preview(&text).contains("Chess"));
+        assert!(card_fallback(&text).contains("Update LANX"));
+        assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "ludo", "to": "x" })).is_err(), "unknown game");
+        assert!(clean_card(&json!({ "kind": "game", "id": "../m", "game": "chess", "to": "x" })).is_err(), "odd id");
+        assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "chess" })).is_err(), "no opponent");
+        // Only the two players record how it ended.
+        assert!(check_card_change(&c, "peer-a", "peer-b", "result", &json!("Bharat won")).is_ok());
+        assert!(check_card_change(&c, "peer-a", "peer-a", "result", &json!("Draw")).is_ok());
+        assert!(check_card_change(&c, "peer-a", "peer-z", "result", &json!("Zed won")).is_err());
+    }
+}
+
 mod music_card_tests {
     use super::*;
 

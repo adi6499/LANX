@@ -643,6 +643,7 @@ pub fn run() {
             commands::memes::save_meme_file,
             commands::memes::download_meme,
             commands::memes::copy_file_to_clipboard,
+            commands::games::send_game,
             commands::wallpaper::pick_wallpaper,
             commands::wallpaper::clear_wallpaper_file,
             commands::voice::voice_models,

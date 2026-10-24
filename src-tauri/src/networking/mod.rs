@@ -16,6 +16,7 @@ pub mod session;
 pub mod tools;
 pub mod transfer;
 pub mod update;
+pub mod games;
 #[cfg(test)]
 mod tests;
 
@@ -1075,6 +1076,7 @@ impl NetworkService {
                 PacketPayload::MessageAction(a) => Some(PacketPayload::Ack(self.handle_message_action(&peer, a))),
                 PacketPayload::Sync(s) => Some(PacketPayload::Ack(self.handle_sync(&peer, s))),
                 PacketPayload::Alert(a) => Some(PacketPayload::Ack(self.handle_alert(&peer, a))),
+                PacketPayload::Game(g) => Some(PacketPayload::Ack(self.handle_game(&peer, g))),
                 PacketPayload::Policy(p) => Some(PacketPayload::Ack(self.handle_policy(&peer, p))),
                 PacketPayload::PolicyAnswer(a) => Some(PacketPayload::Ack(self.handle_policy_answer(&peer, a))),
                 PacketPayload::GroupUpdate(g) => {

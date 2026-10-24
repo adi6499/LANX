@@ -1573,6 +1573,11 @@ export const api = {
   },
 
   /** Small remembered preferences of the 2.5.0 tools (JSON texts). */
+  /** LANX 2.9.0: one step of a game (accept, move, resign, rematch…) to the colleague you play with. */
+  sendGame: async (peerId: string, step: { match_id: string; game: string; action: string; seq: number; data: unknown; at: number }): Promise<boolean> => {
+    if (isTauri) return invoke("send_game", { peerId, step });
+    return true;
+  },
   getPref: async (key: string): Promise<string | null> => {
     if (isTauri) return invoke("get_pref", { key });
     return mockPrefs[key] ?? null;
@@ -1830,6 +1835,9 @@ export const events = {
   onRemote: (cb: (r: RemoteInfo) => void) => on<RemoteInfo>("lanx://remote", cb),
   /** LANX 1.8.0: an intercom message arrived (play it unless quiet). */
   onIntercom: (cb: (e: IntercomEvent) => void) => on<IntercomEvent>("lanx://intercom", cb),
+  /** LANX 2.9.0: a colleague's step in a game. */
+  onGame: (cb: (e: { from_id: string; from_name: string; match_id: string; game: string; action: string; seq: number; data: unknown; at: number }) => void) =>
+    on<{ from_id: string; from_name: string; match_id: string; game: string; action: string; seq: number; data: unknown; at: number }>("lanx://game", cb),
 };
 
 let mockScheduled: ScheduledMessage[] = [];

@@ -1,7 +1,7 @@
 /** LANX 1.6.0: reading cards — what a card says and what people did with it. */
 import type { CardEntry, Message } from "../../types";
 
-export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync" | "visitor" | "kudos" | "ticket" | "report" | "music";
+export type CardKind = "notice" | "poll" | "task" | "approval" | "checklist" | "event" | "sync" | "visitor" | "kudos" | "ticket" | "report" | "music" | "game";
 
 export interface NoticeCard {
   kind: "notice";
@@ -102,7 +102,17 @@ export interface MusicCard {
   stream: string;
   duration: number;
 }
-export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard | TicketCard | ReportCard | MusicCard;
+/** LANX 2.9.0: a challenge to a game; "Play" opens the board in LANX. */
+export interface GameCard {
+  kind: "game";
+  /** The match id. */
+  id: string;
+  game: "tictactoe" | "connect4" | "reversi" | "chess";
+  to: string;
+  to_name: string;
+  from_name: string;
+}
+export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard | TicketCard | ReportCard | MusicCard | GameCard;
 
 export const KIND_LABEL: Record<CardKind, string> = {
   notice: "Notice",
@@ -117,6 +127,7 @@ export const KIND_LABEL: Record<CardKind, string> = {
   ticket: "IT help",
   report: "Report",
   music: "Song",
+  game: "Game",
 };
 
 export function parseCard(m: Message): Card | null {

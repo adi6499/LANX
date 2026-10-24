@@ -113,6 +113,11 @@ impl Events {
         );
     }
 
+    /// LANX 2.9.0: a step of a game from a colleague.
+    pub fn game(&self, e: &crate::networking::games::GameEvent) {
+        self.emit("lanx://game", e);
+    }
+
     pub fn message_updated(&self, message: &Message) {
         self.emit(
             "lanx://message-status-updated",

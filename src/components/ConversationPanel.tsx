@@ -119,6 +119,8 @@ interface ConversationPanelProps {
   onOpenMemes?: (query: string) => void;
   /** LANX 2.7.0: "/music tum hi ho" opens the hidden music picker. */
   onOpenMusic?: (query: string) => void;
+  /** LANX 2.9.0: "/game chess" opens the hidden games window. */
+  onOpenGames?: (query: string) => void;
   /** A message changed or went away here (instant feedback). */
   onMessageChanged?: (m: Message) => void;
   onMessageRemoved?: (id: string) => void;
@@ -228,6 +230,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   onSaveQuickReplies,
   onOpenMemes,
   onOpenMusic,
+  onOpenGames,
   onMessageChanged,
   onMessageRemoved,
   jumpTo = null,
@@ -526,6 +529,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     if (musicCmd && onOpenMusic) {
       setInputText("");
       onOpenMusic(musicCmd[2].trim());
+      return;
+    }
+    const gameCmd = /^\/(game|games|arcade)\b\s*(.*)$/i.exec(text.trim());
+    if (gameCmd && onOpenGames) {
+      setInputText("");
+      onOpenGames(gameCmd[2].trim());
       return;
     }
     if (editing) {
@@ -1509,7 +1518,9 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   hint={
                     onOpenMusic && /^\/(mu|mus|musi|music|s|so|son|song|songs|p|pl|pla|play)(\s|$)/i.test(inputText)
                       ? "Press Enter to open music (add a song or singer to search)"
-                      : onOpenMemes && /^\/(m|me|mem|meme|memes|g|gi|gif|gifs)(\s|$)/i.test(inputText)
+                      : onOpenGames && /^\/(ga|gam|game|games|a|ar|arc|arca|arcad|arcade)(\s|$)/i.test(inputText)
+                        ? "Press Enter to open games (add one: chess, connect, reversi, tic…)"
+                        : onOpenMemes && /^\/(m|me|mem|meme|memes|g|gi|gif|gifs)(\s|$)/i.test(inputText)
                         ? "Press Enter to open memes & GIFs (add a word to search)"
                         : undefined
                   }
