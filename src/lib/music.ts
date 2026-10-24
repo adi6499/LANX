@@ -182,11 +182,12 @@ export async function searchAll(query: string): Promise<{ songs: Song[]; artists
 export interface Home {
   trending: Collection[];
   charts: Collection[];
+  playlists: Collection[];
   newAlbums: Collection[];
   newSongs: Song[];
 }
 export async function browseHome(languages: string[]): Promise<Home> {
-  const d = await get<{ new_trending?: (RawCollection & RawSong)[]; charts?: RawCollection[]; new_albums?: (RawCollection & RawSong)[] }>(
+  const d = await get<{ new_trending?: (RawCollection & RawSong)[]; charts?: RawCollection[]; top_playlists?: RawCollection[]; new_albums?: (RawCollection & RawSong)[] }>(
     `modules?language=${encodeURIComponent(languages.join(","))}`,
   );
   const trending: Collection[] = [];
@@ -213,9 +214,39 @@ export async function browseHome(languages: string[]): Promise<Home> {
   return {
     trending,
     charts: (d.charts ?? []).map((r) => toCollection(r, "playlist")).filter((x): x is Collection => !!x),
+    playlists: (d.top_playlists ?? []).map((r) => toCollection(r, "playlist")).filter((x): x is Collection => !!x),
     newAlbums,
     newSongs,
   };
+}
+
+/** Well-known singers per language — the Artists page offers them to browse
+ *  (the service has no "all artists" list). Looked up once a day. */
+const POPULAR_ARTISTS: Record<string, string[]> = {
+  hindi: ["Arijit Singh", "Shreya Ghoshal", "Atif Aslam", "Kishore Kumar", "Lata Mangeshkar", "Sonu Nigam", "Neha Kakkar", "A.R. Rahman", "Pritam", "Jubin Nautiyal", "Udit Narayan", "Alka Yagnik", "Kumar Sanu", "Mohammed Rafi", "Badshah", "Shaan"],
+  english: ["Ed Sheeran", "Taylor Swift", "The Weeknd", "Dua Lipa", "Billie Eilish", "Imagine Dragons", "Coldplay", "Adele", "Bruno Mars", "Justin Bieber"],
+  marathi: ["Ajay-Atul", "Shankar Mahadevan", "Adarsh Shinde", "Vaishali Samant", "Swapnil Bandodkar", "Avadhoot Gupte", "Anand Shinde", "Kailash Kher"],
+  punjabi: ["Diljit Dosanjh", "AP Dhillon", "Sidhu Moose Wala", "Guru Randhawa", "Karan Aujla", "Jass Manak", "Gurdas Maan"],
+  tamil: ["Anirudh Ravichander", "Sid Sriram", "Yuvan Shankar Raja", "Ilaiyaraaja", "Harris Jayaraj"],
+  telugu: ["Devi Sri Prasad", "S. P. Balasubrahmanyam", "Sid Sriram", "Thaman S"],
+  gujarati: ["Kinjal Dave", "Jigardan Gadhavi", "Kirtidan Gadhvi", "Aditya Gadhvi"],
+  bengali: ["Anupam Roy", "Arijit Singh", "Shreya Ghoshal", "Kumar Sanu"],
+};
+export async function popularArtists(languages: string[]): Promise<Collection[]> {
+  const key = languages.slice().sort().join(",");
+  const cache = await readJson<{ at: number; key: string; items: Collection[] }>("music_cache", { at: 0, key: "", items: [] });
+  if (cache.key === key && Date.now() - cache.at < 86_400_000 && cache.items.length) return cache.items;
+  const names: string[] = [];
+  for (const l of languages) for (const n of POPULAR_ARTISTS[l] ?? []) if (!names.includes(n)) names.push(n);
+  const found = await Promise.allSettled(names.slice(0, 24).map((n) => get<{ results?: RawCollection[] }>(`search/artists?query=${encodeURIComponent(n)}&limit=1`)));
+  const items: Collection[] = [];
+  found.forEach((r, i) => {
+    if (r.status !== "fulfilled") return;
+    const c = results(r.value).map((x) => toCollection(x, "artist")).find((x): x is Collection => !!x);
+    if (c && !items.some((x) => x.id === c.id)) items.push({ ...c, subtitle: names[i] === c.title ? "Artist" : c.subtitle || "Artist" });
+  });
+  if (items.length) await writeJson("music_cache", { at: Date.now(), key, items }).catch(() => {});
+  return items;
 }
 
 export interface ArtistPage {

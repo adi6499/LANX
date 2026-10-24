@@ -25,6 +25,7 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  Square,
   Trash2,
   Users,
   Volume2,
@@ -54,6 +55,7 @@ import {
   loadPlaylists,
   loadSavedAlbums,
   player,
+  popularArtists,
   removeFromPlaylist,
   searchAll,
   songCard,
@@ -130,6 +132,7 @@ export function MusicApp({
   const [query, setQuery] = useState(initialQuery ?? "");
   const [langs, setLangs] = useState<string[]>(["hindi", "english", "marathi"]);
   const [home, setHome] = useState<HomeData | null>(null);
+  const [popular, setPopular] = useState<Collection[]>([]);
   const [found, setFound] = useState<Awaited<ReturnType<typeof searchAll>> | null>(null);
   const [artist, setArtist] = useState<ArtistPage | null>(null);
   const [colSongs, setColSongs] = useState<{ collection: Collection; songs: Song[] } | null>(null);
@@ -196,7 +199,7 @@ export function MusicApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nowPlaying]);
 
-  // Home: what's trending for the chosen languages.
+  // Home: what's trending for the chosen languages; and the well-known singers.
   useEffect(() => {
     setLoading(true);
     setProblem(null);
@@ -204,6 +207,7 @@ export function MusicApp({
       .then(setHome)
       .catch((e) => setProblem(`Could not load what's trending (is the internet on?): ${errorText(e)}`))
       .finally(() => setLoading(false));
+    popularArtists(langs).then(setPopular).catch(() => {});
   }, [langs]);
 
   // Search, a moment after typing stops.
@@ -430,14 +434,34 @@ export function MusicApp({
       </>
     );
   } else if (view.kind === "favs") {
-    title = "Songs you love";
-    main = favs.length ? <SongList songs={favs} /> : <p className="py-10 text-center text-white/50 text-[13px]">No favourites yet — press the heart on any song.</p>;
+    title = "Songs";
+    main = (
+      <>
+        {favs.length ? <Section title="Songs you love"><SongList songs={favs} /></Section> : <p className="text-white/50 text-[13px]">Press the heart on any song and it lands here. Meanwhile, something new:</p>}
+        {home && home.newSongs.length > 0 && <Section title="New songs"><SongList songs={home.newSongs.slice(0, 20)} /></Section>}
+        {home && home.charts.length > 0 && <Section title="Charts"><Grid items={home.charts.slice(0, 12)} /></Section>}
+      </>
+    );
   } else if (view.kind === "artists") {
-    title = "Artists you follow";
-    main = followed.length ? <Grid items={followed} round /> : <p className="py-10 text-center text-white/50 text-[13px]">Open an artist and press Follow.</p>;
+    title = "Artists";
+    main = (
+      <>
+        {followed.length > 0 && <Section title="Artists you follow"><Grid items={followed} round /></Section>}
+        <Section title={followed.length ? "Popular artists" : "Popular artists — open one and press Follow"}>
+          {popular.length ? <Grid items={popular} round /> : <div className="flex items-center gap-2 text-white/50 text-[13px]"><Loader2 className="h-4 w-4 animate-spin" /> Looking up the well-known singers for your languages…</div>}
+        </Section>
+      </>
+    );
   } else if (view.kind === "albums") {
-    title = "Your albums";
-    main = savedAlbums.length ? <Grid items={savedAlbums} /> : <p className="py-10 text-center text-white/50 text-[13px]">Open an album and press the heart.</p>;
+    title = "Albums";
+    main = (
+      <>
+        {savedAlbums.length > 0 && <Section title="Your albums"><Grid items={savedAlbums} /></Section>}
+        {home && home.newAlbums.length > 0 && <Section title="New albums"><Grid items={home.newAlbums} /></Section>}
+        {home && home.trending.length > 0 && <Section title="Trending"><Grid items={home.trending} /></Section>}
+        {!savedAlbums.length && <p className="mt-4 text-white/50 text-[12.5px]">Open an album and press the heart to keep it under Your albums.</p>}
+      </>
+    );
   } else if (view.kind === "playlists") {
     title = "Playlists";
     main = (
@@ -459,7 +483,10 @@ export function MusicApp({
             ))}
           </div>
         ) : (
-          <p className="py-6 text-white/50 text-[13px]">Make a playlist, then use + on any song to add it.</p>
+          <p className="py-2 text-white/50 text-[13px]">Make a playlist, then use + on any song to add it.</p>
+        )}
+        {home && (home.playlists.length > 0 || home.charts.length > 0) && (
+          <Section title="Playlists and charts from the service"><Grid items={[...home.charts, ...home.playlists].filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i).slice(0, 24)} /></Section>
         )}
       </>
     );
@@ -477,13 +504,28 @@ export function MusicApp({
     ) : null;
   } else if (view.kind === "recent") {
     title = "Recently played";
-    main = recent.length ? <SongList songs={recent} /> : <p className="py-10 text-center text-white/50 text-[13px]">Nothing played yet.</p>;
+    main = recent.length ? <SongList songs={recent} /> : (
+      <>
+        <p className="text-white/50 text-[13px]">Nothing played yet. Start with what's new:</p>
+        {home && home.newSongs.length > 0 && <Section title="New songs"><SongList songs={home.newSongs.slice(0, 15)} /></Section>}
+      </>
+    );
   } else if (view.kind === "most") {
     title = "Most listened";
-    main = mostListened.length ? <SongList songs={mostListened} /> : <p className="py-10 text-center text-white/50 text-[13px]">Play a few songs first.</p>;
+    main = mostListened.length ? <SongList songs={mostListened} /> : (
+      <>
+        <p className="text-white/50 text-[13px]">Play a few songs and your favourites show up here by how often they played. Meanwhile, the charts:</p>
+        {home && home.charts.length > 0 && <Section title="Charts"><Grid items={home.charts.slice(0, 12)} /></Section>}
+      </>
+    );
   } else if (view.kind === "queue") {
     title = "Up next";
-    main = ps.queue.length ? <SongList songs={ps.queue} onRemove={(s) => player.removeFromQueue(s.id)} /> : <p className="py-10 text-center text-white/50 text-[13px]">The queue is empty — press the + next to a song or play an album.</p>;
+    main = ps.queue.length ? <SongList songs={ps.queue} onRemove={(s) => player.removeFromQueue(s.id)} /> : (
+      <>
+        <p className="text-white/50 text-[13px]">The queue is empty — press the + next to a song, or play an album or a chart and it fills up.</p>
+        {home && home.trending.length > 0 && <Section title="Trending now"><Grid items={home.trending.slice(0, 12)} /></Section>}
+      </>
+    );
   }
 
   const nav = (kind: View["kind"], label: string, Icon: typeof Home, count?: number) => {
@@ -522,7 +564,7 @@ export function MusicApp({
             <div className="flex items-center gap-2 px-1 mb-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-violet-500"><Music2 className="h-4 w-4" /></span>
               <div className="text-[17px] font-extrabold tracking-tight">Music</div>
-              <span className="ml-auto text-[10px] text-white/40">/music</span>
+              <span className="ml-auto text-[10px] text-white/40">Esc closes</span>
             </div>
             <div className="relative mb-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
@@ -542,6 +584,9 @@ export function MusicApp({
             {nav("recent", "Recently played", Clock)}
             {nav("most", "Most listened", Flame)}
             {nav("queue", `Queue${ps.queue.length ? ` · ${ps.queue.length}` : ""}`, ListPlus)}
+            <button type="button" data-music-close-nav onClick={onClose} className="mt-auto w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-semibold bg-white/10 text-white hover:bg-white/20">
+              <ArrowLeft className="h-4 w-4" /> Back to chats
+            </button>
           </aside>
 
           {/* ---- middle: the page */}
@@ -552,7 +597,7 @@ export function MusicApp({
               {loading && <Loader2 className="h-4 w-4 animate-spin text-white/60" />}
               <div className="ml-auto flex items-center gap-1.5">
                 <button type="button" title="Now playing (full screen)" disabled={!ps.song} onClick={() => setNowPlaying(true)} className="h-8 px-3 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[12px] font-semibold inline-flex items-center gap-1.5"><Maximize2 className="h-3.5 w-3.5" /> Now playing</button>
-                <button type="button" onClick={onClose} className="h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center"><X className="h-4 w-4" /></button>
+                <button type="button" data-music-close onClick={onClose} title="Close the music app (Esc) — the song keeps playing" className="h-8 px-3.5 rounded-full bg-white text-slate-900 hover:bg-white/90 text-[12px] font-bold inline-flex items-center gap-1.5"><X className="h-4 w-4" /> Close</button>
               </div>
             </div>
             {problem && <p className="mb-3 text-[12.5px] text-amber-300">{problem}</p>}
@@ -626,7 +671,7 @@ export function MusicApp({
             <button type="button" onClick={() => { setShowLyrics(true); setNowPlaying(true); }} title="Lyrics" disabled={!ps.song} className="h-8 w-8 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-30"><Mic2 className="h-4 w-4" /></button>
             <Volume2 className="h-4 w-4 text-white/60" />
             <input type="range" min={0} max={100} value={Math.round(ps.volume * 100)} onChange={(e) => player.setVolume(Number(e.target.value) / 100)} className="w-24 accent-sky-400" />
-            <button type="button" data-music-bar-stop onClick={() => player.stop()} title="Stop" disabled={!ps.song} className="h-8 w-8 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-30"><X className="h-4 w-4" /></button>
+            <button type="button" data-music-bar-stop onClick={() => player.stop()} title="Stop and clear the queue" disabled={!ps.song} className="h-8 w-8 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-30"><Square className="h-3.5 w-3.5" fill="currentColor" /></button>
           </div>
         </div>
 

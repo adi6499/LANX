@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.7.0)
+# LANX — Local Network Messenger (v2.7.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,12 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.7.1: the music library pages are never empty
+- **Artists** offers the well-known singers for your languages (looked up once a day) above the ones you follow;
+  **Albums** shows new and trending albums above your saved ones; **Songs** shows new songs and charts until you have
+  favourites; **Playlists** lists the service's charts and playlists under your own; Recently played, Most listened
+  and the Queue point you somewhere while they are empty.
 
 ### New in 2.7.0: music (a hidden tool)
 - **A music app inside LANX** — type **/music** (or **/song**, **/play**, with words: `/music tum hi ho`) in any
