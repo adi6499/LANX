@@ -1345,7 +1345,6 @@ export default function App() {
         onOpenCalendar={() => setShowCalendar(true)}
         onOpenPdf={() => setPdfPath({ path: null })}
         onOpenCalc={() => setShowCalc(true)}
-        onOpenMusic={() => setShowMusic({ query: "" })}
         onInviteWhatsApp={() => setShowInvite(true)}
         onDictate={() => setDictateNow({ start: Date.now() })}
         onOpenVoice={() => setShowVoice(true)}

@@ -5,7 +5,7 @@ import {
   UserSettings,
   NavTab,
 } from "../types";
-import { MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Music2 } from "lucide-react";
+import { MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
 import { ShieldCheck } from "lucide-react";
@@ -47,8 +47,6 @@ interface SidebarProps {
   onOpenCalendar?: () => void;
   onOpenPdf?: () => void;
   onOpenCalc?: () => void;
-  /** LANX 2.7.0: the music app. */
-  onOpenMusic?: () => void;
   onInviteWhatsApp?: () => void;
   onDictate?: () => void;
   onOpenVoice?: () => void;
@@ -106,7 +104,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCalendar,
   onOpenPdf,
   onOpenCalc,
-  onOpenMusic,
   onInviteWhatsApp,
   onDictate,
   onOpenVoice,
@@ -427,11 +424,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {onOpenVoice && (
                         <button type="button" data-tools-item="voice-settings" onClick={() => { setToolsMenu(false); onOpenVoice(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
                           <Mic className="h-4 w-4 text-slate-500" /> Voice settings
-                        </button>
-                      )}
-                      {onOpenMusic && (
-                        <button type="button" data-tools-item="music" onClick={() => { setToolsMenu(false); onOpenMusic(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
-                          <Music2 className="h-4 w-4 text-pink-500" /> Music <span className="ml-auto whitespace-nowrap text-[10px] text-slate-400">/music</span>
                         </button>
                       )}
                       {onOpenCalc && (

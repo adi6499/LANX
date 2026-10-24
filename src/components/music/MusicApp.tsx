@@ -326,7 +326,7 @@ export function MusicApp({
   const Grid = ({ items, round = false }: { items: Collection[]; round?: boolean }) => (
     <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
       {items.map((c) => (
-        <button key={`${c.type}-${c.id}`} type="button" data-music-collection={c.id} onClick={() => openCollection(c)} className={`${card} p-2.5 text-left`}>
+        <button key={`${c.type}-${c.id}`} type="button" data-music-collection={c.id} data-music-type={c.type} onClick={() => openCollection(c)} className={`${card} p-2.5 text-left`}>
           <Cover src={c.image} className={`aspect-square w-full ${round ? "rounded-full" : "rounded-xl"}`} />
           <div className="mt-2 truncate text-[12.5px] font-semibold text-white">{c.title}</div>
           <div className="truncate text-[11px] text-white/55">{c.subtitle || (c.type === "artist" ? "Artist" : c.year || c.type)}</div>

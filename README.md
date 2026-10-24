@@ -57,9 +57,9 @@ others) and talks to the Windows copies on the same network.
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
-### New in 2.7.0: music
-- **A music app inside LANX** — wrench menu → *Music*, or type **/music** (or **/song**, **/play**, with words:
-  `/music tum hi ho`) in any chat. *Discover* shows what's trending, charts, new songs and albums for the languages
+### New in 2.7.0: music (a hidden tool)
+- **A music app inside LANX** — type **/music** (or **/song**, **/play**, with words: `/music tum hi ho`) in any
+  chat. Like the memes, it is in no menu. *Discover* shows what's trending, charts, new songs and albums for the languages
   you pick; search finds songs, singers, films, albums and playlists; an artist page has the top songs and albums; an
   album or chart opens with Play and Shuffle. Songs stream from JioSaavn through the same service as the MusicFlow app.
 - **Your library**: favourite songs, followed artists, saved albums, your own playlists (+ on any song), recently
