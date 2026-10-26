@@ -11,6 +11,8 @@ import { Avatar } from "../Avatar";
 import * as games from "../../lib/games";
 import { GAMES, type GameCardData, type GameId, type GameMeta, type Match, type SoloId } from "../../lib/games";
 import { ChainReactionBoard, ChessBoard, ChessMoves, ConnectFourBoard, ReversiBoard, TicTacToeBoard, type BoardProps } from "./Boards";
+import { BOARDS } from "./boards/index";
+import { summaryOf } from "../../lib/gameRules";
 import { Game2048, Minesweeper, SnakeGame } from "./Solo";
 
 interface Props {
@@ -29,7 +31,17 @@ interface Props {
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors active:scale-95 disabled:opacity-50 disabled:active:scale-100";
 /** What the two sides are called in the two-player games (player 0 moves first). */
-const SIDE_LABEL: Partial<Record<GameId, [string, string]>> = { tictactoe: ["✕", "○"], connect4: ["Red", "Yellow"], reversi: ["Black", "White"], chess: ["White", "Black"] };
+const SIDE_LABEL: Partial<Record<GameId, [string, string]>> = {
+  tictactoe: ["✕", "○"],
+  connect4: ["Red", "Yellow"],
+  reversi: ["Black", "White"],
+  chess: ["White", "Black"],
+  checkers: ["Red", "Black"],
+  gomoku: ["Black", "White"],
+  hex: ["Red", "Blue"],
+  go: ["Black", "White"],
+  mancala: ["Bottom", "Top"],
+};
 
 function statsLine(id: string): string {
   const s = games.statsFor(id);
@@ -199,7 +211,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
               </div>
             )}
             <div className="rounded-2xl lanx-group p-2">
-              <div className="px-2 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">Games</div>
+              <div className="px-2 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">Games · {GAMES.length}</div>
               {GAMES.map((g) => (
                 <button
                   key={g.id}
@@ -252,7 +264,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                   </div>
                   <div className="ml-auto text-[11.5px] text-slate-500">{statsLine(pick.id)}</div>
                 </div>
-                <div className="flex-1 flex items-center justify-center overflow-auto p-4" key={soloRun}>
+                <div className="flex-1 overflow-auto flex p-4 [&>*]:m-auto" key={soloRun}>
                   {pick.id === "2048" && <Game2048 onScore={soloScore} />}
                   {pick.id === "snake" && <SnakeGame onScore={soloScore} />}
                   {pick.id === "mines" && <Minesweeper onScore={soloScore} />}
@@ -403,12 +415,16 @@ function Lobby({
               );
             })}
           </div>
-          <div className="mt-2 text-[11.5px] text-slate-500">They get a card in your chat and press Play — then the board opens on both PCs. Their LANX needs 2.9.0 or newer.</div>
+          <div className="mt-2 text-[11.5px] text-slate-500">They get a card in your chat and press Play — then the board opens on both PCs. Their LANX needs {["tictactoe", "connect4", "reversi", "chess"].includes(game.id) ? "2.9.0" : "2.11.0"} or newer.</div>
 
-          <div className="mt-5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Two people at this PC</div>
-          <button type="button" data-game-local onClick={() => onLocal(2)} className={`${btn} mt-2 bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
-            <Monitor className="h-4 w-4" /> Pass & play
-          </button>
+          {!game.noLocal && (
+            <>
+              <div className="mt-5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Two people at this PC</div>
+              <button type="button" data-game-local onClick={() => onLocal(2)} className={`${btn} mt-2 bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
+                <Monitor className="h-4 w-4" /> Pass & play
+              </button>
+            </>
+          )}
         </>
       )}
     </div>
@@ -433,12 +449,27 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
     if (m.status === "declined") return m.note || `${games.opponent(m)?.name ?? "They"} declined.`;
     if (m.status === "left") return m.note || `${games.opponent(m)?.name ?? "They"} left the game.`;
     if (m.status === "over") return games.resultText(m);
+    if (m.turn < 0) return "Both sides act now";
     if (m.mode === "local") return `${games.seatName(m, seatNow)} to move${sides ? ` (${sides[m.turn]})` : ""}`;
     return canPlay ? "Your move" : `${games.seatName(m, seatNow)}'s move`;
   })();
+  const summary = m.status === "playing" || m.status === "over" ? summaryOf(m.game, m.moves, m.seats.length, games.seedOf(m)) : "";
 
   const title = m.mode === "local" ? "pass & play" : m.mode === "multi" ? `${m.seats.length} players` : `vs ${games.opponent(m)?.name ?? "?"}`;
-  const board: BoardProps = { moves: m.moves, canPlay, turn: m.turn, seat: m.mode === "local" || mine < 0 ? 0 : games.playerOf(m, mine), seats: m.seats, starter: games.starterSeat(m), onMove };
+  const board: BoardProps = {
+    moves: m.moves,
+    canPlay,
+    turn: m.turn,
+    seat: m.mode === "local" || mine < 0 ? Math.max(0, m.turn) : games.playerOf(m, mine),
+    seats: m.seats,
+    starter: games.starterSeat(m),
+    seed: games.seedOf(m),
+    secret: m.secret,
+    onSecret: (v) => games.setSecret(m.id, v),
+    local: m.mode === "local",
+    onMove,
+  };
+  const Generic = BOARDS[m.game];
   const showBoard = m.status === "playing" || m.status === "over" || (m.status === "left" && m.moves.length > 0);
   return (
     <div className="flex-1 flex flex-col min-h-0" data-game-match={m.id} data-game-match-status={m.status} data-game-mode={m.mode}>
@@ -452,7 +483,8 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
         {m.round > 1 && <span className="rounded-full bg-slate-500/10 px-2 py-0.5 text-[11px] font-semibold">Round {m.round}</span>}
       </div>
       <div className="flex-1 min-h-0 flex items-stretch gap-4 p-4">
-        <div className="flex-1 flex items-center justify-center overflow-auto">
+        {/* A board taller or wider than the room scrolls from its top-left edge (centred with margins, not flex). */}
+        <div className="flex-1 min-w-0 overflow-auto flex [&>*]:m-auto">
           {m.status === "waiting" && (
             <div className="flex flex-col items-center gap-3 text-center">
               <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
@@ -482,6 +514,7 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
               {m.game === "reversi" && <ReversiBoard {...board} />}
               {m.game === "chess" && <ChessBoard {...board} />}
               {m.game === "chainreaction" && <ChainReactionBoard {...board} />}
+              {Generic && <Generic {...board} />}
             </>
           )}
         </div>
@@ -514,6 +547,11 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
           </div>
           <div data-game-status className={`rounded-2xl px-3 py-2 text-[13px] font-semibold ${m.status === "over" ? "bg-amber-500/15 text-amber-800 dark:text-amber-200" : canPlay && m.status === "playing" ? "bg-indigo-600 text-white" : "bg-white/70 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200"}`}>
             {status}
+            {summary && (
+              <div data-game-summary className="mt-0.5 text-[11px] font-medium opacity-80">
+                {summary}
+              </div>
+            )}
           </div>
           {m.error && (
             <div data-game-error className="rounded-2xl bg-rose-500/10 px-3 py-2 text-[12px] text-rose-700 dark:text-rose-300">

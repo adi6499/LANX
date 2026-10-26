@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.10.0)
+# LANX — Local Network Messenger (v2.11.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,14 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.11.0: ten more games
+- The hidden games window (`/game`) now has **18 games**. New: **Checkers**, **Dots & Boxes** (2–4), **Gomoku**,
+  **Hex**, **Go** (9×9, area scoring), **Mancala**, **Memory** (2–8), **Minesweeper Versus** (2–4, one shared field),
+  **Sea Battle** (your fleet never leaves your PC; only shots and answers travel) and **Mahjong Duels** (2–4).
+  Challenge a colleague, open a table for several (where the game allows), or pass & play at one PC.
+- Dice and shuffles come from the match itself, so every PC sees the same deal without sending it.
+- These ten need 2.11.0 on the other PCs; the older games keep working with older copies.
 
 ### New in 2.10.0: Chain Reaction for any number of players
 - **Open a table**: in the games window pick Chain Reaction, tick as many online colleagues as you like and press

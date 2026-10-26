@@ -10,8 +10,10 @@
 // Loaded on demand (it pulls in the chess rules library), never at start-up.
 
 import { Chess, type Square } from "chess.js";
+import { DEFS } from "./games/index.ts";
 
-export type GameId = "tictactoe" | "connect4" | "reversi" | "chess" | "chainreaction";
+/** The five games below have their own code; every other id is looked up in games/index.ts. */
+export type GameId = string;
 
 /** How a game stands after its moves: still on, or over and who won. */
 export interface Outcome {
@@ -396,8 +398,8 @@ function crOutcome(moves: string[], n: number): Outcome {
 
 // ---------------------------------------------------------------- shared
 
-/** True when every move is allowed, in order, from the start. `n` players (2 unless Chain Reaction). */
-export function validateMoves(game: GameId, moves: string[], n = 2): boolean {
+/** True when every move is allowed, in order, from the start. `n` players; `seed` for dice and shuffles. */
+export function validateMoves(game: GameId, moves: string[], n = 2, seed = ""): boolean {
   if (moves.length > 600) return false;
   switch (game) {
     case "tictactoe":
@@ -410,12 +412,14 @@ export function validateMoves(game: GameId, moves: string[], n = 2): boolean {
       return chessGame(moves) !== null;
     case "chainreaction":
       return crReplay(moves, n) !== null;
-    default:
-      return false;
+    default: {
+      const d = DEFS[game];
+      return d ? d.replay(moves, n, seed) !== null : false;
+    }
   }
 }
 
-export function outcome(game: GameId, moves: string[], n = 2): Outcome {
+export function outcome(game: GameId, moves: string[], n = 2, seed = ""): Outcome {
   switch (game) {
     case "tictactoe":
       return tttOutcome(moves);
@@ -427,13 +431,30 @@ export function outcome(game: GameId, moves: string[], n = 2): Outcome {
       return chessOutcome(moves);
     case "chainreaction":
       return crOutcome(moves, n);
-    default:
-      return ON;
+    default: {
+      const d = DEFS[game];
+      if (!d) return ON;
+      const s = d.replay(moves, n, seed);
+      return s ? d.outcome(s, n) : ON;
+    }
   }
 }
 
-/** Whose turn it is (player number). After a Reversi pass or a Chain Reaction knock-out the next one in goes on. */
-export function turnOf(game: GameId, moves: string[], n = 2): number {
+/** Whose turn it is (player number; -1 when everyone acts at once). */
+export function turnOf(game: GameId, moves: string[], n = 2, seed = ""): number {
   if (game === "chainreaction") return crReplay(moves, n)?.turn ?? 0;
+  const d = DEFS[game];
+  if (d) {
+    const s = d.replay(moves, n, seed);
+    return s ? d.turn(s, n) : 0;
+  }
   return moves.length % 2;
+}
+
+/** A line for the status panel (scores, counts), when the game has one. */
+export function summaryOf(game: GameId, moves: string[], n = 2, seed = ""): string {
+  const d = DEFS[game];
+  if (!d?.summary) return "";
+  const s = d.replay(moves, n, seed);
+  return s ? d.summary(s, n) : "";
 }

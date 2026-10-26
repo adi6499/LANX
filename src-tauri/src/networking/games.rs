@@ -14,7 +14,7 @@ use crate::storage::models::Peer;
 use serde::Serialize;
 
 /// The games LANX knows. Anything else is refused on both sides.
-pub const GAME_IDS: [&str; 5] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction"];
+pub const GAME_IDS: [&str; 15] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction", "checkers", "dots", "gomoku", "hex", "go", "mancala", "memory", "minesvs", "battleship", "mahjong"];
 /// The steps a match can take.
 pub const GAME_ACTIONS: [&str; 7] = ["accept", "decline", "move", "resign", "rematch", "leave", "state"];
 /// A step's data as JSON is at most this long (a whole chess game is ~2 KB).
@@ -27,6 +27,16 @@ pub fn game_name(id: &str) -> &'static str {
         "reversi" => "Reversi",
         "chess" => "Chess",
         "chainreaction" => "Chain Reaction",
+        "checkers" => "Checkers",
+        "dots" => "Dots & Boxes",
+        "gomoku" => "Gomoku",
+        "hex" => "Hex",
+        "go" => "Go",
+        "mancala" => "Mancala",
+        "memory" => "Memory",
+        "minesvs" => "Minesweeper Versus",
+        "battleship" => "Sea Battle",
+        "mahjong" => "Mahjong Duels",
         _ => "Game",
     }
 }
@@ -35,7 +45,8 @@ pub fn game_name(id: &str) -> &'static str {
 pub fn game_min_version(id: &str) -> &'static str {
     match id {
         "chainreaction" => FEATURES_CHAIN_REACTION,
-        _ => FEATURES_GAMES,
+        "tictactoe" | "connect4" | "reversi" | "chess" => FEATURES_GAMES,
+        _ => FEATURES_GAMES_B,
     }
 }
 
@@ -169,6 +180,9 @@ mod tests {
     fn newer_games_need_newer_copies() {
         assert_eq!(game_min_version("chess"), FEATURES_GAMES);
         assert_eq!(game_min_version("chainreaction"), FEATURES_CHAIN_REACTION);
+        assert_eq!(game_min_version("go"), FEATURES_GAMES_B);
+        assert_eq!(game_name("mahjong"), "Mahjong Duels");
+        assert!(check_game_step(&step("battleship", "move")).is_ok());
         assert!(check_game_step(&step("chainreaction", "move")).is_ok());
     }
 }

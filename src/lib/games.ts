@@ -20,7 +20,22 @@
 import { api, errorText } from "./api";
 import type { Message, Peer } from "../types";
 
-export type GameId = "tictactoe" | "connect4" | "reversi" | "chess" | "chainreaction";
+export type GameId =
+  | "tictactoe"
+  | "connect4"
+  | "reversi"
+  | "chess"
+  | "chainreaction"
+  | "checkers"
+  | "dots"
+  | "gomoku"
+  | "hex"
+  | "go"
+  | "mancala"
+  | "memory"
+  | "minesvs"
+  | "battleship"
+  | "mahjong";
 export type SoloId = "2048" | "snake" | "mines";
 
 export interface GameMeta {
@@ -31,20 +46,34 @@ export interface GameMeta {
   /** How many may sit at the board (2 for the classic two-player games). */
   maxPlayers: number;
   emoji: string;
+  /** Not for pass & play (hidden information). */
+  noLocal?: boolean;
+  /** Belongs to a group in the list. */
+  group: "board" | "grid" | "solo";
 }
 
 export const GAMES: GameMeta[] = [
-  { id: "tictactoe", name: "Tic-tac-toe", blurb: "Three in a row. Over in a minute.", players: 2, maxPlayers: 2, emoji: "❌" },
-  { id: "connect4", name: "Connect Four", blurb: "Drop discs, line up four.", players: 2, maxPlayers: 2, emoji: "🔴" },
-  { id: "reversi", name: "Reversi", blurb: "Flip the board to your colour.", players: 2, maxPlayers: 2, emoji: "⚫" },
-  { id: "chess", name: "Chess", blurb: "The real thing, full rules.", players: 2, maxPlayers: 2, emoji: "♞" },
-  { id: "chainreaction", name: "Chain Reaction", blurb: "Any number of players. Fill cells with orbs; explode across the board.", players: 2, maxPlayers: 32, emoji: "💥" },
-  { id: "2048", name: "2048", blurb: "Slide and merge the tiles.", players: 1, maxPlayers: 1, emoji: "🔢" },
-  { id: "snake", name: "Snake", blurb: "Eat, grow, don't bite yourself.", players: 1, maxPlayers: 1, emoji: "🐍" },
-  { id: "mines", name: "Minesweeper", blurb: "Clear the field. Mind the mines.", players: 1, maxPlayers: 1, emoji: "💣" },
+  { id: "tictactoe", name: "Tic-tac-toe", blurb: "Three in a row. Over in a minute.", players: 2, maxPlayers: 2, emoji: "❌", group: "grid" },
+  { id: "connect4", name: "Connect Four", blurb: "Drop discs, line up four.", players: 2, maxPlayers: 2, emoji: "🔴", group: "grid" },
+  { id: "gomoku", name: "Gomoku", blurb: "Five in a row on a big open board.", players: 2, maxPlayers: 2, emoji: "⚪", group: "grid" },
+  { id: "dots", name: "Dots & Boxes", blurb: "Draw lines, close boxes, keep the turn when you do.", players: 2, maxPlayers: 4, emoji: "🔲", group: "grid" },
+  { id: "hex", name: "Hex", blurb: "Join your two sides of the board before they join theirs.", players: 2, maxPlayers: 2, emoji: "⬡", group: "grid" },
+  { id: "battleship", name: "Sea Battle", blurb: "Hide your fleet, call the squares, sink theirs first.", players: 2, maxPlayers: 2, emoji: "🚢", noLocal: true, group: "grid" },
+  { id: "minesvs", name: "Minesweeper Versus", blurb: "One shared field; open safe squares for points, mines cost you.", players: 2, maxPlayers: 4, emoji: "💣", group: "grid" },
+  { id: "memory", name: "Memory", blurb: "Find the pairs before the others do.", players: 2, maxPlayers: 8, emoji: "🃏", group: "grid" },
+  { id: "chainreaction", name: "Chain Reaction", blurb: "Any number of players. Fill cells with orbs; explode across the board.", players: 2, maxPlayers: 32, emoji: "💥", group: "grid" },
+  { id: "chess", name: "Chess", blurb: "The real thing, full rules.", players: 2, maxPlayers: 2, emoji: "♞", group: "board" },
+  { id: "checkers", name: "Checkers", blurb: "Jump to capture; crown a king on the far row.", players: 2, maxPlayers: 2, emoji: "🔴", group: "board" },
+  { id: "reversi", name: "Reversi", blurb: "Flip the board to your colour.", players: 2, maxPlayers: 2, emoji: "⚫", group: "board" },
+  { id: "go", name: "Go", blurb: "Surround territory on a 9×9 board. Pass twice to finish.", players: 2, maxPlayers: 2, emoji: "⚫", group: "board" },
+  { id: "mancala", name: "Mancala", blurb: "Sow seeds round the board; most in your store wins.", players: 2, maxPlayers: 2, emoji: "🫘", group: "board" },
+  { id: "mahjong", name: "Mahjong Duels", blurb: "Take free matching tiles in turn; most pairs wins.", players: 2, maxPlayers: 4, emoji: "🀄", group: "board" },
+  { id: "2048", name: "2048", blurb: "Slide and merge the tiles.", players: 1, maxPlayers: 1, emoji: "🔢", group: "solo" },
+  { id: "snake", name: "Snake", blurb: "Eat, grow, don't bite yourself.", players: 1, maxPlayers: 1, emoji: "🐍", group: "solo" },
+  { id: "mines", name: "Minesweeper", blurb: "Clear the field. Mind the mines.", players: 1, maxPlayers: 1, emoji: "💣", group: "solo" },
 ];
 
-export const LAN_GAMES: GameId[] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction"];
+export const LAN_GAMES: GameId[] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction", "checkers", "dots", "gomoku", "hex", "go", "mancala", "memory", "minesvs", "battleship", "mahjong"];
 export const isLanGame = (id: string): id is GameId => (LAN_GAMES as string[]).includes(id);
 export const gameMeta = (id: string): GameMeta | undefined => GAMES.find((g) => g.id === id);
 export const gameName = (id: string): string => gameMeta(id)?.name ?? "Game";
@@ -125,6 +154,8 @@ export interface Match {
   gone: string[];
   /** An extra line under the status ("The game started without you."). */
   note: string;
+  /** Something this PC keeps to itself for the game (a hidden fleet); never sent. */
+  secret?: unknown;
   lastAt: number;
   /** Something happened while the games window was closed. */
   unseen: boolean;
@@ -175,8 +206,19 @@ export const starterSeat = (m: Match) => (m.round - 1) % Math.max(1, m.seats.len
 export const seatOf = (m: Match, player: number) => (starterSeat(m) + player) % Math.max(1, m.seats.length);
 export const playerOf = (m: Match, seat: number) => (seat - starterSeat(m) + m.seats.length) % Math.max(1, m.seats.length);
 export const mySeat = (m: Match) => (m.mode === "local" ? -1 : m.seats.findIndex((s) => s.id === me));
-export const turnSeat = (m: Match) => seatOf(m, m.turn);
-export const myTurn = (m: Match) => m.status === "playing" && (m.mode === "local" || turnSeat(m) === mySeat(m));
+/** The seat to move, or -1 when everyone acts at once (placing ships, say). */
+export const turnSeat = (m: Match) => (m.turn < 0 ? -1 : seatOf(m, m.turn));
+export const myTurn = (m: Match) => m.status === "playing" && (m.mode === "local" || (m.turn < 0 ? mySeat(m) >= 0 && !m.gone.includes(me) : turnSeat(m) === mySeat(m)));
+/** The seed for this round's dice and shuffles: the same on every PC. */
+export const seedOf = (m: Match) => `${m.id}#${m.round}`;
+
+/** Save something this PC keeps to itself for the game (never sent). */
+export function setSecret(id: string, value: unknown) {
+  const m = matches.get(id);
+  if (!m) return;
+  m.secret = value;
+  bump();
+}
 export const isHost = (m: Match) => m.mode === "local" || m.host === me;
 /** The colleague on the other side of a two-player match. */
 export const opponent = (m: Match): Seat | null => (m.mode === "duo" ? (m.seats.find((s) => s.id !== me) ?? null) : null);
@@ -310,8 +352,8 @@ async function broadcast(m: Match) {
 async function settle(m: Match) {
   const rules = await import("./gameRules");
   const n = m.seats.length;
-  m.turn = rules.turnOf(m.game, m.moves, n);
-  const end = rules.outcome(m.game, m.moves, n);
+  m.turn = rules.turnOf(m.game, m.moves, n, seedOf(m));
+  const end = rules.outcome(m.game, m.moves, n, seedOf(m));
   if (end.over && m.status === "playing") {
     m.status = "over";
     m.result = { winner: end.winner === null ? null : seatOf(m, end.winner), draw: end.draw, reason: end.reason };
@@ -322,7 +364,7 @@ async function settle(m: Match) {
 async function appendValid(m: Match, move: string): Promise<boolean> {
   const rules = await import("./gameRules");
   const next = [...m.moves, move];
-  if (!rules.validateMoves(m.game, next, m.seats.length)) return false;
+  if (!rules.validateMoves(m.game, next, m.seats.length, seedOf(m))) return false;
   m.moves = next;
   m.lastAt = Date.now();
   await settle(m);
@@ -552,10 +594,10 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       if (m.status === "waiting") m.status = "playing";
       if (m.status !== "playing" || mv.length <= m.moves.length) return;
       const rules = await import("./gameRules");
-      if (!rules.validateMoves(m.game, mv, 2)) return;
+      if (!rules.validateMoves(m.game, mv, 2, seedOf(m))) return;
       m.moves = mv;
       await settle(m);
-      note = isOver(m) ? `${game} vs ${who}: ${resultText(m)}` : `${who} played — your move in ${game}.`;
+      note = isOver(m) ? `${game} vs ${who}: ${resultText(m)}` : myTurn(m) ? `${who} played — your move in ${game}.` : `${who} played in ${game}.`;
       break;
     }
     default:
@@ -609,7 +651,9 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
       }
       break;
     case "move": {
-      if (m.status !== "playing" || turnSeat(m) !== seat || d.cell === undefined) {
+      // Their turn — or, when everyone acts at once, a move marked with their own player number.
+      const theirs = m.turn < 0 ? String(d.cell ?? "").startsWith(`${playerOf(m, seat)}@`) : turnSeat(m) === seat;
+      if (m.status !== "playing" || !theirs || d.cell === undefined) {
         await sendTo(e.from_id, m, "state", stateData(m)); // put their board right
         return;
       }
@@ -651,7 +695,7 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
     const status = d.status === "lobby" ? "lobby" : "playing";
     const joined = Array.isArray(d.joined) ? d.joined.map(String) : m.joined;
     const rules = await import("./gameRules");
-    if (!rules.validateMoves(m.game, moves, seats.length)) return;
+    if (!rules.validateMoves(m.game, moves, seats.length, `${m.id}#${round}`)) return;
     if (status === "playing" && !seats.some((s) => s.id === me)) {
       m.status = "declined";
       m.note = "The game started without you.";

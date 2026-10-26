@@ -25,19 +25,8 @@ import {
   tttLine,
 } from "../../lib/gameRules";
 
-export interface BoardProps {
-  moves: string[];
-  /** Whether this PC may move now. */
-  canPlay: boolean;
-  /** Whose turn it is: the player number (0 = moved first this round). */
-  turn: number;
-  /** My player number (0 or 1 in the two-player games); turns the chess board round. */
-  seat: number;
-  /** Everyone at the board (2.10.0), and which seat moved first this round — for colours and names. */
-  seats?: { id: string; name: string; color: string }[];
-  starter?: number;
-  onMove: (move: string) => void;
-}
+import type { BoardProps } from "./boardProps";
+export type { BoardProps } from "./boardProps";
 
 export const SEAT_COLOURS: [string, string] = ["bg-sky-500", "bg-rose-500"];
 
