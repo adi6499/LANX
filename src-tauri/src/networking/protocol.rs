@@ -97,6 +97,8 @@ pub const FEATURES_CHAIN_REACTION: &str = "2.9.1";
 pub const FEATURES_MULTIPLAYER: &str = "2.10.0";
 /// LANX 2.11.0: ten more games (checkers, dots & boxes, gomoku, hex, go, mancala, memory, minesweeper versus, sea battle, mahjong).
 pub const FEATURES_GAMES_B: &str = "2.11.0";
+/// LANX 2.12.0: the rest of the games (dice, cards, party, aim-and-shoot, live) and "delta" steps.
+pub const FEATURES_GAMES_C: &str = "2.12.0";
 
 /// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
 /// whose reason is the colleague's status (waiting | accepted | declined | …).

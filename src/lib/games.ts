@@ -20,60 +20,95 @@
 import { api, errorText } from "./api";
 import type { Message, Peer } from "../types";
 
-export type GameId =
-  | "tictactoe"
-  | "connect4"
-  | "reversi"
-  | "chess"
-  | "chainreaction"
-  | "checkers"
-  | "dots"
-  | "gomoku"
-  | "hex"
-  | "go"
-  | "mancala"
-  | "memory"
-  | "minesvs"
-  | "battleship"
-  | "mahjong";
+/** A game's id ("chess", "ludo"…); the rules live in gameRules.ts or games/index.ts. */
+export type GameId = string;
 export type SoloId = "2048" | "snake" | "mines";
 
 export interface GameMeta {
   id: GameId | SoloId;
   name: string;
   blurb: string;
+  /** 1 = a solo game played in the browser alone; 2 = a match (two or more people). */
   players: 1 | 2;
-  /** How many may sit at the board (2 for the classic two-player games). */
+  /** How many may sit at the board. */
+  minPlayers: number;
   maxPlayers: number;
   emoji: string;
   /** Not for pass & play (hidden information). */
   noLocal?: boolean;
+  /** Run through a host even with two players (timed rounds, private deals, live play). */
+  hosted?: boolean;
+  /** The host streams positions live (lib/gameChannel.ts) rather than everyone replaying moves. */
+  realtime?: boolean;
   /** Belongs to a group in the list. */
-  group: "board" | "grid" | "solo";
+  group: "grid" | "board" | "dice" | "cards" | "party" | "shots" | "live" | "solo";
 }
 
+const g = (id: string, name: string, blurb: string, emoji: string, group: GameMeta["group"], min: number, max: number, extra: Partial<GameMeta> = {}): GameMeta => ({ id, name, blurb, players: group === "solo" ? 1 : 2, minPlayers: min, maxPlayers: max, emoji, group, ...extra });
+
 export const GAMES: GameMeta[] = [
-  { id: "tictactoe", name: "Tic-tac-toe", blurb: "Three in a row. Over in a minute.", players: 2, maxPlayers: 2, emoji: "❌", group: "grid" },
-  { id: "connect4", name: "Connect Four", blurb: "Drop discs, line up four.", players: 2, maxPlayers: 2, emoji: "🔴", group: "grid" },
-  { id: "gomoku", name: "Gomoku", blurb: "Five in a row on a big open board.", players: 2, maxPlayers: 2, emoji: "⚪", group: "grid" },
-  { id: "dots", name: "Dots & Boxes", blurb: "Draw lines, close boxes, keep the turn when you do.", players: 2, maxPlayers: 4, emoji: "🔲", group: "grid" },
-  { id: "hex", name: "Hex", blurb: "Join your two sides of the board before they join theirs.", players: 2, maxPlayers: 2, emoji: "⬡", group: "grid" },
-  { id: "battleship", name: "Sea Battle", blurb: "Hide your fleet, call the squares, sink theirs first.", players: 2, maxPlayers: 2, emoji: "🚢", noLocal: true, group: "grid" },
-  { id: "minesvs", name: "Minesweeper Versus", blurb: "One shared field; open safe squares for points, mines cost you.", players: 2, maxPlayers: 4, emoji: "💣", group: "grid" },
-  { id: "memory", name: "Memory", blurb: "Find the pairs before the others do.", players: 2, maxPlayers: 8, emoji: "🃏", group: "grid" },
-  { id: "chainreaction", name: "Chain Reaction", blurb: "Any number of players. Fill cells with orbs; explode across the board.", players: 2, maxPlayers: 32, emoji: "💥", group: "grid" },
-  { id: "chess", name: "Chess", blurb: "The real thing, full rules.", players: 2, maxPlayers: 2, emoji: "♞", group: "board" },
-  { id: "checkers", name: "Checkers", blurb: "Jump to capture; crown a king on the far row.", players: 2, maxPlayers: 2, emoji: "🔴", group: "board" },
-  { id: "reversi", name: "Reversi", blurb: "Flip the board to your colour.", players: 2, maxPlayers: 2, emoji: "⚫", group: "board" },
-  { id: "go", name: "Go", blurb: "Surround territory on a 9×9 board. Pass twice to finish.", players: 2, maxPlayers: 2, emoji: "⚫", group: "board" },
-  { id: "mancala", name: "Mancala", blurb: "Sow seeds round the board; most in your store wins.", players: 2, maxPlayers: 2, emoji: "🫘", group: "board" },
-  { id: "mahjong", name: "Mahjong Duels", blurb: "Take free matching tiles in turn; most pairs wins.", players: 2, maxPlayers: 4, emoji: "🀄", group: "board" },
-  { id: "2048", name: "2048", blurb: "Slide and merge the tiles.", players: 1, maxPlayers: 1, emoji: "🔢", group: "solo" },
-  { id: "snake", name: "Snake", blurb: "Eat, grow, don't bite yourself.", players: 1, maxPlayers: 1, emoji: "🐍", group: "solo" },
-  { id: "mines", name: "Minesweeper", blurb: "Clear the field. Mind the mines.", players: 1, maxPlayers: 1, emoji: "💣", group: "solo" },
+  // grid
+  g("tictactoe", "Tic-tac-toe", "Three in a row. Over in a minute.", "❌", "grid", 2, 2),
+  g("connect4", "Connect Four", "Drop discs, line up four.", "🔴", "grid", 2, 2),
+  g("gomoku", "Gomoku", "Five in a row on a big open board.", "⚪", "grid", 2, 2),
+  g("dots", "Dots & Boxes", "Draw lines, close boxes, keep the turn when you do.", "🔲", "grid", 2, 4),
+  g("hex", "Hex", "Join your two sides of the board before they join theirs.", "⬡", "grid", 2, 2),
+  g("battleship", "Sea Battle", "Hide your fleet, call the squares, sink theirs first.", "🚢", "grid", 2, 2, { noLocal: true }),
+  g("minesvs", "Minesweeper Versus", "One shared field; open safe squares for points, mines cost you.", "💣", "grid", 2, 4),
+  g("memory", "Memory", "Find the pairs before the others do.", "🃏", "grid", 2, 8),
+  g("chainreaction", "Chain Reaction", "Any number of players. Fill cells with orbs; explode across the board.", "💥", "grid", 2, 32),
+  g("paintfight", "Paint Fight", "Tap fast: paint more squares than the others in thirty seconds.", "🎨", "grid", 2, 8, { hosted: true }),
+  // board
+  g("chess", "Chess", "The real thing, full rules.", "♞", "board", 2, 2),
+  g("checkers", "Checkers", "Jump to capture; crown a king on the far row.", "🔴", "board", 2, 2),
+  g("reversi", "Reversi", "Flip the board to your colour.", "⚫", "board", 2, 2),
+  g("go", "Go", "Surround territory on a 9×9 board. Pass twice to finish.", "⚫", "board", 2, 2),
+  g("mancala", "Mancala", "Sow seeds round the board; most in your store wins.", "🫘", "board", 2, 2),
+  g("mahjong", "Mahjong Duels", "Take free matching tiles in turn; most pairs wins.", "🀄", "board", 2, 4),
+  // dice
+  g("ludo", "Ludo", "Four tokens round the board; a six gets you out and rolls again.", "🎲", "dice", 2, 4),
+  g("snakes", "Snakes & Ladders", "Pure luck: climb the ladders, dodge the snakes, hit 100 exactly.", "🪜", "dice", 2, 8),
+  g("bankroll", "Bankroll", "Fast property trading: buy streets, collect rent, don't go broke.", "🏦", "dice", 2, 6),
+  g("backgammon", "Backgammon", "Race your checkers home on the dice; hit lone ones on the way.", "🎯", "dice", 2, 2),
+  g("dominoes", "Dominoes", "Match the ends of the line; first out of tiles wins.", "🁡", "dice", 2, 4),
+  // cards
+  g("ocho", "Ocho", "Colours, numbers, skips and wilds — shed your hand first.", "🃏", "cards", 2, 8),
+  g("crazy8", "Crazy Eights", "Match suit or rank; eights are wild. First hand out wins.", "🂸", "cards", 2, 6),
+  g("holdem", "Texas Hold'em", "Bluff and bet with chips that are only points; twenty hands.", "🂮", "cards", 2, 8),
+  g("spades", "Spades", "Partners across the table bid their tricks; spades always trump.", "♠️", "cards", 4, 4),
+  g("hearts", "Hearts", "Avoid the hearts and the queen of spades; lowest score wins.", "♥️", "cards", 4, 4),
+  g("euchre", "Euchre", "Fast partnership tricks with bowers; first team to ten.", "🃑", "cards", 4, 4),
+  g("ginrummy", "Gin Rummy", "Build sets and runs; knock when your deadwood is ten or less.", "🂭", "cards", 2, 2),
+  g("gofish", "Go Fish", "Ask for a rank; collect books of four.", "🐟", "cards", 2, 6),
+  g("blackjack", "Blackjack 21", "Hit or stand against the house; five rounds, most points wins.", "🂡", "cards", 1, 6),
+  // party
+  g("drawguess", "Draw & Guess", "One draws, the rest guess — first right answer wins the round.", "✏️", "party", 3, 8, { hosted: true, noLocal: true }),
+  g("trivia", "Trivia Night", "Ten questions, four options, everyone answers at once.", "❓", "party", 2, 8, { hosted: true }),
+  g("werewolf", "Werewolf", "Hidden roles: find the wolves by day before they eat the village by night.", "🐺", "party", 5, 12, { hosted: true, noLocal: true }),
+  g("wordbox", "Wordbox", "Find words on a 4×4 letter grid against the clock.", "🔤", "party", 2, 8, { hosted: true }),
+  g("mathrush", "Math Rush", "Quick sums, head to head: first right answer scores most.", "➗", "party", 2, 8, { hosted: true }),
+  g("taproulette", "Tap Roulette", "Everyone taps in; the app picks one loser at random.", "🎯", "party", 2, 8, { hosted: true }),
+  // aim and shoot
+  g("carrom", "Carrom", "Flick the striker; pocket your nine coins and cover the queen.", "🪙", "shots", 2, 2),
+  g("pool", "8-Ball Pool", "Solids or stripes, then the 8 — real angles, real bounces.", "🎱", "shots", 2, 2),
+  g("cuppong", "Cup Pong", "Bounce the ball into their cups before they clear yours.", "🥤", "shots", 2, 4),
+  g("minigolf", "Mini Golf", "Nine holes; bounce off the walls and sink it in the fewest strokes.", "⛳", "shots", 1, 8),
+  g("bowling", "Bowling", "Ten frames, strikes and spares; aim and power are up to you.", "🎳", "shots", 1, 8),
+  g("darts", "Darts", "301 down to zero, three darts a turn; bust and you lose the turn.", "🎯", "shots", 1, 8),
+  g("archery", "Archery", "Six arrows each; allow for the wind.", "🏹", "shots", 1, 8),
+  // live
+  g("airhockey", "Air Hockey", "Live puck, live paddles — first to five.", "🏒", "live", 2, 2, { hosted: true, realtime: true }),
+  g("foosball", "Table Soccer", "Four rods a side, live ball — first to five.", "⚽", "live", 2, 2, { hosted: true, realtime: true }),
+  g("spinnerwars", "Spinner Wars", "Bump the others out of the arena; last spinner standing.", "🌀", "live", 2, 8, { hosted: true, realtime: true }),
+  // solo
+  g("2048", "2048", "Slide and merge the tiles.", "🔢", "solo", 1, 1),
+  g("snake", "Snake", "Eat, grow, don't bite yourself.", "🐍", "solo", 1, 1),
+  g("mines", "Minesweeper", "Clear the field. Mind the mines.", "💣", "solo", 1, 1),
 ];
 
-export const LAN_GAMES: GameId[] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction", "checkers", "dots", "gomoku", "hex", "go", "mancala", "memory", "minesvs", "battleship", "mahjong"];
+export const GROUP_LABEL: Record<GameMeta["group"], string> = { grid: "Grid games", board: "Board games", dice: "Dice games", cards: "Card games", party: "Party games", shots: "Aim & shoot", live: "Live arcade", solo: "Just you" };
+
+export const LAN_GAMES: GameId[] = GAMES.filter((x) => x.players === 2).map((x) => x.id);
 export const isLanGame = (id: string): id is GameId => (LAN_GAMES as string[]).includes(id);
 export const gameMeta = (id: string): GameMeta | undefined => GAMES.find((g) => g.id === id);
 export const gameName = (id: string): string => gameMeta(id)?.name ?? "Game";
@@ -89,7 +124,7 @@ export function findGame(query: string): GameMeta | undefined {
 const SEAT_COLOURS = ["#f43f5e", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#f97316", "#14b8a6", "#ec4899", "#84cc16", "#6366f1", "#06b6d4", "#d946ef"];
 export const seatColour = (i: number): string => SEAT_COLOURS[i] ?? `hsl(${(i * 47) % 360} 80% 55%)`;
 
-export type GameAction = "accept" | "decline" | "move" | "resign" | "rematch" | "leave" | "state";
+export type GameAction = "accept" | "decline" | "move" | "resign" | "rematch" | "leave" | "state" | "delta";
 
 /** One step of a match, as it travels between two PCs. */
 export interface GameStep {
@@ -156,6 +191,8 @@ export interface Match {
   note: string;
   /** Something this PC keeps to itself for the game (a hidden fleet); never sent. */
   secret?: unknown;
+  /** Light steps relayed by the host and not kept in the moves (strokes, taps, roles) — 2.12.0. */
+  deltas: unknown[];
   lastAt: number;
   /** Something happened while the games window was closed. */
   unseen: boolean;
@@ -259,6 +296,7 @@ function make(p: Partial<Match> & Pick<Match, "id" | "game" | "mode" | "seats" |
     joined: [],
     gone: [],
     note: "",
+    deltas: [],
     lastAt: Date.now(),
     unseen: false,
     error: null,
@@ -266,6 +304,7 @@ function make(p: Partial<Match> & Pick<Match, "id" | "game" | "mode" | "seats" |
   };
   matches.set(m.id, m);
   bump();
+  void settle(m); // the rules say who moves first (in Hearts, whoever holds the 2♣)
   return m;
 }
 
@@ -292,9 +331,10 @@ export function challengeMany(game: GameId, peers: Peer[]): { match: Match; card
   };
 }
 
-/** Pass & play at this PC, `count` people taking turns. */
+/** Pass & play at this PC, `count` people taking turns (one, for the games you can play alone). */
 export function localMatch(game: GameId, count = 2): Match {
-  const n = Math.max(2, Math.min(count, gameMeta(game)?.maxPlayers ?? 2));
+  const meta = gameMeta(game);
+  const n = Math.max(meta?.minPlayers ?? 2, Math.min(count, meta?.maxPlayers ?? 2));
   const seats = Array.from({ length: n }, (_, i) => ({ id: `local:${i}`, name: `Player ${i + 1}`, color: seatColour(i) }));
   return make({ id: newId(), game, mode: "local", seats, host: "", status: "playing" });
 }
@@ -359,6 +399,7 @@ async function settle(m: Match) {
     m.result = { winner: end.winner === null ? null : seatOf(m, end.winner), draw: end.draw, reason: end.reason };
     void recordResult(m);
   }
+  bump(); // the turn (or the result) changed after the rules were loaded
 }
 
 async function appendValid(m: Match, move: string): Promise<boolean> {
@@ -435,6 +476,7 @@ export async function rematch(id: string) {
   m.result = null;
   m.status = "playing";
   m.lastAt = Date.now();
+  await settle(m);
   bump();
   if (m.mode === "duo") await sendTo(opponent(m)!.id, m, "rematch", { round: m.round });
   else if (m.mode === "multi") await broadcast(m);
@@ -452,6 +494,7 @@ export async function startNow(id: string): Promise<string | null> {
   m.turn = 0;
   m.result = null;
   m.lastAt = Date.now();
+  await settle(m);
   bump();
   await broadcast(m);
   return null;
@@ -485,6 +528,37 @@ export async function decline(card: GameCardData, msg: Message) {
   }
 }
 
+function pushDelta(m: Match, data: unknown) {
+  m.deltas = [...m.deltas, data].slice(-600);
+  bump();
+}
+
+/** A light step for the others at the table (a stroke, a tap, a role card): the host passes it on;
+ *  with `to` (a player number) only that player gets it. Never kept in the moves. */
+export function sendDelta(id: string, data: unknown) {
+  const m = matches.get(id);
+  if (!m) return;
+  const to = data && typeof data === "object" && typeof (data as { to?: unknown }).to === "number" ? ((data as { to: number }).to as number) : null;
+  if (m.mode === "local") {
+    pushDelta(m, data);
+    return;
+  }
+  if (m.mode === "duo") {
+    pushDelta(m, data);
+    void sendTo(opponent(m)!.id, m, "delta", data);
+    return;
+  }
+  if (isHost(m)) {
+    const mine = to === null || seatOf(m, to) === mySeat(m);
+    if (mine) pushDelta(m, data);
+    const targets = to === null ? m.seats.filter((s) => s.id !== me && !m.gone.includes(s.id)).map((s) => s.id) : [m.seats[seatOf(m, to)]?.id].filter((x): x is string => !!x && x !== me);
+    for (const pid of targets) void sendTo(pid, m, "delta", data);
+  } else {
+    if (to === null || seatOf(m, to) === mySeat(m)) pushDelta(m, data);
+    void sendTo(m.host, m, "delta", data);
+  }
+}
+
 export function markSeen(id: string) {
   const m = matches.get(id);
   if (m && m.unseen) {
@@ -510,6 +584,8 @@ async function receiveAsync(e: GameEvent) {
     if (e.action === "state" && Array.isArray(d.seats)) {
       // A table this PC doesn't know (LANX restarted?): rebuild it from the host's state.
       m = make({ id: e.match_id, game: e.game, mode: "multi", seats: [], host: e.from_id, status: "lobby", unseen: true });
+    } else if (e.action === "delta") {
+      return; // a stroke for a table this PC no longer has
     } else if ((e.action === "accept" || e.action === "move") && !Array.isArray(d.seats) && d.cell === undefined) {
       // A two-player match this PC doesn't know: rebuild it from the step.
       const other: Seat = { id: e.from_id, name: e.from_name, color: "" };
@@ -524,6 +600,18 @@ async function receiveAsync(e: GameEvent) {
         unseen: true,
       });
     } else return;
+  }
+  if (e.action === "delta") {
+    // Relayed by the host to everyone else (or to the one it names), and kept for the boards.
+    const seat = m.seats.findIndex((s) => s.id === e.from_id);
+    if (seat < 0) return;
+    const to = e.data && typeof e.data === "object" && typeof (e.data as { to?: unknown }).to === "number" ? ((e.data as { to: number }).to as number) : null;
+    if (m.mode === "multi" && isHost(m)) {
+      const targets = to === null ? m.seats.filter((s) => s.id !== me && s.id !== e.from_id && !m.gone.includes(s.id)).map((s) => s.id) : [m.seats[seatOf(m, to)]?.id].filter((x): x is string => !!x && x !== me && x !== e.from_id);
+      for (const pid of targets) void sendTo(pid, m, "delta", e.data);
+      if (to === null || seatOf(m, to) === mySeat(m)) pushDelta(m, e.data);
+    } else if (to === null || seatOf(m, to) === mySeat(m)) pushDelta(m, e.data);
+    return;
   }
   if (m.mode === "multi") {
     if (isHost(m)) await hostStep(m, e, d);
@@ -576,6 +664,7 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
         m.turn = 0;
         m.result = null;
         m.status = "playing";
+        await settle(m);
         note = `${who} wants another round of ${game}.`;
       }
       break;

@@ -674,7 +674,7 @@ mod game_card_tests {
         assert!(card_min_version(&text) == FEATURES_GAMES, "older copies get text instead");
         assert!(card_preview(&text).contains("Chess"));
         assert!(card_fallback(&text).contains("Update LANX"));
-        assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "ludo", "to": "x" })).is_err(), "unknown game");
+        assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "chaupar", "to": "x" })).is_err(), "unknown game");
         let chain = clean_card(&json!({ "kind": "game", "id": "m2", "game": "chainreaction", "to": "peer-b" })).unwrap().to_string();
         assert_eq!(card_min_version(&chain), FEATURES_CHAIN_REACTION, "Chain Reaction needs 2.9.1 on the other side");
         assert!(card_preview(&chain).contains("Chain Reaction"));

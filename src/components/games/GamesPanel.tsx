@@ -9,7 +9,7 @@ import { ArrowLeft, Check, Flag, Gamepad2, Loader2, LogOut, Monitor, Play, Refre
 import type { Peer } from "../../types";
 import { Avatar } from "../Avatar";
 import * as games from "../../lib/games";
-import { GAMES, type GameCardData, type GameId, type GameMeta, type Match, type SoloId } from "../../lib/games";
+import { GAMES, GROUP_LABEL, type GameCardData, type GameId, type GameMeta, type Match, type SoloId } from "../../lib/games";
 import { ChainReactionBoard, ChessBoard, ChessMoves, ConnectFourBoard, ReversiBoard, TicTacToeBoard, type BoardProps } from "./Boards";
 import { BOARDS } from "./boards/index";
 import { summaryOf } from "../../lib/gameRules";
@@ -121,8 +121,8 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
 
   const challengeMany = async (chosen: Peer[]) => {
     if (!games.isLanGame(pick.id) || chosen.length === 0) return;
-    // One colleague: a plain two-player game (works with 2.9.1 copies too).
-    if (chosen.length === 1) return challengeOne(chosen[0]);
+    // One colleague: a plain two-player game (works with 2.9.1 copies too) — unless the game needs a host.
+    if (chosen.length === 1 && !pick.hosted) return challengeOne(chosen[0]);
     setBusy(true);
     const { match: m, cards } = games.challengeMany(pick.id, chosen);
     let sent = 0;
@@ -212,7 +212,9 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
             )}
             <div className="rounded-2xl lanx-group p-2">
               <div className="px-2 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">Games · {GAMES.length}</div>
-              {GAMES.map((g) => (
+              {GAMES.map((g, gi) => (
+                <div key={g.id}>
+                {(gi === 0 || GAMES[gi - 1].group !== g.group) && <div className="px-2 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-wide text-indigo-500/80" data-game-group={g.group}>{GROUP_LABEL[g.group]}</div>}
                 <button
                   key={g.id}
                   type="button"
@@ -227,11 +229,12 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] font-semibold leading-tight">{g.name}</span>
                     <span className={`block text-[10.5px] ${pick.id === g.id && view !== "match" ? "text-white/80" : "text-slate-500"}`}>
-                      {g.players === 1 ? "Solo" : g.maxPlayers > 2 ? "2 or more players" : "2 players"}
+                      {g.players === 1 ? "Solo" : g.minPlayers === g.maxPlayers ? `${g.maxPlayers} players` : g.minPlayers === 1 ? `1–${g.maxPlayers} players` : `${g.minPlayers}–${g.maxPlayers} players`}
                       {statsLine(g.id) ? ` · ${statsLine(g.id)}` : ""}
                     </span>
                   </span>
                 </button>
+                </div>
               ))}
             </div>
           </aside>
@@ -309,13 +312,14 @@ function Lobby({
   onSolo: () => void;
 }) {
   const s = games.statsFor(game.id);
-  const many = game.maxPlayers > 2;
+  const many = game.maxPlayers > 2 || !!game.hosted;
+  const counts = Array.from({ length: Math.min(8, game.maxPlayers) - Math.max(1, game.minPlayers) + 1 }, (_, k) => Math.max(1, game.minPlayers) + k);
   const [chosen, setChosen] = useState<string[]>([]);
-  const [count, setCount] = useState(2);
+  const [count, setCount] = useState(Math.max(1, game.minPlayers));
   useEffect(() => {
     setChosen([]);
-    setCount(2);
-  }, [game.id]);
+    setCount(Math.max(2, game.minPlayers) <= game.maxPlayers ? Math.max(2, game.minPlayers) : Math.max(1, game.minPlayers));
+  }, [game.id, game.minPlayers, game.maxPlayers]);
   const online = peers.filter((p) => p.status === "online");
   const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
   const chosenPeers = online.filter((p) => chosen.includes(p.id));
@@ -370,26 +374,35 @@ function Lobby({
             })}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" data-game-challenge-many disabled={busy || chosenPeers.length === 0} onClick={() => onChallengeMany(chosenPeers)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
+            <button type="button" data-game-challenge-many disabled={busy || chosenPeers.length + 1 < Math.max(2, game.minPlayers)} onClick={() => onChallengeMany(chosenPeers)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Swords className="h-3.5 w-3.5" />}
-              {chosenPeers.length === 0 ? "Invite colleagues" : `Invite ${chosenPeers.length} ${chosenPeers.length === 1 ? "colleague" : "colleagues"} — ${chosenPeers.length + 1} at the table`}
+              {chosenPeers.length === 0 ? `Invite colleagues${game.minPlayers > 2 ? ` (${game.minPlayers - 1} or more)` : ""}` : `Invite ${chosenPeers.length} ${chosenPeers.length === 1 ? "colleague" : "colleagues"} — ${chosenPeers.length + 1} at the table`}
             </button>
-            <span className="text-[11.5px] text-slate-500">Each gets a card in your chat; you start once they have pressed Play. A table needs 2.10.0 on their PCs (one colleague: 2.9.1 is enough).</span>
+            <span className="text-[11.5px] text-slate-500">
+              Each gets a card in your chat; you start once they have pressed Play.{" "}
+              {game.minPlayers === game.maxPlayers ? `Exactly ${game.minPlayers} players.` : game.minPlayers > 2 ? `${game.minPlayers} to ${game.maxPlayers} players.` : `Up to ${game.maxPlayers} players.`} Their LANX needs {["chainreaction"].includes(game.id) ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(game.id) ? "2.11.0" : "2.12.0"}.
+            </span>
           </div>
 
-          <div className="mt-5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Pass & play at this PC</div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/60 p-1" data-game-local-counts>
-              {[2, 3, 4, 5, 6, 7, 8].map((n) => (
-                <button key={n} type="button" data-game-local-count={n} onClick={() => setCount(n)} className={`h-7 w-7 rounded-full text-[12px] font-bold ${count === n ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300 hover:bg-slate-500/10"}`}>
-                  {n}
+          {!game.noLocal && (
+            <>
+              <div className="mt-5 text-[11px] font-bold uppercase tracking-wide text-slate-500">{counts[0] === 1 ? "At this PC" : "Pass & play at this PC"}</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {counts.length > 1 && (
+                  <div className="flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/60 p-1" data-game-local-counts>
+                    {counts.map((n) => (
+                      <button key={n} type="button" data-game-local-count={n} onClick={() => setCount(n)} className={`h-7 w-7 rounded-full text-[12px] font-bold ${count === n ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300 hover:bg-slate-500/10"}`}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button type="button" data-game-local onClick={() => onLocal(count)} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
+                  <Monitor className="h-4 w-4" /> {count === 1 ? "Play alone" : `Pass & play with ${count}`}
                 </button>
-              ))}
-            </div>
-            <button type="button" data-game-local onClick={() => onLocal(count)} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
-              <Monitor className="h-4 w-4" /> Pass & play with {count}
-            </button>
-          </div>
+              </div>
+            </>
+          )}
         </>
       ) : (
         <>
@@ -467,6 +480,9 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
     secret: m.secret,
     onSecret: (v) => games.setSecret(m.id, v),
     local: m.mode === "local",
+    deltas: m.deltas,
+    onDelta: (d) => games.sendDelta(m.id, d),
+    host,
     onMove,
   };
   const Generic = BOARDS[m.game];

@@ -17,6 +17,22 @@ export interface MahjongState {
   /** Players who passed in a row. */
   passes: number;
   last: number[];
+  /** Times the table was reshuffled because no pair was free (three at most). */
+  reshuffles: number;
+}
+
+const MAX_RESHUFFLES = 3;
+
+/** With no free pair left, the remaining tiles are shuffled in place (the same way on every PC). */
+function reshuffleIfStuck(s: MahjongState, seed: string) {
+  while (s.reshuffles < MAX_RESHUFFLES && mjPairs(s.tiles).length === 0 && s.tiles.some((t) => t !== null)) {
+    const spots = s.tiles.map((t, i) => (t !== null ? i : -1)).filter((i) => i >= 0);
+    const faces = shuffled(spots.map((i) => s.tiles[i]!), `${seed}#reshuffle${s.reshuffles}`);
+    spots.forEach((i, k) => {
+      s.tiles[i] = faces[k];
+    });
+    s.reshuffles++;
+  }
 }
 
 export function mjFree(tiles: (string | null)[], i: number): boolean {
@@ -51,7 +67,8 @@ export const mahjong: GameDef<MahjongState> = {
   minPlayers: 2,
   maxPlayers: 4,
   replay(moves, n, seed) {
-    const s: MahjongState = { tiles: shuffled([...KINDS, ...KINDS], seed), scores: Array(n).fill(0), turn: 0, passes: 0, last: [] };
+    const s: MahjongState = { tiles: shuffled([...KINDS, ...KINDS], seed), scores: Array(n).fill(0), turn: 0, passes: 0, last: [], reshuffles: 0 };
+    reshuffleIfStuck(s, seed);
     for (const m of moves) {
       if (outcome(s, n).over) return null;
       if (m === "p") {
@@ -72,10 +89,11 @@ export const mahjong: GameDef<MahjongState> = {
       s.last = [a, b];
       s.passes = 0;
       s.turn = (s.turn + 1) % n;
+      reshuffleIfStuck(s, seed);
     }
     return s;
   },
   turn: (s) => s.turn,
   outcome,
-  summary: (s) => s.scores.map((x, i) => `P${i + 1} ${x}`).join(" · "),
+  summary: (s) => s.scores.map((x, i) => `P${i + 1} ${x}`).join(" · ") + (s.reshuffles ? ` · reshuffled ${s.reshuffles}×` : ""),
 };

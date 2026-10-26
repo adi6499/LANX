@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.11.0)
+# LANX — Local Network Messenger (v2.12.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,18 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.12.0: 49 games
+- The hidden games window (`/game`) now holds the whole list, in groups: **grid** (tic-tac-toe, Connect Four, Gomoku,
+  Dots & Boxes, Hex, Sea Battle, Minesweeper Versus, Memory, Chain Reaction, Paint Fight), **board** (chess, Checkers,
+  Reversi, Go, Mancala, Mahjong Duels), **dice** (Ludo, Snakes & Ladders, Bankroll, Backgammon, Dominoes), **cards**
+  (Ocho, Crazy Eights, Texas Hold'em, Spades, Hearts, Euchre, Gin Rummy, Go Fish, Blackjack 21), **party** (Draw &
+  Guess, Trivia Night, Werewolf, Wordbox, Math Rush, Tap Roulette), **aim & shoot** (Carrom, 8-Ball Pool, Cup Pong,
+  Mini Golf, Bowling, Darts, Archery), **live arcade** (Air Hockey, Table Soccer, Spinner Wars) and the three solo games.
+- Dice, shuffles and deals come from the match itself, so every PC sees the same; hands stay on your own screen.
+  Party games run in timed rounds from the host's PC; Draw & Guess strokes and Werewolf roles travel as light "delta"
+  steps; the live arcade games stream from the host over a direct data channel (the same kind calls use).
+- Mahjong Duels reshuffles the table (up to three times) when no pair is free. The new games need 2.12.0 on the other PCs.
 
 ### New in 2.11.0: ten more games
 - The hidden games window (`/game`) now has **18 games**. New: **Checkers**, **Dots & Boxes** (2–4), **Gomoku**,

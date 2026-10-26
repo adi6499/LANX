@@ -14,11 +14,11 @@ use crate::storage::models::Peer;
 use serde::Serialize;
 
 /// The games LANX knows. Anything else is refused on both sides.
-pub const GAME_IDS: [&str; 15] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction", "checkers", "dots", "gomoku", "hex", "go", "mancala", "memory", "minesvs", "battleship", "mahjong"];
+pub const GAME_IDS: [&str; 46] = ["tictactoe", "connect4", "reversi", "chess", "chainreaction", "checkers", "dots", "gomoku", "hex", "go", "mancala", "memory", "minesvs", "battleship", "mahjong", "snakes", "ludo", "backgammon", "dominoes", "bankroll", "crazy8", "ocho", "gofish", "blackjack", "hearts", "spades", "euchre", "ginrummy", "holdem", "taproulette", "mathrush", "trivia", "wordbox", "paintfight", "drawguess", "werewolf", "darts", "archery", "cuppong", "bowling", "minigolf", "pool", "carrom", "airhockey", "foosball", "spinnerwars"];
 /// The steps a match can take.
-pub const GAME_ACTIONS: [&str; 7] = ["accept", "decline", "move", "resign", "rematch", "leave", "state"];
+pub const GAME_ACTIONS: [&str; 8] = ["accept", "decline", "move", "resign", "rematch", "leave", "state", "delta"];
 /// A step's data as JSON is at most this long (a whole chess game is ~2 KB).
-pub const GAME_DATA_MAX: usize = 8 * 1024;
+pub const GAME_DATA_MAX: usize = 32 * 1024;
 
 pub fn game_name(id: &str) -> &'static str {
     match id {
@@ -37,6 +37,37 @@ pub fn game_name(id: &str) -> &'static str {
         "minesvs" => "Minesweeper Versus",
         "battleship" => "Sea Battle",
         "mahjong" => "Mahjong Duels",
+        "snakes" => "Snakes & Ladders",
+        "ludo" => "Ludo",
+        "backgammon" => "Backgammon",
+        "dominoes" => "Dominoes",
+        "bankroll" => "Bankroll",
+        "crazy8" => "Crazy Eights",
+        "ocho" => "Ocho",
+        "gofish" => "Go Fish",
+        "blackjack" => "Blackjack 21",
+        "hearts" => "Hearts",
+        "spades" => "Spades",
+        "euchre" => "Euchre",
+        "ginrummy" => "Gin Rummy",
+        "holdem" => "Texas Hold'em",
+        "taproulette" => "Tap Roulette",
+        "mathrush" => "Math Rush",
+        "trivia" => "Trivia Night",
+        "wordbox" => "Wordbox",
+        "paintfight" => "Paint Fight",
+        "drawguess" => "Draw & Guess",
+        "werewolf" => "Werewolf",
+        "darts" => "Darts",
+        "archery" => "Archery",
+        "cuppong" => "Cup Pong",
+        "bowling" => "Bowling",
+        "minigolf" => "Mini Golf",
+        "pool" => "8-Ball Pool",
+        "carrom" => "Carrom",
+        "airhockey" => "Air Hockey",
+        "foosball" => "Table Soccer",
+        "spinnerwars" => "Spinner Wars",
         _ => "Game",
     }
 }
@@ -46,7 +77,8 @@ pub fn game_min_version(id: &str) -> &'static str {
     match id {
         "chainreaction" => FEATURES_CHAIN_REACTION,
         "tictactoe" | "connect4" | "reversi" | "chess" => FEATURES_GAMES,
-        _ => FEATURES_GAMES_B,
+        "checkers" | "dots" | "gomoku" | "hex" | "go" | "mancala" | "memory" | "minesvs" | "battleship" | "mahjong" => FEATURES_GAMES_B,
+        _ => FEATURES_GAMES_C,
     }
 }
 
@@ -159,7 +191,7 @@ mod tests {
     #[test]
     fn steps_are_checked() {
         assert!(check_game_step(&step("chess", "move")).is_ok());
-        assert!(check_game_step(&step("ludo", "move")).is_err(), "unknown game");
+        assert!(check_game_step(&step("chaupar", "move")).is_err(), "unknown game");
         assert!(check_game_step(&step("chess", "cheat")).is_err(), "unknown step");
         let mut bad = step("chess", "move");
         bad.match_id = "../x".to_string();
@@ -181,6 +213,10 @@ mod tests {
         assert_eq!(game_min_version("chess"), FEATURES_GAMES);
         assert_eq!(game_min_version("chainreaction"), FEATURES_CHAIN_REACTION);
         assert_eq!(game_min_version("go"), FEATURES_GAMES_B);
+        assert_eq!(game_min_version("holdem"), FEATURES_GAMES_C);
+        assert_eq!(game_name("foosball"), "Table Soccer");
+        assert!(check_game_step(&step("drawguess", "delta")).is_ok());
+        assert_eq!(GAME_IDS.len(), 46);
         assert_eq!(game_name("mahjong"), "Mahjong Duels");
         assert!(check_game_step(&step("battleship", "move")).is_ok());
         assert!(check_game_step(&step("chainreaction", "move")).is_ok());
