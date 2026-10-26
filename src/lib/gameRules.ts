@@ -1,8 +1,11 @@
-// LANX 2.9.0: the rules of the games, kept apart from the UI so that both
-// computers in a match run exactly the same code. Every game is a list of
-// moves (strings) replayed from the start; a position is never sent, only
-// the moves, so a step that arrives late or twice can't put the boards out
-// of step. Pass-and-play and LAN matches share these rules.
+// LANX 2.9.0: the rules of the games, kept apart from the UI so that every
+// computer in a match runs exactly the same code. A game is a list of moves
+// (strings) replayed from the start; a position is never sent, only the
+// moves, so a step that arrives late or twice can't put the boards out of
+// step. Pass-and-play and LAN matches share these rules.
+//
+// Players are numbered from 0 in the order they move in the round (0 moved
+// first). The match layer maps those numbers to seats (people).
 //
 // Loaded on demand (it pulls in the chess rules library), never at start-up.
 
@@ -13,14 +16,14 @@ export type GameId = "tictactoe" | "connect4" | "reversi" | "chess" | "chainreac
 /** How a game stands after its moves: still on, or over and who won. */
 export interface Outcome {
   over: boolean;
-  /** 0 = the player who moved first this round, 1 = the other; null for a draw or an unfinished game. */
-  winner: 0 | 1 | null;
+  /** The winner's player number (0 = moved first this round), null for a draw or an unfinished game. */
+  winner: number | null;
   draw: boolean;
   reason: string;
 }
 
 const ON: Outcome = { over: false, winner: null, draw: false, reason: "" };
-const win = (winner: 0 | 1, reason: string): Outcome => ({ over: true, winner, draw: false, reason });
+const win = (winner: number, reason: string): Outcome => ({ over: true, winner, draw: false, reason });
 const draw = (reason: string): Outcome => ({ over: true, winner: null, draw: true, reason });
 
 // ---------------------------------------------------------------- tic-tac-toe
@@ -250,19 +253,34 @@ function chessOutcome(moves: string[]): Outcome {
 }
 
 // ---------------------------------------------------------------- Chain Reaction
-// Moves: "0".."53" (cell = row * 9 + col). You may only place an orb in an
-// empty cell or one you own. A cell explodes when it holds as many orbs as
-// it has neighbours (2 in a corner, 3 on an edge, 4 inside): one orb goes to
-// each neighbour, which becomes yours — and may explode in turn. Once both
-// players have moved, whoever has no orbs left has lost. Player 0 is red.
+// Any number of players (2.10.0). Moves: "0".."53" (cell = row * 9 + col), or
+// "x<player>" when a player leaves (their orbs vanish and the turn passes on).
+// You may only place an orb in an empty cell or one you own. A cell explodes
+// when it holds as many orbs as it has neighbours (2 in a corner, 3 on an
+// edge, 4 inside): one orb goes to each neighbour, which becomes yours — and
+// may explode in turn. A player who has moved and has no orbs left is out;
+// the last one in wins.
 
 export const CR_ROWS = 6;
 export const CR_COLS = 9;
 export interface CRCell {
-  owner: 0 | 1 | null;
+  owner: number | null;
   n: number;
 }
 export type CRBoard = CRCell[];
+
+/** Everything about a Chain Reaction game after its moves. */
+export interface CRState {
+  board: CRBoard;
+  /** Per player: out of the game (wiped out or left). */
+  out: boolean[];
+  /** Per player: has placed at least one orb. */
+  moved: boolean[];
+  /** Who moves next. */
+  turn: number;
+  /** Orbs per player. */
+  counts: number[];
+}
 
 /** How many orbs make a cell explode: its number of neighbours. */
 export const crCritical = (i: number): number => {
@@ -284,19 +302,15 @@ function crNeighbours(i: number): number[] {
 
 export const crEmpty = (): CRBoard => Array.from({ length: CR_ROWS * CR_COLS }, () => ({ owner: null, n: 0 }));
 
-export function crCounts(b: CRBoard): [number, number] {
-  let red = 0;
-  let blue = 0;
-  for (const c of b) {
-    if (c.owner === 0) red += c.n;
-    else if (c.owner === 1) blue += c.n;
-  }
-  return [red, blue];
+export function crCounts(b: CRBoard, n: number): number[] {
+  const out = Array(n).fill(0);
+  for (const c of b) if (c.owner !== null && c.owner < n) out[c.owner] += c.n;
+  return out;
 }
 
 /** Places an orb for `player`: the boards right after placing and after each
  *  wave of explosions (the last one is the result), or null when not allowed. */
-export function crPlace(b: CRBoard, cell: number, player: 0 | 1): CRBoard[] | null {
+export function crPlace(b: CRBoard, cell: number, player: number): CRBoard[] | null {
   if (!Number.isInteger(cell) || cell < 0 || cell >= b.length) return null;
   if (b[cell].owner !== null && b[cell].owner !== player) return null;
   let cur = b.map((c) => ({ ...c }));
@@ -319,37 +333,72 @@ export function crPlace(b: CRBoard, cell: number, player: 0 | 1): CRBoard[] | nu
     }
     cur = next;
     waves.push(cur);
-    if (crCounts(cur)[1 - player] === 0) break; // the other side is wiped out: won
+    if (!cur.some((c) => c.owner !== null && c.owner !== player)) break; // nobody else left on the board: won
   }
   return waves;
 }
 
-/** Replays the moves; null when one of them is not allowed. */
-export function crBoard(moves: string[]): CRBoard | null {
-  let b = crEmpty();
-  for (let i = 0; i < moves.length; i++) {
-    if (i >= 2 && crCounts(b).some((n) => n === 0)) return null; // the game was already over
-    const waves = crPlace(b, Number(moves[i]), (i % 2) as 0 | 1);
-    if (!waves) return null;
-    b = waves[waves.length - 1];
+function crNextTurn(from: number, n: number, out: boolean[]): number {
+  let p = from;
+  for (let k = 0; k < n; k++) {
+    p = (p + 1) % n;
+    if (!out[p]) return p;
   }
-  return b;
+  return from;
 }
 
-function crOutcome(moves: string[]): Outcome {
-  const b = crBoard(moves);
-  if (!b || moves.length < 2) return ON;
-  const [red, blue] = crCounts(b);
-  if (red === 0) return win(1, "the board is all blue");
-  if (blue === 0) return win(0, "the board is all red");
-  return ON;
+/** The winner once only one player is left in (and everyone else is out), else null. */
+function crWinnerOf(out: boolean[], moved: boolean[], n: number): number | null {
+  const alive: number[] = [];
+  for (let p = 0; p < n; p++) if (!out[p]) alive.push(p);
+  if (alive.length !== 1 || n < 2) return null;
+  // Everyone else is out only once they have had a go (or left).
+  for (let p = 0; p < n; p++) if (!out[p] && !moved[p] && p !== alive[0]) return null;
+  return alive[0];
+}
+
+/** Replays the moves for `n` players; null when one of them is not allowed. */
+export function crReplay(moves: string[], n: number): CRState | null {
+  let board = crEmpty();
+  const out: boolean[] = Array(n).fill(false);
+  const moved: boolean[] = Array(n).fill(false);
+  let turn = 0;
+  for (let i = 0; i < moves.length; i++) {
+    if (crWinnerOf(out, moved, n) !== null) return null; // the game was already over
+    const mv = moves[i];
+    if (mv.startsWith("x")) {
+      const p = Number(mv.slice(1));
+      if (!Number.isInteger(p) || p < 0 || p >= n || out[p]) return null;
+      out[p] = true;
+      moved[p] = true;
+      board = board.map((c) => (c.owner === p ? { owner: null, n: 0 } : c));
+      if (turn === p) turn = crNextTurn(p, n, out);
+      continue;
+    }
+    const waves = crPlace(board, Number(mv), turn);
+    if (!waves) return null;
+    board = waves[waves.length - 1];
+    moved[turn] = true;
+    const counts = crCounts(board, n);
+    for (let p = 0; p < n; p++) if (!out[p] && moved[p] && counts[p] === 0) out[p] = true;
+    turn = crNextTurn(turn, n, out);
+  }
+  return { board, out, moved, turn, counts: crCounts(board, n) };
+}
+
+function crOutcome(moves: string[], n: number): Outcome {
+  const s = crReplay(moves, n);
+  if (!s) return ON;
+  const w = crWinnerOf(s.out, s.moved, n);
+  if (w === null) return ON;
+  return win(w, n > 2 ? "the last one standing" : "the board is all one colour");
 }
 
 // ---------------------------------------------------------------- shared
 
-/** True when every move is allowed, in order, from the start. */
-export function validateMoves(game: GameId, moves: string[]): boolean {
-  if (moves.length > 400) return false;
+/** True when every move is allowed, in order, from the start. `n` players (2 unless Chain Reaction). */
+export function validateMoves(game: GameId, moves: string[], n = 2): boolean {
+  if (moves.length > 600) return false;
   switch (game) {
     case "tictactoe":
       return tttValid(moves);
@@ -360,13 +409,13 @@ export function validateMoves(game: GameId, moves: string[]): boolean {
     case "chess":
       return chessGame(moves) !== null;
     case "chainreaction":
-      return crBoard(moves) !== null;
+      return crReplay(moves, n) !== null;
     default:
       return false;
   }
 }
 
-export function outcome(game: GameId, moves: string[]): Outcome {
+export function outcome(game: GameId, moves: string[], n = 2): Outcome {
   switch (game) {
     case "tictactoe":
       return tttOutcome(moves);
@@ -377,11 +426,14 @@ export function outcome(game: GameId, moves: string[]): Outcome {
     case "chess":
       return chessOutcome(moves);
     case "chainreaction":
-      return crOutcome(moves);
+      return crOutcome(moves, n);
     default:
       return ON;
   }
 }
 
-/** Whose turn it is: 0 or 1 (after a Reversi pass the other player goes on). */
-export const turnOf = (moves: string[]): 0 | 1 => (moves.length % 2) as 0 | 1;
+/** Whose turn it is (player number). After a Reversi pass or a Chain Reaction knock-out the next one in goes on. */
+export function turnOf(game: GameId, moves: string[], n = 2): number {
+  if (game === "chainreaction") return crReplay(moves, n)?.turn ?? 0;
+  return moves.length % 2;
+}

@@ -60,8 +60,11 @@ pub fn card_min_version(content: &str) -> &'static str {
         Some("report") => FEATURES_REPORT,
         Some("music") => FEATURES_MUSIC,
         Some("game") => {
-            let g = parse_card(content).and_then(|c| c["game"].as_str().map(String::from)).unwrap_or_default();
-            super::games::game_min_version(&g)
+            let c = parse_card(content).unwrap_or_default();
+            if c["players"].as_array().is_some_and(|p| p.len() > 2) {
+                return FEATURES_MULTIPLAYER;
+            }
+            super::games::game_min_version(c["game"].as_str().unwrap_or(""))
         }
         _ => FEATURES_ORG,
     }
@@ -242,7 +245,15 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
             if to.is_empty() {
                 return Err("Choose who to play with.".to_string());
             }
-            json!({ "kind": kind, "id": id, "game": game, "to": to, "to_name": text(v, "to_name", 80), "from_name": text(v, "from_name", 80) })
+            // 2.10.0: a table of several players (ids and names, in turn order).
+            let players = ids(v, "players");
+            let names = strings(v, "names", MAX_PEOPLE, 80);
+            if players.len() > 2 {
+                json!({ "kind": kind, "id": id, "game": game, "to": to, "to_name": text(v, "to_name", 80), "from_name": text(v, "from_name", 80),
+                        "players": players, "names": names })
+            } else {
+                json!({ "kind": kind, "id": id, "game": game, "to": to, "to_name": text(v, "to_name", 80), "from_name": text(v, "from_name", 80) })
+            }
         }
         "music" => {
             let title = text(v, "title", 160);
@@ -291,7 +302,10 @@ pub fn card_preview(content: &str) -> String {
         "ticket" => format!("🛟 IT help: {}", t("title")),
         "report" => "📋 End-of-day report".to_string(),
         "music" => format!("🎵 {} — {}", t("title"), t("artist")),
-        "game" => format!("🎮 {}: {} vs {}", super::games::game_name(&t("game")), t("from_name"), t("to_name")),
+        "game" => match v["players"].as_array().map(|p| p.len()).unwrap_or(0) {
+            n if n > 2 => format!("🎮 {}: {}'s table ({} players)", super::games::game_name(&t("game")), t("from_name"), n),
+            _ => format!("🎮 {}: {} vs {}", super::games::game_name(&t("game")), t("from_name"), t("to_name")),
+        },
         _ => "Card".to_string(),
     };
     crate::storage::preview_text(&line)
@@ -346,7 +360,10 @@ pub fn card_fallback(content: &str) -> String {
             format!("📋 END-OF-DAY REPORT{}{}{}", sec("Done", "done"), sec("Still to do", "pending"), sec("Blockers", "blockers"))
         }
         "music" => format!("🎵 SONG: {} — {}{}\n(Update LANX to play it here.)", t("title"), t("artist"), if t("url").is_empty() { String::new() } else { format!("\n{}", t("url")) }),
-        "game" => format!("🎮 GAME: {} challenges you to {}.\n(Update LANX to 2.9.0 to play it here.)", t("from_name"), super::games::game_name(&t("game"))),
+        "game" => match v["players"].as_array().map(|p| p.len()).unwrap_or(0) {
+            n if n > 2 => format!("🎮 GAME: {} opens a {} table for {} players.\n(Update LANX to 2.10.0 to join it here.)", t("from_name"), super::games::game_name(&t("game")), n),
+            _ => format!("🎮 GAME: {} challenges you to {}.\n(Update LANX to {} to play it here.)", t("from_name"), super::games::game_name(&t("game")), super::games::game_min_version(&t("game"))),
+        },
         _ => content.to_string(),
     }
 }
@@ -661,6 +678,15 @@ mod game_card_tests {
         let chain = clean_card(&json!({ "kind": "game", "id": "m2", "game": "chainreaction", "to": "peer-b" })).unwrap().to_string();
         assert_eq!(card_min_version(&chain), FEATURES_CHAIN_REACTION, "Chain Reaction needs 2.9.1 on the other side");
         assert!(card_preview(&chain).contains("Chain Reaction"));
+        // 2.10.0: a table of three needs the newer copy everywhere; a card for two keeps the older rule.
+        let table = clean_card(&json!({ "kind": "game", "id": "m3", "game": "chainreaction", "to": "peer-b", "from_name": "Asha",
+                                        "players": ["peer-a", "peer-b", "peer-c"], "names": ["Asha", "Bharat", "Chitra"] })).unwrap();
+        assert_eq!(table["players"].as_array().map(|p| p.len()), Some(3));
+        assert_eq!(card_min_version(&table.to_string()), FEATURES_MULTIPLAYER);
+        assert!(card_preview(&table.to_string()).contains("3 players"));
+        assert!(card_fallback(&table.to_string()).contains("2.10.0"));
+        let pair = clean_card(&json!({ "kind": "game", "id": "m4", "game": "chainreaction", "to": "peer-b", "players": ["peer-a", "peer-b"] })).unwrap();
+        assert!(pair.get("players").is_none(), "two players need no table");
         assert!(clean_card(&json!({ "kind": "game", "id": "../m", "game": "chess", "to": "x" })).is_err(), "odd id");
         assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "chess" })).is_err(), "no opponent");
         // Only the two players record how it ended.

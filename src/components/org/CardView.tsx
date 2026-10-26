@@ -673,15 +673,23 @@ export function CardView({
     const meta = gameMeta(card.game);
     const name = meta?.name ?? "a game";
     const result = msg.card_state?.find((e) => e.key === "result")?.value;
+    const table = card.players && card.players.length > 2 ? card.players : null;
+    const others = table ? table.map((id, i) => (id === myId ? "you" : card.names?.[i] || "a colleague")).filter((_, i) => i > 0) : [];
     body = (
       <div className="flex items-center gap-3">
         <div className="h-12 w-12 shrink-0 rounded-xl bg-indigo-500/10 flex items-center justify-center text-2xl">{meta?.emoji ?? "🎮"}</div>
         <div className="min-w-0 flex-1">
           <div className="text-[13.5px] font-semibold text-slate-900 dark:text-white">
-            {invited ? `${card.from_name || "A colleague"} challenges you to ${name}` : `You challenged ${card.to_name || "a colleague"} to ${name}`}
+            {table
+              ? invited
+                ? `${card.from_name || "A colleague"} opens a ${name} table for ${table.length}: ${others.join(", ")}`
+                : `You opened a ${name} table for ${table.length}: ${others.join(", ")}`
+              : invited
+                ? `${card.from_name || "A colleague"} challenges you to ${name}`
+                : `You challenged ${card.to_name || "a colleague"} to ${name}`}
           </div>
           <div className="text-[11.5px] text-slate-500">
-            {typeof result === "string" ? result : invited ? "Press Play — the board opens right here in LANX." : "When they press Play on their LANX, the game starts."}
+            {typeof result === "string" ? result : table ? (invited ? "Press Play to sit down; the host starts the game." : "Start the game from the games window once they have pressed Play.") : invited ? "Press Play — the board opens right here in LANX." : "When they press Play on their LANX, the game starts."}
           </div>
           <div className="mt-1.5 flex items-center gap-1.5">
             <button
@@ -690,7 +698,7 @@ export function CardView({
               onClick={() => window.dispatchEvent(new CustomEvent("lanx:game-open", { detail: { card, message: msg } }))}
               className={`${btn} bg-indigo-600 hover:bg-indigo-700 text-white`}
             >
-              <Play className="h-3.5 w-3.5" /> {invited ? "Play" : "Open game"}
+              <Play className="h-3.5 w-3.5" /> {invited ? (table ? "Play (sit down)" : "Play") : table ? "Open table" : "Open game"}
             </button>
           </div>
         </div>

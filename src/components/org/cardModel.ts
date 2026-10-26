@@ -111,6 +111,9 @@ export interface GameCard {
   to: string;
   to_name: string;
   from_name: string;
+  /** LANX 2.10.0: everyone at the table when there are more than two. */
+  players?: string[];
+  names?: string[];
 }
 export type Card = NoticeCard | PollCard | TaskCard | ApprovalCard | ChecklistCard | EventCard | SyncCard | VisitorCard | KudosCard | TicketCard | ReportCard | MusicCard | GameCard;
 

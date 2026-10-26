@@ -208,6 +208,9 @@ export default function App() {
   const peersForGamesRef = useRef<Peer[]>([]);
   peersForGamesRef.current = peers;
   useEffect(() => {
+    if (settings) games.setMe(settings.device_id, settings.display_name);
+  }, [settings?.device_id, settings?.display_name]);
+  useEffect(() => {
     games.onNudge((text, m) => {
       if (showGamesRef.current) return;
       setGameNudge({ text, matchId: m.id });
@@ -217,7 +220,7 @@ export default function App() {
       setGameNudge(null);
       if (d.card && d.message) {
         games
-          .openFromCard(d.card, d.message, myIdRef.current, peersForGamesRef.current)
+          .openFromCard(d.card, d.message, peersForGamesRef.current)
           .then((m) => setShowGames({ query: "", matchId: m.id }))
           .catch((err) => setNotice(errorText(err)));
       } else {

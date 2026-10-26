@@ -13,11 +13,10 @@ import {
   chessGame,
   chessSan,
   chessTargets,
-  crBoard,
-  crCounts,
   crCritical,
   crEmpty,
   crPlace,
+  crReplay,
   type CRBoard,
   reversiBoard,
   reversiCount,
@@ -28,12 +27,15 @@ import {
 
 export interface BoardProps {
   moves: string[];
-  /** The player who may move now at this PC (null = watching / not your turn). */
+  /** Whether this PC may move now. */
   canPlay: boolean;
-  /** 0 or 1: whose turn it is. */
-  turn: 0 | 1;
-  /** My seat (0 or 1); used to turn the chess board round. Pass-and-play: whoever's turn. */
-  seat: 0 | 1;
+  /** Whose turn it is: the player number (0 = moved first this round). */
+  turn: number;
+  /** My player number (0 or 1 in the two-player games); turns the chess board round. */
+  seat: number;
+  /** Everyone at the board (2.10.0), and which seat moved first this round — for colours and names. */
+  seats?: { id: string; name: string; color: string }[];
+  starter?: number;
   onMove: (move: string) => void;
 }
 
@@ -111,7 +113,7 @@ export function ConnectFourBoard({ moves, canPlay, turn, onMove }: BoardProps) {
 
 export function ReversiBoard({ moves, canPlay, turn, onMove }: BoardProps) {
   const board = useMemo(() => reversiBoard(moves) ?? reversiBoard([])!, [moves]);
-  const legal = useMemo(() => reversiLegal(board, turn), [board, turn]);
+  const legal = useMemo(() => reversiLegal(board, (turn % 2) as 0 | 1), [board, turn]);
   const [black, white] = reversiCount(board);
   const last = moves.length ? Number(moves[moves.length - 1]) : -1;
   return (
@@ -161,16 +163,23 @@ const ORB_POS: CSSProperties[][] = [
   [{ left: "29%", top: "2%" }, { left: "2%", top: "56%" }, { left: "56%", top: "56%" }],
   [{ left: "2%", top: "2%" }, { left: "56%", top: "2%" }, { left: "2%", top: "56%" }, { left: "56%", top: "56%" }],
 ];
-const ORB_COLOUR = ["bg-rose-500", "bg-sky-500"];
+const DEFAULT_SEATS = [
+  { id: "a", name: "Red", color: "#f43f5e" },
+  { id: "b", name: "Blue", color: "#0ea5e9" },
+];
 
-export function ChainReactionBoard({ moves, canPlay, turn, onMove }: BoardProps) {
-  const final = useMemo(() => crBoard(moves) ?? crEmpty(), [moves]);
-  // The last move's explosions, wave by wave, so both PCs see the chain go off.
+export function ChainReactionBoard({ moves, canPlay, turn, seats = DEFAULT_SEATS, starter = 0, onMove }: BoardProps) {
+  const n = Math.max(2, seats.length);
+  const state = useMemo(() => crReplay(moves, n), [moves, n]);
+  const final = state?.board ?? crEmpty();
+  // Player number → seat (colour, name).
+  const seatOf = (p: number) => seats[(starter + p) % n] ?? DEFAULT_SEATS[p % 2];
+  // The last move's explosions, wave by wave, so every PC sees the chain go off.
   const waves = useMemo(() => {
-    if (!moves.length) return null;
-    const prev = crBoard(moves.slice(0, -1));
-    return prev ? crPlace(prev, Number(moves[moves.length - 1]), ((moves.length - 1) % 2) as 0 | 1) : null;
-  }, [moves]);
+    if (!moves.length || moves[moves.length - 1].startsWith("x")) return null;
+    const prev = crReplay(moves.slice(0, -1), n);
+    return prev ? crPlace(prev.board, Number(moves[moves.length - 1]), prev.turn) : null;
+  }, [moves, n]);
   const [frame, setFrame] = useState<CRBoard | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -195,16 +204,20 @@ export function ChainReactionBoard({ moves, canPlay, turn, onMove }: BoardProps)
     return () => window.clearInterval(t);
   }, [waves]);
   const board = frame ?? final;
-  const [red, blue] = crCounts(final);
+  const counts = state?.counts ?? Array(n).fill(0);
+  const turnColour = seatOf(turn).color;
   return (
     <div data-game-board="chainreaction" data-cr-busy={busy ? "1" : undefined} className="flex w-full flex-col items-center gap-2">
-      <div className="flex items-center gap-4 text-[12.5px] font-semibold" data-cr-counts>
-        <span className="inline-flex items-center gap-1.5" data-cr-red>
-          <span className="h-3.5 w-3.5 rounded-full bg-rose-500" /> {red}
-        </span>
-        <span className="inline-flex items-center gap-1.5" data-cr-blue>
-          <span className="h-3.5 w-3.5 rounded-full bg-sky-500" /> {blue}
-        </span>
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-cr-counts>
+        {Array.from({ length: n }, (_, p) => {
+          const s = seatOf(p);
+          const out = state?.out[p] ?? false;
+          return (
+            <span key={p} className={`inline-flex items-center gap-1.5 ${out ? "line-through opacity-50" : ""} ${p === turn && !out ? "underline decoration-2 underline-offset-4" : ""}`} data-cr-count-seat={(starter + p) % n} title={s.name}>
+              <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: s.color }} /> {counts[p]}
+            </span>
+          );
+        })}
       </div>
       {/* Nine columns that shrink with the window: never wider than the space beside the side panel. */}
       <div className="grid w-full max-w-[470px] gap-[3px] rounded-xl bg-slate-900 p-[6px]" style={{ gridTemplateColumns: `repeat(${CR_COLS}, minmax(0, 1fr))` }}>
@@ -212,6 +225,7 @@ export function ChainReactionBoard({ moves, canPlay, turn, onMove }: BoardProps)
           const can = canPlay && !busy && (c.owner === null || c.owner === turn);
           const near = c.n > 0 && c.n === crCritical(i) - 1;
           const shown = Math.min(c.n, 4);
+          const colour = c.owner === null ? "" : seatOf(c.owner).color;
           return (
             <button
               key={i}
@@ -221,12 +235,13 @@ export function ChainReactionBoard({ moves, canPlay, turn, onMove }: BoardProps)
               data-cr-count={c.n}
               disabled={!can}
               onClick={() => onMove(String(i))}
-              className={`aspect-square w-full min-w-0 rounded-md flex items-center justify-center bg-slate-800 ${can ? `cursor-pointer ${turn === 0 ? "hover:bg-rose-500/25" : "hover:bg-sky-500/25"}` : ""} disabled:cursor-default`}
+              style={can ? ({ "--cr-hover": turnColour } as CSSProperties) : undefined}
+              className={`aspect-square w-full min-w-0 rounded-md flex items-center justify-center bg-slate-800 ${can ? "cursor-pointer hover:ring-2 hover:ring-inset hover:ring-[var(--cr-hover)]" : ""} disabled:cursor-default`}
             >
               {c.n > 0 && (
                 <span className={`relative block h-[72%] w-[72%] ${near ? "animate-pulse" : ""}`}>
                   {Array.from({ length: shown }, (_, k) => (
-                    <span key={k} className={`absolute h-[42%] w-[42%] rounded-full shadow-md ${ORB_COLOUR[c.owner ?? 0]} lanx-pop`} style={ORB_POS[shown - 1][k]} />
+                    <span key={k} className="absolute h-[42%] w-[42%] rounded-full shadow-md lanx-pop" style={{ ...ORB_POS[shown - 1][k], backgroundColor: colour }} />
                   ))}
                 </span>
               )}

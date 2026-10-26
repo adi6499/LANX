@@ -84,7 +84,12 @@ impl NetworkService {
             return Err(format!("{} is offline right now.", peer.display_name));
         }
         let mut chan = self.connect_peer(&peer).await.map_err(|_| format!("Could not reach {}'s LANX.", peer.display_name))?;
-        let min = game_min_version(&p.game);
+        // A table of several players (the state carries the seats) needs 2.10.0 on their side.
+        let table = p.data.get("seats").and_then(|s| s.as_array()).is_some_and(|s| s.len() > 2);
+        let mut min = game_min_version(&p.game);
+        if table && version_at_least(FEATURES_MULTIPLAYER, min) {
+            min = FEATURES_MULTIPLAYER;
+        }
         if !version_at_least(&chan.remote.app_version, min) {
             let v = chan.remote.app_version.clone();
             chan.close().await;

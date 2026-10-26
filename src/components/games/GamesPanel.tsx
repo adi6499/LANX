@@ -1,10 +1,11 @@
 // LANX 2.9.0: the hidden games window ("/game" in any chat). Pick a game on
 // the left; challenge a colleague who is online (they get a card in the
-// chat and press Play), or play two at this PC, or play alone. Matches live
-// in lib/games.ts, so closing this window never loses a game.
+// chat and press Play), open a table for several colleagues (Chain
+// Reaction, 2.10.0), play two or more at this PC, or play alone. Matches
+// live in lib/games.ts, so closing this window never loses a game.
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, Flag, Gamepad2, Loader2, LogOut, Monitor, RefreshCw, Swords, Trophy, Users, X } from "lucide-react";
+import { ArrowLeft, Check, Flag, Gamepad2, Loader2, LogOut, Monitor, Play, RefreshCw, Swords, Trophy, Users, X } from "lucide-react";
 import type { Peer } from "../../types";
 import { Avatar } from "../Avatar";
 import * as games from "../../lib/games";
@@ -22,12 +23,13 @@ interface Props {
   chatPeerId: string | null;
   onClose: () => void;
   onError: (t: string) => void;
-  /** Post the challenge card into the chat with that colleague. */
+  /** Post a challenge card into the chat with that colleague. */
   onSendCard: (card: GameCardData, peerId: string) => Promise<void>;
 }
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors active:scale-95 disabled:opacity-50 disabled:active:scale-100";
-const SEAT_LABEL: Record<GameId, [string, string]> = { tictactoe: ["✕", "○"], connect4: ["Red", "Yellow"], reversi: ["Black", "White"], chess: ["White", "Black"], chainreaction: ["Red", "Blue"] };
+/** What the two sides are called in the two-player games (player 0 moves first). */
+const SIDE_LABEL: Partial<Record<GameId, [string, string]>> = { tictactoe: ["✕", "○"], connect4: ["Red", "Yellow"], reversi: ["Black", "White"], chess: ["White", "Black"] };
 
 function statsLine(id: string): string {
   const s = games.statsFor(id);
@@ -39,12 +41,13 @@ function statsLine(id: string): string {
 
 export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, chatPeerId, onClose, onError, onSendCard }: Props) {
   useSyncExternalStore(games.subscribe, games.snapshot, games.snapshot);
+  useEffect(() => games.setMe(myId, myName), [myId, myName]);
   const openMatch = openMatchId ? games.getMatch(openMatchId) : undefined;
   const [pick, setPick] = useState<GameMeta>(() => games.findGame(initialQuery) ?? (openMatch ? games.gameMeta(openMatch.game)! : GAMES[0]));
   const [view, setView] = useState<"lobby" | "match" | "solo">(openMatch ? "match" : "lobby");
   const [matchId, setMatchId] = useState<string | null>(openMatch?.id ?? null);
   const [soloRun, setSoloRun] = useState(0);
-  const [busyPeer, setBusyPeer] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [, setStatsReady] = useState(false);
 
   useEffect(() => {
@@ -83,33 +86,53 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
     return [...peers].filter((p) => p.trust_state !== "blocked").sort((a, b) => rank(a) - rank(b) || a.display_name.localeCompare(b.display_name));
   }, [peers, chatPeerId]);
 
-  const challenge = async (peer: Peer) => {
-    if (!games.isLanGame(pick.id)) return;
-    setBusyPeer(peer.id);
-    const { match: m, card } = games.challenge(pick.id, peer, myName);
-    try {
-      await onSendCard(card, peer.id);
-      setMatchId(m.id);
-      setView("match");
-    } catch (e) {
-      void games.leave(m.id);
-      onError(String((e as Error)?.message ?? e));
-    } finally {
-      setBusyPeer(null);
-    }
-  };
-
-  const passAndPlay = () => {
-    if (!games.isLanGame(pick.id)) return;
-    const m = games.localMatch(pick.id);
-    setMatchId(m.id);
-    setView("match");
-  };
-
   const openMatchView = (m: Match) => {
     setPick(games.gameMeta(m.game) ?? GAMES[0]);
     setMatchId(m.id);
     setView("match");
+  };
+
+  const challengeOne = async (peer: Peer) => {
+    if (!games.isLanGame(pick.id)) return;
+    setBusy(true);
+    const { match: m, card } = games.challenge(pick.id, peer);
+    try {
+      await onSendCard(card, peer.id);
+      openMatchView(m);
+    } catch (e) {
+      void games.leave(m.id);
+      onError(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const challengeMany = async (chosen: Peer[]) => {
+    if (!games.isLanGame(pick.id) || chosen.length === 0) return;
+    // One colleague: a plain two-player game (works with 2.9.1 copies too).
+    if (chosen.length === 1) return challengeOne(chosen[0]);
+    setBusy(true);
+    const { match: m, cards } = games.challengeMany(pick.id, chosen);
+    let sent = 0;
+    for (const { peerId, card } of cards) {
+      try {
+        await onSendCard(card, peerId);
+        sent += 1;
+      } catch (e) {
+        onError(String((e as Error)?.message ?? e));
+      }
+    }
+    setBusy(false);
+    if (!sent) {
+      void games.leave(m.id);
+      return;
+    }
+    openMatchView(m);
+  };
+
+  const passAndPlay = (count: number) => {
+    if (!games.isLanGame(pick.id)) return;
+    openMatchView(games.localMatch(pick.id, count));
   };
 
   const onMove = useCallback(
@@ -138,7 +161,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-bold text-slate-900 dark:text-white leading-tight">Games</div>
-            <div className="text-[11.5px] text-slate-500 truncate">A hidden corner of LANX — type /game in any chat. Challenge a colleague, or play alone.</div>
+            <div className="text-[11.5px] text-slate-500 truncate">A hidden corner of LANX — type /game in any chat. Challenge colleagues, or play alone.</div>
           </div>
           <button type="button" data-games-close onClick={onClose} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
             <X className="h-4 w-4" /> Close
@@ -153,7 +176,9 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                 <div className="px-2 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">Your games</div>
                 {live.slice(0, 8).map((m) => {
                   const mine = games.myTurn(m);
-                  const chip = m.status === "waiting" ? "waiting" : m.status === "playing" ? (mine ? "your move" : m.opp ? "their move" : "playing") : m.status;
+                  const chip =
+                    m.status === "waiting" ? "waiting" : m.status === "lobby" ? `${m.joined.length} joined` : m.status === "playing" ? (mine ? "your move" : m.mode === "local" ? "playing" : `${games.seatName(m, games.turnSeat(m))}'s move`) : m.status;
+                  const title = m.mode === "local" ? `${games.gameName(m.game)} · pass & play` : m.mode === "multi" ? `${games.gameName(m.game)} · ${m.seats.length} players` : `vs ${games.opponent(m)?.name ?? "?"}`;
                   return (
                     <button
                       key={m.id}
@@ -164,8 +189,8 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                     >
                       <span className="text-base">{games.gameMeta(m.game)?.emoji}</span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12.5px] font-semibold text-slate-900 dark:text-white">{m.opp ? `vs ${m.opp.name}` : `${games.gameName(m.game)} · pass & play`}</span>
-                        <span className={`block text-[10.5px] ${mine && m.status === "playing" ? "text-indigo-600 dark:text-indigo-300 font-semibold" : "text-slate-500"}`}>{chip}</span>
+                        <span className="block truncate text-[12.5px] font-semibold text-slate-900 dark:text-white">{title}</span>
+                        <span className={`block truncate text-[10.5px] ${mine && m.status === "playing" ? "text-indigo-600 dark:text-indigo-300 font-semibold" : "text-slate-500"}`}>{chip}</span>
                       </span>
                       {m.unseen && <span className="h-2 w-2 rounded-full bg-indigo-500" />}
                     </button>
@@ -189,7 +214,10 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                   <span className="h-8 w-8 rounded-lg bg-white/80 dark:bg-slate-800 flex items-center justify-center text-lg shadow-sm">{g.emoji}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] font-semibold leading-tight">{g.name}</span>
-                    <span className={`block text-[10.5px] ${pick.id === g.id && view !== "match" ? "text-white/80" : "text-slate-500"}`}>{g.players === 2 ? "2 players" : "Solo"}{statsLine(g.id) ? ` · ${statsLine(g.id)}` : ""}</span>
+                    <span className={`block text-[10.5px] ${pick.id === g.id && view !== "match" ? "text-white/80" : "text-slate-500"}`}>
+                      {g.players === 1 ? "Solo" : g.maxPlayers > 2 ? "2 or more players" : "2 players"}
+                      {statsLine(g.id) ? ` · ${statsLine(g.id)}` : ""}
+                    </span>
                   </span>
                 </button>
               ))}
@@ -199,7 +227,19 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
           {/* ---- main */}
           <section className="min-w-0 flex-1 rounded-2xl lanx-group overflow-hidden flex flex-col">
             {view === "lobby" && (
-              <Lobby game={pick} peers={sortedPeers} chatPeerId={chatPeerId} busyPeer={busyPeer} onChallenge={challenge} onLocal={passAndPlay} onSolo={() => { setSoloRun((n) => n + 1); setView("solo"); }} />
+              <Lobby
+                game={pick}
+                peers={sortedPeers}
+                chatPeerId={chatPeerId}
+                busy={busy}
+                onChallenge={challengeOne}
+                onChallengeMany={challengeMany}
+                onLocal={passAndPlay}
+                onSolo={() => {
+                  setSoloRun((n) => n + 1);
+                  setView("solo");
+                }}
+              />
             )}
             {view === "solo" && !games.isLanGame(pick.id) && (
               <div className="flex-1 flex flex-col min-h-0">
@@ -207,7 +247,9 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                   <button type="button" data-game-back onClick={() => setView("lobby")} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
                     <ArrowLeft className="h-4 w-4" /> Back
                   </button>
-                  <div className="text-[14px] font-bold">{pick.emoji} {pick.name}</div>
+                  <div className="text-[14px] font-bold">
+                    {pick.emoji} {pick.name}
+                  </div>
                   <div className="ml-auto text-[11.5px] text-slate-500">{statsLine(pick.id)}</div>
                 </div>
                 <div className="flex-1 flex items-center justify-center overflow-auto p-4" key={soloRun}>
@@ -217,7 +259,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                 </div>
               </div>
             )}
-            {view === "match" && match && <MatchView match={match} myId={myId} onMove={onMove} onBack={() => setView("lobby")} onError={onError} />}
+            {view === "match" && match && <MatchView match={match} onMove={onMove} onBack={() => setView("lobby")} onError={onError} />}
             {view === "match" && !match && (
               <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-500">
                 <div className="text-[13px]">That game is gone.</div>
@@ -235,8 +277,37 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
 
 // ---------------------------------------------------------------- lobby
 
-function Lobby({ game, peers, chatPeerId, busyPeer, onChallenge, onLocal, onSolo }: { game: GameMeta; peers: Peer[]; chatPeerId: string | null; busyPeer: string | null; onChallenge: (p: Peer) => void; onLocal: () => void; onSolo: () => void }) {
+function Lobby({
+  game,
+  peers,
+  chatPeerId,
+  busy,
+  onChallenge,
+  onChallengeMany,
+  onLocal,
+  onSolo,
+}: {
+  game: GameMeta;
+  peers: Peer[];
+  chatPeerId: string | null;
+  busy: boolean;
+  onChallenge: (p: Peer) => void;
+  onChallengeMany: (ps: Peer[]) => void;
+  onLocal: (count: number) => void;
+  onSolo: () => void;
+}) {
   const s = games.statsFor(game.id);
+  const many = game.maxPlayers > 2;
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [count, setCount] = useState(2);
+  useEffect(() => {
+    setChosen([]);
+    setCount(2);
+  }, [game.id]);
+  const online = peers.filter((p) => p.status === "online");
+  const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  const chosenPeers = online.filter((p) => chosen.includes(p.id));
+
   return (
     <div className="flex-1 overflow-y-auto p-5" data-game-lobby={game.id}>
       <div className="flex items-start gap-4">
@@ -245,7 +316,9 @@ function Lobby({ game, peers, chatPeerId, busyPeer, onChallenge, onLocal, onSolo
           <div className="text-[20px] font-bold text-slate-900 dark:text-white leading-tight">{game.name}</div>
           <div className="text-[13px] text-slate-600 dark:text-slate-300">{game.blurb}</div>
           <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
-            <span className="rounded-full bg-slate-500/10 px-2 py-0.5 font-semibold inline-flex items-center gap-1">{game.players === 2 ? <Users className="h-3 w-3" /> : <Monitor className="h-3 w-3" />} {game.players === 2 ? "Two players" : "Just you"}</span>
+            <span className="rounded-full bg-slate-500/10 px-2 py-0.5 font-semibold inline-flex items-center gap-1">
+              {game.players === 2 ? <Users className="h-3 w-3" /> : <Monitor className="h-3 w-3" />} {game.players === 1 ? "Just you" : many ? "Two or more players" : "Two players"}
+            </span>
             {s && s.played > 0 && (
               <span className="rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 px-2 py-0.5 font-semibold inline-flex items-center gap-1" data-game-stats>
                 <Trophy className="h-3 w-3" /> {statsLine(game.id)}
@@ -261,13 +334,58 @@ function Lobby({ game, peers, chatPeerId, busyPeer, onChallenge, onLocal, onSolo
             <Gamepad2 className="h-4 w-4" /> Play
           </button>
         </div>
+      ) : many ? (
+        <>
+          <div className="mt-6 text-[11px] font-bold uppercase tracking-wide text-slate-500">Open a table — tick the colleagues to invite</div>
+          <div className="mt-2 rounded-2xl bg-white/70 dark:bg-slate-800/60 divide-y divide-slate-500/10">
+            {peers.length === 0 && <div className="px-4 py-3 text-[12.5px] text-slate-500">No colleagues on LANX yet.</div>}
+            {peers.map((p) => {
+              const isOn = p.status === "online";
+              const on = chosen.includes(p.id);
+              return (
+                <label key={p.id} className={`flex items-center gap-3 px-3 py-2 ${isOn ? "cursor-pointer" : "opacity-60"}`} data-game-peer-row={p.id}>
+                  <input type="checkbox" data-game-pick-peer={p.id} disabled={!isOn || busy} checked={on} onChange={() => toggle(p.id)} className="h-4 w-4 accent-indigo-600" />
+                  <Avatar name={p.display_name} color={p.avatar_color} size={32} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-semibold text-slate-900 dark:text-white">
+                      {p.display_name}
+                      {p.id === chatPeerId && <span className="ml-1.5 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 text-[10px] font-bold">this chat</span>}
+                    </div>
+                    <div className={`text-[11px] ${isOn ? "text-emerald-600" : "text-slate-400"}`}>{isOn ? "online" : "offline"}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" data-game-challenge-many disabled={busy || chosenPeers.length === 0} onClick={() => onChallengeMany(chosenPeers)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Swords className="h-3.5 w-3.5" />}
+              {chosenPeers.length === 0 ? "Invite colleagues" : `Invite ${chosenPeers.length} ${chosenPeers.length === 1 ? "colleague" : "colleagues"} — ${chosenPeers.length + 1} at the table`}
+            </button>
+            <span className="text-[11.5px] text-slate-500">Each gets a card in your chat; you start once they have pressed Play. A table needs 2.10.0 on their PCs (one colleague: 2.9.1 is enough).</span>
+          </div>
+
+          <div className="mt-5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Pass & play at this PC</div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 rounded-full bg-white/70 dark:bg-slate-800/60 p-1" data-game-local-counts>
+              {[2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <button key={n} type="button" data-game-local-count={n} onClick={() => setCount(n)} className={`h-7 w-7 rounded-full text-[12px] font-bold ${count === n ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300 hover:bg-slate-500/10"}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <button type="button" data-game-local onClick={() => onLocal(count)} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
+              <Monitor className="h-4 w-4" /> Pass & play with {count}
+            </button>
+          </div>
+        </>
       ) : (
         <>
           <div className="mt-6 text-[11px] font-bold uppercase tracking-wide text-slate-500">Challenge a colleague</div>
           <div className="mt-2 rounded-2xl bg-white/70 dark:bg-slate-800/60 divide-y divide-slate-500/10">
             {peers.length === 0 && <div className="px-4 py-3 text-[12.5px] text-slate-500">No colleagues on LANX yet.</div>}
             {peers.map((p) => {
-              const online = p.status === "online";
+              const isOn = p.status === "online";
               return (
                 <div key={p.id} className="flex items-center gap-3 px-3 py-2" data-game-peer-row={p.id}>
                   <Avatar name={p.display_name} color={p.avatar_color} size={32} />
@@ -276,10 +394,10 @@ function Lobby({ game, peers, chatPeerId, busyPeer, onChallenge, onLocal, onSolo
                       {p.display_name}
                       {p.id === chatPeerId && <span className="ml-1.5 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 text-[10px] font-bold">this chat</span>}
                     </div>
-                    <div className={`text-[11px] ${online ? "text-emerald-600" : "text-slate-400"}`}>{online ? "online" : "offline"}</div>
+                    <div className={`text-[11px] ${isOn ? "text-emerald-600" : "text-slate-400"}`}>{isOn ? "online" : "offline"}</div>
                   </div>
-                  <button type="button" data-game-peer={p.id} disabled={!online || busyPeer !== null} onClick={() => onChallenge(p)} className={`${btn} ${online ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-500/10 text-slate-500"}`}>
-                    {busyPeer === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Swords className="h-3.5 w-3.5" />} Challenge
+                  <button type="button" data-game-peer={p.id} disabled={!isOn || busy} onClick={() => onChallenge(p)} className={`${btn} ${isOn ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-500/10 text-slate-500"}`}>
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Swords className="h-3.5 w-3.5" />} Challenge
                   </button>
                 </div>
               );
@@ -288,7 +406,7 @@ function Lobby({ game, peers, chatPeerId, busyPeer, onChallenge, onLocal, onSolo
           <div className="mt-2 text-[11.5px] text-slate-500">They get a card in your chat and press Play — then the board opens on both PCs. Their LANX needs 2.9.0 or newer.</div>
 
           <div className="mt-5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Two people at this PC</div>
-          <button type="button" data-game-local onClick={onLocal} className={`${btn} mt-2 bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
+          <button type="button" data-game-local onClick={() => onLocal(2)} className={`${btn} mt-2 bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
             <Monitor className="h-4 w-4" /> Pass & play
           </button>
         </>
@@ -299,45 +417,65 @@ function Lobby({ game, peers, chatPeerId, busyPeer, onChallenge, onLocal, onSolo
 
 // ---------------------------------------------------------------- a match
 
-function MatchView({ match: m, myId, onMove, onBack, onError }: { match: Match; myId: string; onMove: (mv: string) => void; onBack: () => void; onError: (t: string) => void }) {
+function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove: (mv: string) => void; onBack: () => void; onError: (t: string) => void }) {
   const meta = games.gameMeta(m.game)!;
-  const turn = games.turnIndex(m);
-  const seat = m.opp ? games.myIndex(m) : 0;
+  const seatNow = games.turnSeat(m);
+  const mine = games.mySeat(m);
   const canPlay = games.myTurn(m);
+  const host = games.isHost(m);
+  const sides = SIDE_LABEL[m.game];
   const [sure, setSure] = useState(false);
   useEffect(() => setSure(false), [m.id, m.round]);
-  void myId;
 
   const status = (() => {
-    if (m.status === "waiting") return `Waiting for ${m.opp?.name ?? "them"} to press Play…`;
-    if (m.status === "declined") return `${m.opp?.name ?? "They"} declined.`;
-    if (m.status === "left") return `${m.opp?.name ?? "They"} left the game.`;
+    if (m.status === "waiting") return `Waiting for ${games.opponent(m)?.name ?? "them"} to press Play…`;
+    if (m.status === "lobby") return host ? `${m.joined.length} of ${m.seats.length} at the table — start when ready` : `Waiting for ${m.seats[0]?.name ?? "the host"} to start…`;
+    if (m.status === "declined") return m.note || `${games.opponent(m)?.name ?? "They"} declined.`;
+    if (m.status === "left") return m.note || `${games.opponent(m)?.name ?? "They"} left the game.`;
     if (m.status === "over") return games.resultText(m);
-    if (!m.opp) return `${games.seatName(m, turn)} to move (${SEAT_LABEL[m.game][turn]})`;
-    return canPlay ? "Your move" : `${m.opp.name}'s move`;
+    if (m.mode === "local") return `${games.seatName(m, seatNow)} to move${sides ? ` (${sides[m.turn]})` : ""}`;
+    return canPlay ? "Your move" : `${games.seatName(m, seatNow)}'s move`;
   })();
 
-  const board: BoardProps = { moves: m.moves, canPlay, turn, seat, onMove };
+  const title = m.mode === "local" ? "pass & play" : m.mode === "multi" ? `${m.seats.length} players` : `vs ${games.opponent(m)?.name ?? "?"}`;
+  const board: BoardProps = { moves: m.moves, canPlay, turn: m.turn, seat: m.mode === "local" || mine < 0 ? 0 : games.playerOf(m, mine), seats: m.seats, starter: games.starterSeat(m), onMove };
+  const showBoard = m.status === "playing" || m.status === "over" || (m.status === "left" && m.moves.length > 0);
   return (
-    <div className="flex-1 flex flex-col min-h-0" data-game-match={m.id} data-game-match-status={m.status}>
+    <div className="flex-1 flex flex-col min-h-0" data-game-match={m.id} data-game-match-status={m.status} data-game-mode={m.mode}>
       <div className="flex items-center gap-2 px-4 pt-3">
         <button type="button" data-game-back onClick={onBack} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
         <div className="text-[14px] font-bold">
-          {meta.emoji} {meta.name} <span className="text-slate-400 font-medium">· {m.opp ? `vs ${m.opp.name}` : "pass & play"}</span>
+          {meta.emoji} {meta.name} <span className="text-slate-400 font-medium">· {title}</span>
         </div>
         {m.round > 1 && <span className="rounded-full bg-slate-500/10 px-2 py-0.5 text-[11px] font-semibold">Round {m.round}</span>}
       </div>
       <div className="flex-1 min-h-0 flex items-stretch gap-4 p-4">
         <div className="flex-1 flex items-center justify-center overflow-auto">
-          {m.status === "waiting" ? (
+          {m.status === "waiting" && (
             <div className="flex flex-col items-center gap-3 text-center">
               <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
               <div className="text-[14px] font-semibold">{status}</div>
-              <div className="text-[12px] text-slate-500 max-w-[320px]">The challenge is in your chat with {m.opp?.name}. The moment they press Play, the board opens here.</div>
+              <div className="text-[12px] text-slate-500 max-w-[320px]">The challenge is in your chat with {games.opponent(m)?.name}. The moment they press Play, the board opens here.</div>
             </div>
-          ) : (
+          )}
+          {m.status === "lobby" && (
+            <div className="flex flex-col items-center gap-3 text-center" data-game-table>
+              <Users className="h-8 w-8 text-indigo-500" />
+              <div className="text-[14px] font-semibold">{status}</div>
+              <div className="text-[12px] text-slate-500 max-w-[340px]">
+                {host ? "Each colleague has a card in their chat with you; they press Play to sit down. Start whenever enough have joined — the rest can watch next round." : `${m.seats[0]?.name ?? "The host"} starts the game once everyone has sat down.`}
+              </div>
+              {host && (
+                <button type="button" data-game-start disabled={m.joined.length < 2} onClick={() => void games.startNow(m.id).then((p) => p && onError(p))} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700 !px-5 !py-2`}>
+                  <Play className="h-4 w-4" /> Start with {m.joined.length}
+                </button>
+              )}
+            </div>
+          )}
+          {(m.status === "declined" || (m.status === "left" && !showBoard)) && <div className="text-[14px] font-semibold text-slate-600 dark:text-slate-300">{status}</div>}
+          {showBoard && (
             <>
               {m.game === "tictactoe" && <TicTacToeBoard {...board} />}
               {m.game === "connect4" && <ConnectFourBoard {...board} />}
@@ -347,20 +485,29 @@ function MatchView({ match: m, myId, onMove, onBack, onError }: { match: Match; 
             </>
           )}
         </div>
-        <aside className="w-[220px] shrink-0 flex flex-col gap-3">
-          <div className="rounded-2xl bg-white/70 dark:bg-slate-800/60 p-3 flex flex-col gap-2">
-            {([0, 1] as const).map((s) => {
-              const name = games.seatName(m, s);
-              const isOpp = m.opp && s !== games.myIndex(m);
+        <aside className="w-[220px] shrink-0 flex flex-col gap-3 min-h-0">
+          <div className="rounded-2xl bg-white/70 dark:bg-slate-800/60 p-3 flex flex-col gap-1.5 max-h-[46%] overflow-y-auto" data-game-seats>
+            {m.seats.map((s, i) => {
+              const name = games.seatName(m, i);
+              const isMe = i === mine;
+              const joined = m.status === "lobby" ? m.joined.includes(s.id) : true;
+              const gone = m.gone.includes(s.id);
+              const p = games.playerOf(m, i);
+              const toMove = m.status === "playing" && seatNow === i;
               return (
-                <div key={s} className={`flex items-center gap-2 rounded-xl px-2 py-1.5 ${m.status === "playing" && turn === s ? "bg-indigo-500/10 ring-1 ring-indigo-500/40" : ""}`} data-game-seat={s}>
-                  {isOpp && m.opp ? <Avatar name={m.opp.name} color={m.opp.color || "#6366f1"} size={28} /> : <span className="h-7 w-7 rounded-full bg-slate-500/15 flex items-center justify-center text-[12px] font-bold">{s + 1}</span>}
+                <div key={s.id} className={`flex items-center gap-2 rounded-xl px-2 py-1.5 ${toMove ? "bg-indigo-500/10 ring-1 ring-indigo-500/40" : ""} ${gone ? "opacity-50" : ""}`} data-game-seat={i} data-game-joined={joined ? s.id : undefined}>
+                  {m.mode !== "local" && !isMe ? <Avatar name={s.name} color={s.color || "#6366f1"} size={28} /> : <span className="h-7 w-7 rounded-full flex items-center justify-center text-[12px] font-bold text-white" style={{ backgroundColor: s.color }}>{i + 1}</span>}
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12.5px] font-semibold text-slate-900 dark:text-white">{name}</div>
-                    <div className="text-[10.5px] text-slate-500">{SEAT_LABEL[m.game][s]}{s === 0 ? " · starts" : ""}</div>
+                    <div className="text-[10.5px] text-slate-500 flex items-center gap-1">
+                      {sides ? sides[p] : <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.color }} />}
+                      {p === 0 && m.status !== "lobby" ? " · starts" : ""}
+                      {gone ? " · left" : m.status === "lobby" ? (joined ? " · joined" : " · invited") : ""}
+                    </div>
                   </div>
-                  {m.status === "playing" && turn === s && <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300">to move</span>}
-                  {m.result && !m.result.draw && m.result.winner === s && <Trophy className="h-4 w-4 text-amber-500" />}
+                  {m.status === "lobby" && joined && <Check className="h-4 w-4 text-emerald-500" />}
+                  {toMove && <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300">to move</span>}
+                  {m.result && !m.result.draw && m.result.winner === i && <Trophy className="h-4 w-4 text-amber-500" />}
                 </div>
               );
             })}
@@ -374,18 +521,16 @@ function MatchView({ match: m, myId, onMove, onBack, onError }: { match: Match; 
             </div>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {m.status === "playing" && m.moves.length > 0 && (
-              sure ? (
-                <button type="button" data-game-resign-sure onClick={() => void games.resign(m.id)} className={`${btn} bg-rose-600 text-white hover:bg-rose-700`}>
-                  <Flag className="h-3.5 w-3.5" /> Yes, resign
-                </button>
-              ) : (
-                <button type="button" data-game-resign onClick={() => setSure(true)} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
-                  <Flag className="h-3.5 w-3.5" /> Resign
-                </button>
-              )
-            )}
-            {m.status === "over" && (
+            {m.status === "playing" && m.moves.length > 0 && (m.mode === "local" || mine >= 0) && (sure ? (
+              <button type="button" data-game-resign-sure onClick={() => void games.resign(m.id)} className={`${btn} bg-rose-600 text-white hover:bg-rose-700`}>
+                <Flag className="h-3.5 w-3.5" /> Yes, give up
+              </button>
+            ) : (
+              <button type="button" data-game-resign onClick={() => setSure(true)} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
+                <Flag className="h-3.5 w-3.5" /> {m.mode === "local" && m.seats.length > 2 ? `${games.seatName(m, seatNow)} gives up` : "Resign"}
+              </button>
+            ))}
+            {m.status === "over" && (m.mode !== "multi" || host) && (
               <button type="button" data-game-rematch onClick={() => void games.rematch(m.id)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
                 <RefreshCw className="h-3.5 w-3.5" /> Rematch
               </button>
@@ -400,7 +545,20 @@ function MatchView({ match: m, myId, onMove, onBack, onError }: { match: Match; 
                 }}
                 className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}
               >
-                <LogOut className="h-3.5 w-3.5" /> {m.status === "waiting" ? "Cancel challenge" : "Clear"}
+                <LogOut className="h-3.5 w-3.5" /> {m.status === "waiting" ? "Cancel challenge" : m.status === "lobby" ? (host ? "Close table" : "Leave table") : "Clear"}
+              </button>
+            )}
+            {m.status === "playing" && m.mode === "multi" && (
+              <button
+                type="button"
+                data-game-leave
+                onClick={() => {
+                  void games.leave(m.id).catch((e) => onError(String(e)));
+                  onBack();
+                }}
+                className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}
+              >
+                <LogOut className="h-3.5 w-3.5" /> {host ? "Close table" : "Leave table"}
               </button>
             )}
           </div>
