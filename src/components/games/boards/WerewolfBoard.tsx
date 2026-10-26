@@ -96,7 +96,7 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
       {alive.map((a, p) =>
         a && p !== seat && filter(p) ? (
           <button key={p} type="button" data-ww-target={p} disabled={!canPlay || acted === state.round * 10 + (state.phase === "night" ? 1 : 2)} onClick={() => pick(p)} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[12.5px] font-semibold text-slate-900 shadow ring-1 ring-black/10 hover:bg-indigo-50 disabled:opacity-50 dark:bg-slate-800 dark:text-white">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {label} {name(p)}
+            <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {label} {name(p)}
           </button>
         ) : null,
       )}
@@ -109,7 +109,7 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
       <div className="flex flex-wrap justify-center gap-1.5" data-ww-players>
         {alive.map((a, p) => (
           <span key={p} data-ww-player={p} data-ww-alive={a ? "1" : undefined} className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${a ? "bg-white shadow ring-1 ring-black/10 dark:bg-slate-800" : "line-through opacity-50"}`}>
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}
+            <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}
             {state.roles && <span className="text-slate-400">· {state.roles[p]}</span>}
           </span>
         ))}

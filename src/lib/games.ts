@@ -19,6 +19,7 @@
 
 import { api, errorText } from "./api";
 import type { Message, Peer } from "../types";
+import { sfx } from "./gameSounds";
 
 /** A game's id ("chess", "ludo"…); the rules live in gameRules.ts or games/index.ts. */
 export type GameId = string;
@@ -281,6 +282,25 @@ const newId = () => `m-${Date.now().toString(36)}-${Math.random().toString(36).s
 /** Read through a call so a status that `settle` changed is seen afresh. */
 const isOver = (m: Match) => m.status === "over";
 
+// ---------------------------------------------------------------- sounds (2.13.0)
+
+/** The sound of a move that just landed on the board — yours, or a colleague's. */
+function soundAfterMove(m: Match, mine: boolean) {
+  if (isOver(m)) return resultSfx(m);
+  const group = gameMeta(m.game)?.group;
+  if (group === "live") return; // the arcade boards make their own noise
+  if (!mine && m.mode !== "local" && myTurn(m)) return sfx("turn");
+  sfx(group === "dice" ? "dice" : group === "cards" ? "card" : group === "party" ? "pop" : group === "shots" ? "whoosh" : "place");
+}
+
+/** Won, lost or drawn, from this PC's point of view (pass & play: somebody won). */
+function resultSfx(m: Match) {
+  if (!m.result) return;
+  if (m.result.draw || m.result.winner === null) return sfx("draw");
+  if (m.mode === "local") return sfx("win");
+  sfx(m.result.winner === mySeat(m) ? "win" : "lose");
+}
+
 let nudge: ((text: string, match: Match) => void) | null = null;
 /** The app shows a small note when a step arrives while the games window is closed. */
 export const onNudge = (fn: ((text: string, match: Match) => void) | null) => {
@@ -358,6 +378,7 @@ export async function openFromCard(card: GameCardData, msg: Message, peers: Peer
       m = make({ id: card.id, game: card.game, mode: "duo", seats, host, status: invited ? "playing" : "waiting", joined: [host] });
     }
   }
+  if (invited && m.moves.length === 0 && m.status !== "over") sfx(m.mode === "duo" ? "start" : "join");
   if (invited && m.mode === "multi" && (m.status === "lobby" || m.status === "playing")) await sendTo(m.host, m, "accept", null);
   if (invited && m.mode === "duo" && m.moves.length === 0 && m.round === 1 && m.status === "playing") await sendTo(m.host, m, "accept", null);
   return m;
@@ -420,6 +441,7 @@ export async function play(id: string, move: string): Promise<string | null> {
   if (!m || m.status !== "playing") return "This game is over.";
   if (!myTurn(m)) return `Wait for ${seatName(m, turnSeat(m))}'s move.`;
   if (!(await appendValid(m, move))) return "That move isn't allowed.";
+  soundAfterMove(m, true);
   bump();
   if (m.mode === "duo") void sendTo(opponent(m)!.id, m, "move", { moves: m.moves, round: m.round });
   else if (m.mode === "multi") {
@@ -438,6 +460,7 @@ export async function resign(id: string) {
     m.result = { winner: playerOf(m, mySeat(m)) === 0 ? seatOf(m, 1) : seatOf(m, 0), draw: false, reason: "you resigned" };
     m.lastAt = Date.now();
     void recordResult(m);
+    resultSfx(m);
     bump();
     await sendTo(opponent(m)!.id, m, "resign", { round: m.round });
     return;
@@ -449,6 +472,8 @@ export async function resign(id: string) {
       m.result = { winner: seatOf(m, 1 - m.turn), draw: false, reason: `${seatName(m, turnSeat(m))} resigned` };
       void recordResult(m);
     }
+    if (isOver(m)) resultSfx(m);
+    else sfx("buzz");
     bump();
     return;
   }
@@ -456,6 +481,8 @@ export async function resign(id: string) {
   const seat = mySeat(m);
   if (seat < 0) return;
   await appendValid(m, `x${playerOf(m, seat)}`);
+  if (isOver(m)) resultSfx(m);
+  else sfx("buzz");
   bump();
   if (isHost(m)) await broadcast(m);
   else await sendTo(m.host, m, "resign", null);
@@ -477,6 +504,7 @@ export async function rematch(id: string) {
   m.status = "playing";
   m.lastAt = Date.now();
   await settle(m);
+  sfx("start");
   bump();
   if (m.mode === "duo") await sendTo(opponent(m)!.id, m, "rematch", { round: m.round });
   else if (m.mode === "multi") await broadcast(m);
@@ -495,6 +523,7 @@ export async function startNow(id: string): Promise<string | null> {
   m.result = null;
   m.lastAt = Date.now();
   await settle(m);
+  sfx("start");
   bump();
   await broadcast(m);
   return null;
@@ -634,18 +663,21 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
     case "accept":
       if (m.status === "waiting") {
         m.status = "playing";
+        sfx("start");
         note = `${who} accepted — ${game} is on. Your move!`;
       }
       break;
     case "decline":
       if (m.status === "waiting") {
         m.status = "declined";
+        sfx("buzz");
         note = `${who} declined the ${game} challenge.`;
       }
       break;
     case "leave":
       if (m.status === "playing" || m.status === "waiting") {
         m.status = "left";
+        sfx("buzz");
         note = `${who} left the ${game} game.`;
       }
       break;
@@ -654,6 +686,7 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
         m.status = "over";
         m.result = { winner: mySeat(m), draw: false, reason: `${who} resigned` };
         void recordResult(m);
+        resultSfx(m);
         note = `${who} resigned — you won at ${game}.`;
       }
       break;
@@ -665,6 +698,7 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
         m.result = null;
         m.status = "playing";
         await settle(m);
+        sfx("start");
         note = `${who} wants another round of ${game}.`;
       }
       break;
@@ -686,6 +720,7 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       if (!rules.validateMoves(m.game, mv, 2, seedOf(m))) return;
       m.moves = mv;
       await settle(m);
+      soundAfterMove(m, false);
       note = isOver(m) ? `${game} vs ${who}: ${resultText(m)}` : myTurn(m) ? `${who} played — your move in ${game}.` : `${who} played in ${game}.`;
       break;
     }
@@ -710,6 +745,7 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
       if (m.status === "lobby") {
         if (!m.joined.includes(e.from_id)) {
           m.joined.push(e.from_id);
+          sfx("join");
           note = `${who} joined your ${game} table (${m.joined.length} in).`;
         }
         m.gone = m.gone.filter((id) => id !== e.from_id);
@@ -723,11 +759,14 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
       if (m.status === "lobby") {
         m.joined = m.joined.filter((id) => id !== e.from_id);
         if (!m.gone.includes(e.from_id)) m.gone.push(e.from_id);
+        sfx("buzz");
         note = `${who} is not joining the ${game} table.`;
         await broadcast(m);
       } else if (m.status === "playing") {
         await appendValid(m, `x${playerOf(m, seat)}`);
         if (!m.gone.includes(e.from_id)) m.gone.push(e.from_id);
+        if (isOver(m)) resultSfx(m);
+        else sfx("buzz");
         note = `${who} left the ${game} game.`;
         await broadcast(m);
       }
@@ -735,6 +774,8 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
     case "resign":
       if (m.status === "playing") {
         await appendValid(m, `x${playerOf(m, seat)}`);
+        if (isOver(m)) resultSfx(m);
+        else sfx("buzz");
         note = `${who} is out of the ${game} game.`;
         await broadcast(m);
       }
@@ -751,6 +792,7 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
         await sendTo(e.from_id, m, "state", stateData(m));
         return;
       }
+      soundAfterMove(m, false);
       note = isOver(m) ? `${game}: ${resultText(m)}` : myTurn(m) ? `${who} played — your move in ${game}.` : "";
       await broadcast(m);
       break;
@@ -773,6 +815,7 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
     if (m.status === "lobby" || m.status === "playing") {
       m.status = "left";
       m.note = `${e.from_name} closed the table.`;
+      sfx("buzz");
       note = `${e.from_name} closed the ${game} table.`;
     }
   } else if (e.action === "state") {
@@ -788,10 +831,13 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
     if (status === "playing" && !seats.some((s) => s.id === me)) {
       m.status = "declined";
       m.note = "The game started without you.";
+      sfx("buzz");
       note = `The ${game} table started without you.`;
     } else {
       const wasLobby = m.status === "lobby";
       const had = m.round === round ? m.moves.length : -1;
+      const hadJoined = m.joined.length;
+      const newRound = m.round !== round;
       m.seats = seats;
       m.moves = moves;
       m.round = round;
@@ -800,9 +846,17 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
       m.result = null;
       m.note = "";
       await settle(m);
-      if (isOver(m)) note = `${game}: ${resultText(m)}`;
-      else if (wasLobby && status === "playing") note = `${e.from_name} started the ${game} game${myTurn(m) ? " — your move!" : "."}`;
-      else if (moves.length > had && myTurn(m)) note = `Your move in ${game}.`;
+      if (isOver(m)) {
+        resultSfx(m);
+        note = `${game}: ${resultText(m)}`;
+      } else if (wasLobby && status === "playing") {
+        sfx("start");
+        note = `${e.from_name} started the ${game} game${myTurn(m) ? " — your move!" : "."}`;
+      } else if (status === "playing" && newRound) sfx("start");
+      else if (status === "playing" && moves.length > had) {
+        soundAfterMove(m, false);
+        if (myTurn(m)) note = `Your move in ${game}.`;
+      } else if (status === "lobby" && joined.length > hadJoined) sfx("join");
     }
   } else return;
   m.lastAt = Date.now();

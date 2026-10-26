@@ -1,6 +1,7 @@
 // LANX 2.9.0: the games you play alone — 2048, Snake and Minesweeper. Each
 // keeps its own state and reports a finished game's score to the scoreboard.
 
+import { sfx } from "../../lib/gameSounds";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag, Pause, Play, RotateCcw } from "lucide-react";
 
@@ -98,7 +99,11 @@ export function Game2048({ onScore }: SoloProps) {
         if (!r.moved) return g;
         const next = addTile(r.grid);
         setScore((s) => s + r.gained);
-        if (!canMove(next)) setOver(true);
+        sfx(r.gained > 0 ? "merge" : "tap");
+        if (!canMove(next)) {
+          setOver(true);
+          sfx("lose");
+        }
         return next;
       });
     },
@@ -232,12 +237,14 @@ export function SnakeGame({ onScore }: SoloProps) {
       const hit = head[0] < 0 || head[1] < 0 || head[0] >= N || head[1] >= N || snake.current.some(([x, y]) => x === head[0] && y === head[1]);
       if (hit) {
         setState("dead");
+        sfx("boom");
         onScore(eaten.current);
         return;
       }
       snake.current = [head, ...snake.current];
       if (head[0] === food.current[0] && head[1] === food.current[1]) {
         eaten.current += 1;
+        sfx("eat");
         setScore(eaten.current);
         placeFood();
       } else snake.current.pop();
@@ -384,6 +391,7 @@ export function Minesweeper({ onScore }: SoloProps) {
       });
       setField(f);
       setState("lost");
+      sfx("boom");
       return;
     }
     const stack = [i];
@@ -393,9 +401,11 @@ export function Minesweeper({ onScore }: SoloProps) {
       f[j].open = true;
       if (f[j].n === 0) for (const k of around(j)) if (!f[k].open && !f[k].mine) stack.push(k);
     }
+    sfx("tap");
     setField(f);
     if (f.every((s) => s.open || s.mine)) {
       setState("won");
+      sfx("win");
       const took = Math.max(1, Math.floor((Date.now() - (start ?? Date.now())) / 1000));
       onScore(took);
     }
@@ -403,6 +413,7 @@ export function Minesweeper({ onScore }: SoloProps) {
 
   const toggleFlag = (i: number) => {
     if (state !== "playing" || field[i].open) return;
+    sfx("flag");
     setField((f) => f.map((s, j) => (j === i ? { ...s, flag: !s.flag } : s)));
   };
 

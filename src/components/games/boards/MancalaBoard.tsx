@@ -26,7 +26,7 @@ export function MancalaBoard({ moves, canPlay, turn, seat, onMove }: BoardProps)
         {seeds}
         <span className="absolute inset-0 flex flex-wrap items-center justify-center gap-[2px] p-3 opacity-40">
           {Array.from({ length: Math.min(seeds, 12) }, (_, k) => (
-            <span key={k} className="h-1.5 w-1.5 rounded-full bg-amber-950" />
+            <span key={k} className="g3-token h-1.5 w-1.5 rounded-full bg-amber-950" />
           ))}
         </span>
       </button>

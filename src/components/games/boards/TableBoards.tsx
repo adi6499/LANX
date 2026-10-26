@@ -39,7 +39,7 @@ export function GolfBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: 
         <span>Hole {Math.min(state.hole + 1, HOLES.length)} · par {hole.par}</span>
         {state.strokes.map((st, p) => (
           <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && !state.done ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {st.reduce((a, b) => a + b, 0)} <span className="text-slate-400 font-normal">(this hole {st[st.length - 1] ?? 0})</span>
+            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {st.reduce((a, b) => a + b, 0)} <span className="text-slate-400 font-normal">(this hole {st[st.length - 1] ?? 0})</span>
           </span>
         ))}
       </div>

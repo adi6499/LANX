@@ -1,9 +1,9 @@
+import { Dice3D } from "./Dice3D";
 import { useMemo } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
 import { BOARD, bankroll } from "../../../lib/games/bankroll.ts";
 
 const GROUP: Record<string, string> = { brown: "#92400e", sky: "#0ea5e9", pink: "#ec4899", orange: "#f97316", red: "#dc2626", yellow: "#eab308", blue: "#1d4ed8" };
-const DIE = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 const CELL = 64;
 
 /** Square index → grid row/col on a 7×7 ring (0 at the bottom right, anticlockwise). */
@@ -18,6 +18,7 @@ function place(i: number): [number, number] {
 export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const n = Math.max(2, Math.min(6, seats?.length ?? 2));
   const state = useMemo(() => bankroll.replay(moves, n, seed), [moves, n, seed]);
+  const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
   const offer = state.offer >= 0 ? BOARD[state.offer] : null;
@@ -26,7 +27,7 @@ export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed =
       <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[12px] font-semibold" data-bankroll-cash>
         {state.cash.map((c, p) => (
           <span key={p} className={`inline-flex items-center gap-1.5 ${state.out[p] ? "line-through opacity-50" : ""} ${p === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> ₹{c}
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> ₹{c}
           </span>
         ))}
       </div>
@@ -49,7 +50,7 @@ export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed =
               {here.length > 0 && (
                 <div className="absolute bottom-1 right-1 flex gap-0.5">
                   {here.map((k) => (
-                    <span key={k} data-bankroll-token={k} className="h-3.5 w-3.5 rounded-full ring-2 ring-white" style={{ backgroundColor: colour(k) }} />
+                    <span key={k} data-bankroll-token={k} className="g3-token h-3.5 w-3.5 rounded-full ring-2 ring-white" style={{ backgroundColor: colour(k) }} />
                   ))}
                 </div>
               )}
@@ -59,9 +60,9 @@ export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed =
         {/* centre */}
         <div className="absolute flex flex-col items-center justify-center gap-2 rounded-xl bg-emerald-50 dark:bg-slate-900 p-3 text-center" style={{ left: CELL, top: CELL, width: 5 * CELL - 3, height: 5 * CELL - 3 }}>
           {state.lastRoll && (
-            <div className="text-[30px] leading-none" data-bankroll-dice>
-              {DIE[state.lastRoll[0]]}
-              {DIE[state.lastRoll[1]]}
+            <div className="flex items-center gap-2" data-bankroll-dice>
+              <Dice3D value={state.lastRoll[0]} size={36} rollKey={rolls} />
+              <Dice3D value={state.lastRoll[1]} size={36} rollKey={rolls} />
             </div>
           )}
           {offer && canPlay ? (

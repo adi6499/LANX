@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.12.0)
+# LANX — Local Network Messenger (v2.13.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,19 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.13.0: sound and 3D in the games
+- **Sounds.** Every game has its own little noises: pieces land, dice rattle, cards flick, a chime when it is your
+  move, a tune when you win, a bell when a challenge card arrives, ticks in the last seconds of a party round,
+  goals and bounces in the live arcade. They are made on the spot by the browser (no sound files). The speaker
+  button in the games window mutes them; Do not disturb, quiet hours and Settings → Sounds (off, or the volume)
+  apply to them too.
+- **3D boards.** The board lies on a tilted table that leans a little towards your mouse; round pieces are glossy
+  and land with a bounce; chess pieces stand up and lift when you point at them; dice are real cubes that tumble
+  to their number; cards flip in. The "3D" button in the games window switches to the flat look. Boards you aim or
+  draw on with the mouse (the shots, the tables, Draw & Guess, Paint Fight, the live arcade) stay flat so the
+  pointer lands exactly where you point.
+- Nothing changed on the wire: 2.13.0 plays with 2.12.0 copies as before.
 
 ### New in 2.12.0: 49 games
 - The hidden games window (`/game`) now holds the whole list, in groups: **grid** (tic-tac-toe, Connect Four, Gomoku,

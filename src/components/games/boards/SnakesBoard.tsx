@@ -1,9 +1,9 @@
+import { Dice3D } from "./Dice3D";
 import { useMemo } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
 import { LADDERS, SNAKES, snakes } from "../../../lib/games/snakes.ts";
 
 const CELL = 42;
-const DIE = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
 /** Square 1..100 → pixel centre (1 at the bottom left, rows alternate direction). */
 function centre(sq: number): [number, number] {
@@ -17,6 +17,7 @@ function centre(sq: number): [number, number] {
 export function SnakesBoard({ moves, canPlay, turn, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const n = Math.max(2, seats?.length ?? 2);
   const state = useMemo(() => snakes.replay(moves, n, seed), [moves, n, seed]);
+  const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
   const size = CELL * 10;
@@ -25,7 +26,7 @@ export function SnakesBoard({ moves, canPlay, turn, seats, starter = 0, seed = "
       <div className="flex items-center gap-3 text-[12.5px] font-semibold">
         {state.lastBy >= 0 && (
           <span className="inline-flex items-center gap-1.5" data-snakes-last>
-            <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(state.lastBy) }} /> rolled <span className="text-[22px] leading-none">{DIE[state.lastRoll]}</span>
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(state.lastBy) }} /> rolled <Dice3D value={state.lastRoll} size={30} rollKey={rolls} />
           </span>
         )}
         <button type="button" data-snakes-roll disabled={!canPlay} onClick={() => onMove("r")} className="rounded-full bg-indigo-600 px-4 py-1.5 text-white hover:bg-indigo-700 disabled:opacity-50">
@@ -71,7 +72,7 @@ export function SnakesBoard({ moves, canPlay, turn, seats, starter = 0, seed = "
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12px]" data-snakes-positions>
         {state.pos.map((sq, p) => (
           <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "font-bold" : ""}`}>
-            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {sq || "start"}
+            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {sq || "start"}
           </span>
         ))}
       </div>

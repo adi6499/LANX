@@ -22,7 +22,7 @@ function TrickTable({ game, moves, canPlay, turn, seat, seats, starter = 0, seed
   const seatBox = (p: number) => (
     <div key={p} data-trick-seat={p} className={`flex min-w-[120px] flex-col items-center gap-1 rounded-xl px-2 py-1 ${p === turn && state.phase === 2 ? "bg-indigo-500/10 ring-1 ring-indigo-500/40" : ""}`}>
       <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}
+        <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}
         {game !== "hearts" && <span className="text-slate-400 font-normal">· team {p % 2 === 0 ? "1+3" : "2+4"}</span>}
       </span>
       <span className="text-[11px] text-slate-500">

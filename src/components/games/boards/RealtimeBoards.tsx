@@ -3,6 +3,7 @@
 // others send their pointer and keys. Goals and knock-outs are written as
 // moves by the host so the match keeps score.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { sfx } from "../../../lib/gameSounds";
 import { seatFor, type BoardProps } from "../boardProps";
 import { GameChannel } from "../../../lib/gameChannel";
 import { airhockey, foosball, spinnerWars } from "../../../lib/games/realtime.ts";
@@ -75,6 +76,23 @@ function useLive<S, I>(p: BoardProps, start: () => S, stepFn: (s: S, inputs: (I 
 
 const label = (p: BoardProps, i: number, n: number) => seatFor(p.seats, p.starter ?? 0, i, n);
 
+/** Goals, bounces and knock-outs as sounds, worked out from the positions every PC already sees (2.13.0). */
+function useArcadeSfx(scores: number[], ball: { vx: number; vy: number } | null, outs = 0) {
+  const prev = useRef({ scores: "", vx: 0, vy: 0, outs: 0 });
+  useEffect(() => {
+    const p = prev.current;
+    const s = scores.join(",");
+    if (p.scores && s !== p.scores) sfx("score");
+    if (ball) {
+      const flipX = p.vx !== 0 && ball.vx !== 0 && Math.sign(ball.vx) !== Math.sign(p.vx);
+      const flipY = p.vy !== 0 && ball.vy !== 0 && Math.sign(ball.vy) !== Math.sign(p.vy);
+      if (flipX || flipY) sfx("bounce");
+    }
+    if (outs > p.outs) sfx("boom");
+    prev.current = { scores: s, vx: ball?.vx ?? 0, vy: ball?.vy ?? 0, outs };
+  });
+}
+
 // ---------------------------------------------------------------- Air Hockey
 
 export function AirHockeyBoard(p: BoardProps) {
@@ -87,6 +105,7 @@ export function AirHockeyBoard(p: BoardProps) {
       if (s.goals[g] >= 5) p.onMove(`end:${g}`);
     }
   }, (s) => ({ puck: s.puck, paddles: s.paddles, goals: s.goals, pause: s.pause }), (snap) => ({ ...(snap as AHState), lastGoal: -1 }));
+  useArcadeSfx(view.goals, view.puck);
   void scored;
   void sim;
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -172,6 +191,7 @@ export function FoosballBoard(p: BoardProps) {
       if (s.goals[g] >= 5) p.onMove(`end:${g}`);
     }
   }, (s) => ({ ball: s.ball, rodY: s.rodY, kick: s.kick, goals: s.goals, pause: s.pause }), (snap) => ({ ...(snap as FBState), lastGoal: -1 }));
+  useArcadeSfx(view.goals, view.ball);
   const canvas = useRef<HTMLCanvasElement>(null);
   const side = p.local ? 0 : p.seat;
   const scale = 0.6;
@@ -305,6 +325,7 @@ export function SpinnerBoard(p: BoardProps) {
     (s) => ({ spinners: s.spinners, round: s.round, pause: s.pause, wins: s.wins }),
     (snap) => snap as SpinState,
   );
+  useArcadeSfx(view.wins, null, view.spinners.filter((x) => x.out).length);
   const canvas = useRef<HTMLCanvasElement>(null);
   const size = (ARENA_R + 30) * 2;
   const scale = 0.85;
@@ -344,7 +365,7 @@ export function SpinnerBoard(p: BoardProps) {
       <div className="flex flex-wrap justify-center gap-x-3 text-[12.5px] font-semibold" data-live-score>
         {(rec?.out ?? []).map((o, i) => (
           <span key={i} className={`inline-flex items-center gap-1 ${o ? "line-through opacity-50" : ""}`}>
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: label(p, i, n).color }} /> {label(p, i, n).name} {view.wins[i] ?? 0}
+            <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: label(p, i, n).color }} /> {label(p, i, n).name} {view.wins[i] ?? 0}
           </span>
         ))}
         <span className="text-slate-400 font-normal">round {view.round}/3</span>

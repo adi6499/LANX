@@ -42,7 +42,7 @@ export function CheckersBoard({ moves, canPlay, turn, seat, onMove }: BoardProps
             className={`relative h-[50px] w-[50px] flex items-center justify-center ${dark ? "bg-[#7a5230]" : "bg-[#e9d5b5]"} ${from === i ? "!bg-amber-400" : ""} ${isTarget ? "!bg-emerald-400" : ""} ${canPlay && (movable || isTarget) ? "cursor-pointer" : "cursor-default"}`}
           >
             {piece && (
-              <span className={`h-9 w-9 rounded-full shadow-md flex items-center justify-center text-[16px] lanx-pop ${piece.p === 0 ? "bg-rose-600 ring-2 ring-rose-300" : "bg-slate-900 ring-2 ring-slate-500"} ${movable ? "ring-4 ring-amber-300" : ""}`}>
+              <span className={`g3-token h-9 w-9 rounded-full shadow-md flex items-center justify-center text-[16px] lanx-pop ${piece.p === 0 ? "bg-rose-600 ring-2 ring-rose-300" : "bg-slate-900 ring-2 ring-slate-500"} ${movable ? "ring-4 ring-amber-300" : ""}`}>
                 {piece.king && <span className="text-amber-300">♛</span>}
               </span>
             )}

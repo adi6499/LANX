@@ -20,7 +20,7 @@ export function GoFishBoard({ moves, canPlay, turn, seat, seats, starter = 0, se
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-gofish-books>
         {state.books.map((b, p) => (
           <span key={p} className="inline-flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {b} {b === 1 ? "book" : "books"}
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {b} {b === 1 ? "book" : "books"}
           </span>
         ))}
         <span className="inline-flex items-center gap-1 text-slate-500 font-normal">

@@ -67,6 +67,8 @@ import { OfficePanel, type OfficeTab } from "./components/office/OfficePanel";
 import { Directory } from "./components/office/Directory";
 import { birthdayInfo, stillOn } from "./lib/office";
 import { playClip, unlockAudio } from "./lib/audio";
+import { configureGameSounds, sfx } from "./lib/gameSounds";
+import { parseCard } from "./components/org/cardModel";
 import { AdminPanel, type AdminTab } from "./components/admin/AdminPanel";
 import { PolicyOfferDialog } from "./components/admin/AppsLauncher";
 import { exportChatExcel, printChat } from "./lib/exportChat";
@@ -273,6 +275,10 @@ export default function App() {
   const dnd = effective(settings?.profile)?.status === "dnd" || quiet;
   const dndRef = useRef(false);
   dndRef.current = dnd;
+  // LANX 2.13.0: the game sounds follow Settings → Sounds and go quiet with Do not disturb.
+  useEffect(() => {
+    configureGameSounds({ volume: settings?.sound_enabled === false ? 0 : settings?.sound_volume, quiet: dnd });
+  }, [settings?.sound_enabled, settings?.sound_volume, dnd]);
   const myIdRef = useRef("");
   myIdRef.current = settings?.device_id ?? "";
   const peersRef = useRef<Peer[]>([]);
@@ -604,7 +610,11 @@ export default function App() {
     // LANX 1.6.0: cards change → the Organiser badge follows.
     add(
       events.onMessageReceived(({ message }) => {
-        if (message.message_type === "card") refreshOrganiserCount();
+        if (message.message_type === "card") {
+          refreshOrganiserCount();
+          // LANX 2.13.0: a game challenge rings a little bell.
+          if (!message.is_outgoing && !dndRef.current && parseCard(message)?.kind === "game") sfx("invite");
+        }
       })
     );
     add(

@@ -26,7 +26,7 @@ export function BlackjackBoard({ moves, canPlay, turn, seats, starter = 0, seed 
           return (
             <div key={p} data-bj-player={p} className={`flex flex-col items-center gap-1 rounded-2xl p-2 ${acting ? "bg-indigo-500/10 ring-1 ring-indigo-500/40" : ""}`}>
               <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} · {v}
+                <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} · {v}
                 {v > 21 && <span className="text-rose-600">bust</span>}
                 <span className="text-slate-500 font-normal">({state.points[p] >= 0 ? "+" : ""}{state.points[p]} pts)</span>
               </span>

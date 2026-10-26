@@ -106,7 +106,7 @@ export function ArcheryBoard({ moves, canPlay, turn, seats, starter = 0, seed = 
       <div className="flex flex-wrap justify-center gap-x-4 text-[12.5px] font-semibold" data-archery-scores>
         {state.scores.map((s, p) => (
           <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && !state.done ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {s} <span className="text-slate-400 font-normal">({state.hits[p].length}/{ARROWS})</span>
+            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {s} <span className="text-slate-400 font-normal">({state.hits[p].length}/{ARROWS})</span>
           </span>
         ))}
       </div>
@@ -225,7 +225,7 @@ export function BowlingBoard({ moves, canPlay, turn, seats, starter = 0, seed = 
           </label>
           <span className="inline-flex items-center gap-1">
             Power
-            <span className="inline-block h-3 w-28 overflow-hidden rounded-full bg-slate-500/20">
+            <span className="g3-token inline-block h-3 w-28 overflow-hidden rounded-full bg-slate-500/20">
               <span className="block h-3 bg-indigo-600" style={{ width: `${pw}%` }} />
             </span>
           </span>

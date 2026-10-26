@@ -1,7 +1,8 @@
 // The frame shared by the timed party games: scores, the round clock, and
 // the host's "Start round" / "Close round" buttons. The host's PC closes a
 // round by itself when the clock runs out.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { sfx } from "../../../lib/gameSounds";
 import { seatFor, type Seat } from "../boardProps";
 import type { RoundState } from "../../../lib/games/party.ts";
 
@@ -47,6 +48,16 @@ export function PartyShell({
   testId: string;
 }) {
   const left = useClock(state.deadline, state.open);
+  // LANX 2.13.0: a chime when a round opens, ticks for the last three seconds, a buzz when it closes.
+  const wasOpen = useRef(state.open);
+  useEffect(() => {
+    if (state.open && !wasOpen.current) sfx("start");
+    else if (!state.open && wasOpen.current) sfx("buzz");
+    wasOpen.current = state.open;
+  }, [state.open]);
+  useEffect(() => {
+    if (state.open && left > 0 && left <= 3) sfx("tick");
+  }, [state.open, left]);
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
   const name = (p: number) => seatFor(seats, starter, p, n).name;
   // The host closes the round when the clock runs out or everyone is in.
@@ -63,7 +74,7 @@ export function PartyShell({
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-party-scores>
         {state.scores.map((s, p) => (
           <span key={p} className="inline-flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {s}
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {s}
           </span>
         ))}
       </div>

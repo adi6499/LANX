@@ -37,7 +37,7 @@ export function HoldemBoard({ moves, canPlay, turn, seat, seats, starter = 0, se
           return (
             <div key={p} data-holdem-player={p} className={`flex min-w-[130px] flex-col items-center gap-1 rounded-xl px-2 py-1 ${p === turn && state.street < 4 ? "bg-indigo-500/10 ring-1 ring-indigo-500/40" : ""} ${state.folded[p] || state.out[p] ? "opacity-50" : ""}`}>
               <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}
+                <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}
                 {p === state.button && <span className="rounded-full bg-white px-1 text-[9px] text-slate-900 ring-1 ring-black/20">D</span>}
               </span>
               <span className="text-[11px] text-slate-500">

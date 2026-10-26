@@ -1,10 +1,10 @@
+import { Dice3D } from "./Dice3D";
 import { useMemo } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
 import { FINISH, ludo, ludoMovable, toAbsolute, SAFE } from "../../../lib/games/ludo.ts";
 
 const C = 28; // cell size
 const SIZE = 15 * C;
-const DIE = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
 /** The 52 squares of the loop, clockwise from red's start, as [row, col]. */
 const LOOP: [number, number][] = [
@@ -51,6 +51,7 @@ function cellOf(player: number, rel: number, token: number): [number, number] {
 export function LudoBoard({ moves, canPlay, turn, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const n = Math.max(2, Math.min(4, seats?.length ?? 2));
   const state = useMemo(() => ludo.replay(moves, n, seed), [moves, n, seed]);
+  const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
   const movable = canPlay && state.roll ? ludoMovable(state) : [];
@@ -60,7 +61,7 @@ export function LudoBoard({ moves, canPlay, turn, seats, starter = 0, seed = "",
       <div className="flex items-center gap-3 text-[12.5px] font-semibold">
         {state.lastRoll > 0 && (
           <span className="inline-flex items-center gap-1.5" data-ludo-last>
-            <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(turn) }} /> <span className="text-[22px] leading-none">{DIE[state.lastRoll]}</span>
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(turn) }} /> <Dice3D value={state.lastRoll} size={30} rollKey={rolls} />
             {state.event && <span className="text-slate-500 font-normal">· {state.event}</span>}
           </span>
         )}
@@ -70,6 +71,12 @@ export function LudoBoard({ moves, canPlay, turn, seats, starter = 0, seed = "",
         {state.roll > 0 && canPlay && <span className="text-indigo-600 dark:text-indigo-300">Pick a token to move {state.roll}</span>}
       </div>
       <svg width={SIZE} height={SIZE} className="rounded-xl shadow-lg ring-1 ring-black/10 select-none" style={{ background: "#f8fafc" }}>
+        <defs>
+          <radialGradient id="g3gloss" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stopColor="#fff" stopOpacity="0.95" />
+            <stop offset="1" stopColor="#fff" stopOpacity="0" />
+          </radialGradient>
+        </defs>
         {/* yards */}
         {YARD.map(([r, c], p) => (
           <g key={p}>
@@ -99,7 +106,9 @@ export function LudoBoard({ moves, canPlay, turn, seats, starter = 0, seed = "",
             const can = p === turn && movable.includes(t);
             return (
               <g key={`${p}-${t}`} data-ludo-token={`${p}:${t}`} data-ludo-pos={rel} data-ludo-can={can ? "1" : undefined} className={can ? "cursor-pointer" : ""} onClick={() => can && onMove(`m:${t}`)}>
+                <circle className="g3-shadow" cx={x + stack * 4 + 1.5} cy={y - stack * 4 + 3} r={10} fill="#0f172a" opacity={0.28} />
                 <circle cx={x + stack * 4} cy={y - stack * 4} r={10} fill={colour(p)} stroke="#fff" strokeWidth={2.5} />
+                <circle className="g3-gloss" cx={x + stack * 4 - 3} cy={y - stack * 4 - 3.5} r={4.5} fill="url(#g3gloss)" pointerEvents="none" />
                 {can && <circle cx={x + stack * 4} cy={y - stack * 4} r={13} fill="none" stroke="#4f46e5" strokeWidth={3} className="animate-pulse" />}
               </g>
             );

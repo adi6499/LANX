@@ -15,10 +15,10 @@ export function GoBoard({ moves, canPlay, onMove }: BoardProps) {
     <div data-game-board="go" className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-4 text-[12.5px] font-semibold" data-go-score>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-3.5 w-3.5 rounded-full bg-slate-900 ring-1 ring-white/40" /> {b} <span className="text-slate-400 font-normal">(+{state.captured[0]} taken)</span>
+          <span className="g3-token h-3.5 w-3.5 rounded-full bg-slate-900 ring-1 ring-white/40" /> {b} <span className="text-slate-400 font-normal">(+{state.captured[0]} taken)</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-3.5 w-3.5 rounded-full bg-white ring-1 ring-slate-400" /> {w + 6.5} <span className="text-slate-400 font-normal">(+{state.captured[1]} taken)</span>
+          <span className="g3-token h-3.5 w-3.5 rounded-full bg-white ring-1 ring-slate-400" /> {w + 6.5} <span className="text-slate-400 font-normal">(+{state.captured[1]} taken)</span>
         </span>
       </div>
       <svg width={size} height={size} className="rounded-xl bg-[#e8c58a] shadow-lg ring-1 ring-black/10 select-none">

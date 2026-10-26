@@ -1,0 +1,117 @@
+/* LANX 2.13.0: the 3D look of the games. The board lies on a tilted table
+   that leans a little towards the mouse; pieces are raised and glossy and
+   land with a bounce; dice are real cubes that tumble; cards flip in. The
+   "3D" button in the games window turns all of it off (data-games-3d). */
+
+/* ---- the table: every board, no edits per game */
+[data-games-3d] .g3-stage[data-g3] > * {
+  transform: perspective(1500px) rotateX(calc(12deg + var(--g3-rx, 0deg))) rotateY(var(--g3-ry, 0deg)) scale(0.97);
+  transform-origin: 50% 60%;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  filter: drop-shadow(0 22px 16px rgba(0, 0, 0, 0.28)) drop-shadow(0 4px 3px rgba(0, 0, 0, 0.16));
+}
+[data-games-3d] .g3-stage[data-g3] button:not(:disabled):active {
+  transform: scale(0.94);
+}
+
+/* ---- round pieces (spans): a glossy ball with a shadow, landing with a bounce */
+[data-games-3d] .g3-token {
+  background-image:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.35) 22%, rgba(255, 255, 255, 0) 46%),
+    radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 56%, rgba(0, 0, 0, 0.38) 100%);
+  box-shadow:
+    0 3px 4px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  animation: g3-land 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.25) backwards;
+}
+@keyframes g3-land {
+  from {
+    transform: translateY(-10px) scale(0.6);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* ---- pieces drawn in SVG (Ludo, Go, Hex, Backgammon…): a soft shadow under each */
+[data-games-3d] .g3-stage[data-g3] svg circle[fill]:not(.g3-gloss):not(.g3-shadow):not([fill="none"]) {
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3));
+}
+[data-games-panel]:not([data-games-3d]) .g3-shadow,
+[data-games-panel]:not([data-games-3d]) .g3-gloss {
+  display: none;
+}
+
+/* ---- chess: pieces stand up (a shadow under them) and lift when you point at them */
+[data-games-3d] [data-chess-square] > span:first-child {
+  display: inline-block;
+  text-shadow:
+    0 5px 4px rgba(0, 0, 0, 0.38),
+    0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: transform 0.15s ease;
+}
+[data-games-3d] [data-chess-square]:not(:disabled):hover > span:first-child {
+  transform: translateY(-5px) scale(1.12);
+}
+
+/* ---- cards: a thick edge, and each new card flips in */
+[data-games-3d] .g3-card {
+  box-shadow:
+    0 1px 0 #e2e8f0,
+    0 2px 0 #cbd5e1,
+    0 3px 0 #94a3b8,
+    0 10px 14px rgba(0, 0, 0, 0.28);
+  animation: g3-deal 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  backface-visibility: hidden;
+}
+@keyframes g3-deal {
+  from {
+    transform: perspective(600px) rotateY(90deg) translateY(-8px);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* ---- dice: a cube that tumbles to its value (boards/Dice3D.tsx) */
+.g3-dice {
+  display: inline-block;
+  vertical-align: middle;
+  perspective: 420px;
+}
+.g3-dice-cube {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.g3-dice-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: 14%;
+  border-radius: 20%;
+  background: linear-gradient(145deg, #ffffff, #e2e8f0);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(15, 23, 42, 0.18),
+    inset 0 0 10px rgba(15, 23, 42, 0.08);
+  backface-visibility: hidden;
+}
+.g3-dice-face i {
+  display: block;
+  width: 70%;
+  height: 70%;
+  margin: auto;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #475569, #0f172a);
+}

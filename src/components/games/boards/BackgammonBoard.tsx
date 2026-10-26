@@ -1,3 +1,4 @@
+import { Dice3D } from "./Dice3D";
 import { useMemo, useState } from "react";
 import type { BoardProps } from "../boardProps";
 import { backgammon, bgMoves, bgTarget } from "../../../lib/games/backgammon.ts";
@@ -7,7 +8,6 @@ const PH = 150; // point height
 const BAR = 30;
 const W = 12 * PW + BAR + 2 * 8 + 44; // plus the off tray
 const H = 2 * PH + 60;
-const DIE = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
 /** Point index → x of its left edge (bottom row 0..11 right to left, top row 12..23 left to right). */
 function px(i: number): number {
@@ -18,6 +18,7 @@ function px(i: number): number {
 /** Backgammon: Roll, click a checker (or the bar), then where it goes; "Off" bears off. */
 export function BackgammonBoard({ moves, canPlay, turn, seat, seed = "", onMove }: BoardProps) {
   const state = useMemo(() => backgammon.replay(moves, 2, seed), [moves, seed]);
+  const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   const [from, setFrom] = useState<number | "bar" | null>(null);
   if (!state) return null;
   const legal = canPlay ? bgMoves(state) : [];
@@ -50,9 +51,9 @@ export function BackgammonBoard({ moves, canPlay, turn, seat, seed = "", onMove 
     <div data-game-board="backgammon" className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-3 text-[12.5px] font-semibold">
         {state.lastRoll && (
-          <span data-bg-dice className="text-[24px] leading-none">
-            {DIE[state.lastRoll[0]]}
-            {DIE[state.lastRoll[1]]}
+          <span data-bg-dice className="inline-flex items-center gap-1.5">
+            <Dice3D value={state.lastRoll[0]} size={32} rollKey={rolls} />
+            <Dice3D value={state.lastRoll[1]} size={32} rollKey={rolls} />
             {state.dice.length > 0 && <span className="ml-2 text-[12px] text-slate-500 align-middle">left: {state.dice.join(" ")}</span>}
           </span>
         )}

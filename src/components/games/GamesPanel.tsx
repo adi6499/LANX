@@ -4,8 +4,8 @@
 // Reaction, 2.10.0), play two or more at this PC, or play alone. Matches
 // live in lib/games.ts, so closing this window never loses a game.
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, Check, Flag, Gamepad2, Loader2, LogOut, Monitor, Play, RefreshCw, Swords, Trophy, Users, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { ArrowLeft, Box, Check, Flag, Gamepad2, Loader2, LogOut, Monitor, Play, RefreshCw, Swords, Trophy, Users, Volume2, VolumeX, X } from "lucide-react";
 import type { Peer } from "../../types";
 import { Avatar } from "../Avatar";
 import * as games from "../../lib/games";
@@ -14,6 +14,9 @@ import { ChainReactionBoard, ChessBoard, ChessMoves, ConnectFourBoard, ReversiBo
 import { BOARDS } from "./boards/index";
 import { summaryOf } from "../../lib/gameRules";
 import { Game2048, Minesweeper, SnakeGame } from "./Solo";
+import { gameSoundOn, setGameSound, sfx } from "../../lib/gameSounds";
+import { game3dOn, setGame3d } from "../../lib/game3d";
+import "./games3d.css";
 
 interface Props {
   initialQuery: string;
@@ -61,6 +64,8 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
   const [soloRun, setSoloRun] = useState(0);
   const [busy, setBusy] = useState(false);
   const [, setStatsReady] = useState(false);
+  const [sound, setSound] = useState(gameSoundOn());
+  const [three, setThree] = useState(game3dOn());
 
   useEffect(() => {
     void games.loadStats().then(() => setStatsReady(true));
@@ -165,7 +170,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm lanx-fade" onMouseDown={onClose}>
-      <div data-games-panel data-games-view={view} className="w-[980px] max-w-[96vw] h-[680px] max-h-[94vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
+      <div data-games-panel data-games-view={view} data-games-3d={three ? "1" : undefined} className="w-[980px] max-w-[96vw] h-[680px] max-h-[94vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
         {/* ---- header */}
         <div className="flex items-center gap-3 px-1">
           <div className="h-9 w-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
@@ -175,6 +180,33 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
             <div className="text-[15px] font-bold text-slate-900 dark:text-white leading-tight">Games</div>
             <div className="text-[11.5px] text-slate-500 truncate">A hidden corner of LANX — type /game in any chat. Challenge colleagues, or play alone.</div>
           </div>
+          <button
+            type="button"
+            data-games-3d-toggle={three ? "on" : "off"}
+            title={three ? "The boards are in 3D — click for a flat look" : "Flat boards — click for 3D"}
+            onClick={() => {
+              const v = !three;
+              setGame3d(v);
+              setThree(v);
+            }}
+            className={`${btn} ${three ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20" : "bg-slate-500/10 text-slate-500 hover:bg-slate-500/20"}`}
+          >
+            <Box className="h-4 w-4" /> {three ? "3D" : "Flat"}
+          </button>
+          <button
+            type="button"
+            data-games-sound={sound ? "on" : "off"}
+            title={sound ? "Game sounds are on — click to mute them" : "Game sounds are off — click to turn them on"}
+            onClick={() => {
+              const v = !sound;
+              setGameSound(v);
+              setSound(v);
+              if (v) sfx("pop");
+            }}
+            className={`${btn} ${sound ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20" : "bg-slate-500/10 text-slate-500 hover:bg-slate-500/20"}`}
+          >
+            {sound ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} {sound ? "Sound" : "Muted"}
+          </button>
           <button type="button" data-games-close onClick={onClose} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
             <X className="h-4 w-4" /> Close
           </button>
@@ -268,9 +300,11 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                   <div className="ml-auto text-[11.5px] text-slate-500">{statsLine(pick.id)}</div>
                 </div>
                 <div className="flex-1 overflow-auto flex p-4 [&>*]:m-auto" key={soloRun}>
-                  {pick.id === "2048" && <Game2048 onScore={soloScore} />}
-                  {pick.id === "snake" && <SnakeGame onScore={soloScore} />}
-                  {pick.id === "mines" && <Minesweeper onScore={soloScore} />}
+                  <Stage on>
+                    {pick.id === "2048" && <Game2048 onScore={soloScore} />}
+                    {pick.id === "snake" && <SnakeGame onScore={soloScore} />}
+                    {pick.id === "mines" && <Minesweeper onScore={soloScore} />}
+                  </Stage>
                 </div>
               </div>
             )}
@@ -487,6 +521,8 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
   };
   const Generic = BOARDS[m.game];
   const showBoard = m.status === "playing" || m.status === "over" || (m.status === "left" && m.moves.length > 0);
+  // Boards you aim or draw on with the mouse stay flat, so the pointer lands where you point.
+  const tilt = !meta.realtime && meta.group !== "shots" && m.game !== "drawguess" && m.game !== "paintfight";
   return (
     <div className="flex-1 flex flex-col min-h-0" data-game-match={m.id} data-game-match-status={m.status} data-game-mode={m.mode}>
       <div className="flex items-center gap-2 px-4 pt-3">
@@ -501,6 +537,7 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
       <div className="flex-1 min-h-0 flex items-stretch gap-4 p-4">
         {/* A board taller or wider than the room scrolls from its top-left edge (centred with margins, not flex). */}
         <div className="flex-1 min-w-0 overflow-auto flex [&>*]:m-auto">
+          <Stage on={showBoard && tilt}>
           {m.status === "waiting" && (
             <div className="flex flex-col items-center gap-3 text-center">
               <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
@@ -533,6 +570,7 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
               {Generic && <Generic {...board} />}
             </>
           )}
+          </Stage>
         </div>
         <aside className="w-[220px] shrink-0 flex flex-col gap-3 min-h-0">
           <div className="rounded-2xl bg-white/70 dark:bg-slate-800/60 p-3 flex flex-col gap-1.5 max-h-[46%] overflow-y-auto" data-game-seats>
@@ -623,6 +661,36 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- the 3D table (2.13.0)
+
+/** The board lies on a tilted table that leans a little towards the mouse (games3d.css). Takes no room of its own. */
+function Stage({ on, children }: { on: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      ref={ref}
+      className="g3-stage [&>*]:m-auto"
+      style={{ display: "contents" }}
+      data-g3={on ? "1" : undefined}
+      onMouseMove={(e) => {
+        const el = ref.current;
+        const r = el?.firstElementChild?.getBoundingClientRect();
+        if (!el || !on || !r || r.width < 1 || r.height < 1) return;
+        const dx = (e.clientX - r.left) / r.width - 0.5;
+        const dy = (e.clientY - r.top) / r.height - 0.5;
+        el.style.setProperty("--g3-ry", `${(dx * 7).toFixed(2)}deg`);
+        el.style.setProperty("--g3-rx", `${(-dy * 6).toFixed(2)}deg`);
+      }}
+      onMouseLeave={() => {
+        ref.current?.style.removeProperty("--g3-rx");
+        ref.current?.style.removeProperty("--g3-ry");
+      }}
+    >
+      {children}
     </div>
   );
 }

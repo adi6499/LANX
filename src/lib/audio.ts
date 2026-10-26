@@ -13,6 +13,17 @@ export function unlockAudio() {
   }
 }
 
+/** The shared player, started (or woken) on demand — the game sounds use it (2.13.0). */
+export function audioContext(): AudioContext | null {
+  try {
+    if (!ctx) ctx = new AudioContext();
+    if (ctx.state === "suspended") void ctx.resume();
+    return ctx;
+  } catch {
+    return null;
+  }
+}
+
 /** Plays a recording; false if this computer won't play it right now. */
 export async function playClip(data: ArrayBuffer): Promise<boolean> {
   try {

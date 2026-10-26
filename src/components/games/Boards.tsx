@@ -3,6 +3,7 @@
 // rules live in lib/gameRules.ts and the match in lib/games.ts.
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { sfx } from "../../lib/gameSounds";
 import type { Square } from "chess.js";
 import {
   C4_COLS,
@@ -80,7 +81,7 @@ export function ConnectFourBoard({ moves, canPlay, turn, onMove }: BoardProps) {
             className="h-6 rounded-md flex items-center justify-center text-white/70 disabled:opacity-0 hover:bg-white/10"
             aria-label={`Drop in column ${c + 1}`}
           >
-            {hover === c && canPlay && !full(c) && !over ? <span className={`h-4 w-4 rounded-full ${turn === 0 ? "bg-red-500" : "bg-yellow-400"}`} /> : "▾"}
+            {hover === c && canPlay && !full(c) && !over ? <span className={`g3-token h-4 w-4 rounded-full ${turn === 0 ? "bg-red-500" : "bg-yellow-400"}`} /> : "▾"}
           </button>
         ))}
         {grid.map((row, r) =>
@@ -88,7 +89,7 @@ export function ConnectFourBoard({ moves, canPlay, turn, onMove }: BoardProps) {
             const lit = winCells?.some(([rr, cc]) => rr === r && cc === c);
             return (
               <div key={`${r}-${c}`} data-game-c4={`${r}-${c}`} className={`h-12 w-12 rounded-full flex items-center justify-center ${lit ? "ring-4 ring-white" : ""} bg-blue-950/60`}>
-                {cell !== null && <span className={`h-10 w-10 rounded-full shadow-inner lanx-pop ${cell === 0 ? "bg-red-500" : "bg-yellow-400"}`} />}
+                {cell !== null && <span className={`g3-token h-10 w-10 rounded-full shadow-inner lanx-pop ${cell === 0 ? "bg-red-500" : "bg-yellow-400"}`} />}
               </div>
             );
           }),
@@ -109,10 +110,10 @@ export function ReversiBoard({ moves, canPlay, turn, onMove }: BoardProps) {
     <div data-game-board="reversi" className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-4 text-[12.5px] font-semibold">
         <span className="inline-flex items-center gap-1.5" data-reversi-black>
-          <span className="h-4 w-4 rounded-full bg-slate-900 ring-1 ring-white/40" /> {black}
+          <span className="g3-token h-4 w-4 rounded-full bg-slate-900 ring-1 ring-white/40" /> {black}
         </span>
         <span className="inline-flex items-center gap-1.5" data-reversi-white>
-          <span className="h-4 w-4 rounded-full bg-white ring-1 ring-slate-400" /> {white}
+          <span className="g3-token h-4 w-4 rounded-full bg-white ring-1 ring-slate-400" /> {white}
         </span>
       </div>
       <div className="grid grid-cols-8 gap-[2px] rounded-xl bg-emerald-900 p-[6px]" style={{ width: 8 * 44 + 14 + 12 }}>
@@ -127,8 +128,8 @@ export function ReversiBoard({ moves, canPlay, turn, onMove }: BoardProps) {
               onClick={() => onMove(String(i))}
               className={`h-11 w-11 rounded-[4px] flex items-center justify-center ${i === last ? "bg-emerald-500" : "bg-emerald-600"} ${can ? "hover:bg-emerald-400 cursor-pointer" : ""} disabled:cursor-default`}
             >
-              {cell === 0 && <span className="h-9 w-9 rounded-full bg-slate-900 shadow lanx-pop" />}
-              {cell === 1 && <span className="h-9 w-9 rounded-full bg-white shadow lanx-pop" />}
+              {cell === 0 && <span className="g3-token h-9 w-9 rounded-full bg-slate-900 shadow lanx-pop" />}
+              {cell === 1 && <span className="g3-token h-9 w-9 rounded-full bg-white shadow lanx-pop" />}
               {cell === -1 && can && <span className={`h-3 w-3 rounded-full ${turn === 0 ? "bg-slate-900/50" : "bg-white/70"}`} />}
             </button>
           );
@@ -189,6 +190,7 @@ export function ChainReactionBoard({ moves, canPlay, turn, seats = DEFAULT_SEATS
         return;
       }
       setFrame(waves[k]);
+      sfx("chain");
     }, 170);
     return () => window.clearInterval(t);
   }, [waves]);
@@ -203,7 +205,7 @@ export function ChainReactionBoard({ moves, canPlay, turn, seats = DEFAULT_SEATS
           const out = state?.out[p] ?? false;
           return (
             <span key={p} className={`inline-flex items-center gap-1.5 ${out ? "line-through opacity-50" : ""} ${p === turn && !out ? "underline decoration-2 underline-offset-4" : ""}`} data-cr-count-seat={(starter + p) % n} title={s.name}>
-              <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: s.color }} /> {counts[p]}
+              <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: s.color }} /> {counts[p]}
             </span>
           );
         })}
@@ -230,7 +232,7 @@ export function ChainReactionBoard({ moves, canPlay, turn, seats = DEFAULT_SEATS
               {c.n > 0 && (
                 <span className={`relative block h-[72%] w-[72%] ${near ? "animate-pulse" : ""}`}>
                   {Array.from({ length: shown }, (_, k) => (
-                    <span key={k} className="absolute h-[42%] w-[42%] rounded-full shadow-md lanx-pop" style={{ ...ORB_POS[shown - 1][k], backgroundColor: colour }} />
+                    <span key={k} className="g3-token absolute h-[42%] w-[42%] rounded-full shadow-md lanx-pop" style={{ ...ORB_POS[shown - 1][k], backgroundColor: colour }} />
                   ))}
                 </span>
               )}

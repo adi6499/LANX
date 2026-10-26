@@ -41,7 +41,7 @@ export function OchoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
         <div className="flex flex-col items-center gap-1">
           <OchoCard card={top} testId={`pile:${top}`} />
           <span className="inline-flex items-center gap-1 text-[10.5px] text-slate-500" data-ocho-colour>
-            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: BG[state.colour] }} /> {OCHO_COLOUR_NAME[state.colour]} {state.dir === -1 ? "· ↺" : ""}
+            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: BG[state.colour] }} /> {OCHO_COLOUR_NAME[state.colour]} {state.dir === -1 ? "· ↺" : ""}
           </span>
         </div>
         {stuck && (
