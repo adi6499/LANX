@@ -22,13 +22,23 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  BookOpen,
+  Pencil,
+  Printer,
+  Wrench,
 } from "lucide-react";
 import { api, errorText } from "../../lib/api";
 import { CSS, type Mark, type PageState, type Source, bounds, buildPdf, imageToPdf, moveMark, openSource, pagesOf, paintMarks, renderPage, shownSize, warmMarks } from "../../lib/pdfEngine";
+import { decorItems, hasDecor, paintDecor, printPages, type Decor } from "../../lib/pdfTools";
+import { PdfReader } from "./PdfReader";
+import { PdfToolsPanel } from "./PdfToolsPanel";
 
 /** LANX 2.5.0: PDF tools — erase (for good), highlight, draw, add text,
  *  stamps and a signature; rotate, delete and reorder pages; add pages from
- *  other PDFs or pictures; save some or all pages as a new PDF. */
+ *  other PDFs or pictures; save some or all pages as a new PDF.
+ *  LANX 2.14.0: three tabs — Read (every page in a scroll, find, zoom),
+ *  Edit (the marks) and Tools (merge, split, compress, pictures, text, page
+ *  numbers, watermark, header & footer, forms, blank pages, print). */
 
 type Tool = "select" | "erase" | "highlight" | "pen" | "text" | "stamp" | "sign";
 const TOOLS: { id: Tool; label: string; icon: React.ElementType; hint: string }[] = [
@@ -50,16 +60,22 @@ function baseName(path: string): string {
 
 export function PdfStudio({
   initialPath,
+  initialMode,
   onClose,
   onError,
   onSendFile,
+  closing,
 }: {
   /** A PDF to open at once (a received file, a picked file), or nothing for an empty studio. */
   initialPath?: string | null;
+  /** Read (a PDF double-clicked in Explorer) or Edit (the default). */
+  initialMode?: "read" | "edit";
   onClose: () => void;
   onError: (text: string) => void;
   /** "Send to chat" for the saved file. */
   onSendFile: (path: string) => void;
+  /** On its way out (the app keeps it a moment so it can fade). */
+  closing?: boolean;
 }) {
   const [sources, setSources] = useState<Source[]>([]);
   const [pages, setPages] = useState<PageState[]>([]);
@@ -80,16 +96,24 @@ export function PdfStudio({
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [pendingText, setPendingText] = useState<{ x: number; y: number; value: string } | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [mode, setMode] = useState<"read" | "edit" | "tools">(initialMode ?? "edit");
+  const [decor, setDecor] = useState<Decor>({});
+  const [jump, setJump] = useState<{ i: number; tick: number } | null>(null);
+  const readWrap = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const pageImage = useRef<HTMLCanvasElement | null>(null);
   const drag = useRef<{ kind: "rect" | "pen" | "move"; x: number; y: number; points?: { x: number; y: number }[]; origin?: Mark } | null>(null);
   const undo = useRef<Map<number, Mark[][]>>(new Map());
   const page = pages[cur];
-  const dirty = pages.some((p) => p.marks.length || p.rotate || p.deleted) || sources.length > 1;
+  const dirty = pages.some((p) => p.marks.length || p.rotate || p.deleted) || sources.length > 1 || hasDecor(decor);
+  const fileBase = baseName(sources[0]?.name ?? "document.pdf");
+  const liveIdx = useMemo(() => pages.map((_, i) => i).filter((i) => !pages[i].deleted), [pages]);
+  /** What the reader draws again when it changes (marks, rotation, decorations). */
+  const version = useMemo(() => JSON.stringify(decor) + "|" + pages.map((p) => `${p.marks.length}:${JSON.stringify(p.marks).length}:${p.rotate}:${p.deleted ? 1 : 0}`).join(","), [decor, pages]);
 
   // ---- loading
-  const addSource = useCallback(async (bytes: Uint8Array, name: string) => {
+  const addSource = useCallback(async (bytes: Uint8Array, name: string, at?: number) => {
     const lower = name.toLowerCase();
     const pdfBytes = lower.endsWith(".pdf") ? bytes : await imageToPdf(bytes, name);
     const src = await openSource(pdfBytes, name);
@@ -99,9 +123,61 @@ export function PdfStudio({
       return [...s, src];
     });
     const ps = await pagesOf(idx, src);
-    setPages((p) => [...p, ...ps]);
+    setPages((p) => (at === undefined || at >= p.length ? [...p, ...ps] : [...p.slice(0, at), ...ps, ...p.slice(at)]));
     return ps.length;
   }, []);
+
+  /** New bytes for a file already open (a filled form): its pages are rebuilt in place, their marks cleared. */
+  const replaceSource = useCallback(
+    async (index: number, bytes: Uint8Array) => {
+      const old = sources[index];
+      if (!old) return;
+      const src = await openSource(bytes, old.name);
+      const ps = await pagesOf(index, src);
+      setSources((s) => s.map((x, i) => (i === index ? src : x)));
+      setPages((p) => {
+        const first = p.findIndex((x) => x.source === index);
+        const rest = p.filter((x) => x.source !== index);
+        const at = first < 0 ? rest.length : first;
+        return [...rest.slice(0, at), ...ps, ...rest.slice(at)];
+      });
+      setThumbs({});
+      undo.current.clear();
+      setSelected(-1);
+    },
+    [sources],
+  );
+
+  const print = async () => {
+    if (!sources.length) return;
+    setBusy("Preparing to print…");
+    try {
+      await printPages(sources, pages, decor, fileBase, (d, t) => setBusy(`Preparing page ${d} of ${t}…`));
+    } catch (e) {
+      onError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const goToLive = (n: number) => {
+    const i = liveIdx[Math.min(liveIdx.length, Math.max(1, n)) - 1];
+    if (i === undefined) return;
+    setCur(i);
+    setSelected(-1);
+    setJump({ i, tick: Date.now() });
+  };
+  const fitWidth = () => {
+    const el = mode === "read" ? readWrap.current : wrapRef.current;
+    if (!el || !page) return;
+    setScale(Math.max(0.3, Math.min(4, (el.clientWidth - 64) / shownSize(page).w)));
+  };
+  const fitPage = () => {
+    const el = mode === "read" ? readWrap.current : wrapRef.current;
+    if (!el || !page) return;
+    const { w, h } = shownSize(page);
+    setScale(Math.max(0.3, Math.min(4, Math.min((el.clientWidth - 64) / w, (el.clientHeight - 90) / h))));
+  };
 
   const openPaths = useCallback(
     async (paths: string[]) => {
@@ -137,6 +213,11 @@ export function PdfStudio({
     const ctx = c.getContext("2d")!;
     ctx.drawImage(img, 0, 0);
     paintMarks(ctx, page.marks, scale * dpr(), selected);
+    {
+      const k = pages.filter((p, i) => !p.deleted && i <= cur).length;
+      const { w, h } = shownSize(page);
+      paintDecor(ctx, decorItems(decor, Math.max(1, k), Math.max(1, liveIdx.length), w, h, fileBase), scale * dpr());
+    }
     const d = drag.current;
     if (d && d.kind === "rect" && d.points) {
       const [a, b] = d.points;
@@ -152,7 +233,7 @@ export function PdfStudio({
     } else if (d && d.kind === "pen" && d.points) {
       paintMarks(ctx, [{ t: "pen", points: d.points, color, width: penWidth }], scale * dpr());
     }
-  }, [page, scale, selected, tool, color, penWidth]);
+  }, [page, scale, selected, tool, color, penWidth, decor, pages, cur, liveIdx.length, fileBase]);
 
   function dpr() {
     return Math.min(2, window.devicePixelRatio || 1);
@@ -161,7 +242,7 @@ export function PdfStudio({
   useEffect(() => {
     let alive = true;
     (async () => {
-      if (!page) return;
+      if (!page || mode !== "edit") return;
       await warmMarks(page.marks);
       const img = await renderPage(sources[page.source], page, scale * dpr());
       if (!alive) return;
@@ -172,7 +253,7 @@ export function PdfStudio({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page?.source, page?.index, page?.rotate, scale, sources]);
+  }, [page?.source, page?.index, page?.rotate, scale, sources, mode]);
   useEffect(() => repaint(), [repaint, page?.marks]);
 
   // Fit the first page to the available width.
@@ -324,7 +405,12 @@ export function PdfStudio({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (pendingText || signPad) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return; // typing in a box (find, a tool)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        void print();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         undoLast();
       } else if ((e.key === "Delete" || e.key === "Backspace") && selected >= 0 && page) {
@@ -338,7 +424,7 @@ export function PdfStudio({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, page, pendingText, signPad, cur]);
+  }, [selected, page, pendingText, signPad, cur, sources, pages, decor]);
 
   // ---- pages
   const rotatePage = (i: number) => setPages((ps) => ps.map((p, j) => (j === i ? { ...p, rotate: (p.rotate + 90) % 360 } : p)));
@@ -367,7 +453,7 @@ export function PdfStudio({
     if (!sources.length) return;
     setBusy(onlyPicked ? "Saving the picked pages…" : "Saving…");
     try {
-      const bytes = await buildPdf(sources, pages, onlyPicked ? picked : undefined);
+      const bytes = await buildPdf(sources, pages, onlyPicked ? picked : undefined, { decor, file: fileBase });
       const name = `${baseName(sources[0].name)}${onlyPicked ? "-pages" : "-edited"}.pdf`;
       const path = await api.saveFileBytes(name, bytes, "pdf");
       if (path) {
@@ -394,7 +480,7 @@ export function PdfStudio({
   const tip = TOOLS.find((t) => t.id === tool)?.hint;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 lanx-scrim">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-3 lanx-scrim ${closing ? "lanx-closing" : ""}`}>
       <div data-pdf-studio className="w-full h-full max-w-[1400px] flex flex-col rounded-[22px] lanx-sheet overflow-hidden lanx-rise">
         {/* Top bar */}
         <div className="flex items-center gap-2 px-4 py-2 border-b lanx-line">
@@ -403,7 +489,21 @@ export function PdfStudio({
             <div className="text-[14px] font-bold text-slate-900 dark:text-white truncate">{sources[0]?.name ?? "PDF tools"}</div>
             <div className="text-[11px] text-slate-400 truncate">{pages.length ? `${live} page${live === 1 ? "" : "s"}${dirty ? " · changed, not saved yet" : ""}` : "Open a PDF, or add pictures to make one"}</div>
           </div>
+          <div className="ml-3 flex items-center rounded-full lanx-group p-0.5" data-pdf-modes>
+            {(
+              [
+                ["read", "Read", BookOpen],
+                ["edit", "Edit", Pencil],
+                ["tools", "Tools", Wrench],
+              ] as const
+            ).map(([m, lbl, Icon]) => (
+              <button key={m} type="button" data-pdf-mode={m} onClick={() => setMode(m)} className={`px-3 py-1 rounded-full text-[12px] font-semibold inline-flex items-center gap-1 ${mode === m ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "text-slate-600 dark:text-slate-300"}`}>
+                <Icon className="h-3.5 w-3.5" /> {lbl}
+              </button>
+            ))}
+          </div>
           <div className="ml-auto flex items-center gap-1.5">
+            <button type="button" data-pdf-print onClick={() => void print()} disabled={!pages.length || !!busy} title="Print (Ctrl+P)" className="lanx-tool p-1.5 text-slate-500 disabled:opacity-40"><Printer className="h-4 w-4" /></button>
             <button type="button" data-pdf-add onClick={addPages} className="px-3 py-1.5 rounded-full lanx-group text-[12px] font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1"><FilePlus2 className="h-3.5 w-3.5" /> {pages.length ? "Add pages…" : "Open PDF / pictures…"}</button>
             {picked.size > 0 && (
               <button type="button" data-pdf-save-picked onClick={() => save(true)} disabled={!!busy} className="px-3 py-1.5 rounded-full lanx-group text-[12px] font-semibold text-slate-700 dark:text-slate-200">Save {picked.size} picked page{picked.size === 1 ? "" : "s"}…</button>
@@ -423,6 +523,7 @@ export function PdfStudio({
         </div>
 
         {/* Tools */}
+        {mode === "edit" && (
         <div className="flex items-center gap-1 px-3 py-1.5 border-b lanx-line flex-wrap">
           {TOOLS.map((t) => (
             <button key={t.id} type="button" data-pdf-tool={t.id} title={t.hint} onClick={() => { setTool(t.id); setSelected(-1); }} className={`px-2.5 py-1.5 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 ${tool === t.id ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "text-slate-600 dark:text-slate-300 hover:bg-[var(--lanx-fill)]"}`}>
@@ -469,16 +570,32 @@ export function PdfStudio({
           <span className="text-[11px] text-slate-400 w-10 text-center">{Math.round(scale * 100)}%</span>
           <button type="button" onClick={() => setScale((s) => Math.min(3, s + 0.15))} className="lanx-tool p-1.5 text-slate-500"><ZoomIn className="h-4 w-4" /></button>
         </div>
+        )}
+        {mode === "read" && pages.length > 0 && (
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b lanx-line" data-pdf-readbar>
+            <span className="text-[12px] text-slate-500">Page</span>
+            <input data-pdf-goto type="number" min={1} max={liveIdx.length} value={Math.max(1, liveIdx.indexOf(cur) + 1)} onChange={(e) => goToLive(Number(e.target.value))} className="lanx-field rounded-md px-1.5 py-0.5 text-[12px] w-14 text-slate-900 dark:text-white" />
+            <span className="text-[12px] text-slate-500">of {liveIdx.length}</span>
+            <span className="mx-1 h-5 w-px bg-black/10 dark:bg-white/10" />
+            <button type="button" data-pdf-zoom-out onClick={() => setScale((s) => Math.max(0.3, s - 0.15))} className="lanx-tool p-1.5 text-slate-500"><ZoomOut className="h-4 w-4" /></button>
+            <span data-pdf-zoom className="text-[11px] text-slate-400 w-10 text-center">{Math.round(scale * 100)}%</span>
+            <button type="button" data-pdf-zoom-in onClick={() => setScale((s) => Math.min(4, s + 0.15))} className="lanx-tool p-1.5 text-slate-500"><ZoomIn className="h-4 w-4" /></button>
+            <button type="button" data-pdf-fit-width onClick={fitWidth} className="px-2.5 py-1 rounded-lg lanx-group text-[11.5px] font-semibold text-slate-700 dark:text-slate-200">Fit width</button>
+            <button type="button" data-pdf-fit-page onClick={fitPage} className="px-2.5 py-1 rounded-lg lanx-group text-[11.5px] font-semibold text-slate-700 dark:text-slate-200">Whole page</button>
+            <span className="ml-auto text-[11.5px] text-slate-400">{dirty ? "Changes show here too — Save PDF… keeps them." : "Reading. Edit to mark up, Tools for merge, split and more."}</span>
+          </div>
+        )}
 
         <div className="flex-1 min-h-0 flex">
           {/* Pages */}
+          {mode !== "tools" && (
           <div className="w-[168px] shrink-0 border-r lanx-line overflow-y-auto p-2 space-y-2">
             {pages.map((p, i) => {
               const key = `${p.source}:${p.index}:${p.rotate}`;
               const { w, h } = shownSize(p);
               return (
                 <div key={`${key}-${i}`} data-pdf-page={i} className={`relative rounded-lg border-2 p-1 ${i === cur ? "border-rose-500" : "border-transparent hover:border-slate-300"} ${p.deleted ? "opacity-40" : ""}`}>
-                  <button type="button" onClick={() => { setCur(i); setSelected(-1); }} className="block w-full">
+                  <button type="button" onClick={() => { setCur(i); setSelected(-1); setJump({ i, tick: Date.now() }); }} className="block w-full">
                     {thumbs[key] ? (
                       <img src={thumbs[key]} alt={`Page ${i + 1}`} className="w-full rounded bg-white shadow-sm" style={{ aspectRatio: `${w} / ${h}` }} />
                     ) : (
@@ -509,8 +626,10 @@ export function PdfStudio({
               </div>
             )}
           </div>
+          )}
 
           {/* Page */}
+          {mode === "edit" && (
           <div ref={wrapRef} className="flex-1 min-w-0 overflow-auto bg-slate-200/60 dark:bg-black/30 p-6 relative">
             {busy && !pages.length && <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-[13px] gap-2"><Loader2 className="h-4 w-4 animate-spin" /> {busy}</div>}
             {page && (
@@ -550,6 +669,48 @@ export function PdfStudio({
               <div className="sticky bottom-0 mt-3 mx-auto w-fit rounded-full bg-slate-900/80 text-white text-[11.5px] px-3 py-1">Erased parts are removed from the file for good when you save (that page becomes a picture).</div>
             )}
           </div>
+          )}
+          {mode === "read" && (
+            <div ref={readWrap} className="flex-1 min-w-0 min-h-0 flex flex-col relative">
+              {busy && !pages.length && <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-[13px] gap-2"><Loader2 className="h-4 w-4 animate-spin" /> {busy}</div>}
+              <PdfReader
+                sources={sources}
+                pages={pages}
+                decor={decor}
+                file={fileBase}
+                scale={scale}
+                onCur={(i) => setCur(i)}
+                jump={jump}
+                onEdit={(i) => {
+                  setCur(i);
+                  setSelected(-1);
+                  setMode("edit");
+                }}
+                version={version}
+              />
+            </div>
+          )}
+          {mode === "tools" && (
+            <PdfToolsPanel
+              sources={sources}
+              pages={pages}
+              setPages={setPages}
+              cur={cur}
+              picked={picked}
+              decor={decor}
+              setDecor={setDecor}
+              file={fileBase}
+              busy={busy}
+              setBusy={setBusy}
+              notify={onError}
+              addPages={addPages}
+              addSource={addSource}
+              replaceSource={replaceSource}
+              onSave={() => void save(false)}
+              onPrint={() => void print()}
+              onSaved={(path) => setSavedPath(path)}
+            />
+          )}
         </div>
       </div>
 

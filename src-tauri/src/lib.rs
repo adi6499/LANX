@@ -241,6 +241,8 @@ pub fn run() {
             show_main_window(app);
             // LANX 1.7.0: Explorer's "Send to → LANX".
             shell::queue_send(app, shell::send_paths(&args));
+            // LANX 2.14.0: a PDF double-clicked in Explorer opens in LANX.
+            shell::queue_open(app, shell::open_paths(&args));
         }));
     }
 
@@ -395,6 +397,7 @@ pub fn run() {
             // screenshot key and the Explorer menu entry (never for test copies).
             let args: Vec<String> = std::env::args().collect();
             shell::remember_send(shell::send_paths(&args));
+            shell::remember_open(shell::open_paths(&args));
             if profile.is_none() {
                 let s = db.get_settings().ok();
                 // LANX 2.5.0: the dictation hotkey follows its preference (on unless turned off).
@@ -669,6 +672,12 @@ pub fn run() {
             commands::tools::save_screenshot,
             commands::tools::get_tools_status,
             commands::tools::take_send_request,
+            commands::tools::take_open_request,
+            commands::tools::pdf_default_status,
+            commands::tools::choose_pdf_app,
+            commands::tools::open_default_apps,
+            commands::docs::save_file_in_folder,
+            commands::docs::open_folder,
             commands::tools::pick_folder,
             commands::tools::share_folder,
             commands::tools::subscribe_folder,

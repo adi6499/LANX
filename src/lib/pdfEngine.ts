@@ -7,6 +7,7 @@ import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { decorItems, drawDecor, paintDecor, type Decor } from "./pdfTools";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -248,21 +249,35 @@ export function mustFlatten(p: PageState): boolean {
   return p.marks.some((m) => m.t === "erase" || m.t === "sign" || ((m.t === "text" || m.t === "stamp") && !WIN_ANSI.test(m.text)));
 }
 
+/** What else goes into the saved file (2.14.0): page numbers, watermark, header & footer, properties; or every page as a picture (Compress). */
+export interface BuildOpts {
+  decor?: Decor;
+  /** The file's name, for "{file}" in headers and footers. */
+  file?: string;
+  /** Draw every page as a JPEG at `scale` pixels per point with this JPEG quality (0–1). */
+  raster?: { scale: number; quality: number };
+}
+
 /** Builds the new PDF from the pages (in order, skipping deleted ones). */
-export async function buildPdf(sources: Source[], pages: PageState[], only?: Set<number>): Promise<Uint8Array> {
+export async function buildPdf(sources: Source[], pages: PageState[], only?: Set<number>, opts: BuildOpts = {}): Promise<Uint8Array> {
   const out = await PDFDocument.create();
   const loaded = new Map<number, PDFDocument>();
   const font = await out.embedFont(StandardFonts.Helvetica);
   const bold = await out.embedFont(StandardFonts.HelveticaBold);
   const list = pages.map((p, i) => [p, i] as const).filter(([p, i]) => !p.deleted && (!only || only.has(i)));
-  for (const [p] of list) {
-    if (mustFlatten(p)) {
-      // 2.2 px per point ≈ 160 dpi: crisp enough for office papers, not huge.
+  const total = list.length;
+  for (const [k, [p]] of list.entries()) {
+    const shown = shownSize(p);
+    const items = decorItems(opts.decor, k + 1, total, shown.w, shown.h, opts.file ?? "");
+    if (opts.raster || mustFlatten(p)) {
+      // 2.2 px per point ≈ 160 dpi: crisp enough for office papers, not huge (Compress asks for less).
+      const sc = opts.raster?.scale ?? 2.2;
       await warmMarks(p.marks);
-      const c = await renderPage(sources[p.source], p, 2.2);
+      const c = await renderPage(sources[p.source], p, sc);
       const ctx = c.getContext("2d")!;
-      paintMarks(ctx, p.marks, 2.2);
-      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, "image/jpeg", 0.88));
+      paintMarks(ctx, p.marks, sc);
+      paintDecor(ctx, items, sc);
+      const blob = await new Promise<Blob | null>((r) => c.toBlob(r, "image/jpeg", opts.raster?.quality ?? 0.88));
       const jpg = await out.embedJpg(new Uint8Array(await blob!.arrayBuffer()));
       const { w, h } = shownSize(p);
       const page = out.addPage([w, h]);
@@ -325,9 +340,15 @@ export async function buildPdf(sources: Source[], pages: PageState[], only?: Set
         }
       }
     }
+    drawDecor(page, font, bold, items, H);
   }
   if (!out.getPageCount()) throw new Error("There are no pages left to save.");
   out.setProducer("LANX PDF tools");
+  if (opts.decor?.props) {
+    out.setTitle(opts.decor.props.title);
+    out.setAuthor(opts.decor.props.author);
+    out.setSubject(opts.decor.props.subject);
+  }
   out.setModificationDate(new Date());
   return out.save();
 }

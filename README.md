@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.13.0)
+# LANX — Local Network Messenger (v2.14.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,22 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.14.0: PDFs open in LANX, and a full PDF toolkit
+- **Double-click a PDF and it opens in LANX**, in the new **Read** tab: every page in one scroll, zoom (fit width /
+  whole page), **find words** (Ctrl+F), jump to a page, print (Ctrl+P), double-click a page to mark it up. Windows
+  asks each person once which program opens PDFs: Settings → Tools → **Open PDF files in LANX** has a button that
+  shows that box (pick LANX, tick *Always*), a shortcut to Windows' *Default apps*, and a file IT can apply to every
+  PC at once (`Dism /Online /Import-DefaultAppAssociations:<file>` or the Group Policy *Set a default associations
+  configuration file*). Explorer's right-click → *Open with* lists LANX too.
+- **Tools tab**: **Merge** PDFs and pictures; **Split** (every page, page ranges, or the ticked pages) into a folder;
+  **Compress** (three sizes — pages become pictures); **Pages → pictures** (PNG/JPG at 96–300 dpi); the **Text** (copy
+  or save as .txt); **Page numbers** (place, "Page 1 of 10", start number); **Watermark** (CONFIDENTIAL, DRAFT…
+  diagonal, any colour); **Header & footer** with `{page}` `{pages}` `{date}` `{file}`; **Fill a form** (text, ticks,
+  choices; lock the fields); **blank page / duplicate page**; **Properties** (title, author, subject); **Print**.
+  Numbers, watermark and header/footer show in Read and Edit before you save.
+- The **Edit** tab is the 2.5.0 editor (erase, highlight, draw, text, stamps, signature; rotate, delete and reorder pages).
+- Not included: password-protecting a PDF (LANX's PDF engine cannot encrypt). Nothing changed on the wire.
 
 ### New in 2.13.0: sound and 3D in the games
 - **Sounds.** Every game has its own little noises: pieces land, dice rattle, cards flick, a chime when it is your

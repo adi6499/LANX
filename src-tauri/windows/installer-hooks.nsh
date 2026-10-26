@@ -45,6 +45,15 @@
   ${If} ${FileExists} "$EXEPATH.sig"
     CopyFiles /SILENT /FILESONLY "$EXEPATH.sig" "$INSTDIR\updates\LANX-Setup-${VERSION}.exe.sig"
   ${EndIf}
+  ; LANX 2.14.0: Windows' "Default apps" page lists LANX as a PDF reader (the
+  ; .pdf type itself is registered by the installer's file associations).
+  ; Windows still asks each person once; LANX has a button for that.
+  WriteRegStr HKLM "Software\LANX\Capabilities" "ApplicationName" "LANX"
+  WriteRegStr HKLM "Software\LANX\Capabilities" "ApplicationDescription" "LANX — office messenger with PDF tools: read, mark up, sign, merge, split and more."
+  WriteRegStr HKLM "Software\LANX\Capabilities\FileAssociations" ".pdf" "LANX.pdf"
+  WriteRegStr HKLM "Software\RegisteredApplications" "LANX" "Software\LANX\Capabilities"
+  ; Tell Explorer the file types changed (SHCNE_ASSOCCHANGED).
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
@@ -54,6 +63,11 @@
   Pop $0
   ; "Start with Windows" entry created by LANX for this user.
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "LANX"
+  ; LANX 2.14.0: the "Default apps" registration.
+  DeleteRegValue HKLM "Software\RegisteredApplications" "LANX"
+  DeleteRegKey HKLM "Software\LANX\Capabilities"
+  DeleteRegKey /ifempty HKLM "Software\LANX"
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
   ; LANX 1.7.0: "Send to → LANX" in Explorer for this user (LANX makes it
   ; again by itself on its next start if this was only an upgrade).
   SetShellVarContext current

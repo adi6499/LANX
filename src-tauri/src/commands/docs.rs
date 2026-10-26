@@ -42,12 +42,49 @@ fn allowed(path: &Path, download_dir: &Path) -> bool {
     false
 }
 
+/// A file LANX was asked to open from Explorer (2.14.0) may be read.
+pub(crate) fn allow_path(path: &Path) {
+    allow(path);
+}
+
+/// Folders the user picked this session (Split, pages → pictures): LANX may save into them and open them.
+static PICKED_DIRS: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+pub(crate) fn allow_dir(path: &Path) {
+    if let Ok(mut g) = PICKED_DIRS.lock() {
+        g.get_or_insert_with(HashSet::new).insert(path.to_path_buf());
+    }
+}
+
+fn allowed_dir(path: &Path) -> bool {
+    PICKED_DIRS.lock().ok().and_then(|g| g.as_ref().map(|s| s.contains(path))).unwrap_or(false)
+}
+
+/// "%20" and friends back to characters (header values are URL-encoded by the window).
+fn pct_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz"), 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// May the window read / share this file? (Used by the WhatsApp sharing too.)
 pub(crate) fn is_allowed(state: &State<AppState>, path: &Path) -> bool {
     allowed(path, &download_dir(state))
 }
 
-fn download_dir(state: &State<AppState>) -> PathBuf {
+pub(crate) fn download_dir(state: &State<AppState>) -> PathBuf {
     state
         .db
         .get_settings()
@@ -136,6 +173,7 @@ pub async fn save_file_bytes(app: AppHandle, state: State<'_, AppState>, request
     let ext = match kind.as_str() {
         "txt" => "txt",
         "ics" => "ics",
+        "xml" => "xml",
         _ => "pdf",
     };
     let suggested = header("x-file-name").unwrap_or_else(|| format!("LANX.{ext}"));
@@ -164,6 +202,7 @@ pub async fn save_file_bytes(app: AppHandle, state: State<'_, AppState>, request
         .set_title(match ext {
             "txt" => "Save note",
             "ics" => "Save calendar",
+            "xml" => "Save file",
             _ => "Save PDF",
         })
         .set_file_name(&suggested)
@@ -171,6 +210,7 @@ pub async fn save_file_bytes(app: AppHandle, state: State<'_, AppState>, request
             match ext {
                 "txt" => "Text file",
                 "ics" => "Calendar file",
+                "xml" => "XML file",
                 _ => "PDF file",
             },
             &[ext],
@@ -198,6 +238,42 @@ pub fn open_document(app: AppHandle, state: State<AppState>, path: String) -> Re
     let p = PathBuf::from(&path);
     if !allowed(&p, &download_dir(&state)) {
         return Err("LANX can only open files you chose or received.".to_string());
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_path(path, None::<&str>).map_err(err)
+}
+
+/// Saves raw bytes (the body) as `x-file-name` inside `x-folder`, a folder the
+/// user picked (Split, pages → pictures). Returns the path (2.14.0).
+#[tauri::command]
+pub fn save_file_in_folder(state: State<AppState>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    state.network.privacy.guard()?;
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(pct_decode);
+    let folder = PathBuf::from(header("x-folder").ok_or_else(|| "No folder".to_string())?);
+    if !allowed_dir(&folder) || !folder.is_dir() {
+        return Err("Pick the folder first.".to_string());
+    }
+    let name = crate::networking::transfer::sanitize_file_name(&header("x-file-name").unwrap_or_else(|| "file.pdf".to_string()));
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.clone(),
+        _ => return Err("Expected file data".to_string()),
+    };
+    if bytes.is_empty() {
+        return Err("Nothing to save".to_string());
+    }
+    let path = crate::networking::transfer::unique_destination(&folder, &name);
+    save_to(&path, &bytes)?;
+    allow(&path);
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Opens a folder the user picked in File Explorer (2.14.0).
+#[tauri::command]
+pub fn open_folder(app: AppHandle, state: State<AppState>, path: String) -> Result<(), String> {
+    state.network.privacy.guard()?;
+    let p = PathBuf::from(&path);
+    if !allowed_dir(&p) {
+        return Err("LANX can only open folders you picked.".to_string());
     }
     use tauri_plugin_opener::OpenerExt;
     app.opener().open_path(path, None::<&str>).map_err(err)

@@ -1601,7 +1601,7 @@ export const api = {
     return previewOnly();
   },
   /** Saves bytes to a file the user picks (test copies: the download folder). Null = cancelled. */
-  saveFileBytes: async (fileName: string, bytes: Uint8Array, kind: "pdf" | "txt" | "ics" = "pdf"): Promise<string | null> => {
+  saveFileBytes: async (fileName: string, bytes: Uint8Array, kind: "pdf" | "txt" | "ics" | "xml" = "pdf"): Promise<string | null> => {
     if (isTauri) return invoke("save_file_bytes", bytes, { headers: { "x-file-name": encodeURIComponent(fileName), "x-kind": kind } });
     const url = URL.createObjectURL(new Blob([bytes.slice(0)]));
     const a = document.createElement("a");
@@ -1611,11 +1611,39 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
     return fileName;
   },
-  saveTextFile: async (fileName: string, text: string, kind: "txt" | "ics" = "txt"): Promise<string | null> => {
+  saveTextFile: async (fileName: string, text: string, kind: "txt" | "ics" | "xml" = "txt"): Promise<string | null> => {
     return api.saveFileBytes(fileName, new TextEncoder().encode(text), kind);
   },
   openDocument: async (path: string): Promise<void> => {
     if (isTauri) return invoke("open_document", { path });
+  },
+
+  // ---- LANX 2.14.0: PDFs open in LANX; the PDF toolkit saves into folders.
+  /** PDFs Windows asked LANX to open (a double-click in Explorer), once. */
+  takeOpenRequest: async (): Promise<string[]> => {
+    if (isTauri) return invoke("take_open_request");
+    return [];
+  },
+  /** Saves bytes as a new file inside a folder the user picked; returns the path. */
+  saveFileInFolder: async (folder: string, fileName: string, bytes: Uint8Array): Promise<string> => {
+    if (isTauri) return invoke("save_file_in_folder", bytes, { headers: { "x-folder": encodeURIComponent(folder), "x-file-name": encodeURIComponent(fileName) } });
+    return previewOnly();
+  },
+  /** Opens a folder the user picked in File Explorer. */
+  openFolder: async (path: string): Promise<void> => {
+    if (isTauri) return invoke("open_folder", { path });
+  },
+  /** Which program Windows opens PDFs with for this user. */
+  pdfDefaultStatus: async (): Promise<{ is_lanx: boolean; current: string }> => {
+    if (isTauri) return invoke("pdf_default_status");
+    return { is_lanx: false, current: "" };
+  },
+  /** Windows' own "How do you want to open .pdf files?" box (pick LANX, tick Always). */
+  choosePdfApp: async (): Promise<void> => {
+    if (isTauri) return invoke("choose_pdf_app");
+  },
+  openDefaultApps: async (): Promise<void> => {
+    if (isTauri) return invoke("open_default_apps");
   },
 
   /** Share on WhatsApp: text (and number) straight in; a file goes to the
@@ -1824,6 +1852,8 @@ export const events = {
   onScreenshotReady: (cb: () => void) => on<null>("lanx://screenshot-ready", () => cb()),
   /** LANX 1.7.0: files from Explorer's "Send to → LANX". */
   onSendRequest: (cb: () => void) => on<null>("lanx://send-request", () => cb()),
+  /** LANX 2.14.0: a PDF was double-clicked in Explorer while LANX was running. */
+  onOpenRequest: (cb: () => void) => on<null>("lanx://open-request", () => cb()),
   /** LANX 1.8.0: an emergency alert arrived or changed. */
   onAlert: (cb: (a: AlertInfo) => void) => on<AlertInfo>("lanx://alert", cb),
   /** LANX 1.9.0: office settings changed (admin / colleague side). */

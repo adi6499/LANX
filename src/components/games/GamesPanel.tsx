@@ -30,6 +30,8 @@ interface Props {
   onError: (t: string) => void;
   /** Post a challenge card into the chat with that colleague. */
   onSendCard: (card: GameCardData, peerId: string) => Promise<void>;
+  /** On its way out (the app keeps it a moment so it can fade). */
+  closing?: boolean;
 }
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors active:scale-95 disabled:opacity-50 disabled:active:scale-100";
@@ -54,7 +56,7 @@ function statsLine(id: string): string {
   return s.best ? `Best ${s.best}` : `${s.played} played`;
 }
 
-export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, chatPeerId, onClose, onError, onSendCard }: Props) {
+export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, chatPeerId, onClose, onError, onSendCard, closing }: Props) {
   useSyncExternalStore(games.subscribe, games.snapshot, games.snapshot);
   useEffect(() => games.setMe(myId, myName), [myId, myName]);
   const openMatch = openMatchId ? games.getMatch(openMatchId) : undefined;
@@ -169,7 +171,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm lanx-fade" onMouseDown={onClose}>
+    <div className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm ${closing ? "lanx-closing" : "lanx-fade"}`} onMouseDown={onClose}>
       <div data-games-panel data-games-view={view} data-games-3d={three ? "1" : undefined} className="w-[980px] max-w-[96vw] h-[680px] max-h-[94vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
         {/* ---- header */}
         <div className="flex items-center gap-3 px-1">

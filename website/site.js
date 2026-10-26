@@ -62,6 +62,20 @@
     })
     .catch(function () {});
 
+  // Sections, cards and steps glide in as you scroll (once each; not when Windows asks for less motion).
+  try {
+    var items = document.querySelectorAll(".section > .kicker, .section > h2, .section > .sub, .card, .steps li, .strip > div, .gallery figure, .changelog article, .faq details, .dl-card, .guide, .reqs, .cta-bottom .btn-lg");
+    if ("IntersectionObserver" in window && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      items.forEach(function (el, i) { el.classList.add("reveal"); el.style.setProperty("--d", (i % 5) * 70 + "ms"); });
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+        });
+      }, { rootMargin: "0px 0px -6% 0px" });
+      items.forEach(function (el) { io.observe(el); });
+    }
+  } catch (e) {}
+
   // "Copy" next to the checksum.
   document.querySelectorAll("[data-copy]").forEach(function (b) {
     b.addEventListener("click", function () {

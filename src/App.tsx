@@ -194,7 +194,7 @@ export default function App() {
   // LANX 2.5.0: work tools.
   const [showNotes, setShowNotes] = useState<false | { initial: { title?: string; body: string } | null }>(false);
   const [showCalendar, setShowCalendar] = useState(false);
-  const [pdfPath, setPdfPath] = useState<null | { path: string | null }>(null);
+  const [pdfPath, setPdfPath] = useState<null | { path: string | null; mode?: "read" | "edit" }>(null);
   const [showCalc, setShowCalc] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   /** LANX 2.6.0: the hidden meme picker (/meme in a chat). */
@@ -354,17 +354,28 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // LANX 2.14.0: a PDF double-clicked in Explorer opens here, in the reader.
+  const takeOpenRequest = useCallback(() => {
+    api
+      .takeOpenRequest()
+      .then((p) => {
+        if (p.length) setPdfPath({ path: p[0], mode: "read" });
+      })
+      .catch(() => {});
+  }, []);
+
   const loadAfterUnlock = useCallback(async () => {
     try {
       const s = await api.getSettings();
       setSettings(s);
       const c = await reloadAll();
       takeSendRequest();
+      takeOpenRequest();
       if (c.length > 0 && !activeConversationIdRef.current) setActiveConversationId(c[0].id);
     } catch (err) {
       showError(err);
     }
-  }, [reloadAll, showError]);
+  }, [reloadAll, showError, takeOpenRequest]);
 
   // Initial load
   useEffect(() => {
@@ -382,6 +393,7 @@ export default function App() {
           const c = await reloadAll();
           if (c.length > 0 && !activeConversationIdRef.current) setActiveConversationId(c[0].id);
           takeSendRequest();
+          if (s.onboarding_completed) takeOpenRequest(); // else once the welcome screens are done
           api.getAdminState().then((st) => setPolicyOffer(st.offer)).catch(() => {});
         }
         const restored = await api.takeRestoreNotice().catch(() => null);
@@ -391,7 +403,7 @@ export default function App() {
         setLoadError(errorText(err));
       }
     })();
-  }, [applyTheme, reloadAll, takeSendRequest]);
+  }, [applyTheme, reloadAll, takeSendRequest, takeOpenRequest]);
 
   useEffect(() => {
     applyAppearance({
@@ -724,6 +736,15 @@ export default function App() {
         api
           .takeSendRequest()
           .then((p) => p.length && setSendRequest((prev) => [...new Set([...(prev ?? []), ...p])]))
+          .catch(() => {});
+      })
+    );
+    add(
+      events.onOpenRequest(() => {
+        if (lockedRef.current) return;
+        api
+          .takeOpenRequest()
+          .then((p) => p.length && setPdfPath({ path: p[0], mode: "read" }))
           .catch(() => {});
       })
     );
@@ -1253,6 +1274,13 @@ export default function App() {
 
   // The details panel slides out before it goes away.
   const contextPresence = usePresence(activeTab === "messages" && isContextOpen && !!activeConversation, 220);
+  // LANX 2.14.0: the games window and the PDF tools fade out instead of vanishing.
+  const gamesPresence = usePresence(!!showGames, 220);
+  const lastGames = useRef(showGames);
+  if (showGames) lastGames.current = showGames;
+  const pdfPresence = usePresence(!!pdfPath, 220);
+  const lastPdf = useRef(pdfPath);
+  if (pdfPath) lastPdf.current = pdfPath;
 
   if (!settings || !lock) {
     return (
@@ -1852,10 +1880,12 @@ export default function App() {
         />
         </Suspense>
       )}
-      {pdfPath && (
+      {pdfPresence.mounted && lastPdf.current && (
         <Suspense fallback={null}>
           <PdfStudio
-            initialPath={pdfPath.path}
+            initialPath={lastPdf.current.path}
+            initialMode={lastPdf.current.mode}
+            closing={pdfPresence.closing}
             onClose={() => setPdfPath(null)}
             onError={(t) => setNotice(t)}
             onSendFile={(path) => setShareFile(path)}
@@ -1870,11 +1900,12 @@ export default function App() {
       <Suspense fallback={null}>
         <MusicPlayer onOpenMusic={() => setShowMusic({ query: "" })} />
       </Suspense>
-      {showGames && settings && (
+      {gamesPresence.mounted && lastGames.current && settings && (
         <Suspense fallback={null}>
           <GamesPanel
-            initialQuery={showGames.query}
-            openMatchId={showGames.matchId}
+            initialQuery={lastGames.current.query}
+            openMatchId={lastGames.current.matchId}
+            closing={gamesPresence.closing}
             peers={peers}
             myId={settings.device_id}
             myName={settings.display_name}
@@ -2192,6 +2223,7 @@ export default function App() {
             setSettings(updated);
             setShowOnboarding(false);
             if (!readFlag(TOUR_KEY)) setShowTour(true);
+            else takeOpenRequest(); // LANX 2.14.0: the PDF that started LANX (otherwise once the tour is done)
           }}
         />
       )}
@@ -2202,6 +2234,7 @@ export default function App() {
           onClose={() => {
             writeFlag(TOUR_KEY);
             setShowTour(false);
+            takeOpenRequest(); // LANX 2.14.0: the PDF that started LANX
           }}
         />
       )}

@@ -389,6 +389,50 @@ pub fn take_send_request() -> Vec<String> {
     std::mem::take(&mut *PENDING_SEND.lock())
 }
 
+// ------------------------------------------------------------- Open with LANX (PDFs, 2.14.0)
+
+static PENDING_OPEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// PDFs Windows asked LANX to open (a double-click, "Open with"): plain
+/// arguments that are existing .pdf files. Never after `--send`.
+pub fn open_paths(args: &[String]) -> Vec<String> {
+    if args.iter().any(|a| a == "--send") {
+        return Vec::new();
+    }
+    args.iter()
+        .skip(1)
+        .filter(|a| !a.starts_with("--") && a.to_ascii_lowercase().ends_with(".pdf") && std::path::Path::new(a.as_str()).is_file())
+        .take(20)
+        .cloned()
+        .collect()
+}
+
+/// Remembers PDFs to open and tells the window (LANX was already running).
+pub fn queue_open(app: &AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    {
+        let mut pending = PENDING_OPEN.lock();
+        for p in paths {
+            if !pending.contains(&p) {
+                pending.push(p);
+            }
+        }
+    }
+    show_main(app);
+    let _ = app.emit_to("main", "lanx://open-request", ());
+}
+
+/// At start-up (the PDF itself started LANX): just remember them.
+pub fn remember_open(paths: Vec<String>) {
+    PENDING_OPEN.lock().extend(paths);
+}
+
+pub fn take_open_request() -> Vec<String> {
+    std::mem::take(&mut *PENDING_OPEN.lock())
+}
+
 fn send_to_shortcut() -> Option<std::path::PathBuf> {
     Some(dirs::config_dir()?.join("Microsoft").join("Windows").join("SendTo").join("LANX.lnk"))
 }
@@ -430,6 +474,19 @@ pub fn apply_send_to(enabled: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_paths_takes_only_real_pdfs_and_never_send_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("quote.pdf");
+        std::fs::write(&pdf, b"%PDF-1.4\n").unwrap();
+        let pdf_s = pdf.to_string_lossy().to_string();
+        let args = vec!["lanx.exe".to_string(), pdf_s.clone(), "C:\\nope\\gone.pdf".to_string(), "--minimized".to_string()];
+        assert_eq!(open_paths(&args), vec![pdf_s.clone()]);
+        let send = vec!["lanx.exe".to_string(), "--send".to_string(), pdf_s];
+        assert!(open_paths(&send).is_empty(), "Send to → LANX sends, it does not open");
+        assert!(open_paths(&["lanx.exe".to_string()]).is_empty());
+    }
 
     #[test]
     fn send_to_reads_only_real_paths_after_the_flag() {
