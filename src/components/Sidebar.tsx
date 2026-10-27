@@ -271,7 +271,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="w-80 m-2 mr-0 rounded-[20px] lanx-glass flex flex-col overflow-hidden select-none shrink-0 lanx-launch">
+    <aside className="relative w-80 m-2 mr-0 rounded-[20px] lanx-glass flex flex-col overflow-hidden select-none shrink-0 lanx-launch">
       {/* Brand Header */}
       <div className="px-4 pt-4 pb-3">
         <div className="flex items-center justify-between mb-3">

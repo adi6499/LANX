@@ -74,13 +74,13 @@ export function WallpaperLayer({ reduceMotion }: { reduceMotion: boolean }) {
   const kind = choice.kind === "file" ? fileKind(choice.name ?? choice.path ?? "") : null;
   const filter = choice.blur ? `blur(${choice.blur}px)` : undefined;
   return (
-    <div data-wallpaper={choice.kind === "builtin" ? choice.id : kind ?? "file"} className="absolute inset-0 z-0 overflow-hidden pointer-events-none" aria-hidden="true">
+    <div data-wallpaper={choice.kind === "builtin" ? choice.id : kind ?? "file"} className="absolute inset-0 -z-10 overflow-hidden pointer-events-none" aria-hidden="true">
       {choice.kind === "builtin" && <canvas ref={canvasRef} className="h-full w-full" style={{ filter }} />}
       {choice.kind === "file" && fileUrl && kind === "image" && <img src={fileUrl} alt="" className="h-full w-full object-cover" style={{ filter }} />}
       {choice.kind === "file" && fileUrl && kind === "video" && (
         <video src={fileUrl} autoPlay loop muted playsInline disablePictureInPicture className="h-full w-full object-cover" style={{ filter }} {...(reduceMotion ? { autoPlay: false } : {})} />
       )}
-      <div className="absolute inset-0" style={{ background: `rgba(10, 14, 24, ${Math.min(0.8, Math.max(0, choice.dim)) / 100})` }} />
+      <div className="absolute inset-0" data-wallpaper-dim style={{ background: `rgba(10, 14, 24, ${Math.min(80, Math.max(0, choice.dim)) / 100})` }} />
     </div>
   );
 }

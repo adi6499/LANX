@@ -11,6 +11,7 @@ import {
   isCustomColor,
   backgroundCss,
 } from "../lib/background";
+import { glassLensOn, setGlassLens } from "../lib/glass";
 import { Origin, originOf, revealChange, setMotion } from "../lib/motion";
 
 type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion" | "cat_alerts">>;
@@ -85,6 +86,7 @@ const ThemeThumb: React.FC<{ mode: "light" | "dark" }> = ({ mode }) => {
 export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme, onChange }) => {
   const [glass, setGlass] = useState(form.glass_level);
   const [frost, setFrost] = useState(form.frost_level);
+  const [lensOn, setLensOn] = useState(glassLensOn());
   const timer = useRef<number | undefined>(undefined);
   const dark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
 
@@ -118,7 +120,8 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
 
   const background = form.chat_background || "default";
   const accent = form.accent_color || "default";
-  const preset = GLASS_PRESETS.find((p) => p.glass === glass && p.frost === frost)?.id;
+  // Transparency at zero is "Solid" whatever the frost (frost does nothing then).
+  const preset = glass === 0 ? "solid" : GLASS_PRESETS.find((p) => p.glass === glass && p.frost === frost)?.id;
 
   return (
     <div className="space-y-5" data-appearance>
@@ -304,6 +307,26 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             <span>Clear glass</span>
             <span>Frosted</span>
           </span>
+        </label>
+        <label className={`mt-4 flex items-start justify-between gap-4 cursor-pointer transition-opacity ${glass === 0 ? "opacity-40" : ""}`} data-glass-lens>
+          <span>
+            <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">Lens</span>
+            <span className="block text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+              Bends what shows through near the edges, like a real pane of glass, with a faint prism fringe. Turn it off if an older PC feels slow.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={lensOn}
+            disabled={glass === 0}
+            aria-label="Glass lens"
+            onChange={(e) => {
+              setGlassLens(e.target.checked);
+              setLensOn(e.target.checked);
+              applyAppearance({ ...form, glass_level: glass, frost_level: frost });
+            }}
+            className="mt-0.5 h-4 w-4 accent-sky-500"
+          />
         </label>
         <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
           {glass === 0

@@ -68,6 +68,8 @@ import { Directory } from "./components/office/Directory";
 import { birthdayInfo, stillOn } from "./lib/office";
 import { playClip, unlockAudio } from "./lib/audio";
 import { configureGameSounds, sfx } from "./lib/gameSounds";
+import { startGlassLight } from "./lib/glass";
+import { GlassFilters } from "./components/GlassFilters";
 import { parseCard } from "./components/org/cardModel";
 import { AdminPanel, type AdminTab } from "./components/admin/AdminPanel";
 import { PolicyOfferDialog } from "./components/admin/AppsLauncher";
@@ -275,6 +277,8 @@ export default function App() {
   const dnd = effective(settings?.profile)?.status === "dnd" || quiet;
   const dndRef = useRef(false);
   dndRef.current = dnd;
+  // LANX 2.15.0: liquid glass — the light that follows the mouse across the panels.
+  useEffect(() => startGlassLight(), [settings?.reduce_motion]);
   // LANX 2.13.0: the game sounds follow Settings → Sounds and go quiet with Do not disturb.
   useEffect(() => {
     configureGameSounds({ volume: settings?.sound_enabled === false ? 0 : settings?.sound_volume, quiet: dnd });
@@ -1386,7 +1390,8 @@ export default function App() {
     {callLayer}
     {meetingLayer}
     {alertLayer}
-    <div className="h-screen w-screen flex overflow-hidden lanx-window relative">
+    <div className="h-screen w-screen flex overflow-hidden lanx-window relative isolate">
+      <GlassFilters />
       <WallpaperLayer reduceMotion={!!settings.reduce_motion} />
       <Sidebar
         settings={settings}

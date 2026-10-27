@@ -1,6 +1,7 @@
 /** Appearance (Settings → Appearance): the window background, the accent
  *  colour and the glass panels. Everything is applied as CSS variables on
  *  <html>, so every screen follows the same choice. */
+import { lensFilter } from "./glass";
 
 export interface BackgroundPreset {
   id: string;
@@ -167,8 +168,9 @@ export function glassValues(glass: number, frost: number) {
   return {
     solid: g === 0,
     opacity: +(1 - (g / 100) * 0.66).toFixed(3),
-    blur: Math.round((f / 100) * 40),
-    saturate: Math.round(100 + f * 0.9),
+    // Capped a little lower than before (2.15.0): a 40 px blur over several big panels made weaker laptops stutter.
+    blur: Math.round((f / 100) * 28),
+    saturate: Math.round(100 + f * 0.6),
   };
 }
 
@@ -193,6 +195,7 @@ export function applyAppearance(a: AppearanceChoice) {
 
   const g = glassValues(a.glass_level, a.frost_level);
   style.setProperty("--lanx-glass-a", String(g.opacity));
-  style.setProperty("--lanx-filter", g.solid ? "none" : `blur(${g.blur}px) saturate(${g.saturate}%)`);
+  // The lens (refraction) goes first, then the frost blur (2.15.0).
+  style.setProperty("--lanx-filter", g.solid ? "none" : `${lensFilter()}blur(${g.blur}px) saturate(${g.saturate}%)`);
   root.classList.toggle("lanx-solid", g.solid);
 }

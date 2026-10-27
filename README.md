@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.14.0)
+# LANX — Local Network Messenger (v2.15.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,19 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.15.0: liquid glass, and two appearance fixes
+- **Liquid glass.** Panels, bars, cards and windows are a glass material now, in the spirit of Apple's Liquid Glass:
+  a **lens** that bends what shows through near each panel's edges (refraction, with a faint prism fringe — the
+  browser bends the real view behind the panel, chats and wallpaper alike), a convex sheen, a bright top edge and a
+  shaded base, an inner glow, and a soft light that follows your mouse across each panel. Accent buttons are glass
+  pills. Solid, Frosted and Crystal still choose how much shows through; the **Lens** switch under Glass turns the
+  bending off on a slow PC; "Animations off" (or Windows' reduce-motion) keeps the light still.
+- **Fixed:** with a live wallpaper on, the chat list looked see-through whatever the Glass setting said — the wallpaper
+  was drawn *above* the list's panel. **Fixed:** the wallpaper's *Darken* slider did nothing (it divided by 100 twice).
+  Transparency at the far left now lights the **Solid** preset whatever Frost says.
+- Smoother on weaker laptops: the frost blur is capped a little lower, menus no longer blur what is behind them (they
+  are solid anyway), and the welcome tour's glowing orbs use a mask instead of a live 60-pixel blur.
 
 ### New in 2.14.0: PDFs open in LANX, and a full PDF toolkit
 - **Double-click a PDF and it opens in LANX**, in the new **Read** tab: every page in one scroll, zoom (fit width /
