@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.15.0)
+# LANX — Local Network Messenger (v2.15.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,10 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.15.1: plainer glass
+- The light that followed the mouse across panels and the lighter band along the top of every panel are gone: panels
+  are one even tone with a hairline rim, buttons are flat, and the edge lens is much gentler. Simple, like Apple's.
 
 ### New in 2.15.0: liquid glass, and two appearance fixes
 - **Liquid glass.** Panels, bars, cards and windows are a glass material now, in the spirit of Apple's Liquid Glass:

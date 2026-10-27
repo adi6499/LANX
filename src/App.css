@@ -101,10 +101,8 @@
     --lanx-line: rgb(15 23 42 / 0.09);
     --lanx-rim: rgb(255 255 255 / 0.6);
     --lanx-shine: rgb(255 255 255 / 0.8);
-    /* LANX 2.15.0: liquid glass — the convex sheen, the lensed rim, the light under the mouse */
-    --lanx-gloss: rgb(255 255 255 / 0.5);
-    --lanx-sheen-max: 0.26;
-    --lanx-rim-shadow: inset 0 0 0 1px var(--lanx-rim), inset 0 1.5px 0 var(--lanx-shine), inset 0 -1px 0 rgb(15 23 42 / 0.07), inset 0 0 34px -18px rgb(255 255 255 / 0.65);
+    /* LANX 2.15.1: a hairline rim and a one-pixel top edge — nothing else on the glass */
+    --lanx-rim-shadow: inset 0 0 0 1px var(--lanx-rim), inset 0 1px 0 var(--lanx-shine);
     --lanx-fill: rgb(118 118 128 / 0.12);
     --lanx-fill-2: rgb(118 118 128 / 0.2);
     --lanx-bubble: #ffffff;
@@ -116,10 +114,8 @@
     --lanx-surface-c: color-mix(in srgb, var(--lanx-surface) 92%, var(--lanx-tint, #94a3b8));
     --lanx-line: rgb(255 255 255 / 0.08);
     --lanx-rim: rgb(255 255 255 / 0.13);
-    --lanx-shine: rgb(255 255 255 / 0.22);
-    --lanx-gloss: rgb(255 255 255 / 0.065);
-    --lanx-sheen-max: 0.11;
-    --lanx-rim-shadow: inset 0 0 0 1px var(--lanx-rim), inset 0 1.5px 0 var(--lanx-shine), inset 0 -1px 0 rgb(0 0 0 / 0.35), inset 0 0 34px -18px rgb(255 255 255 / 0.14);
+    --lanx-shine: rgb(255 255 255 / 0.16);
+    --lanx-rim-shadow: inset 0 0 0 1px var(--lanx-rim), inset 0 1px 0 var(--lanx-shine);
     --lanx-fill: rgb(118 118 128 / 0.22);
     --lanx-fill-2: rgb(118 118 128 / 0.32);
     --lanx-bubble: #2a2c33;
@@ -137,27 +133,16 @@
     background: transparent;
   }
 
-  /* Glass (LANX 2.15.0, "liquid glass"): see-through panels that blur and
-     pick up the colour behind them, with a convex sheen, a lensed rim (a
-     bright top edge, a shaded base, an inner glow) and a soft light that
-     follows the mouse (lib/glass.ts sets --mx / --my and .lanx-lit on the
-     panel under the pointer). */
+  /* Glass (LANX 2.15.1): see-through panels that blur and pick up the
+     colour behind them — one even tone, a hairline rim, a one-pixel top
+     edge, and (lib/glass.ts) a gentle lens that bends the view at the edges.
+     No gradients, no light under the mouse: plain, like Apple's. */
   .lanx-glass,
   .lanx-bar,
   .lanx-sheet {
     -webkit-backdrop-filter: var(--lanx-filter);
     backdrop-filter: var(--lanx-filter);
-    background-image:
-      radial-gradient(300px circle at var(--mx, 50%) var(--my, -60px), rgb(255 255 255 / var(--lanx-sheen-a)), transparent 62%),
-      linear-gradient(180deg, var(--lanx-gloss) 0%, transparent 46%);
-    background-repeat: no-repeat;
-    transition:
-      background-color 0.35s var(--ease-out-soft),
-      box-shadow 0.35s var(--ease-out-soft),
-      --lanx-sheen-a 0.45s var(--ease-out-soft);
-  }
-  .lanx-lit {
-    --lanx-sheen-a: var(--lanx-sheen-max);
+    transition: background-color 0.35s var(--ease-out-soft), box-shadow 0.35s var(--ease-out-soft);
   }
   /* Sidebar and the details panel: floating glass */
   .lanx-glass {
@@ -177,25 +162,12 @@
      (and no blur: there is nothing to see through, so it only cost time). */
   .lanx-menu {
     background-color: color-mix(in srgb, var(--lanx-surface-c) 100%, transparent);
-    background-image: linear-gradient(180deg, var(--lanx-gloss) 0%, transparent 46%);
     box-shadow: var(--lanx-rim-shadow), 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 18px 50px -12px rgb(0 0 0 / 0.35);
   }
   /* Cards lying on the background (no blur, so many of them stay cheap) */
   .lanx-card {
     background-color: color-mix(in srgb, var(--lanx-surface) calc(min(1, var(--lanx-glass-a) + 0.24) * 100%), transparent);
-    background-image:
-      radial-gradient(220px circle at var(--mx, 50%) var(--my, -60px), rgb(255 255 255 / var(--lanx-sheen-a)), transparent 62%),
-      linear-gradient(180deg, var(--lanx-gloss) 0%, transparent 50%);
-    background-repeat: no-repeat;
     box-shadow: var(--lanx-rim-shadow), 0 0 0 0.5px var(--lanx-line), 0 1px 3px rgb(0 0 0 / 0.04);
-    transition: --lanx-sheen-a 0.45s var(--ease-out-soft), box-shadow 0.25s var(--ease-out-soft);
-  }
-  /* Accent buttons: glass pills (a sheen on top, a shaded base, a soft glow) */
-  button.bg-sky-500,
-  a.bg-sky-500,
-  button.bg-sky-600 {
-    background-image: linear-gradient(180deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0) 55%);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 -1px 0 rgb(0 0 0 / 0.18), 0 8px 20px -10px var(--color-sky-600);
   }
   /* Grouped rows inside a window, like iPhone / Mac settings */
   .lanx-group {
@@ -238,11 +210,9 @@
   .lanx-tool:active {
     transform: scale(0.92);
   }
-  /* Plain grey buttons: small glass pills */
+  /* Plain grey buttons */
   .lanx-btn {
     background-color: var(--lanx-fill);
-    background-image: linear-gradient(180deg, var(--lanx-gloss) 0%, transparent 60%);
-    box-shadow: inset 0 0 0 1px var(--lanx-rim), inset 0 1px 0 var(--lanx-shine);
     transition: background-color 0.15s, transform 0.1s;
   }
   .lanx-btn:hover {
@@ -506,8 +476,6 @@
 
 /* Glass reveal when the look changes (View Transitions; lib/motion.ts) */
 @property --vt-reveal { syntax: "<length>"; inherits: true; initial-value: 0px; }
-/* The light under the mouse on glass panels fades in and out (lib/glass.ts) */
-@property --lanx-sheen-a { syntax: "<number>"; inherits: false; initial-value: 0; }
 :root.lanx-reveal::view-transition-group(root) { animation: none; }
 :root.lanx-reveal::view-transition-old(root),
 :root.lanx-reveal::view-transition-new(root) { mix-blend-mode: normal; }

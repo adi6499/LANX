@@ -15,8 +15,8 @@ export function GlassFilters() {
     <svg width="0" height="0" aria-hidden="true" style={{ position: "absolute", width: 0, height: 0 }} data-glass-filters>
       <filter id="lanx-lens" x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
         <feImage href={map} x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="map" />
-        <feDisplacementMap in="SourceGraphic" in2="map" scale="22" xChannelSelector="R" yChannelSelector="G" result="gb" />
-        <feDisplacementMap in="SourceGraphic" in2="map" scale="27" xChannelSelector="R" yChannelSelector="G" result="r" />
+        <feDisplacementMap in="SourceGraphic" in2="map" scale="11" xChannelSelector="R" yChannelSelector="G" result="gb" />
+        <feDisplacementMap in="SourceGraphic" in2="map" scale="13" xChannelSelector="R" yChannelSelector="G" result="r" />
         <feColorMatrix in="r" type="matrix" values={RED} result="red" />
         <feColorMatrix in="gb" type="matrix" values={GREEN_BLUE} result="greenblue" />
         <feComposite in="red" in2="greenblue" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" />
