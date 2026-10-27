@@ -14,11 +14,11 @@ const btn = "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12p
 
 // ---------------------------------------------------------------- 2048
 
-type Grid = number[][];
+export type Grid = number[][];
 const SIZE = 4;
-const empty = (): Grid => Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+export const empty = (): Grid => Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
 
-function addTile(g: Grid): Grid {
+export function addTile(g: Grid): Grid {
   const free: [number, number][] = [];
   g.forEach((row, r) => row.forEach((v, c) => v === 0 && free.push([r, c])));
   if (!free.length) return g;
@@ -28,7 +28,7 @@ function addTile(g: Grid): Grid {
   return next;
 }
 
-function slideRow(row: number[]): { row: number[]; gained: number } {
+export function slideRow(row: number[]): { row: number[]; gained: number } {
   const vals = row.filter((v) => v);
   const out: number[] = [];
   let gained = 0;
@@ -45,7 +45,7 @@ function slideRow(row: number[]): { row: number[]; gained: number } {
 
 const rotate = (g: Grid): Grid => g[0].map((_, c) => g.map((row) => row[c]).reverse());
 
-function move2048(g: Grid, dir: "left" | "right" | "up" | "down"): { grid: Grid; gained: number; moved: boolean } {
+export function move2048(g: Grid, dir: "left" | "right" | "up" | "down"): { grid: Grid; gained: number; moved: boolean } {
   let turns = { left: 0, up: 1, right: 2, down: 3 }[dir];
   let work = g;
   for (let i = 0; i < turns; i++) work = rotate(work);
@@ -62,9 +62,9 @@ function move2048(g: Grid, dir: "left" | "right" | "up" | "down"): { grid: Grid;
   return { grid: back, gained, moved };
 }
 
-const canMove = (g: Grid) => (["left", "right", "up", "down"] as const).some((d) => move2048(g, d).moved);
+export const canMove = (g: Grid) => (["left", "right", "up", "down"] as const).some((d) => move2048(g, d).moved);
 
-const TILE: Record<number, string> = {
+export const TILE: Record<number, string> = {
   2: "bg-slate-100 text-slate-700",
   4: "bg-amber-100 text-slate-700",
   8: "bg-orange-300 text-white",
@@ -310,20 +310,20 @@ export function SnakeGame({ onScore }: SoloProps) {
 
 // ---------------------------------------------------------------- Minesweeper
 
-const MS = 9;
-const MINES = 10;
-interface Sq {
+export const MS = 9;
+export const MINES = 10;
+export interface Sq {
   mine: boolean;
   open: boolean;
   flag: boolean;
   n: number;
 }
 
-function freshField(): Sq[] {
+export function freshField(): Sq[] {
   return Array.from({ length: MS * MS }, () => ({ mine: false, open: false, flag: false, n: 0 }));
 }
 
-function around(i: number): number[] {
+export function around(i: number): number[] {
   const r = Math.floor(i / MS);
   const c = i % MS;
   const out: number[] = [];
@@ -336,7 +336,7 @@ function around(i: number): number[] {
   return out;
 }
 
-function plant(field: Sq[], safe: number): Sq[] {
+export function plant(field: Sq[], safe: number): Sq[] {
   const f = field.map((s) => ({ ...s }));
   const keep = new Set([safe, ...around(safe)]);
   let left = MINES;

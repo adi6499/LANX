@@ -3,16 +3,17 @@ import { seatFor, type BoardProps } from "../boardProps";
 import { dealRoles, tally, werewolf, type Role } from "../../../lib/games/werewolf.ts";
 
 type Private = { kind: "role"; to: number; role: Role; wolves: number[] } | { kind: "peekResult"; to: number; target: number; wolf: boolean };
-type Night = { kind: "kill" | "peek"; from: number; target: number };
+type Night = { kind: "kill" | "peek"; from: number; target: number; __from?: number };
 type Delta = Private | Night;
 type Secret = { roles: Role[]; night: { kill?: number; peek?: number; round: number } };
 
-const ROLE_TEXT: Record<Role, string> = { wolf: "🐺 Werewolf — pick a victim each night with your pack.", seer: "🔮 Seer — peek at one player each night.", villager: "🧑‍🌾 Villager — find the wolves by day." };
-const NIGHT_SECS = 45;
-const DAY_SECS = 60;
+export const ROLE_TEXT: Record<Role, string> = { wolf: "🐺 Werewolf — pick a victim each night with your pack.", seer: "🔮 Seer — peek at one player each night.", villager: "🧑‍🌾 Villager — find the wolves by day." };
+export const NIGHT_SECS = 45;
+export const DAY_SECS = 60;
 
-/** Werewolf: the host's PC keeps the roles and runs the nights and days. */
-export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed = "", host, deltas = [], onDelta, secret, onSecret, onMove }: BoardProps) {
+/** LANX 2.16.0: the whole Werewolf game — phases, the host's resolving of nights and days, your role and
+ *  your actions — shared by the flat board and the 3D one, so both play the same game. */
+export function useWerewolf({ moves, canPlay, seat, seats, starter = 0, seed = "", host, deltas = [], onDelta, secret, onSecret, onMove }: BoardProps) {
   const n = Math.max(5, seats?.length ?? 5);
   const state = useMemo(() => werewolf.replay(moves, n, seed), [moves, n, seed]);
   const name = (p: number) => seatFor(seats, starter, p, n).name;
@@ -26,7 +27,6 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
   const [, tick] = useState(0);
   const phaseKey = `${state?.round}:${state?.phase}`;
   const lastPhase = useRef("");
-
   // Clock for the current phase (the host closes phases; the others just watch).
   useEffect(() => {
     const t = window.setInterval(() => tick((x) => x + 1), 500);
@@ -38,9 +38,9 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
     setDeadline(Date.now() + (state.phase === "night" ? NIGHT_SECS : DAY_SECS) * 1000);
     setActed(-1);
   }, [state, phaseKey]);
-
   // ---- the host: night actions arrive as deltas; resolve when all are in or time is up.
-  const nightActs = (deltas as Delta[]).filter((d) => d && typeof d === "object" && "from" in d) as Night[];
+  // LANX 2.16.0: an action counts only if it really came from the player it names (`__from`, filled in by the match).
+  const nightActs = (deltas as Delta[]).filter((d) => d && typeof d === "object" && "from" in d && (typeof d.__from !== "number" || d.__from === d.from)) as Night[];
   useEffect(() => {
     if (!host || !state || !sec) return;
     if (state.phase === "night") {
@@ -77,12 +77,7 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, state, sec, deltas, deadline, Math.floor(Date.now() / 1000)]);
-
-  if (!state) return null;
   const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-  const alive = state.alive;
-  const iAmAlive = alive[seat];
-
   const start = () => {
     const roles = dealRoles(n, Math.random);
     onSecret?.({ roles, night: { round: 1 } } satisfies Secret);
@@ -90,35 +85,52 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
     roles.forEach((role, p) => onDelta?.({ kind: "role", to: p, role, wolves: role === "wolf" ? wolves : [] } satisfies Private));
     onMove("night:1");
   };
+  const actKey = state ? state.round * 10 + (state.phase === "night" ? 1 : 2) : -1;
+  const mark = () => setActed(actKey);
+  const attack = (p: number) => {
+    onDelta?.({ kind: "kill", from: seat, target: p } satisfies Night);
+    mark();
+  };
+  const peekAt = (p: number) => {
+    onDelta?.({ kind: "peek", from: seat, target: p } satisfies Night);
+    mark();
+  };
+  const vote = (p: number | "skip") => onMove(`${seat}@v:${p}`);
+  return { state, n, name, colour, myRole, peeks, left, start, attack, peekAt, vote, done: acted === actKey, canPlay, seat, host: !!host };
+}
 
-  const players = (pick: (p: number) => void, label: string, filter: (p: number) => boolean) => (
+/** Werewolf: the host's PC keeps the roles and runs the nights and days. */
+export function WerewolfBoard(p: BoardProps) {
+  const { state, n, name, colour, myRole, peeks, left, start, attack, peekAt, vote, done, canPlay, seat, host } = useWerewolf(p);
+  if (!state) return null;
+  const alive = state.alive;
+  const iAmAlive = alive[seat];
+  const players = (pick: (q: number) => void, label: string) => (
     <div className="flex flex-wrap justify-center gap-1.5" data-ww-targets>
-      {alive.map((a, p) =>
-        a && p !== seat && filter(p) ? (
-          <button key={p} type="button" data-ww-target={p} disabled={!canPlay || acted === state.round * 10 + (state.phase === "night" ? 1 : 2)} onClick={() => pick(p)} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[12.5px] font-semibold text-slate-900 shadow ring-1 ring-black/10 hover:bg-indigo-50 disabled:opacity-50 dark:bg-slate-800 dark:text-white">
-            <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {label} {name(p)}
+      {alive.map((a, q) =>
+        a && q !== seat ? (
+          <button key={q} type="button" data-ww-target={q} disabled={!canPlay || done} onClick={() => pick(q)} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[12.5px] font-semibold text-slate-900 shadow ring-1 ring-black/10 hover:bg-indigo-50 disabled:opacity-50 dark:bg-slate-800 dark:text-white">
+            <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(q) }} /> {label} {name(q)}
           </button>
         ) : null,
       )}
     </div>
   );
-  const mark = () => setActed(state.round * 10 + (state.phase === "night" ? 1 : 2));
-
   return (
     <div data-game-board="werewolf" data-ww-phase={state.phase} className="flex w-full max-w-[640px] flex-col items-center gap-3">
       <div className="flex flex-wrap justify-center gap-1.5" data-ww-players>
-        {alive.map((a, p) => (
-          <span key={p} data-ww-player={p} data-ww-alive={a ? "1" : undefined} className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${a ? "bg-white shadow ring-1 ring-black/10 dark:bg-slate-800" : "line-through opacity-50"}`}>
-            <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}
-            {state.roles && <span className="text-slate-400">· {state.roles[p]}</span>}
+        {alive.map((a, q) => (
+          <span key={q} data-ww-player={q} data-ww-alive={a ? "1" : undefined} className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${a ? "bg-white shadow ring-1 ring-black/10 dark:bg-slate-800" : "line-through opacity-50"}`}>
+            <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(q) }} /> {name(q)}
+            {state.roles && <span className="text-slate-400">· {state.roles[q]}</span>}
           </span>
         ))}
       </div>
       {myRole && state.phase !== "lobby" && (
         <div className="rounded-xl bg-amber-500/15 px-3 py-1.5 text-[12.5px] text-amber-900 dark:text-amber-100" data-ww-role={myRole.role}>
           {ROLE_TEXT[myRole.role]}
-          {myRole.role === "wolf" && myRole.wolves.length > 1 && <span> Your pack: {myRole.wolves.filter((p) => p !== seat).map(name).join(", ")}.</span>}
-          {peeks.length > 0 && <div className="mt-0.5">Peeks: {peeks.map((p) => `${name(p.target)} is ${p.wolf ? "a werewolf" : "not a werewolf"}`).join("; ")}</div>}
+          {myRole.role === "wolf" && myRole.wolves.length > 1 && <span> Your pack: {myRole.wolves.filter((q) => q !== seat).map(name).join(", ")}.</span>}
+          {peeks.length > 0 && <div className="mt-0.5">Peeks: {peeks.map((x) => `${name(x.target)} is ${x.wolf ? "a werewolf" : "not a werewolf"}`).join("; ")}</div>}
         </div>
       )}
       {state.phase === "lobby" && (
@@ -136,8 +148,8 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
       {state.phase === "night" && (
         <div className="flex flex-col items-center gap-2 text-[13px]" data-ww-night>
           <div className="font-semibold">🌙 Night {state.round} · {left}s</div>
-          {iAmAlive && myRole?.role === "wolf" && players((p) => { onDelta?.({ kind: "kill", from: seat, target: p } satisfies Night); mark(); }, "Attack", () => true)}
-          {iAmAlive && myRole?.role === "seer" && players((p) => { onDelta?.({ kind: "peek", from: seat, target: p } satisfies Night); mark(); }, "Peek at", () => true)}
+          {iAmAlive && myRole?.role === "wolf" && players(attack, "Attack")}
+          {iAmAlive && myRole?.role === "seer" && players(peekAt, "Peek at")}
           {(!iAmAlive || myRole?.role === "villager") && <div className="text-slate-500">The village sleeps…</div>}
         </div>
       )}
@@ -146,8 +158,8 @@ export function WerewolfBoard({ moves, canPlay, seat, seats, starter = 0, seed =
           <div className="font-semibold">☀️ Day {state.round} · {left}s · {Object.keys(state.votes).length} of {alive.filter(Boolean).length} voted</div>
           {iAmAlive ? (
             <>
-              {players((p) => onMove(`${seat}@v:${p}`), "Vote", () => true)}
-              <button type="button" data-ww-skip disabled={!canPlay} onClick={() => onMove(`${seat}@v:skip`)} className="rounded-full bg-slate-500/10 px-3 py-1 text-[12px] font-semibold">
+              {players((q) => vote(q), "Vote")}
+              <button type="button" data-ww-skip disabled={!canPlay} onClick={() => vote("skip")} className="rounded-full bg-slate-500/10 px-3 py-1 text-[12px] font-semibold">
                 Skip this vote
               </button>
             </>

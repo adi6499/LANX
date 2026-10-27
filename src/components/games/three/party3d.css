@@ -1,0 +1,241 @@
+/* LANX 2.16.0: the party games' 3D presentation — cards that turn in,
+   answer tiles you press down, a countdown ring, score bars that race,
+   a night-and-day sky for Werewolf, role cards that flip over, and an easel
+   for Draw & Guess. Plain colours and soft shadows; the motion is the
+   point, and it all switches off with "reduce motion". */
+
+.p3-scene {
+  perspective: 1100px;
+}
+
+/* A question (or role, or word) card that swings into view. */
+.p3-card {
+  transform-origin: 50% 0%;
+  animation: p3-card-in 0.55s cubic-bezier(0.2, 0.9, 0.25, 1.12) both;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 18px 30px -18px rgba(15, 23, 42, 0.45),
+    0 2px 6px rgba(15, 23, 42, 0.12);
+}
+@keyframes p3-card-in {
+  from {
+    transform: rotateX(-88deg) translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Answer tiles: a little thickness, pressed down when chosen. */
+.p3-tile {
+  position: relative;
+  transform: translateY(0);
+  transition:
+    transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.16s,
+    background-color 0.25s,
+    color 0.25s;
+  box-shadow:
+    0 4px 0 rgba(15, 23, 42, 0.18),
+    0 10px 18px -12px rgba(15, 23, 42, 0.5);
+}
+.p3-tile:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+.p3-tile:not(:disabled):active,
+.p3-tile[data-p3-chosen] {
+  transform: translateY(3px);
+  box-shadow:
+    0 1px 0 rgba(15, 23, 42, 0.18),
+    0 4px 10px -8px rgba(15, 23, 42, 0.5);
+}
+.p3-right {
+  background-color: #10b981 !important;
+  color: #fff !important;
+  animation: p3-pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+.p3-wrong {
+  background-color: #f43f5e !important;
+  color: #fff !important;
+  animation: p3-shake 0.4s ease-in-out;
+}
+@keyframes p3-pop {
+  50% {
+    transform: translateY(-4px) scale(1.04);
+  }
+}
+@keyframes p3-shake {
+  20%,
+  60% {
+    transform: translateX(-5px);
+  }
+  40%,
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+/* The countdown ring (an SVG circle whose stroke runs down). */
+.p3-ring circle.p3-ring-left {
+  transition: stroke-dashoffset 0.25s linear, stroke 0.3s;
+}
+
+/* Score bars that race to their new length. */
+.p3-bar {
+  transition: width 0.8s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+/* Werewolf's sky: night and day, with the moon and the sun crossing over. */
+.p3-sky {
+  position: relative;
+  overflow: hidden;
+  transition: background-color 1.2s ease;
+}
+.p3-sky[data-p3-sky="night"] {
+  background-color: #0f1b33;
+  color: #e2e8f0;
+}
+.p3-sky[data-p3-sky="day"] {
+  background-color: #dbeafe;
+  color: #0f172a;
+}
+.p3-sky[data-p3-sky="lobby"],
+.p3-sky[data-p3-sky="over"] {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.p3-sun,
+.p3-moon {
+  position: absolute;
+  top: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 9999px;
+  transition:
+    transform 1.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 1.2s;
+}
+.p3-sun {
+  right: 22px;
+  background-color: #fbbf24;
+}
+.p3-moon {
+  left: 22px;
+  background-color: #e5e7eb;
+  box-shadow: inset -9px -3px 0 0 #cbd5e1;
+}
+.p3-sky[data-p3-sky="night"] .p3-sun {
+  transform: translateY(90px);
+  opacity: 0;
+}
+.p3-sky[data-p3-sky="day"] .p3-moon {
+  transform: translateY(90px);
+  opacity: 0;
+}
+.p3-sky:not([data-p3-sky="night"]):not([data-p3-sky="day"]) .p3-sun,
+.p3-sky:not([data-p3-sky="night"]):not([data-p3-sky="day"]) .p3-moon {
+  opacity: 0;
+}
+.p3-star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 9999px;
+  background: #fff;
+  opacity: 0;
+  transition: opacity 1.4s;
+}
+.p3-sky[data-p3-sky="night"] .p3-star {
+  opacity: 0.7;
+}
+
+/* A card that flips over to show a secret (your role). */
+.p3-flip {
+  transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.p3-flip[data-p3-open] {
+  transform: rotateY(180deg);
+}
+.p3-face {
+  backface-visibility: hidden;
+}
+.p3-face-back {
+  transform: rotateY(180deg);
+}
+
+/* A player who is out: fades and sinks. */
+.p3-out {
+  animation: p3-out 0.6s ease forwards;
+}
+@keyframes p3-out {
+  to {
+    opacity: 0.45;
+    transform: translateY(2px) scale(0.97);
+  }
+}
+
+/* Draw & Guess: the drawing stands on an easel for the guessers. */
+.p3-easel {
+  transform: rotateX(6deg);
+  transform-origin: 50% 100%;
+  transition: transform 0.4s;
+  box-shadow:
+    0 0 0 8px #b98652,
+    0 0 0 10px #8a5a2b,
+    0 24px 30px -18px rgba(15, 23, 42, 0.6);
+}
+.p3-guess {
+  animation: p3-guess-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+@keyframes p3-guess-in {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+}
+
+/* A number keypad (Math Rush). */
+.p3-key {
+  transition: transform 0.08s;
+  box-shadow: 0 3px 0 rgba(15, 23, 42, 0.18);
+}
+.p3-key:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .p3-card,
+  .p3-right,
+  .p3-wrong,
+  .p3-out,
+  .p3-guess {
+    animation: none !important;
+  }
+  .p3-flip,
+  .p3-bar,
+  .p3-sky,
+  .p3-sun,
+  .p3-moon,
+  .p3-tile {
+    transition: none !important;
+  }
+}
+.reduce-motion .p3-card,
+.reduce-motion .p3-right,
+.reduce-motion .p3-wrong,
+.reduce-motion .p3-out,
+.reduce-motion .p3-guess {
+  animation: none !important;
+}
+.reduce-motion .p3-flip,
+.reduce-motion .p3-bar,
+.reduce-motion .p3-sky,
+.reduce-motion .p3-sun,
+.reduce-motion .p3-moon,
+.reduce-motion .p3-tile {
+  transition: none !important;
+}

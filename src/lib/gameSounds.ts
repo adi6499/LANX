@@ -29,7 +29,9 @@ export type Sfx =
   | "merge" // 2048 tiles join
   | "eat" // the snake eats
   | "flag" // a flag planted
-  | "join"; // a colleague sat down at the table
+  | "join" // a colleague sat down at the table
+  | "clack" // two balls or pieces knock together (3D boards, 2.16.0)
+  | "thud"; // something heavy lands (a die on wood, a pin falling)
 
 const KEY = "lanx_game_sound";
 let on = true;
@@ -123,16 +125,18 @@ const RECIPES: Record<Sfx, Recipe> = {
   eat: { tones: [{ f0: 500, f1: 900, dur: 0.07, gain: 0.45 }] },
   flag: { tones: [{ type: "triangle", f0: 800, dur: 0.05, gain: 0.35 }, { type: "triangle", f0: 1000, at: 0.05, dur: 0.06, gain: 0.3 }] },
   join: { tones: [{ f0: A5, dur: 0.08, gain: 0.4 }, { f0: E6, at: 0.08, dur: 0.16, gain: 0.4 }] },
+  clack: { noise: [{ dur: 0.018, gain: 0.7, filter: 3800, q: 3 }], tones: [{ type: "triangle", f0: 2100, f1: 1500, dur: 0.03, gain: 0.25 }] },
+  thud: { noise: [{ dur: 0.05, gain: 0.55, filter: 700, q: 1.4 }], tones: [{ type: "triangle", f0: 180, f1: 120, dur: 0.06, gain: 0.45 }] },
 };
 
 const last = new Map<Sfx, number>();
 let noiseBuf: AudioBuffer | null = null;
 
-/** Play one of the game sounds (if sounds are on and it is not quiet time). */
-export function sfx(kind: Sfx) {
-  if (!on || quiet || volume <= 0) return;
+/** Play one of the game sounds (if sounds are on and it is not quiet time). `level` (0–1) makes it softer. */
+export function sfx(kind: Sfx, level = 1) {
+  if (!on || quiet || volume <= 0 || level <= 0) return;
   const now = performance.now();
-  const gap = kind === "bounce" ? 70 : kind === "tick" ? 0 : 40; // the same sound never stutters
+  const gap = kind === "bounce" ? 70 : kind === "tick" ? 0 : kind === "clack" || kind === "thud" ? 28 : 40; // the same sound never stutters
   if ((last.get(kind) ?? -1e9) + gap > now) return;
   last.set(kind, now);
   const ctx = audioContext();
@@ -140,7 +144,7 @@ export function sfx(kind: Sfx) {
   const r = RECIPES[kind];
   try {
     const master = ctx.createGain();
-    master.gain.value = volume * 0.5;
+    master.gain.value = volume * 0.5 * Math.min(1, level);
     master.connect(ctx.destination);
     const t0 = ctx.currentTime + 0.005;
     for (const t of r.tones ?? []) tone(ctx, master, t0, t);

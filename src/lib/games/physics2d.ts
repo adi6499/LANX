@@ -17,6 +17,11 @@ export interface Body {
   out: boolean;
   /** A wall the piece cannot pass (for the golf hole's marker, say). */
   fixed?: boolean;
+  /** LANX 2.16.0, the cue ball only: top spin (+, follow) or back spin (−, draw), −1000…1000;
+   *  used up at its first contact with another ball. Absent or 0 = no spin (older shots unchanged). */
+  follow?: number;
+  /** LANX 2.16.0: side spin (english), −1000 (left) … 1000 (right); bends each cushion bounce, halving each time. */
+  side?: number;
 }
 
 export interface Wall {
@@ -52,6 +57,10 @@ export interface StepEvent {
   kind: "pocket" | "hit" | "wall";
   a: number;
   b?: number;
+  /** The step it happened at (settle fills it in). */
+  t?: number;
+  /** How hard (speed into the wall / closing speed), for the sound. */
+  v?: number;
 }
 
 /** Advances every body one step; returns what happened. */
@@ -95,11 +104,26 @@ export function step(bodies: Body[], t: Table): StepEvent[] {
       b.y += Math.trunc((ny * pen) / K);
       const vn = Math.trunc((b.vx * nx + b.vy * ny) / K);
       if (vn < 0) {
+        const preX = b.vx;
+        const preY = b.vy;
         b.vx -= Math.trunc((2 * vn * nx) / K);
         b.vy -= Math.trunc((2 * vn * ny) / K);
         b.vx = Math.trunc((b.vx * t.bounce) / K);
         b.vy = Math.trunc((b.vy * t.bounce) / K);
-        ev.push({ kind: "wall", a: b.id });
+        if (b.side) {
+          // English: the cushion throws the ball along the rail, towards the side it was struck on.
+          const rx = -preY;
+          const ry = preX;
+          const rn = Math.trunc((rx * nx + ry * ny) / K);
+          const tx = rx - Math.trunc((rn * nx) / K);
+          const ty = ry - Math.trunc((rn * ny) / K);
+          const tl = isqrt(tx * tx + ty * ty) || 1;
+          const push = Math.trunc((Math.abs(vn) * b.side) / (2 * K));
+          b.vx += Math.trunc((tx * push) / tl);
+          b.vy += Math.trunc((ty * push) / tl);
+          b.side = Math.trunc(b.side / 2);
+        }
+        ev.push({ kind: "wall", a: b.id, v: -vn });
       }
     }
   }
@@ -132,6 +156,7 @@ export function step(bodies: Body[], t: Table): StepEvent[] {
       const va = Math.trunc((a.vx * nx + a.vy * ny) / K);
       const vb = Math.trunc((b.vx * nx + b.vy * ny) / K);
       if (va - vb <= 0) continue; // moving apart
+      const pre = [a.vx, a.vy, b.vx, b.vy];
       const ma = a.fixed ? 1_000_000 : a.mass;
       const mb = b.fixed ? 1_000_000 : b.mass;
       const total = ma + mb;
@@ -145,7 +170,10 @@ export function step(bodies: Body[], t: Table): StepEvent[] {
         b.vx += Math.trunc(((vbNew - vb) * nx) / K);
         b.vy += Math.trunc(((vbNew - vb) * ny) / K);
       }
-      ev.push({ kind: "hit", a: a.id, b: b.id });
+      // Top or back spin: after its first contact the cue ball follows on or draws back along its line.
+      if (a.follow) followThrough(a, pre[0], pre[1]);
+      if (b.follow) followThrough(b, pre[2], pre[3]);
+      ev.push({ kind: "hit", a: a.id, b: b.id, v: va - vb });
     }
   }
   // Pockets.
@@ -167,6 +195,14 @@ export function step(bodies: Body[], t: Table): StepEvent[] {
   return ev;
 }
 
+function followThrough(c: Body, preX: number, preY: number) {
+  const sp = isqrt(preX * preX + preY * preY) || 1;
+  const gain = Math.trunc((sp * (c.follow ?? 0) * 7) / (10 * K));
+  c.vx += Math.trunc((preX * gain) / sp);
+  c.vy += Math.trunc((preY * gain) / sp);
+  c.follow = 0;
+}
+
 export const moving = (bodies: Body[]) => bodies.some((b) => !b.out && (b.vx !== 0 || b.vy !== 0));
 
 /** Runs the table until everything stops (or the step cap), collecting events and the frames for an animation. */
@@ -174,7 +210,10 @@ export function settle(bodies: Body[], t: Table, maxSteps = 3000, keepFrames = 0
   const events: StepEvent[] = [];
   const frames: { x: number; y: number; out: boolean }[][] = [];
   for (let k = 0; k < maxSteps && moving(bodies); k++) {
-    events.push(...step(bodies, t));
+    for (const e of step(bodies, t)) {
+      e.t = k;
+      events.push(e);
+    }
     if (keepFrames && k % keepFrames === 0) frames.push(bodies.map((b) => ({ x: b.x, y: b.y, out: b.out })));
   }
   frames.push(bodies.map((b) => ({ x: b.x, y: b.y, out: b.out })));

@@ -4,7 +4,7 @@
 // Reaction, 2.10.0), play two or more at this PC, or play alone. Matches
 // live in lib/games.ts, so closing this window never loses a game.
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import { ArrowLeft, Box, Check, Flag, Gamepad2, Loader2, LogOut, Monitor, Play, RefreshCw, Swords, Trophy, Users, Volume2, VolumeX, X } from "lucide-react";
 import type { Peer } from "../../types";
 import { Avatar } from "../Avatar";
@@ -17,6 +17,12 @@ import { Game2048, Minesweeper, SnakeGame } from "./Solo";
 import { gameSoundOn, setGameSound, sfx } from "../../lib/gameSounds";
 import { game3dOn, setGame3d } from "../../lib/game3d";
 import "./games3d.css";
+import { BOARDS3D, SOLO3D } from "./three/index";
+import { Fallback } from "./three/Board3D";
+import { canWebGL } from "./three/support";
+
+/** The five oldest boards live in Boards.tsx (the 3D fallback needs them by id). */
+const CLASSIC: Record<string, ComponentType<BoardProps>> = { tictactoe: TicTacToeBoard, connect4: ConnectFourBoard, reversi: ReversiBoard, chess: ChessBoard, chainreaction: ChainReactionBoard };
 
 interface Props {
   initialQuery: string;
@@ -172,7 +178,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
 
   return (
     <div className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm ${closing ? "lanx-closing" : "lanx-fade"}`} onMouseDown={onClose}>
-      <div data-games-panel data-games-view={view} data-games-3d={three ? "1" : undefined} className="w-[980px] max-w-[96vw] h-[680px] max-h-[94vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
+      <div data-games-panel data-games-view={view} data-games-3d={three ? "1" : undefined} className="w-[1180px] max-w-[96vw] h-[780px] max-h-[94vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
         {/* ---- header */}
         <div className="flex items-center gap-3 px-1">
           <div className="h-9 w-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
@@ -301,16 +307,20 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                   </div>
                   <div className="ml-auto text-[11.5px] text-slate-500">{statsLine(pick.id)}</div>
                 </div>
-                <div className="flex-1 overflow-auto flex p-4 [&>*]:m-auto" key={soloRun}>
-                  <Stage on>
-                    {pick.id === "2048" && <Game2048 onScore={soloScore} />}
-                    {pick.id === "snake" && <SnakeGame onScore={soloScore} />}
-                    {pick.id === "mines" && <Minesweeper onScore={soloScore} />}
-                  </Stage>
+                <div className="flex-1 overflow-auto flex p-4 [&>*]:m-auto" key={`${soloRun}-${three}`}>
+                  {three && canWebGL() && SOLO3D[pick.id] ? (
+                    <SoloDeep id={pick.id} onScore={soloScore} />
+                  ) : (
+                    <Stage on>
+                      {pick.id === "2048" && <Game2048 onScore={soloScore} />}
+                      {pick.id === "snake" && <SnakeGame onScore={soloScore} />}
+                      {pick.id === "mines" && <Minesweeper onScore={soloScore} />}
+                    </Stage>
+                  )}
                 </div>
               </div>
             )}
-            {view === "match" && match && <MatchView match={match} onMove={onMove} onBack={() => setView("lobby")} onError={onError} />}
+            {view === "match" && match && <MatchView match={match} three={three} onMove={onMove} onBack={() => setView("lobby")} onError={onError} />}
             {view === "match" && !match && (
               <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-500">
                 <div className="text-[13px]">That game is gone.</div>
@@ -482,7 +492,7 @@ function Lobby({
 
 // ---------------------------------------------------------------- a match
 
-function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove: (mv: string) => void; onBack: () => void; onError: (t: string) => void }) {
+function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match; three: boolean; onMove: (mv: string) => void; onBack: () => void; onError: (t: string) => void }) {
   const meta = games.gameMeta(m.game)!;
   const seatNow = games.turnSeat(m);
   const mine = games.mySeat(m);
@@ -522,9 +532,12 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
     onMove,
   };
   const Generic = BOARDS[m.game];
+  const Flat = CLASSIC[m.game] ?? Generic;
+  // LANX 2.16.0: a real 3D board (three.js) when there is one and this PC can draw it; the flat board otherwise.
+  const Deep = three && Flat && canWebGL() ? BOARDS3D[m.game] : undefined;
   const showBoard = m.status === "playing" || m.status === "over" || (m.status === "left" && m.moves.length > 0);
   // Boards you aim or draw on with the mouse stay flat, so the pointer lands where you point.
-  const tilt = !meta.realtime && meta.group !== "shots" && m.game !== "drawguess" && m.game !== "paintfight";
+  const tilt = !Deep && !meta.realtime && meta.group !== "shots" && m.game !== "drawguess" && m.game !== "paintfight";
   return (
     <div className="flex-1 flex flex-col min-h-0" data-game-match={m.id} data-game-match-status={m.status} data-game-mode={m.mode}>
       <div className="flex items-center gap-2 px-4 pt-3">
@@ -562,7 +575,14 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
             </div>
           )}
           {(m.status === "declined" || (m.status === "left" && !showBoard)) && <div className="text-[14px] font-semibold text-slate-600 dark:text-slate-300">{status}</div>}
-          {showBoard && (
+          {showBoard && Deep && Flat && (
+            <Suspense fallback={<Flat {...board} />}>
+              <Fallback flat={Flat} props={board} key={m.id}>
+                <Deep {...board} />
+              </Fallback>
+            </Suspense>
+          )}
+          {showBoard && !Deep && (
             <>
               {m.game === "tictactoe" && <TicTacToeBoard {...board} />}
               {m.game === "connect4" && <ConnectFourBoard {...board} />}
@@ -664,6 +684,24 @@ function MatchView({ match: m, onMove, onBack, onError }: { match: Match; onMove
         </aside>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- the solo games in 3D (2.16.0)
+
+const SOLO_FLAT: Record<string, ComponentType<{ onScore: (n: number) => void }>> = { "2048": Game2048, snake: SnakeGame, mines: Minesweeper };
+
+/** A solo game in 3D, with the flat one while it loads (or if 3D fails on this PC). */
+function SoloDeep({ id, onScore }: { id: string; onScore: (n: number) => void }) {
+  const Deep = SOLO3D[id];
+  const Flat = SOLO_FLAT[id];
+  const flatAsBoard = useMemo(() => (() => <Flat onScore={onScore} />) as unknown as ComponentType<BoardProps>, [Flat, onScore]);
+  return (
+    <Suspense fallback={<Flat onScore={onScore} />}>
+      <Fallback flat={flatAsBoard} props={{} as BoardProps}>
+        <Deep onScore={onScore} />
+      </Fallback>
+    </Suspense>
   );
 }
 

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.15.1)
+# LANX — Local Network Messenger (v2.16.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,34 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.16.1: Ludo you can follow, and games that survive a restart
+- **Ludo, flat board:** tokens now hop square by square along their way (a soft tick on every square), and a knocked
+  token flies back to its yard. The board looks like a real Ludo board: four coloured corners with a court and four
+  bases each, coloured home lanes, stars on the safe squares, and the four triangles in the middle. The corners nobody
+  plays stay pale.
+- **Fixed: a game got mixed up after LANX restarted** (for example after an update). LANX keeps a game in memory, and
+  after a restart it rebuilt it from the other player's next move as if they had started it — so if you had started
+  it, you and they swapped seats. Now LANX works out who started it (the move says so, or the challenge card in the
+  chat does), takes the other player's moves once to catch up, and asks for the game when you open its card. A PC
+  that is behind gets the moves sent to it again.
+
+### New in 2.16.0: every game in real 3D
+- **All 49 games have a real 3D board** (three.js): a turned Staunton chess set, a goban with slate and shell stones,
+  a full pool table with a cue you pull back and cue-ball spin, a carrom board you flick on, nine mini-golf courses,
+  a bowling lane whose pins topple and scatter, darts that arc into a board on the wall, an archery range with wind,
+  card tables, Ludo, Snakes & Ladders, Backgammon and Bankroll with dice thrown in real physics (Rapier), the live
+  arcade tables, and 2048, Snake and Minesweeper too. Trivia, Math Rush, Werewolf and Draw & Guess get swinging
+  question cards, a day/night sky and an easel. See docs/GAMES-3D-TRACKER.md for the full list.
+- **The rules did not move.** The 3D boards only draw the game and send the same moves as the flat boards, so a 3D
+  player, a flat player and an older LANX can share a match. Dice, pins and wheels are steered to the result the
+  rules already decided, so every PC sees the same thing.
+- **A clear view.** Boards are seen almost from above now; drag the empty table to tilt or turn the view, double-click
+  to put it back. The "3D" button still gives you the flat look, and a PC without 3D graphics falls back to it.
+- **Fairer games.** Messages are tied to the PC that really sent them; a two-player move must come from the player
+  whose turn it is and cannot rewrite earlier moves; Werewolf night actions count only from the right player; hidden
+  cards, tiles, mines and fleets stay out of the other players' screens.
+- **New: cue-ball spin in pool** (follow, draw, english) — offered only when every PC at the table has 2.16.0.
 
 ### New in 2.15.1: plainer glass
 - The light that followed the mouse across panels and the lighter band along the top of every panel are gone: panels

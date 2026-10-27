@@ -12,7 +12,7 @@ import { BALL_R, FB_H, FB_W, GOAL_H, MAN_H, MAN_W, RODS, fbStart, fbStep, menOf,
 import { ARENA_R, SPIN_R, spinReset, spinStart, spinStep, type SpinState } from "../../../lib/games/sim/spinner.ts";
 
 /** The channel, the host's loop and the guests' input pump, shared by the three games. */
-function useLive<S, I>(p: BoardProps, start: () => S, stepFn: (s: S, inputs: (I | null)[]) => void, snapshot: (s: S) => unknown, restore: (snap: unknown) => S) {
+export function useLive<S, I>(p: BoardProps, start: () => S, stepFn: (s: S, inputs: (I | null)[]) => void, snapshot: (s: S) => unknown, restore: (snap: unknown) => S) {
   const n = Math.max(2, p.seats?.length ?? 2);
   const players = useMemo(() => Array.from({ length: n }, (_, i) => i), [n]);
   const channel = useRef<GameChannel | null>(null);
@@ -74,10 +74,10 @@ function useLive<S, I>(p: BoardProps, start: () => S, stepFn: (s: S, inputs: (I 
   return { view, setInput: (i: I | null) => (myInput.current = i), sim, n, live: channel.current?.live ?? false, inputs };
 }
 
-const label = (p: BoardProps, i: number, n: number) => seatFor(p.seats, p.starter ?? 0, i, n);
+export const label = (p: BoardProps, i: number, n: number) => seatFor(p.seats, p.starter ?? 0, i, n);
 
 /** Goals, bounces and knock-outs as sounds, worked out from the positions every PC already sees (2.13.0). */
-function useArcadeSfx(scores: number[], ball: { vx: number; vy: number } | null, outs = 0) {
+export function useArcadeSfx(scores: number[], ball: { vx: number; vy: number } | null, outs = 0) {
   const prev = useRef({ scores: "", vx: 0, vy: 0, outs: 0 });
   useEffect(() => {
     const p = prev.current;
@@ -95,19 +95,22 @@ function useArcadeSfx(scores: number[], ball: { vx: number; vy: number } | null,
 
 // ---------------------------------------------------------------- Air Hockey
 
-export function AirHockeyBoard(p: BoardProps) {
+/** LANX 2.16.0: Air Hockey's live game (the same for the flat and the 3D table). */
+export function useAirHockey(p: BoardProps) {
   const rec = useMemo(() => airhockey.replay(p.moves, 2, ""), [p.moves]);
-  const scored = useRef<string>("");
-  const { view, setInput, sim } = useLive<AHState, { x: number; y: number }>(p, ahStart, (s, ins) => {
+  const live = useLive<AHState, { x: number; y: number }>(p, ahStart, (s, ins) => {
     const g = ahStep(s, ins);
     if (g >= 0 && (p.host || p.local)) {
       p.onMove(`g:${g}`);
       if (s.goals[g] >= 5) p.onMove(`end:${g}`);
     }
   }, (s) => ({ puck: s.puck, paddles: s.paddles, goals: s.goals, pause: s.pause }), (snap) => ({ ...(snap as AHState), lastGoal: -1 }));
-  useArcadeSfx(view.goals, view.puck);
-  void scored;
-  void sim;
+  useArcadeSfx(live.view.goals, live.view.puck);
+  return { rec, ...live };
+}
+
+export function AirHockeyBoard(p: BoardProps) {
+  const { rec, view, setInput } = useAirHockey(p);
   const canvas = useRef<HTMLCanvasElement>(null);
   const flip = p.seat === 1; // my goal at the bottom
   const scale = 0.78;
@@ -179,22 +182,22 @@ export function AirHockeyBoard(p: BoardProps) {
 
 // ---------------------------------------------------------------- Table Soccer
 
-export function FoosballBoard(p: BoardProps) {
+/** LANX 2.16.0: Table Soccer's live game and controls (rod 1-4, the pointer's height, kick). */
+export function useFoosball(p: BoardProps) {
   const rec = useMemo(() => foosball.replay(p.moves, 2, ""), [p.moves]);
   const rod = useRef(2);
   const pointerY = useRef(FB_H / 2);
   const kick = useRef(false);
-  const { view, setInput } = useLive<FBState, FBInput>(p, fbStart, (s, ins) => {
+  const live = useLive<FBState, FBInput>(p, fbStart, (s, ins) => {
     const g = fbStep(s, ins);
     if (g >= 0 && (p.host || p.local)) {
       p.onMove(`g:${g}`);
       if (s.goals[g] >= 5) p.onMove(`end:${g}`);
     }
   }, (s) => ({ ball: s.ball, rodY: s.rodY, kick: s.kick, goals: s.goals, pause: s.pause }), (snap) => ({ ...(snap as FBState), lastGoal: -1 }));
-  useArcadeSfx(view.goals, view.ball);
-  const canvas = useRef<HTMLCanvasElement>(null);
+  useArcadeSfx(live.view.goals, live.view.ball);
   const side = p.local ? 0 : p.seat;
-  const scale = 0.6;
+  const setInput = live.setInput;
   const push = () => setInput({ rod: rod.current, y: pointerY.current, kick: kick.current });
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -215,6 +218,39 @@ export function FoosballBoard(p: BoardProps) {
     return () => window.removeEventListener("keydown", h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const kickNow = () => {
+    kick.current = true;
+    push();
+    window.setTimeout(() => {
+      kick.current = false;
+      push();
+    }, 120);
+  };
+  /** Picks the rod nearest a point across the pitch (table units) and kicks. */
+  const pickRod = (x: number) => {
+    let best = rod.current;
+    let bd = 60;
+    RODS.forEach((rd, k) => {
+      const rx = side === 0 ? rd.x : FB_W - rd.x;
+      if (Math.abs(rx - x) < bd) {
+        bd = Math.abs(rx - x);
+        best = k;
+      }
+    });
+    rod.current = best;
+    kickNow();
+  };
+  const moveTo = (y: number) => {
+    pointerY.current = y;
+    push();
+  };
+  return { rec, ...live, side, rod, pickRod, moveTo, kickNow };
+}
+
+export function FoosballBoard(p: BoardProps) {
+  const { rec, view, side, rod, pickRod, moveTo } = useFoosball(p);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const scale = 0.6;
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
     if (!ctx) return;
@@ -269,29 +305,11 @@ export function FoosballBoard(p: BoardProps) {
         className="rounded-xl shadow-lg ring-1 ring-black/10 touch-none"
         onPointerMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          pointerY.current = ((e.clientY - r.top) / r.height) * FB_H;
-          // Clicking near a rod picks it.
-          push();
+          moveTo(((e.clientY - r.top) / r.height) * FB_H);
         }}
         onPointerDown={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          const x = ((e.clientX - r.left) / r.width) * FB_W;
-          let best = rod.current;
-          let bd = 60;
-          RODS.forEach((rd, k) => {
-            const rx = side === 0 ? rd.x : FB_W - rd.x;
-            if (Math.abs(rx - x) < bd) {
-              bd = Math.abs(rx - x);
-              best = k;
-            }
-          });
-          rod.current = best;
-          kick.current = true;
-          push();
-          window.setTimeout(() => {
-            kick.current = false;
-            push();
-          }, 120);
+          pickRod(((e.clientX - r.left) / r.width) * FB_W);
         }}
       />
       <div className="text-[11px] text-slate-500">Keys 1–4 (or click a rod) pick a rod; move the mouse up and down; click or Space to kick.</div>
@@ -301,10 +319,11 @@ export function FoosballBoard(p: BoardProps) {
 
 // ---------------------------------------------------------------- Spinner Wars
 
-export function SpinnerBoard(p: BoardProps) {
+/** LANX 2.16.0: Spinner Wars' live game (rounds, knock-outs, the winner) for the flat and 3D arenas. */
+export function useSpinner(p: BoardProps) {
   const n = Math.max(2, p.seats?.length ?? 2);
   const rec = useMemo(() => spinnerWars.replay(p.moves, n, ""), [p.moves, n]);
-  const { view, setInput } = useLive<SpinState, { x: number; y: number }>(
+  const live = useLive<SpinState, { x: number; y: number }>(
     p,
     () => spinStart(n),
     (s, ins) => {
@@ -325,7 +344,12 @@ export function SpinnerBoard(p: BoardProps) {
     (s) => ({ spinners: s.spinners, round: s.round, pause: s.pause, wins: s.wins }),
     (snap) => snap as SpinState,
   );
-  useArcadeSfx(view.wins, null, view.spinners.filter((x) => x.out).length);
+  useArcadeSfx(live.view.wins, null, live.view.spinners.filter((x) => x.out).length);
+  return { rec, ...live };
+}
+
+export function SpinnerBoard(p: BoardProps) {
+  const { rec, n, view, setInput } = useSpinner(p);
   const canvas = useRef<HTMLCanvasElement>(null);
   const size = (ARENA_R + 30) * 2;
   const scale = 0.85;

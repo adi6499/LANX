@@ -3,7 +3,9 @@
 // ball is a foul (the other player places it anywhere); potting the 8 early
 // loses. A turn ends when you pot nothing of yours or foul.
 // Moves: "s:<angle>:<power>" (degrees, 1–100), or "c:<x>:<y>" to place the
-// cue ball when you have it in hand.
+// cue ball when you have it in hand. LANX 2.16.0: "s:<angle>:<power>:<side>:<top>"
+// adds spin (each −100…100: side = english, top = follow/draw); a shot
+// without spin is still the old three-part move, so older copies agree.
 
 import { ON, win, type GameDef, type Outcome } from "./core.ts";
 import { K, rectWalls, settle, velocity, type Body, type Table } from "./physics2d.ts";
@@ -60,13 +62,26 @@ const isSolid = (id: number) => id >= 1 && id <= 7;
 const isStripe = (id: number) => id >= 9 && id <= 15;
 const groupOf = (id: number) => (isSolid(id) ? "solid" : isStripe(id) ? "stripe" : null);
 
-export function poolShot(s: PoolState, angle: number, power: number, n: number): PoolState {
-  const balls = s.balls.map((b) => ({ ...b }));
+/** The cue ball struck: every ball's path (frames every 5 steps) and what happened (with the step it happened at). */
+export function poolSimulate(start: Body[], angle: number, power: number, side = 0, top = 0) {
+  const balls = start.map((b) => ({ ...b }));
   const cue = balls[0];
   const [vx, vy] = velocity(angle, power * 5000);
   cue.vx = vx;
   cue.vy = vy;
+  cue.follow = top * 10;
+  cue.side = side * 10;
   const { events, frames } = settle(balls, POOL_TABLE, 4000, 5);
+  for (const b of balls) {
+    delete b.follow;
+    delete b.side;
+  }
+  return { balls, events, frames };
+}
+
+export function poolShot(s: PoolState, angle: number, power: number, n: number, side = 0, top = 0): PoolState {
+  const { balls, events, frames } = poolSimulate(s.balls, angle, power, side, top);
+  const cue = balls[0];
   const potted = events.filter((e) => e.kind === "pocket").map((e) => e.a);
   const next: PoolState = { ...s, balls, frames, log: [...s.log] };
   const p = s.turn;
@@ -148,9 +163,10 @@ export const pool: GameDef<PoolState> = {
         s = { ...s, balls: s.balls.map((b) => (b.id === 0 ? { ...b, x: x * K, y: y * K, out: false } : b)), inHand: false, frames: [] };
         continue;
       }
-      const mv = /^s:(-?\d+):(\d+)$/.exec(m);
+      const mv = /^s:(-?\d+):(\d+)(?::(-?\d+):(-?\d+))?$/.exec(m);
       if (!mv || s.inHand) return null;
-      s = poolShot(s, Number(mv[1]), Math.max(1, Math.min(100, Number(mv[2]))), n);
+      const spin = (v: string | undefined) => Math.max(-100, Math.min(100, Number(v ?? 0)));
+      s = poolShot(s, Number(mv[1]), Math.max(1, Math.min(100, Number(mv[2]))), n, spin(mv[3]), spin(mv[4]));
     }
     return s;
   },

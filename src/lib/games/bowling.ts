@@ -35,6 +35,17 @@ export function knock(x: number, power: number, drift: number): boolean[] {
   return fell;
 }
 
+/** LANX 2.16.0: one roll worked out (the same sums the replay below has always done):
+ *  where the ball meets the pins, its drift, and which pins it knocks down. */
+export function rollResult(seed: string, rolls: number, pos: number, angle: number, power: number): { xAtPins: number; drift: number; fell: boolean[] } {
+  const next = rng(`${seed}#roll${rolls}`);
+  next();
+  const drift = Math.round((next() - 0.5) * 16);
+  // Where the ball meets the pins: it travels the lane (depth 600) at the given angle.
+  const xAtPins = pos + Math.round(Math.tan((angle * Math.PI) / 180) * 600);
+  return { xAtPins, drift, fell: knock(xAtPins, power, drift) };
+}
+
 export interface BowlingState {
   /** frames[player] = rolls per frame, each the number of pins. */
   frames: number[][][];
@@ -93,12 +104,7 @@ export const bowling: GameDef<BowlingState> = {
       const pos = Math.max(-100, Math.min(100, Number(mv[1])));
       const angle = Math.max(-30, Math.min(30, Number(mv[2])));
       const power = Math.max(1, Math.min(100, Number(mv[3])));
-      const next = rng(`${seed}#roll${s.rolls}`);
-      next();
-      const drift = Math.round((next() - 0.5) * 16);
-      // Where the ball meets the pins: it travels the lane (depth 600) at the given angle.
-      const xAtPins = pos + Math.round(Math.tan((angle * Math.PI) / 180) * 600);
-      const fell = knock(xAtPins, power, drift);
+      const { xAtPins, drift, fell } = rollResult(seed, s.rolls, pos, angle, power);
       let count = 0;
       fell.forEach((f, i) => {
         if (f && s.standing[i]) {

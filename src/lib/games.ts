@@ -21,6 +21,10 @@ import { api, errorText } from "./api";
 import type { Message, Peer } from "../types";
 import { sfx } from "./gameSounds";
 
+/** When this run of LANX started (seconds): a challenge card older than this may belong to a game that
+ *  was going on before LANX restarted, whose moves this PC no longer has (2.16.1). */
+const startedAt = Date.now() / 1000;
+
 /** A game's id ("chess", "ludo"…); the rules live in gameRules.ts or games/index.ts. */
 export type GameId = string;
 export type SoloId = "2048" | "snake" | "mines";
@@ -192,6 +196,9 @@ export interface Match {
   note: string;
   /** Something this PC keeps to itself for the game (a hidden fleet); never sent. */
   secret?: unknown;
+  /** LANX 2.16.1: this PC lost the game (LANX restarted), so the other player's next full list of moves
+   *  is taken as it stands (the rules still check it) instead of only their new moves. */
+  catchUp?: boolean;
   /** Light steps relayed by the host and not kept in the moves (strokes, taps, roles) — 2.12.0. */
   deltas: unknown[];
   lastAt: number;
@@ -365,6 +372,12 @@ export async function openFromCard(card: GameCardData, msg: Message, peers: Peer
   const invited = card.to === me;
   const table = card.players && card.players.length > 2 ? card.players : null;
   const host = msg.is_outgoing ? me : msg.sender_id;
+  // LANX 2.16.1: the card knows who challenged; put a two-player match rebuilt the wrong way round right.
+  if (m && m.mode === "duo" && !table && m.seats.length === 2 && m.seats[0].id !== host && m.seats[1].id === host) {
+    m.seats = [m.seats[1], m.seats[0]].map((s, i) => ({ ...s, color: seatColour(i) }));
+    m.host = host;
+    await settle(m);
+  }
   if (!m) {
     if (table) {
       const names = card.names ?? [];
@@ -375,7 +388,10 @@ export async function openFromCard(card: GameCardData, msg: Message, peers: Peer
       const peer = peers.find((p) => p.id === oppId);
       const opp: Seat = { id: oppId, name: peer?.display_name ?? (invited ? card.from_name : card.to_name) ?? "Colleague", color: "" };
       const seats = invited ? [{ ...opp, color: seatColour(0) }, mySeatEntry(1)] : [mySeatEntry(0), { ...opp, color: seatColour(1) }];
-      m = make({ id: card.id, game: card.game, mode: "duo", seats, host, status: invited ? "playing" : "waiting", joined: [host] });
+      // LANX 2.16.1: a card from before LANX restarted may be a game already under way: ask for it.
+      const before = msg.timestamp < startedAt - 5;
+      m = make({ id: card.id, game: card.game, mode: "duo", seats, host, status: invited ? "playing" : "waiting", joined: [host], catchUp: before });
+      if (before) void sendTo(oppId, m, "state", { sync: 1, round: m.round, first: seats[0].id });
     }
   }
   if (invited && m.moves.length === 0 && m.status !== "over") sfx(m.mode === "duo" ? "start" : "join");
@@ -443,7 +459,7 @@ export async function play(id: string, move: string): Promise<string | null> {
   if (!(await appendValid(m, move))) return "That move isn't allowed.";
   soundAfterMove(m, true);
   bump();
-  if (m.mode === "duo") void sendTo(opponent(m)!.id, m, "move", { moves: m.moves, round: m.round });
+  if (m.mode === "duo") void sendTo(opponent(m)!.id, m, "move", duoData(m));
   else if (m.mode === "multi") {
     if (isHost(m)) void broadcast(m);
     else void sendTo(m.host, m, "move", { cell: move });
@@ -563,10 +579,14 @@ function pushDelta(m: Match, data: unknown) {
 }
 
 /** A light step for the others at the table (a stroke, a tap, a role card): the host passes it on;
- *  with `to` (a player number) only that player gets it. Never kept in the moves. */
-export function sendDelta(id: string, data: unknown) {
+ *  with `to` (a player number) only that player gets it. Never kept in the moves.
+ *  LANX 2.16.0: each one carries `__from`, the sender's player number, filled in by whoever
+ *  received it from the sender (only the host's word is taken for someone else's). */
+export function sendDelta(id: string, raw: unknown) {
   const m = matches.get(id);
   if (!m) return;
+  const meP = m.mode === "local" ? -1 : mySeat(m);
+  const data = raw && typeof raw === "object" && !Array.isArray(raw) && meP >= 0 ? { ...(raw as object), __from: playerOf(m, meP) } : raw;
   const to = data && typeof data === "object" && typeof (data as { to?: unknown }).to === "number" ? ((data as { to: number }).to as number) : null;
   if (m.mode === "local") {
     pushDelta(m, data);
@@ -598,7 +618,32 @@ export function markSeen(id: string) {
 
 // ---------------------------------------------------------------- steps from colleagues
 
-type Data = { moves?: unknown; round?: unknown; cell?: unknown; seats?: unknown; status?: unknown; joined?: unknown };
+type Data = { moves?: unknown; round?: unknown; cell?: unknown; seats?: unknown; status?: unknown; joined?: unknown; first?: unknown; sync?: unknown };
+
+/** What a two-player match tells the other PC: the moves, the round and (2.16.1) who sits first. */
+const duoData = (m: Match) => ({ moves: m.moves, round: m.round, first: m.seats[0]?.id });
+
+/** LANX 2.16.1: who challenged in a two-player match, from the game card in the chat with that colleague. */
+async function challenger(matchId: string, peerId: string): Promise<string | null> {
+  try {
+    const conv = (await api.getConversations()).find((c) => c.peer_id === peerId);
+    if (!conv) return null;
+    const msgs = await api.getMessages(conv.id);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i];
+      if (msg.message_type !== "card") continue;
+      try {
+        const c = JSON.parse(msg.content) as Partial<GameCardData>;
+        if (c.kind === "game" && c.id === matchId) return msg.is_outgoing ? me : peerId;
+      } catch {
+        /* not a card */
+      }
+    }
+  } catch {
+    /* no chat to look in */
+  }
+  return null;
+}
 
 /** A step from a colleague (the `lanx://game` event). */
 export function receive(e: GameEvent) {
@@ -615,10 +660,13 @@ async function receiveAsync(e: GameEvent) {
       m = make({ id: e.match_id, game: e.game, mode: "multi", seats: [], host: e.from_id, status: "lobby", unseen: true });
     } else if (e.action === "delta") {
       return; // a stroke for a table this PC no longer has
-    } else if ((e.action === "accept" || e.action === "move") && !Array.isArray(d.seats) && d.cell === undefined) {
-      // A two-player match this PC doesn't know: rebuild it from the step.
+    } else if ((e.action === "accept" || ((e.action === "move" || e.action === "state") && Array.isArray(d.moves))) && !Array.isArray(d.seats) && d.cell === undefined) {
+      // A two-player match this PC doesn't know (LANX restarted): rebuild it from the step.
+      // LANX 2.16.1: whoever challenged sits first. The step says who (2.16.1 and newer); for an older
+      // LANX the challenge card in the chat does. (Before, the sender was always taken to be first.)
       const other: Seat = { id: e.from_id, name: e.from_name, color: "" };
-      const iHost = e.action === "accept";
+      const iHost = e.action === "accept" || (typeof d.first === "string" ? d.first === me : (await challenger(e.match_id, e.from_id)) === me);
+      if (matches.has(e.match_id)) return receiveAsync(e); // another step rebuilt it meanwhile
       m = make({
         id: e.match_id,
         game: e.game,
@@ -627,6 +675,7 @@ async function receiveAsync(e: GameEvent) {
         host: iHost ? me : e.from_id,
         status: "playing",
         unseen: true,
+        catchUp: e.action !== "accept",
       });
     } else return;
   }
@@ -634,12 +683,20 @@ async function receiveAsync(e: GameEvent) {
     // Relayed by the host to everyone else (or to the one it names), and kept for the boards.
     const seat = m.seats.findIndex((s) => s.id === e.from_id);
     if (seat < 0) return;
-    const to = e.data && typeof e.data === "object" && typeof (e.data as { to?: unknown }).to === "number" ? ((e.data as { to: number }).to as number) : null;
+    // LANX 2.16.0: who really sent it. A guest takes the host's word for a relayed step; anyone else's
+    // claim is replaced by the seat it actually came from (so nobody can act in another player's name).
+    let data = e.data;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const claimed = (data as { __from?: unknown }).__from;
+      const trusted = m.mode === "multi" && !isHost(m) && e.from_id === m.host && typeof claimed === "number";
+      data = { ...(data as object), __from: trusted ? claimed : playerOf(m, seat) };
+    }
+    const to = data && typeof data === "object" && typeof (data as { to?: unknown }).to === "number" ? ((data as { to: number }).to as number) : null;
     if (m.mode === "multi" && isHost(m)) {
       const targets = to === null ? m.seats.filter((s) => s.id !== me && s.id !== e.from_id && !m.gone.includes(s.id)).map((s) => s.id) : [m.seats[seatOf(m, to)]?.id].filter((x): x is string => !!x && x !== me && x !== e.from_id);
-      for (const pid of targets) void sendTo(pid, m, "delta", e.data);
-      if (to === null || seatOf(m, to) === mySeat(m)) pushDelta(m, e.data);
-    } else if (to === null || seatOf(m, to) === mySeat(m)) pushDelta(m, e.data);
+      for (const pid of targets) void sendTo(pid, m, "delta", data);
+      if (to === null || seatOf(m, to) === mySeat(m)) pushDelta(m, data);
+    } else if (to === null || seatOf(m, to) === mySeat(m)) pushDelta(m, data);
     return;
   }
   if (m.mode === "multi") {
@@ -704,6 +761,11 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       break;
     case "move":
     case "state": {
+      // LANX 2.16.1: "please send me the game" — their LANX restarted and lost it.
+      if (e.action === "state" && d.sync) {
+        if (m.status === "playing" || m.status === "over") void sendTo(opp.id, m, "state", duoData(m));
+        return;
+      }
       const mv = Array.isArray(d.moves) ? d.moves.map(String) : null;
       if (!mv) return;
       if (round !== null && round > m.round) {
@@ -715,9 +777,28 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       }
       if (round !== null && round < m.round) return; // an old round's move
       if (m.status === "waiting") m.status = "playing";
+      // LANX 2.16.1: their board is behind ours (their LANX restarted, or a step went missing): send them the game.
+      if (mv.length < m.moves.length && !m.catchUp && (m.status === "playing" || m.status === "over")) void sendTo(opp.id, m, "state", duoData(m));
       if (m.status !== "playing" || mv.length <= m.moves.length) return;
       const rules = await import("./gameRules");
       if (!rules.validateMoves(m.game, mv, 2, seedOf(m))) return;
+      if (m.catchUp) {
+        // This PC lost the game: take their list once (the rules accepted it), and the seat order they give.
+        if (typeof d.first === "string" && d.first !== m.seats[0].id && m.seats.some((s) => s.id === d.first)) {
+          m.seats = [m.seats[1], m.seats[0]].map((s, i) => ({ ...s, color: seatColour(i) }));
+          m.host = d.first;
+        }
+        m.catchUp = false;
+      } else {
+        // LANX 2.16.0: the moves already played stay as they were, and every new one must be theirs —
+        // their turn, or marked with their player number when both act at once (placing a fleet).
+        if (!m.moves.every((x, i) => mv[i] === x)) return;
+        const theirs = playerOf(m, m.seats.findIndex((s) => s.id === opp.id));
+        for (let k = m.moves.length; k < mv.length; k++) {
+          const t = rules.turnOf(m.game, mv.slice(0, k), 2, seedOf(m));
+          if (!(t === theirs || (t < 0 && mv[k].startsWith(`${theirs}@`)))) return;
+        }
+      }
       m.moves = mv;
       await settle(m);
       soundAfterMove(m, false);

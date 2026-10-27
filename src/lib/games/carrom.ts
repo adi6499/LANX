@@ -67,16 +67,26 @@ export interface CarromState {
 
 const colourOf = (id: number) => (id >= 1 && id <= 9 ? 0 : id >= 10 && id <= 18 ? 1 : -1);
 
-export function carromShot(s: CarromState, x: number, angle: number, power: number): CarromState {
-  const p = s.turn;
-  const base = p === 0 ? CARROM_S - 70 : 70;
-  const sx = Math.max(60, Math.min(CARROM_S - 60, CARROM_S / 2 + x));
+/** Where the striker sits for player `p` placed at `x` on the baseline (table units). */
+export function strikerSpot(p: number, x: number): { sx: number; base: number } {
+  return { sx: Math.max(60, Math.min(CARROM_S - 60, CARROM_S / 2 + x)), base: p === 0 ? CARROM_S - 70 : 70 };
+}
+
+/** The flick itself: every piece's path (frames every 5 steps, striker first) and what happened, with the step. */
+export function carromSimulate(s: CarromState, x: number, angle: number, power: number) {
+  const { sx, base } = strikerSpot(s.turn, x);
   const striker: Body = { id: STRIKER, x: sx * K, y: base * K, vx: 0, vy: 0, r: STRIKER_R * K, mass: 2, out: false };
   const [vx, vy] = velocity(angle, power * 5500);
   striker.vx = vx;
   striker.vy = vy;
   const bodies = [striker, ...s.coins.map((c) => ({ ...c }))];
   const { events, frames } = settle(bodies, TABLE, 4000, 5);
+  return { bodies, events, frames, sx, base };
+}
+
+export function carromShot(s: CarromState, x: number, angle: number, power: number): CarromState {
+  const p = s.turn;
+  const { bodies, events, frames, sx, base } = carromSimulate(s, x, angle, power);
   const potted = events.filter((e) => e.kind === "pocket").map((e) => e.a);
   const next: CarromState = { ...s, coins: bodies.slice(1), frames, striker: { x: sx, y: base }, log: [...s.log], potted: s.potted.map((x) => [...x]) };
   let keep = false;

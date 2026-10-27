@@ -38,7 +38,10 @@ export class GameChannel {
       return true;
     }
     if (d.kind === "live" && typeof d.from === "number") {
-      for (const fn of this.listeners) fn(d.from, d.payload);
+      // LANX 2.16.0: the sender as the match vouches for it (the host's relay), not as it claims.
+      const claimed = (d as unknown as { __from?: unknown }).__from;
+      const from = typeof claimed === "number" ? claimed : d.from;
+      for (const fn of this.listeners) fn(from, d.payload);
       return true;
     }
     return false;
@@ -100,7 +103,8 @@ export class GameChannel {
     dc.onmessage = (e) => {
       try {
         const m = JSON.parse(String(e.data)) as { from: number; payload: unknown };
-        for (const fn of this.listeners) fn(m.from, m.payload);
+        // LANX 2.16.0: a line belongs to one player — whatever it says, it speaks for that player only.
+        for (const fn of this.listeners) fn(p, m.payload);
       } catch {
         /* ignore */
       }

@@ -3,17 +3,19 @@ import { cardText, isRed } from "../../../lib/games/cards.ts";
 
 export function CardFace({ card, onClick, lit, small, testId, dim }: { card: string; onClick?: () => void; lit?: boolean; small?: boolean; testId?: string; dim?: boolean }) {
   const red = isRed(card);
+  // LANX 2.16.0: a card you cannot click is not a button (it often sits inside one, e.g. the discard pile).
+  const Tag = onClick ? "button" : "span";
   return (
-    <button
-      type="button"
+    <Tag
+      type={onClick ? "button" : undefined}
       data-card={testId ?? card}
       onClick={onClick}
-      disabled={!onClick}
+      disabled={onClick ? undefined : true}
       className={`g3-card inline-flex ${small ? "h-12 w-9 text-[13px]" : "h-16 w-12 text-[16px]"} flex-col items-start justify-between rounded-md bg-white px-1 py-0.5 font-bold shadow ring-1 ring-black/20 ${red ? "text-rose-600" : "text-slate-900"} ${lit ? "ring-2 ring-indigo-500 -translate-y-1.5" : ""} ${onClick ? "cursor-pointer hover:-translate-y-1" : "cursor-default"} ${dim ? "opacity-50" : ""} transition-transform`}
     >
       <span>{cardText(card)}</span>
       <span className="self-end rotate-180">{cardText(card)}</span>
-    </button>
+    </Tag>
   );
 }
 
