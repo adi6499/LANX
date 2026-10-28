@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.17.1)
+# LANX — Local Network Messenger (v2.17.2)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,10 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.17.2: the Ludo board fits the window
+- The Ludo board sizes itself to the games window, so the player plates, the die and the status line are always
+  in view instead of scrolling out of sight.
 
 ### New in 2.17.1: Ludo, the Ludo King way
 - **The board looks like Ludo King:** four strong colours, your colour always at the bottom left, white courts with

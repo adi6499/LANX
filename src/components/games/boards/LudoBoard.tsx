@@ -1,5 +1,5 @@
 import { Dice3D } from "./Dice3D";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
 import { FINISH, TRACK, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
 import { sfx } from "../../../lib/gameSounds";
@@ -80,6 +80,31 @@ function cellOf(corner: number, rel: number, token: number): Pt {
   }
   const [r, c] = LOOP[toAbsolute(corner, rel)];
   return [r * C + C / 2, c * C + C / 2];
+}
+
+/** LANX 2.17.1: the board's side on screen — as big as the room allows (the plates and the status line
+ *  always fit), up to its natural size. The room is the nearest real ancestor (the games window's board
+ *  area, which otherwise scrolls). */
+const CHROME = 58 * 2 + 8 * 3 + 40 + 8; // two plate rows, three gaps, a two-line status, a little air
+function useFitSide(ref: RefObject<HTMLDivElement | null>): number {
+  const [side, setSide] = useState(SIZE);
+  useLayoutEffect(() => {
+    let el = ref.current?.parentElement ?? null;
+    while (el && getComputedStyle(el).display === "contents") el = el.parentElement;
+    if (!el) return;
+    const box = el;
+    const fit = () => {
+      const cs = getComputedStyle(box);
+      const pw = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const ph = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      setSide(Math.max(240, Math.min(SIZE, box.clientWidth - pw - 8, box.clientHeight - ph - CHROME)));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [ref]);
+  return side;
 }
 
 /** A five-pointed star (the safe squares). */
@@ -205,6 +230,8 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
   const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   const place = useLudoMotion(state, moves, n);
   useLudoAutoMove(state, canPlay, onMove, 800);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const side = useFitSide(rootRef);
   if (!state) return null;
   const me = local ? -1 : Math.max(0, seat);
   const name = (p: number) => (p === me ? "You" : seatFor(seats, starter, p, n).name.split(" (")[0]);
@@ -313,12 +340,12 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
         : `${name(turn)}'s turn`;
 
   return (
-    <div data-game-board="ludo" className="flex flex-col items-center gap-2" style={{ width: SIZE }}>
+    <div ref={rootRef} data-game-board="ludo" className="flex flex-col items-center gap-2" style={{ width: side }}>
       <div className="flex w-full gap-3">
         {plate(0)}
         {plate(1)}
       </div>
-      <svg width={SIZE} height={SIZE} className="select-none rounded-[14px] shadow-lg" style={{ background: "#ffffff" }} data-ludo-classic>
+      <svg width={side} height={side} viewBox={`0 0 ${SIZE} ${SIZE}`} className="select-none rounded-[14px] shadow-lg" style={{ background: "#ffffff" }} data-ludo-classic>
         <defs>
           <clipPath id="ludoRound">
             <rect width={SIZE} height={SIZE} rx={14} />
