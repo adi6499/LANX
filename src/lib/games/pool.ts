@@ -12,7 +12,7 @@
 // adds spin (each −100…100: side = english, top = follow/draw); a shot
 // without spin is still the old three-part move, so older copies agree.
 
-import { ON, win, type GameDef, type Outcome } from "./core.ts";
+import { type GameDef, incremental, ON, type Outcome, win } from "./core.ts";
 import { K, rectWalls, settle, velocity, type Body, type Table } from "./physics2d.ts";
 
 export const POOL_W = 800;
@@ -204,9 +204,10 @@ export const pool: GameDef<PoolState> = {
   emoji: "🎱",
   minPlayers: 2,
   maxPlayers: 2,
-  replay(moves, n) {
-    let s: PoolState = { balls: rack(), turn: 0, groups: [null, null], inHand: false, winner: null, reason: "", frames: [], log: [], shots: 0 };
-    for (const m of moves) {
+  // 2.17.2: carries on from the last position (core.ts incremental) — a full replay cost seconds in a long game.
+  replay: incremental(
+    (): PoolState => ({ balls: rack(), turn: 0, groups: [null, null], inHand: false, winner: null, reason: "", frames: [], log: [], shots: 0 }),
+    (s, m, n) => {
       if (s.winner !== null) return null;
       const place = /^c:(\d+):(\d+)$/.exec(m);
       if (place) {
@@ -215,16 +216,14 @@ export const pool: GameDef<PoolState> = {
         const y = Number(place[2]);
         if (x < POOL_BALL_R || x > POOL_W - POOL_BALL_R || y < POOL_BALL_R || y > POOL_H - POOL_BALL_R) return null;
         if (s.balls.some((b) => b.id !== 0 && !b.out && (b.x - x * K) ** 2 + (b.y - y * K) ** 2 < (2 * POOL_BALL_R * K) ** 2)) return null;
-        s = { ...s, balls: s.balls.map((b) => (b.id === 0 ? { ...b, x: x * K, y: y * K, out: false } : b)), inHand: false, frames: [] };
-        continue;
+        return { ...s, balls: s.balls.map((b) => (b.id === 0 ? { ...b, x: x * K, y: y * K, out: false } : b)), inHand: false, frames: [] };
       }
       const mv = /^s:(-?\d+):(\d+)(?::(-?\d+):(-?\d+))?$/.exec(m);
       if (!mv || s.inHand) return null;
       const spin = (v: string | undefined) => Math.max(-100, Math.min(100, Number(v ?? 0)));
-      s = poolShot(s, Number(mv[1]), Math.max(1, Math.min(100, Number(mv[2]))), n, spin(mv[3]), spin(mv[4]));
-    }
-    return s;
-  },
+      return poolShot(s, Number(mv[1]), Math.max(1, Math.min(100, Number(mv[2]))), n, spin(mv[3]), spin(mv[4]));
+    },
+  ),
   turn: (s) => s.turn,
   outcome: (s) => outcome(s),
   summary: (s) => s.groups.map((g, i) => `P${i + 1} ${g ?? "?"} ${g ? ownBallsLeft(s, i) : ""}`).join(" · "),

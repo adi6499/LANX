@@ -10,7 +10,7 @@
 // Moves: "s:<x>:<angle>:<power>" — the striker's place on your baseline
 // (−180…180), the angle and the power.
 
-import { ON, win, type GameDef, type Outcome } from "./core.ts";
+import { type GameDef, incremental, ON, type Outcome, win } from "./core.ts";
 import { K, rectWalls, settle, velocity, type Body, type Table } from "./physics2d.ts";
 
 export const CARROM_S = 600;
@@ -223,16 +223,16 @@ export const carrom: GameDef<CarromState> = {
   emoji: "🪙",
   minPlayers: 2,
   maxPlayers: 2,
-  replay(moves) {
-    let s: CarromState = { coins: carromSetup(), turn: 0, potted: [[], []], queenBy: null, queenPending: null, winner: null, reason: "", frames: [], striker: null, log: [], due: [0, 0] };
-    for (const m of moves) {
+  // 2.17.2: carries on from the last position (core.ts incremental) — a full replay cost seconds in a long game.
+  replay: incremental(
+    (): CarromState => ({ coins: carromSetup(), turn: 0, potted: [[], []], queenBy: null, queenPending: null, winner: null, reason: "", frames: [], striker: null, log: [], due: [0, 0] }),
+    (s, m) => {
       if (s.winner !== null) return null;
       const mv = /^s:(-?\d+):(-?\d+):(\d+)$/.exec(m);
       if (!mv) return null;
-      s = carromShot(s, Number(mv[1]), Number(mv[2]), Math.max(1, Math.min(100, Number(mv[3]))));
-    }
-    return s;
-  },
+      return carromShot(s, Number(mv[1]), Number(mv[2]), Math.max(1, Math.min(100, Number(mv[3]))));
+    },
+  ),
   turn: (s) => s.turn,
   outcome: (s) => outcome(s),
   summary: (s) => `white ${ownCount(s, 0)}/9 · black ${ownCount(s, 1)}/9${s.queenBy !== null ? ` · queen: P${s.queenBy + 1}` : s.queenPending !== null ? " · queen to cover" : ""}`,

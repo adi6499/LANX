@@ -60,6 +60,9 @@ others) and talks to the Windows copies on the same network.
 ### New in 2.17.2: the Ludo board fits the window
 - The Ludo board sizes itself to the games window, so the player plates, the die and the status line are always
   in view instead of scrolling out of sight.
+- **Carrom, 8-Ball Pool and Mini Golf no longer slow down as a game goes on.** Every shot used to replay the whole
+  game from the first stroke (several times); a long game took seconds per move. The rules now carry on from the
+  last position, with the same results.
 
 ### New in 2.17.1: Ludo, the Ludo King way
 - **The board looks like Ludo King:** four strong colours, your colour always at the bottom left, white courts with

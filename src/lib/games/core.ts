@@ -35,6 +35,35 @@ export function nextIn(from: number, n: number, out: readonly boolean[]): number
   }
   return from;
 }
+/** LANX 2.17.2: a replay that carries on from the last position instead of starting over. The physics
+ *  games simulate every shot (about 60 ms each), and a match replays its whole list several times per
+ *  move — a long game took seconds per shot. `init` makes the start position; `step` applies one move
+ *  to a copy of a position (null when the move is refused). The position after the longest list seen
+ *  is kept per (players, seed), so a game that grows by one move costs one step. Results are the same
+ *  as a full replay: every position handed out is a fresh copy. */
+export function incremental<S>(init: (n: number, seed: string) => S, step: (s: S, move: string, n: number, seed: string) => S | null): (moves: string[], n: number, seed: string) => S | null {
+  const cache = new Map<string, { moves: string[]; state: S }[]>();
+  return (moves, n, seed) => {
+    const key = `${n}|${seed}`;
+    const entries = cache.get(key) ?? [];
+    let best: { moves: string[]; state: S } | null = null;
+    for (const e of entries) if (e.moves.length <= moves.length && (!best || e.moves.length > best.moves.length) && e.moves.every((m, i) => m === moves[i])) best = e;
+    let s: S = best ? structuredClone(best.state) : init(n, seed);
+    for (let i = best ? best.moves.length : 0; i < moves.length; i++) {
+      const next = step(s, moves[i], n, seed);
+      if (next === null) return null;
+      s = next;
+    }
+    if (!best || best.moves.length !== moves.length) {
+      entries.push({ moves: moves.slice(), state: structuredClone(s) });
+      while (entries.length > 4) entries.shift();
+      cache.set(key, entries);
+      if (cache.size > 24) cache.delete(cache.keys().next().value as string);
+    }
+    return s;
+  };
+}
+
 /** The only player still in, or null while two or more are. */
 export function lastIn(out: readonly boolean[], n: number): number | null {
   const left: number[] = [];

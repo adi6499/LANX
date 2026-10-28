@@ -5,7 +5,7 @@
 // LANX 2.17.0: "x<p>" — player p left: their ball is picked up, they are
 // skipped and can't win; when only one player is left, they win.
 
-import { ON, draw, lastIn, leaver, win, type GameDef, type Outcome } from "./core.ts";
+import { draw, type GameDef, incremental, lastIn, leaver, ON, type Outcome, win } from "./core.ts";
 import { K, rectWalls, settle, type Body, type Table, type Wall, velocity } from "./physics2d.ts";
 
 export const GOLF_W = 400;
@@ -105,10 +105,13 @@ export const minigolf: GameDef<GolfState> = {
   emoji: "⛳",
   minPlayers: 1,
   maxPlayers: 8,
-  replay(moves, n) {
-    const h0 = HOLES[0];
-    const s: GolfState = { hole: 0, ball: Array.from({ length: n }, () => [h0.tee[0], h0.tee[1]] as [number, number]), strokes: Array.from({ length: n }, () => [0]), turn: 0, path: [], done: false, lastBy: -1, lastHole: 0, out: Array(n).fill(false) };
-    for (const m of moves) {
+  // 2.17.2: carries on from the last position (core.ts incremental; the step works on a copy).
+  replay: incremental(
+    (n): GolfState => {
+      const h0 = HOLES[0];
+      return { hole: 0, ball: Array.from({ length: n }, () => [h0.tee[0], h0.tee[1]] as [number, number]), strokes: Array.from({ length: n }, () => [0]), turn: 0, path: [], done: false, lastBy: -1, lastHole: 0, out: Array(n).fill(false) };
+    },
+    (s, m, n) => {
       if (s.done) return null;
       const gone = leaver(m, n);
       if (gone !== null) {
@@ -118,7 +121,7 @@ export const minigolf: GameDef<GolfState> = {
         s.path = [];
         if (lastIn(s.out, n) !== null) s.done = true;
         else if (s.turn === gone) nextTurn(s, n);
-        continue;
+        return s;
       }
       const mv = /^s:(-?\d+):(\d+)$/.exec(m);
       if (!mv) return null;
@@ -136,9 +139,9 @@ export const minigolf: GameDef<GolfState> = {
         if (end) s.strokes[p][s.hole] = MAX_STROKES; // picked up
       } else s.ball[p] = end;
       nextTurn(s, n);
-    }
-    return s;
-  },
+      return s;
+    },
+  ),
   turn: (s) => s.turn,
   outcome: (s, n) => outcome(s, n),
   summary: (s) => `hole ${Math.min(s.hole + 1, HOLES_COUNT)} · ` + s.strokes.map((st, i) => `P${i + 1} ${s.out[i] ? "left" : st.reduce((a, b) => a + b, 0)}`).join(" · "),
