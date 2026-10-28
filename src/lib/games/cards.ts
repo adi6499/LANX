@@ -14,6 +14,10 @@ export const suitOf = (c: string) => c[1];
 /** 2 = 0 … A = 12 */
 export const rankValue = (c: string) => RANKS.indexOf(c[0]);
 export const cardText = (c: string) => `${RANK_NAME[c[0]] ?? c[0]}${SUIT_SYMBOL[c[1]] ?? c[1]}`;
+/** LANX 2.17.0: several cards for a sentence ("A♠ K♥"). */
+export const cardsText = (cards: readonly string[]) => cards.map(cardText).join(" ");
+/** LANX 2.17.0: a rank in words for a sentence: "7s", "10s", "jacks", "aces". */
+export const rankPlural = (r: string) => ({ T: "10s", J: "jacks", Q: "queens", K: "kings", A: "aces" })[r] ?? `${r}s`;
 export const isRed = (c: string) => c[1] === "H" || c[1] === "D";
 
 export function deck52(): string[] {
@@ -48,7 +52,8 @@ const CAT_NAMES = ["high card", "a pair", "two pair", "three of a kind", "a stra
 
 function rank5(cards: string[]): HandRank {
   const vals = cards.map(rankValue).sort((a, b) => b - a);
-  const flush = cards.every((c) => suitOf(c) === suitOf(cards[0]));
+  // LANX 2.17.0: a flush (and a straight) takes five cards — two suited hole cards are not a flush.
+  const flush = cards.length === 5 && cards.every((c) => suitOf(c) === suitOf(cards[0]));
   let straightHigh = -1;
   const uniq = [...new Set(vals)];
   if (uniq.length === 5) {
@@ -98,12 +103,13 @@ export function bestHand(cards: string[]): HandRank {
 
 // ---------------------------------------------------------------- tricks
 
-/** Who wins a trick: the highest card of the led suit, unless a trump was played. */
-export function trickWinner(plays: { player: number; card: string }[], trump: string | null, value: (c: string) => number = rankValue): number {
+/** Who wins a trick: the highest card of the led suit, unless a trump was played.
+ *  `suit` says which suit a card counts as (Euchre's left bower is a trump). */
+export function trickWinner(plays: { player: number; card: string }[], trump: string | null, value: (c: string) => number = rankValue, suit: (c: string) => string = suitOf): number {
   let best = plays[0];
   for (const p of plays.slice(1)) {
-    const s = suitOf(p.card);
-    const bs = suitOf(best.card);
+    const s = suit(p.card);
+    const bs = suit(best.card);
     if (trump && s === trump && bs !== trump) best = p;
     else if (s === bs && value(p.card) > value(best.card)) best = p;
   }

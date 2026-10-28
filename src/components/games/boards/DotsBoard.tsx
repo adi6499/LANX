@@ -6,7 +6,7 @@ const GAP = 56;
 const PAD = 20;
 
 /** Dots & Boxes: click the space between two dots to draw a line. */
-export function DotsBoard({ moves, canPlay, seats, starter = 0, onMove }: BoardProps) {
+export function DotsBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: BoardProps) {
   const n = Math.max(2, seats?.length ?? 2);
   const state = useMemo(() => dots.replay(moves, n, ""), [moves, n]);
   if (!state) return null;
@@ -14,9 +14,14 @@ export function DotsBoard({ moves, canPlay, seats, starter = 0, onMove }: BoardP
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
   const lines: ReactElement[] = [];
   // Drawn lines are bars; the gaps are small rectangles you can click (a bare line has no area to click).
+  // LANX 2.17.0: the line drawn last is in its player's colour, so you can see what they did.
   const gap = (key: string, move: string, x: number, y: number, w: number, h: number, on: boolean) =>
     on ? (
-      <rect key={key} data-dots-line={move} data-dots-on="1" x={x} y={y} width={w} height={h} rx={3} fill="#334155" />
+      state.last === move ? (
+        <rect key={key} data-dots-line={move} data-dots-on="1" data-dots-last="1" x={x - (w > h ? 0 : 1)} y={y - (w > h ? 1 : 0)} width={w + (w > h ? 0 : 2)} height={h + (w > h ? 2 : 0)} rx={4} fill={colour(state.lastBy)} />
+      ) : (
+        <rect key={key} data-dots-line={move} data-dots-on="1" x={x} y={y} width={w} height={h} rx={3} fill="#334155" />
+      )
     ) : (
       <rect key={key} data-dots-line={move} x={x} y={y} width={w} height={h} rx={3} fill="transparent" className={canPlay ? "cursor-pointer hover:fill-indigo-400/50" : ""} onClick={() => canPlay && onMove(move)} />
     );
@@ -26,7 +31,7 @@ export function DotsBoard({ moves, canPlay, seats, starter = 0, onMove }: BoardP
     <div data-game-board="dots" className="flex flex-col items-center gap-2">
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-dots-scores>
         {state.scores.map((s, p) => (
-          <span key={p} className="inline-flex items-center gap-1.5">
+          <span key={p} data-dots-seat={p} data-dots-out={state.out[p] ? "1" : undefined} title={seatFor(seats, starter, p, n).name} className={`inline-flex items-center gap-1.5 ${state.out[p] ? "line-through opacity-50" : p === turn ? "underline decoration-2 underline-offset-4" : ""}`}>
             <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: colour(p) }} /> {s}
           </span>
         ))}

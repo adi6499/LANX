@@ -22,6 +22,9 @@ export interface Body {
   follow?: number;
   /** LANX 2.16.0: side spin (english), −1000 (left) … 1000 (right); bends each cushion bounce, halving each time. */
   side?: number;
+  /** LANX 2.17.0: this piece's own friction (thousandths a step) instead of the table's — a bowling ball
+   *  rolls on while the pins it hits skid to a stop. Absent = the table's (older shots unchanged). */
+  friction?: number;
 }
 
 export interface Wall {
@@ -72,8 +75,9 @@ export function step(bodies: Body[], t: Table): StepEvent[] {
     b.x += Math.trunc(b.vx / 100);
     b.y += Math.trunc(b.vy / 100);
     // Friction always takes at least one unit, so a slow piece really stops.
-    b.vx -= Math.sign(b.vx) * Math.max(1, Math.trunc((Math.abs(b.vx) * t.friction) / K));
-    b.vy -= Math.sign(b.vy) * Math.max(1, Math.trunc((Math.abs(b.vy) * t.friction) / K));
+    const f = b.friction ?? t.friction;
+    b.vx -= Math.sign(b.vx) * Math.max(1, Math.trunc((Math.abs(b.vx) * f) / K));
+    b.vy -= Math.sign(b.vy) * Math.max(1, Math.trunc((Math.abs(b.vy) * f) / K));
     if (Math.abs(b.vx) < t.stop && Math.abs(b.vy) < t.stop) {
       b.vx = 0;
       b.vy = 0;

@@ -6,8 +6,8 @@
 import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
 import { seatFor, type BoardProps } from "../../boardProps";
-import { FINISH, SAFE, ludo, ludoMovable, toAbsolute, type LudoState } from "../../../../lib/games/ludo.ts";
-import { HOME, LOOP, SPOT, YARD } from "../../boards/LudoBoard";
+import { FINISH, SAFE, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, toAbsolute, type LudoState } from "../../../../lib/games/ludo.ts";
+import { HOME, LOOP, SPOT, YARD, cornerColours, useLudoAutoMove } from "../../boards/LudoBoard";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
 import { FONT, boardSlab, canvasTexture, felt, hop, markerDot, markerRing, mesh, pawnGeometry, plastic, repaint, roundRect, slab, wood } from "../kit";
@@ -31,7 +31,9 @@ const FINISH_AT: [number, number][] = [
   [7.75, 7],
 ];
 
-function squareOf(player: number, rel: number, token: number): [number, number] {
+/** A corner's square for a token (2.17.0: corners, not players — two players sit opposite). */
+function squareOf(corner: number, rel: number, token: number): [number, number] {
+  const player = corner;
   if (rel === -1) {
     const [yr, yc] = YARD[player];
     const [dr, dc] = SPOT[token];
@@ -194,14 +196,14 @@ class LudoScene extends TurnScene<LudoState> {
   setLook(n: number, colours: string[], me: number) {
     this.colours = colours;
     repaint(this.top, (ctx) => paintBoard(ctx, colours));
-    this.tokens.forEach((row, p) =>
+    this.tokens.forEach((row, c) =>
       row.forEach((m) => {
-        m.material = plastic(colours[p]);
-        m.visible = p < n;
+        m.material = plastic(colours[c]);
+        m.visible = ludoPlayerAt(c, n) >= 0;
       }),
     );
     // Turn the board so your yard is at the bottom left.
-    this.board.rotation.y = ((me + 1) % 4) * (Math.PI / 2);
+    this.board.rotation.y = ((ludoCorner(me, n) + 1) % 4) * (Math.PI / 2);
     this.stage.invalidate();
   }
 
@@ -226,7 +228,7 @@ class LudoScene extends TurnScene<LudoState> {
     s.pos.forEach((row, p) =>
       row.forEach((rel, t) => {
         if (rel < 0 || rel >= FINISH) return;
-        const [r, c] = squareOf(p, rel, t);
+        const [r, c] = squareOf(ludoCorner(p, this.n), rel, t);
         const k = `${r},${c}`;
         if (!shared.has(k)) shared.set(k, []);
         shared.get(k)!.push([p, t]);
@@ -234,7 +236,7 @@ class LudoScene extends TurnScene<LudoState> {
     );
     s.pos.forEach((row, p) =>
       row.forEach((rel, t) => {
-        const [r, c] = squareOf(p, rel, t);
+        const [r, c] = squareOf(ludoCorner(p, this.n), rel, t);
         const pos = at(r, c);
         let scale = rel >= FINISH ? 0.52 : 0.82;
         if (rel >= 0 && rel < FINISH) {
@@ -248,7 +250,7 @@ class LudoScene extends TurnScene<LudoState> {
             scale = 0.56;
           }
         }
-        out.set(this.tokens[p][t], { pos, scale });
+        out.set(this.tokens[ludoCorner(p, this.n)][t], { pos, scale });
       }),
     );
     return out;
@@ -277,10 +279,11 @@ class LudoScene extends TurnScene<LudoState> {
     const p = before.turn;
     const from = before.pos[p][t];
     const to = after.pos[p][t];
-    const pawn = this.tokens[p][t];
+    const corner = ludoCorner(p, this.n);
+    const pawn = this.tokens[corner][t];
     const steps: THREE.Vector3[] = [];
-    if (from === -1) steps.push(at(...squareOf(p, 0, t)));
-    else for (let r = from + 1; r <= to; r++) steps.push(at(...squareOf(p, r, t)));
+    if (from === -1) steps.push(at(...squareOf(corner, 0, t)));
+    else for (let r = from + 1; r <= to; r++) steps.push(at(...squareOf(corner, r, t)));
     for (const target of steps) {
       const start = pawn.position.clone();
       await this.stage.animate(165, (k) => hop(start, target, 0.5, k, pawn.position), easeOut);
@@ -292,9 +295,9 @@ class LudoScene extends TurnScene<LudoState> {
       if (q === p) continue;
       after.pos[q].forEach((rel, k) => {
         if (before.pos[q][k] >= 0 && rel === -1) {
-          const m = this.tokens[q][k];
+          const m = this.tokens[ludoCorner(q, this.n)][k];
           const start = m.position.clone();
-          const home = at(...squareOf(q, -1, k));
+          const home = at(...squareOf(ludoCorner(q, this.n), -1, k));
           sfx("capture");
           flights.push(this.stage.animate(650, (u) => hop(start, home, 3, u, m.position)));
         }
@@ -319,12 +322,13 @@ class LudoScene extends TurnScene<LudoState> {
     if (!info || !s) return;
     if (!info.canPlay || !info.roll) return;
     for (const t of info.movable) {
-      const pawn = this.tokens[info.turn][t];
+      const corner = ludoCorner(info.turn, this.n);
+      const pawn = this.tokens[corner][t];
       const ring = markerRing(0.34, 0x4f46e5, 0.06);
       ring.position.set(pawn.position.x, TOP + 0.01, pawn.position.z);
       this.marks.add(ring);
       const rel = s.pos[info.turn][t];
-      const dest = at(...squareOf(info.turn, rel === -1 ? 0 : Math.min(FINISH, rel + info.roll), t));
+      const dest = at(...squareOf(corner, rel === -1 ? 0 : Math.min(FINISH, rel + info.roll), t));
       this.stage.pickable(pawn, {
         onClick: () => {
           this.clearMarks();
@@ -351,11 +355,21 @@ class LudoScene extends TurnScene<LudoState> {
   }
 }
 
+/** A corner nobody plays: its colour, much lighter. */
+function pale(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "#e2e8f0";
+  const v = parseInt(m[1], 16);
+  const mix = (x: number) => Math.round(x + (255 - x) * 0.68);
+  return `#${[(v >> 16) & 255, (v >> 8) & 255, v & 255].map((x) => mix(x).toString(16).padStart(2, "0")).join("")}`;
+}
+
 /** Ludo, the 3D board. */
 export default function Ludo3D({ moves, canPlay, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
   const n = Math.max(2, Math.min(4, seats?.length ?? 2));
   const state = useMemo(() => ludo.replay(moves, n, seed), [moves, n, seed]);
-  const colours = useMemo(() => Array.from({ length: 4 }, (_, i) => (i < n ? seatFor(seats, starter, i, n).color : "#cbd5e1")), [seats, starter, n]);
+  // Each corner's colour; the corners nobody plays are pale (2.17.0).
+  const colours = useMemo(() => cornerColours(n, (p) => seatFor(seats, starter, p, n).color).map((c) => (c.player >= 0 ? c.colour : pale(c.colour))), [seats, starter, n]);
   const me = local ? 0 : Math.max(0, seat);
   const move = useRef(onMove);
   move.current = onMove;
@@ -366,27 +380,26 @@ export default function Ludo3D({ moves, canPlay, seat, seats, starter = 0, seed 
   useEffect(() => {
     scene?.setTurn({ canPlay, roll: state?.roll ?? 0, turn: state?.turn ?? 0, movable, onPick: (t) => move.current(`m:${t}`), onRoll: () => move.current("r") });
   }, [scene, canPlay, state, movable]);
-  // Who threw the last die (the turn may have passed since, after "no move").
-  const roller = useMemo(() => {
-    const k = moves.lastIndexOf("r");
-    return k < 0 ? 0 : (ludo.replay(moves.slice(0, k), n, seed)?.turn ?? 0);
-  }, [moves, n, seed]);
+  useLudoAutoMove(state, canPlay, onMove, 900);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const said = ludoEventText(state, (p) => seatFor(seats, starter, p, n).name);
+  const choose = movable.length > 1 && ludoChoices(state).length > 1;
   const actions: Action[] = movable.map((t) => ({ key: `t${t}`, label: `Move token ${t + 1}`, run: () => onMove(`m:${t}`), attrs: { "data-ludo-token": `${state.turn}:${t}`, "data-ludo-can": "1" } }));
   return (
     <div data-game-board="ludo" data-g3-board="ludo" className="flex w-full max-w-[760px] flex-col items-center gap-2">
       <BoardBar>
         {state.lastRoll > 0 && (
           <span className="inline-flex items-center gap-1.5" data-ludo-last>
-            <SeatDot color={colour(roller)} /> rolled <b data-die={state.lastRoll}>{state.lastRoll}</b>
-            {state.event && <span className="font-normal text-slate-500">· {state.event}</span>}
+            <SeatDot color={colour(state.roller)} /> rolled <b data-die={state.lastRoll}>{state.lastRoll}</b>
+            {said && <span className="font-normal text-slate-500" data-ludo-event={state.event || "six"}>· {said}</span>}
           </span>
         )}
         <button type="button" data-ludo-roll disabled={!canPlay || state.roll > 0} onClick={() => onMove("r")} className={primary3}>
           Roll
         </button>
-        {state.roll > 0 && canPlay && <span className="text-indigo-600 dark:text-indigo-300">Click a pawn to move {state.roll}</span>}
+        {state.roll > 0 && canPlay && <span className="text-indigo-600 dark:text-indigo-300">{choose ? `Click a pawn to move ${state.roll}` : `Moving ${state.roll}…`}</span>}
+        {!state.roll && canPlay && state.again && <span className="text-indigo-600 dark:text-indigo-300" data-ludo-again>Roll again!</span>}
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.2} maxH={640} testId="ludo" />
       <HiddenActions actions={actions} label="Pawns you can move" />

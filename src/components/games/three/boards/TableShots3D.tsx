@@ -8,7 +8,7 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
 import { CARROM_S, QUEEN, STRIKER, carrom, carromSimulate, strikerSpot, type CarromState } from "../../../../lib/games/carrom.ts";
 import { BALL_R, CUP_R, GOLF_H, GOLF_W, HOLES, MAX_STROKES, golfShot, minigolf, type GolfState } from "../../../../lib/games/minigolf.ts";
 import { K } from "../../../../lib/games/physics2d.ts";
@@ -403,6 +403,7 @@ export function Carrom3D({ moves, canPlay, turn, seat, seats, starter = 0, local
         </span>
         {state.queenBy !== null && <span className="text-rose-600">queen: {name(state.queenBy)}</span>}
         {state.queenPending !== null && <span className="text-rose-600">cover the queen!</span>}
+        {state.due.map((d, q) => (d > 0 ? <span key={q} className="text-amber-600">{name(q)} owes {d === 1 ? "a coin" : `${d} coins`}</span> : null))}
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.12} maxH={560} testId="carrom" />
       {canPlay && (
@@ -419,7 +420,11 @@ export function Carrom3D({ moves, canPlay, turn, seat, seats, starter = 0, local
           <span className="max-w-[240px] text-[11.5px] text-slate-500">Drag the striker along your line; aim with the mouse; press and pull back to flick.</span>
         </div>
       )}
-      {state.log.length > 0 && <div className="text-[11.5px] text-slate-500">{state.log[state.log.length - 1]}</div>}
+      {state.log.length > 0 && (
+        <div className="max-w-[520px] text-center text-[11.5px] text-slate-600 dark:text-slate-300" data-carrom-log>
+          {namesIn(state.log[state.log.length - 1], seats, starter, 2)}
+        </div>
+      )}
     </div>
   );
 }

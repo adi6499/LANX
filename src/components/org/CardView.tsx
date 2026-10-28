@@ -673,7 +673,7 @@ export function CardView({
     const meta = gameMeta(card.game);
     const name = meta?.name ?? "a game";
     const result = msg.card_state?.find((e) => e.key === "result")?.value;
-    const table = card.players && card.players.length > 2 ? card.players : null;
+    const table = card.players && card.players.length >= 2 ? card.players : null; // 2.17.0: a hosted game for two is a table too
     const others = table ? table.map((id, i) => (id === myId ? "you" : card.names?.[i] || "a colleague")).filter((_, i) => i > 0) : [];
     body = (
       <div className="flex items-center gap-3">

@@ -7,8 +7,9 @@
 import * as THREE from "three";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Shuffle, Trash2 } from "lucide-react";
-import type { BoardProps } from "../../boardProps";
-import { SEA, SHIPS, answerShot, battleship, canPlace, fleetCells, randomFleet, type BattleshipState, type Fleet } from "../../../../lib/games/battleship.ts";
+import { seatFor, type BoardProps } from "../../boardProps";
+import { SEA, SHIPS, answerShot, battleship, canPlace, fleetCells, placeProblem, randomFleet, shipName, type BattleshipState, type Fleet } from "../../../../lib/games/battleship.ts";
+import { FleetList, LOST_FLEET, placeHint, seaNews } from "../../boards/BattleshipBoard";
 import { sfx } from "../../../../lib/gameSounds";
 import { BoardScene, type PieceSpec } from "../boardScene";
 import { canvasTexture, labelMesh, mesh, slab } from "../kit";
@@ -128,7 +129,7 @@ class SeaScene extends BoardScene<BattleshipState> {
     const s = this.replay(this.shown);
     const info = this.info;
     if (!s || !info) return false;
-    if (info.phase === "place") return i >= 100 && info.nextLen !== undefined && !!canPlace(info.fleet, i - 100, info.nextLen, info.horizontal);
+    if (info.phase === "place") return i >= 100 && info.nextLen !== undefined && !fleetCells(info.fleet).has(i - 100);
     if (info.phase === "fire") return i < 100 && info.canFire && s.known[this.seat][i] === "";
     return false;
   }
@@ -145,7 +146,7 @@ class SeaScene extends BoardScene<BattleshipState> {
   }
   protected showHover(c: number | null) {
     super.showHover(c);
-    // While placing: a ghost ship shows where it would go.
+    // While placing: a ghost ship shows where it would go — red where it can't (2.17.0).
     const info = this.info;
     if (info?.phase === "place" && c !== null && info.nextLen) {
       if (this.ghostLen !== info.nextLen) {
@@ -156,15 +157,25 @@ class SeaScene extends BoardScene<BattleshipState> {
           if (m) {
             m.transparent = true;
             m.opacity = 0.55;
+            m.userData.colour = m.color.getHex();
           }
         });
         this.ghost.add(ship);
         this.ghostLen = info.nextLen;
       }
+      const ok = !!canPlace(info.fleet, c - 100, info.nextLen, info.horizontal);
+      this.ghost.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (m && m.userData.colour !== undefined) m.color.setHex(ok ? m.userData.colour : 0xef4444);
+      });
+      if (this.hoverMark) (((this.hoverMark as THREE.Mesh).material as THREE.MeshBasicMaterial).color.setHex(ok ? 0xfacc15 : 0xef4444));
       this.ghost.visible = true;
       this.ghost.position.copy(this.cellPos(c)).setY(this.top);
       this.ghost.rotation.y = info.horizontal ? 0 : -Math.PI / 2;
-    } else this.ghost.visible = false;
+    } else {
+      this.ghost.visible = false;
+      if (this.hoverMark) ((this.hoverMark as THREE.Mesh).material as THREE.MeshBasicMaterial).color.setHex(0xfacc15);
+    }
   }
   private fleetGroup = new THREE.Group();
   private drawFleet() {
@@ -199,22 +210,26 @@ class SeaScene extends BoardScene<BattleshipState> {
   }
 }
 
-export default function Sea3D({ moves, canPlay, turn, seat, secret, onSecret, onMove }: BoardProps) {
+export default function Sea3D({ moves, canPlay, turn, seat, seats, starter = 0, secret, onSecret, onMove }: BoardProps) {
   const state = useMemo(() => battleship.replay(moves, 2, ""), [moves]);
   const fleet: Fleet = ((secret as Secret | undefined)?.fleet ?? []) as Fleet;
   const [horizontal, setHorizontal] = useState(true);
+  const [hint, setHint] = useState<string | null>(null);
   const answered = useRef(-1);
   const other = 1 - seat;
   const iAmReady = !!state?.ready[seat];
   const bothReady = !!state && state.ready[0] && state.ready[1];
+  // LANX 2.17.0: ready, but the fleet is gone from this PC — never answer "miss" for a sea we can't see.
+  const lost = iAmReady && fleet.length !== SHIPS.length;
+  const name = (p: number) => seatFor(seats, starter, p, 2).name.split(" (")[0];
   const myHits = useMemo(() => new Set((state?.known[other] ?? []).map((k, i) => (k === "h" || k === "s" ? i : -1)).filter((i) => i >= 0)), [state, other]);
   // Their shot waits for my answer: look at my fleet and answer at once (as the flat board does).
   useEffect(() => {
-    if (!state || state.pending < 0 || state.turn !== seat || !canPlay) return;
+    if (!state || state.pending < 0 || state.turn !== seat || !canPlay || lost) return;
     if (answered.current === moves.length) return;
     answered.current = moves.length;
     onMove(`a:${state.pending}:${answerShot(fleet, state.pending, myHits)}`);
-  }, [state, seat, canPlay, fleet, myHits, moves.length, onMove]);
+  }, [state, seat, canPlay, fleet, myHits, moves.length, onMove, lost]);
   const send = useRef(onMove);
   send.current = onMove;
   const fleetRef = useRef(fleet);
@@ -223,7 +238,7 @@ export default function Sea3D({ moves, canPlay, turn, seat, secret, onSecret, on
   useEffect(() => scene?.sync(2, "", moves), [scene, moves]);
   const phase: SeaTurn["phase"] = !iAmReady ? "place" : !bothReady ? "wait" : "fire";
   const nextLen = SHIPS[fleet.length];
-  const canFire = canPlay && bothReady && turn === seat && (state?.pending ?? 0) < 0;
+  const canFire = canPlay && bothReady && !lost && turn === seat && (state?.pending ?? 0) < 0;
   useEffect(() => {
     scene?.setTurn(
       {
@@ -233,8 +248,14 @@ export default function Sea3D({ moves, canPlay, turn, seat, secret, onSecret, on
         nextLen,
         horizontal,
         onPlace: (i) => {
-          const cells = canPlace(fleetRef.current, i, SHIPS[fleetRef.current.length], horizontal);
-          if (cells) onSecret?.({ fleet: [...fleetRef.current, { cells, len: SHIPS[fleetRef.current.length] }] });
+          const len = SHIPS[fleetRef.current.length];
+          if (len === undefined) return;
+          const why = placeProblem(fleetRef.current, i, len, horizontal);
+          if (why) return setHint(placeHint(why));
+          const cells = canPlace(fleetRef.current, i, len, horizontal);
+          if (!cells) return;
+          setHint(null);
+          onSecret?.({ fleet: [...fleetRef.current, { cells, len }] });
         },
         onFire: (i) => send.current(`f:${i}`),
       },
@@ -244,23 +265,62 @@ export default function Sea3D({ moves, canPlay, turn, seat, secret, onSecret, on
   if (!state) return null;
   const actions: Action[] = canFire ? state.known[seat].flatMap((k, i): Action[] => (k ? [] : [{ key: String(i), label: `Fire at ${i}`, run: () => onMove(`f:${i}`), attrs: { "data-sea-cell": `theirs:${i}` } }])) : [];
   const taken = fleetCells(fleet);
+  const news = phase === "fire" ? seaNews(state, moves, seat, name) : null;
   return (
-    <div data-game-board="battleship" data-g3-board="battleship" data-sea-phase={phase} className="flex w-full max-w-[860px] flex-col items-center gap-2">
+    <div data-game-board="battleship" data-g3-board="battleship" data-sea-phase={phase} data-sea-lost={lost ? "1" : undefined} className="flex w-full max-w-[860px] flex-col items-center gap-2">
       <BoardBar>
-        {phase === "place" && <span>{nextLen ? `Place your ship of ${nextLen} (${fleet.length + 1} of ${SHIPS.length}) on your sea` : "Fleet placed — press Ready"}</span>}
-        {phase === "wait" && <span>Your fleet is in place. Waiting for the other captain…</span>}
-        {phase === "fire" && <span data-sea-hits>Hits: you {state.hits[seat]} · them {state.hits[other]} of 17{canFire ? " — call a square on their sea" : ""}</span>}
+        {lost ? (
+          <span className="max-w-[640px] text-center text-rose-700 dark:text-rose-300">{LOST_FLEET}</span>
+        ) : (
+          <>
+            {phase === "place" && <span>{nextLen ? `Place your ${shipName(fleet.length)} — ${nextLen} squares (${fleet.length + 1} of ${SHIPS.length}) on your sea` : "Fleet placed — press Ready"}</span>}
+            {phase === "wait" && <span>Your fleet is in place. Waiting for {name(other)} to place theirs…</span>}
+            {phase === "fire" && <span data-sea-hits>Hits: you {state.hits[seat]} · {name(other)} {state.hits[other]} of 17{canFire ? " — call a square on their sea" : ""}</span>}
+          </>
+        )}
       </BoardBar>
+      {phase === "place" && <div data-sea-hint className="min-h-[18px] text-center text-[12px] font-semibold text-amber-700 dark:text-amber-300">{hint ?? ""}</div>}
+      {phase === "fire" && !lost && <div data-sea-news className="min-h-[18px] text-[13px] font-semibold text-slate-700 dark:text-slate-200">{news ?? ""}</div>}
       <SceneBox hostRef={hostRef} aspect={1.95} minH={280} maxH={460} testId="battleship" />
+      {phase === "fire" && !lost && (
+        <div className="flex w-full flex-wrap justify-around gap-2">
+          <FleetList s={state} sunkBy={seat} title="Their ships:" />
+          <FleetList s={state} sunkBy={other} title="Your ships:" />
+        </div>
+      )}
       {phase === "place" && (
         <div className="flex flex-wrap items-center justify-center gap-1.5 text-[12px]">
-          <button type="button" data-sea-rotate onClick={() => setHorizontal((h) => !h)} className={`${quiet3} inline-flex items-center gap-1`}>
+          <button
+            type="button"
+            data-sea-rotate
+            onClick={() => {
+              setHint(null);
+              setHorizontal((h) => !h);
+            }}
+            className={`${quiet3} inline-flex items-center gap-1`}
+          >
             <RefreshCw className="h-3.5 w-3.5" /> {horizontal ? "Across" : "Down"}
           </button>
-          <button type="button" data-sea-random onClick={() => onSecret?.({ fleet: randomFleet(Date.now() & 0xffffffff) })} className={`${quiet3} inline-flex items-center gap-1`}>
+          <button
+            type="button"
+            data-sea-random
+            onClick={() => {
+              setHint(null);
+              onSecret?.({ fleet: randomFleet(Date.now() & 0xffffffff) });
+            }}
+            className={`${quiet3} inline-flex items-center gap-1`}
+          >
             <Shuffle className="h-3.5 w-3.5" /> Place for me
           </button>
-          <button type="button" data-sea-clear onClick={() => onSecret?.({ fleet: [] })} className={`${quiet3} inline-flex items-center gap-1`}>
+          <button
+            type="button"
+            data-sea-clear
+            onClick={() => {
+              setHint(null);
+              onSecret?.({ fleet: [] });
+            }}
+            className={`${quiet3} inline-flex items-center gap-1`}
+          >
             <Trash2 className="h-3.5 w-3.5" /> Clear
           </button>
           <button type="button" data-sea-ready disabled={fleet.length !== SHIPS.length || !canPlay} onClick={() => onMove(`${seat}@ready`)} className={primary3}>

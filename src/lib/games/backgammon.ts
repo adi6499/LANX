@@ -3,6 +3,9 @@
 // off from 18..23. The match rolls the dice (doubles give four moves). A lone
 // checker is hit and goes to the bar; you must re-enter from the bar first.
 // First to bear off all fifteen wins.
+// LANX 2.17.0, the forced-move rule: you must use both dice (all four on a
+// double) when you can; when only one die can be played, it must be the
+// higher one if that one can be played.
 //
 // Moves: "r" (roll), "m:<from>:<die>" (from 0..23 or "bar"; die 1..6), and
 // "x" to end the turn when the dice left cannot be used.
@@ -20,6 +23,8 @@ export interface BgState {
   lastRoll: [number, number] | null;
   rolls: number;
   winner: number | null;
+  /** LANX 2.17.0: what just happened, in words ("P2 can't move — turn passes"); boards name the players. */
+  note: string;
 }
 
 const start = (): number[] => {
@@ -65,8 +70,11 @@ export function bgTarget(s: BgState, from: number | "bar", die: number, p: numbe
   return farther ? null : -1;
 }
 
-export function bgMoves(s: BgState): { from: number | "bar"; die: number; to: number }[] {
-  const out: { from: number | "bar"; die: number; to: number }[] = [];
+type BgMove = { from: number | "bar"; die: number; to: number };
+
+/** Every single checker move the dice allow, before the forced-move rule. */
+function rawMoves(s: BgState): BgMove[] {
+  const out: BgMove[] = [];
   const dice = [...new Set(s.dice)];
   for (const die of dice) {
     const t = bgTarget(s, "bar", die, s.turn);
@@ -80,12 +88,11 @@ export function bgMoves(s: BgState): { from: number | "bar"; die: number; to: nu
   return out;
 }
 
-function apply(s: BgState, from: number | "bar", die: number): boolean {
+const copy = (s: BgState): BgState => ({ ...s, points: [...s.points], bar: [s.bar[0], s.bar[1]], off: [s.off[0], s.off[1]], dice: [...s.dice] });
+
+/** Moves one checker (no rule checks beyond the target being reachable). */
+function step(s: BgState, from: number | "bar", die: number, to: number) {
   const p = s.turn;
-  const k = s.dice.indexOf(die);
-  if (k < 0) return false;
-  const to = bgTarget(s, from, die, p);
-  if (to === null) return false;
   if (from === "bar") s.bar[p]--;
   else s.points[from] -= sign(p);
   if (to === -1) s.off[p]++;
@@ -97,8 +104,51 @@ function apply(s: BgState, from: number | "bar", die: number): boolean {
     }
     s.points[to] += sign(p);
   }
-  s.dice.splice(k, 1);
-  if (s.off[p] === 15) s.winner = p;
+  s.dice.splice(s.dice.indexOf(die), 1);
+}
+
+/** The most dice that can still be played from here (bearing the last checker off counts as all of them). */
+function mostDice(s: BgState, memo: Map<string, number>): number {
+  if (!s.dice.length) return 0;
+  const key = `${s.points.join(",")}|${s.bar.join(",")}|${s.dice.join(",")}`;
+  const known = memo.get(key);
+  if (known !== undefined) return known;
+  let best = 0;
+  for (const m of rawMoves(s)) {
+    const c = copy(s);
+    step(c, m.from, m.die, m.to);
+    const used = c.off[s.turn] === 15 ? s.dice.length : 1 + mostDice(c, memo);
+    if (used > best) best = used;
+    if (best === s.dice.length) break;
+  }
+  memo.set(key, best);
+  return best;
+}
+
+/** The moves you may make now: the forced-move rule applied (use as many dice as you can; the higher die when only one fits). */
+export function bgMoves(s: BgState): BgMove[] {
+  const raw = rawMoves(s);
+  if (!raw.length) return raw;
+  const memo = new Map<string, number>();
+  const most = mostDice(s, memo);
+  let legal = raw.filter((m) => {
+    const c = copy(s);
+    step(c, m.from, m.die, m.to);
+    return (c.off[s.turn] === 15 ? s.dice.length : 1 + mostDice(c, memo)) === most;
+  });
+  if (most === 1 && s.dice.length === 2 && s.dice[0] !== s.dice[1]) {
+    const high = Math.max(s.dice[0], s.dice[1]);
+    if (legal.some((m) => m.die === high)) legal = legal.filter((m) => m.die === high);
+  }
+  return legal;
+}
+
+function apply(s: BgState, from: number | "bar", die: number): boolean {
+  if (s.dice.indexOf(die) < 0) return false;
+  const m = bgMoves(s).find((x) => x.from === from && x.die === die);
+  if (!m) return false;
+  step(s, from, die, m.to);
+  if (s.off[s.turn] === 15) s.winner = s.turn;
   return true;
 }
 
@@ -114,7 +164,8 @@ export const backgammon: GameDef<BgState> = {
   minPlayers: 2,
   maxPlayers: 2,
   replay(moves, _n, seed) {
-    const s: BgState = { points: start(), bar: [0, 0], off: [0, 0], turn: 0, dice: [], lastRoll: null, rolls: 0, winner: null };
+    const s: BgState = { points: start(), bar: [0, 0], off: [0, 0], turn: 0, dice: [], lastRoll: null, rolls: 0, winner: null, note: "" };
+    const who = () => `P${s.turn + 1}`;
     for (const m of moves) {
       if (s.winner !== null) return null;
       if (m === "r") {
@@ -124,7 +175,9 @@ export const backgammon: GameDef<BgState> = {
         s.rolls += 2;
         s.lastRoll = [a, b];
         s.dice = a === b ? [a, a, a, a] : [a, b];
+        s.note = `${who()} rolled ${a}-${b}`;
         if (bgMoves(s).length === 0) {
+          s.note = `${who()} rolled ${a}-${b} and can't move — turn passes`;
           s.dice = [];
           s.turn = 1 - s.turn;
         }
@@ -132,6 +185,7 @@ export const backgammon: GameDef<BgState> = {
       }
       if (m === "x") {
         if (!s.dice.length || bgMoves(s).length) return null; // only when stuck
+        s.note = `${who()} can't use the ${s.dice.join(" and ")} — turn passes`;
         s.dice = [];
         s.turn = 1 - s.turn;
         continue;
@@ -139,11 +193,16 @@ export const backgammon: GameDef<BgState> = {
       const mv = /^m:(bar|\d+):([1-6])$/.exec(m);
       if (!mv || !s.dice.length) return null;
       const from = mv[1] === "bar" ? "bar" : Number(mv[1]);
+      const hitBefore = s.bar[1 - s.turn];
       if (!apply(s, from, Number(mv[2]))) return null;
-      if (s.winner === null && (s.dice.length === 0 || bgMoves(s).length === 0)) {
+      s.note = s.bar[1 - s.turn] > hitBefore ? `${who()} hit a checker — it goes to the bar` : "";
+      if (s.winner !== null) s.note = `${who()} bore off the last checker`;
+      else if (s.dice.length === 0) s.dice = [];
+      else if (bgMoves(s).length === 0) {
+        s.note = `${who()} can't use the ${s.dice.join(" and ")} — turn passes`;
         s.dice = [];
-        s.turn = 1 - s.turn;
       }
+      if (s.winner === null && s.dice.length === 0) s.turn = 1 - s.turn;
     }
     return s;
   },

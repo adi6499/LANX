@@ -10,7 +10,8 @@ import { Chess, type Square } from "chess.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BoardProps } from "../../boardProps";
 import { C4_COLS, C4_ROWS, c4Grid, c4WinCells, chessGame, type Cell } from "../../../../lib/gameRules";
-import { checkers, checkersMoves, type CheckersState } from "../../../../lib/games/checkers.ts";
+import { checkers, checkersMoves, checkersRouteStep, type CheckersState } from "../../../../lib/games/checkers.ts";
+import { CHECKERS_ROUTE_NOTE } from "../../boards/CheckersBoard";
 import { sfx } from "../../../../lib/gameSounds";
 import { BoardScene, type PieceSpec } from "../boardScene";
 import { TurnScene } from "../turnScene";
@@ -380,9 +381,20 @@ export function Chess3D({ moves, canPlay, turn, seat, local, onMove }: BoardProp
 
 // ------------------------------------------------------------ Checkers
 
+interface CheckersTurn {
+  canPlay: boolean;
+  turn: number;
+  legal: string[];
+  onMove: (m: string) => void;
+  /** Tells the page when two capture routes reach the clicked square (so it can say what to do). */
+  onRoutes: (choosing: boolean) => void;
+}
+
 class CheckersScene extends BoardScene<CheckersState> {
-  private info: { canPlay: boolean; turn: number; legal: string[]; onMove: (m: string) => void } | null = null;
+  private info: CheckersTurn | null = null;
   private from: number | null = null;
+  /** LANX 2.17.0: the capture routes still possible while the player picks one hop by hop. */
+  private routes: string[] | null = null;
   private marks = new THREE.Group();
   private colours = ["#e11d48", "#1f2937"];
   constructor(host: HTMLElement) {
@@ -397,9 +409,10 @@ class CheckersScene extends BoardScene<CheckersState> {
     this.root.rotation.y = flip ? Math.PI : 0;
     this.stage.invalidate();
   }
-  setTurn(info: { canPlay: boolean; turn: number; legal: string[]; onMove: (m: string) => void }) {
+  setTurn(info: CheckersTurn) {
     this.info = info;
     this.from = null;
+    this.setRoutes(null);
     if (this.settled) this.drawMarks();
     this.refreshHover();
   }
@@ -417,20 +430,51 @@ class CheckersScene extends BoardScene<CheckersState> {
   private targets(from: number) {
     return (this.info?.legal ?? []).filter((m) => Number(m.split("-")[0]) === from);
   }
+  private setRoutes(r: string[] | null) {
+    const was = this.routes !== null;
+    this.routes = r;
+    if (was !== (r !== null)) this.info?.onRoutes(r !== null);
+  }
   protected clickable(i: number) {
     if (!this.info?.canPlay) return false;
+    if (this.routes) return i === this.from || checkersRouteStep(this.routes).next.includes(i);
     if (this.from !== null && this.targets(this.from).some((m) => Number(m.split("-").pop()) === i)) return true;
     return this.targets(i).length > 0;
   }
+  private send(m: string) {
+    this.from = null;
+    this.setRoutes(null);
+    this.drawMarks();
+    this.showHover(null);
+    this.info?.onMove(m);
+  }
   protected clicked(i: number) {
     if (!this.info) return;
+    if (this.routes) {
+      const step = checkersRouteStep(this.routes);
+      if (step.next.includes(i)) {
+        const left = this.routes.filter((m) => Number(m.split("-")[step.path.length]) === i);
+        sfx("tap", 0.4);
+        if (left.length === 1) this.send(left[0]);
+        else {
+          this.setRoutes(left);
+          this.drawMarks();
+        }
+        return;
+      }
+      // The piece again: start over.
+      this.setRoutes(null);
+      this.drawMarks();
+      return;
+    }
     if (this.from !== null) {
-      const m = this.targets(this.from).find((x) => Number(x.split("-").pop()) === i);
-      if (m) {
-        this.from = null;
+      const ends = this.targets(this.from).filter((x) => Number(x.split("-").pop()) === i);
+      if (ends.length === 1) return this.send(ends[0]);
+      if (ends.length > 1) {
+        // Two routes end here: the player clicks the hops to say which.
+        sfx("tap", 0.4);
+        this.setRoutes(ends);
         this.drawMarks();
-        this.showHover(null);
-        this.info.onMove(m);
         return;
       }
     }
@@ -452,6 +496,28 @@ class CheckersScene extends BoardScene<CheckersState> {
           const r = markerRing(0.44, 0xfacc15, 0.05);
           r.position.copy(this.cellPos(f)).setY(this.top + 0.004);
           this.marks.add(r);
+        }
+      } else if (this.routes) {
+        const sel = squarePlane(0x6366f1, 0.35);
+        sel.position.copy(this.cellPos(this.from)).setY(this.top + 0.003);
+        this.marks.add(sel);
+        const step = checkersRouteStep(this.routes);
+        for (const k of step.path.slice(1)) {
+          const p = squarePlane(0xfacc15, 0.3);
+          p.position.copy(this.cellPos(k)).setY(this.top + 0.003);
+          this.marks.add(p);
+        }
+        for (const k of step.next) {
+          const d = markerDot(0.18, 0x0ea5e9, 0.85);
+          d.position.copy(this.cellPos(k)).setY(this.top + 0.004);
+          this.marks.add(d);
+        }
+        // Where both routes end.
+        for (const k of new Set(this.routes.map((m) => Number(m.split("-").pop())))) {
+          if (k === this.from) continue;
+          const d = markerDot(0.16, 0x10b981, 0.75);
+          d.position.copy(this.cellPos(k)).setY(this.top + 0.004);
+          this.marks.add(d);
         }
       } else {
         const sel = squarePlane(0x6366f1, 0.35);
@@ -490,6 +556,7 @@ class CheckersScene extends BoardScene<CheckersState> {
   }
   protected async animateStep(before: CheckersState, after: CheckersState, move: string) {
     this.from = null;
+    this.setRoutes(null);
     for (const m of [...this.marks.children]) m.visible = false;
     const path = move.split("-").map(Number);
     const piece = before.cells[path[0]];
@@ -546,10 +613,11 @@ export function Checkers3D({ moves, canPlay, turn, seat, local, onMove }: BoardP
   const legal = useMemo(() => (state && canPlay ? checkersMoves(state) : []), [state, canPlay]);
   const send = useRef(onMove);
   send.current = onMove;
+  const [choosing, setChoosing] = useState(false);
   const [hostRef, scene] = useScene((el) => new CheckersScene(el));
   useEffect(() => scene?.setSide(!local && seat === 1), [scene, local, seat]);
   useEffect(() => scene?.sync(2, "", moves), [scene, moves]);
-  useEffect(() => scene?.setTurn({ canPlay, turn, legal, onMove: (m) => send.current(m) }), [scene, canPlay, turn, legal]);
+  useEffect(() => scene?.setTurn({ canPlay, turn, legal, onMove: (m) => send.current(m), onRoutes: setChoosing }), [scene, canPlay, turn, legal]);
   if (!state) return null;
   const actions: Action[] = legal.map((m) => ({ key: m, label: `Move ${m}`, run: () => onMove(m), attrs: { "data-checkers-move": m } }));
   return (
@@ -563,6 +631,7 @@ export function Checkers3D({ moves, canPlay, turn, seat, local, onMove }: BoardP
         {canPlay && legal.length > 0 && legal[0].split("-").length > 1 && Math.abs(Number(legal[0].split("-")[1]) - Number(legal[0].split("-")[0])) > 9 && <span className="text-amber-700 dark:text-amber-300">You must jump</span>}
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.08} maxH={620} testId="checkers" />
+      {choosing && <div data-checkers-routes className="text-center text-[12px] font-semibold text-slate-700 dark:text-slate-200">{CHECKERS_ROUTE_NOTE}</div>}
       <HiddenActions actions={actions} label="Legal moves" />
     </div>
   );

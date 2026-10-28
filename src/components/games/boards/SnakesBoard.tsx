@@ -1,6 +1,6 @@
 import { Dice3D } from "./Dice3D";
 import { useMemo } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { LADDERS, SNAKES, snakes } from "../../../lib/games/snakes.ts";
 
 const CELL = 42;
@@ -20,13 +20,14 @@ export function SnakesBoard({ moves, canPlay, turn, seats, starter = 0, seed = "
   const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const name = (p: number) => seatFor(seats, starter, p, n).name.split(" (")[0];
   const size = CELL * 10;
   return (
     <div data-game-board="snakes" className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-3 text-[12.5px] font-semibold">
         {state.lastBy >= 0 && (
           <span className="inline-flex items-center gap-1.5" data-snakes-last>
-            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(state.lastBy) }} /> rolled <Dice3D value={state.lastRoll} size={30} rollKey={rolls} />
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(state.lastBy) }} /> {name(state.lastBy)} rolled <Dice3D value={state.lastRoll} size={30} rollKey={rolls} />
           </span>
         )}
         <button type="button" data-snakes-roll disabled={!canPlay} onClick={() => onMove("r")} className="rounded-full bg-indigo-600 px-4 py-1.5 text-white hover:bg-indigo-700 disabled:opacity-50">
@@ -61,7 +62,7 @@ export function SnakesBoard({ moves, canPlay, turn, seats, starter = 0, seed = "
             return <path key={`s${a}`} d={`M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`} stroke="#dc2626" strokeWidth={6} fill="none" strokeLinecap="round" opacity={0.85} />;
           })}
           {state.pos.map((sq, p) => {
-            if (sq === 0) return null;
+            if (sq === 0 || state.out[p]) return null;
             const [x, y] = centre(sq);
             const dx = (p % 3) * 9 - 9;
             const dy = Math.floor(p / 3) * 9 - 4;
@@ -69,10 +70,13 @@ export function SnakesBoard({ moves, canPlay, turn, seats, starter = 0, seed = "
           })}
         </svg>
       </div>
+      <div className="min-h-[18px] text-[12.5px] text-slate-600 dark:text-slate-300" data-snakes-event>
+        {state.event ? namesIn(state.event, seats, starter, n) : "Roll to start. Exactly 100 wins; a six rolls again."}
+      </div>
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12px]" data-snakes-positions>
         {state.pos.map((sq, p) => (
-          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "font-bold" : ""}`}>
-            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {sq || "start"}
+          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "font-bold" : ""} ${state.out[p] ? "line-through opacity-50" : ""}`}>
+            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)}: {state.out[p] ? "left" : sq || "start"}
           </span>
         ))}
       </div>

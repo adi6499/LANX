@@ -13,6 +13,11 @@ export interface MancalaState {
   pits: number[];
   turn: number;
   last: number;
+  /** What the last move did (2.17.0), so the board can say it: who moved, whether their last seed
+   *  landed in their own store (they go again), and how many seeds they captured. */
+  mover: number;
+  again: boolean;
+  captured: number;
 }
 
 const store = (p: number) => (p === 0 ? 6 : 13);
@@ -33,9 +38,11 @@ function apply(s: MancalaState, pitRel: number): MancalaState | null {
     seeds--;
   }
   let turn = 1 - s.turn;
+  let captured = 0;
   if (i === store(s.turn)) turn = s.turn;
   else if (side(s.turn).includes(i) && pits[i] === 1 && pits[12 - i] > 0) {
-    pits[store(s.turn)] += pits[i] + pits[12 - i];
+    captured = pits[i] + pits[12 - i];
+    pits[store(s.turn)] += captured;
     pits[i] = 0;
     pits[12 - i] = 0;
   }
@@ -49,7 +56,7 @@ function apply(s: MancalaState, pitRel: number): MancalaState | null {
       }
     }
   }
-  return { pits, turn, last: i };
+  return { pits, turn, last: i, mover: s.turn, again: turn === s.turn, captured };
 }
 
 const finished = (s: MancalaState) => side(0).every((x) => s.pits[x] === 0) && side(1).every((x) => s.pits[x] === 0);
@@ -70,7 +77,7 @@ export const mancala: GameDef<MancalaState> = {
   minPlayers: 2,
   maxPlayers: 2,
   replay(moves) {
-    let s: MancalaState = { pits: [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0], turn: 0, last: -1 };
+    let s: MancalaState = { pits: [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0], turn: 0, last: -1, mover: -1, again: false, captured: 0 };
     for (const m of moves) {
       if (finished(s)) return null;
       const pit = num(m);
@@ -83,5 +90,5 @@ export const mancala: GameDef<MancalaState> = {
   },
   turn: (s) => s.turn,
   outcome: (s) => outcome(s),
-  summary: (s) => `stores ${s.pits[6]} · ${s.pits[13]}`,
+  summary: (s) => `P1 ${s.pits[6]} · P2 ${s.pits[13]} in the stores`,
 };

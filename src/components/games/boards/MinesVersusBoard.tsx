@@ -5,7 +5,7 @@ import { MV_SIZE, minesVersus, mvCount } from "../../../lib/games/minesVersus.ts
 const COLOURS = ["", "text-blue-600", "text-emerald-700", "text-red-600", "text-indigo-800", "text-amber-800", "text-cyan-700", "text-black", "text-slate-500"];
 
 /** Minesweeper Versus: one field for everyone; open squares for points. */
-export function MinesVersusBoard({ moves, canPlay, seats, starter = 0, seed = "", onMove }: BoardProps) {
+export function MinesVersusBoard({ moves, canPlay, turn, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const n = Math.max(2, seats?.length ?? 2);
   const state = useMemo(() => minesVersus.replay(moves, n, seed), [moves, n, seed]);
   if (!state) return null;
@@ -14,7 +14,7 @@ export function MinesVersusBoard({ moves, canPlay, seats, starter = 0, seed = ""
     <div data-game-board="minesvs" className="flex flex-col items-center gap-2">
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-minesvs-scores>
         {state.scores.map((s, p) => (
-          <span key={p} className="inline-flex items-center gap-1.5">
+          <span key={p} data-minesvs-seat={p} data-minesvs-out={state.out[p] ? "1" : undefined} title={seatFor(seats, starter, p, n).name + (state.out[p] ? " left" : "")} className={`inline-flex items-center gap-1.5 ${state.out[p] ? "line-through opacity-50" : p === turn ? "underline decoration-2 underline-offset-4" : ""}`}>
             <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: colour(p) }} /> {s}
           </span>
         ))}
@@ -41,6 +41,7 @@ export function MinesVersusBoard({ moves, canPlay, seats, starter = 0, seed = ""
           );
         })}
       </div>
+      {state.last < 0 && <div data-minesvs-start className="max-w-[380px] text-center text-[11px] text-slate-500">The open area is everyone's start — it scores for nobody. Open a square next to the numbers.</div>}
     </div>
   );
 }

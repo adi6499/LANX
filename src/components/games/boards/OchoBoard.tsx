@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
-import { OCHO_COLOUR_NAME, ocho, ochoPlayable } from "../../../lib/games/ocho.ts";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
+import { OCHO_COLOUR_NAME, ocho, ochoCardName, ochoPlayable } from "../../../lib/games/ocho.ts";
 import { CardBack, OtherHands } from "./CardFace";
 
 const BG: Record<string, string> = { R: "#dc2626", G: "#16a34a", B: "#2563eb", Y: "#eab308", W: "#0f172a", F: "#0f172a" };
@@ -10,7 +10,7 @@ function OchoCard({ card, onClick, dim, testId }: { card: string; onClick?: () =
   const colour = card[0];
   const face = card.length === 2 ? FACE[card[1]] ?? card[1] : FACE[card];
   return (
-    <button type="button" data-ocho-card={testId ?? card} onClick={onClick} disabled={!onClick} className={`inline-flex h-16 w-11 items-center justify-center rounded-md text-[18px] font-black text-white shadow ring-2 ring-white/70 ${onClick ? "cursor-pointer hover:-translate-y-1" : "cursor-default"} ${dim ? "opacity-40" : ""} transition-transform`} style={{ backgroundColor: BG[colour] ?? "#0f172a" }}>
+    <button type="button" data-ocho-card={testId ?? card} aria-label={ochoCardName(card)} onClick={onClick} disabled={!onClick} className={`inline-flex h-16 w-11 items-center justify-center rounded-md text-[18px] font-black text-white shadow ring-2 ring-white/70 ${onClick ? "cursor-pointer hover:-translate-y-1" : "cursor-default"} ${dim ? "opacity-40" : ""} transition-transform`} style={{ backgroundColor: BG[colour] ?? "#0f172a" }}>
       {face}
     </button>
   );
@@ -32,7 +32,7 @@ export function OchoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
   const play = (c: string) => (c === "W" || c === "F" ? setWild(c) : onMove(`p:${c}`));
   return (
     <div data-game-board="ocho" className="flex w-full max-w-[640px] flex-col items-center gap-3">
-      <OtherHands counts={state.hands.map((h) => h.length)} names={name} colours={colour} turn={turn} exclude={local ? undefined : me} />
+      <OtherHands counts={state.hands.map((h) => h.length)} names={name} colours={colour} turn={turn} exclude={local ? undefined : me} gone={state.gone} />
       <div className="flex items-center gap-4">
         <div className="flex flex-col items-center gap-1">
           <CardBack count={state.stock.length} />
@@ -54,7 +54,7 @@ export function OchoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
             Keep it, pass
           </button>
         )}
-        {state.event && <span className="text-[11.5px] text-slate-500" data-ocho-event>{state.event}</span>}
+        {state.event && <span className="text-[11.5px] text-slate-500" data-ocho-event>{namesIn(state.event, seats, starter, n)}</span>}
       </div>
       {wild && (
         <div className="flex items-center gap-2 text-[12.5px]" data-ocho-pick-colour>

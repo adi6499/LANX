@@ -2,79 +2,213 @@
 // and streams snapshots over a data channel (lib/gameChannel.ts); the
 // others send their pointer and keys. Goals and knock-outs are written as
 // moves by the host so the match keeps score.
+// LANX 2.17.0: each match round has one live session on a PC, shared by every
+// board showing it (the flat one, the 3D one, the hidden copy that keeps a
+// host's table going): one simulation, one channel, one loop. A new round
+// (a rematch) is a new session; a session starts from the recorded score;
+// the loop stops at the end; the relay is fed by sequence number.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { sfx } from "../../../lib/gameSounds";
-import { seatFor, type BoardProps } from "../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { GameChannel } from "../../../lib/gameChannel";
-import { airhockey, foosball, spinnerWars } from "../../../lib/games/realtime.ts";
+import { airhockey, foosball, spinnerChampion, spinnerWars, type RealtimeState } from "../../../lib/games/realtime.ts";
 import { AH_H, AH_W, GOAL_W, PADDLE_R, PUCK_R, ahStart, ahStep, type AHState } from "../../../lib/games/sim/airhockey.ts";
 import { BALL_R, FB_H, FB_W, GOAL_H, MAN_H, MAN_W, RODS, fbStart, fbStep, menOf, type FBInput, type FBState } from "../../../lib/games/sim/foosball.ts";
 import { ARENA_R, SPIN_R, spinReset, spinStart, spinStep, type SpinState } from "../../../lib/games/sim/spinner.ts";
+import { hostName } from "./PartyShell";
 
-/** The channel, the host's loop and the guests' input pump, shared by the three games. */
-export function useLive<S, I>(p: BoardProps, start: () => S, stepFn: (s: S, inputs: (I | null)[]) => void, snapshot: (s: S) => unknown, restore: (snap: unknown) => S) {
+type Post = (move: string) => void;
+
+/** How a live game runs: where it starts (from the record), one step, and what goes over the wire. */
+export interface LiveSpec<S, I> {
+  start: () => S;
+  step: (s: S, inputs: (I | null)[], post: Post) => void;
+  snapshot: (s: S) => unknown;
+  restore: (snap: unknown) => S;
+  /** The record says the game is over: stop running it. */
+  over: boolean;
+}
+
+type Hooks<S, I> = { spec: LiveSpec<S, I>; onMove: Post; onDelta?: (d: unknown) => void };
+
+const sessions = new Map<string, LiveSession<unknown, unknown>>();
+
+/** One match round's live game on this PC. */
+class LiveSession<S, I> {
+  view: S;
+  /** A guest has had a snapshot from the host. */
+  ready: boolean;
+  myInput: I | null = null;
+  readonly channel: GameChannel | null = null;
+  private sim: S | null = null;
+  private inputs: (I | null)[];
+  private ended = false;
+  private subs = new Map<(v: S) => void, { current: Hooks<S, I> }>();
+  private last: { current: Hooks<S, I> };
+  private timers: number[] = [];
+  private bye = 0;
+  private seen = new Set<string>();
+  private seenObj = new WeakSet<object>();
+  private nonce = Math.random().toString(36).slice(2, 8);
+  private sent = 0;
+
+  constructor(
+    readonly key: string,
+    readonly cfg: { host: boolean; local: boolean; seat: number; n: number },
+    hooks: { current: Hooks<S, I> },
+    existing: unknown[],
+  ) {
+    this.last = hooks;
+    this.inputs = Array(cfg.n).fill(null);
+    this.view = hooks.current.spec.start();
+    this.ready = cfg.host || cfg.local;
+    if (!cfg.local) {
+      // The host's new channel never takes an answer meant for an earlier one.
+      if (cfg.host) for (const d of existing) this.mark(d);
+      const players = Array.from({ length: cfg.n }, (_, i) => i);
+      this.channel = new GameChannel({ me: cfg.seat, host: cfg.host, players, sendDelta: (d) => this.hooks().onDelta?.({ ...(d as object), seq: `${this.nonce}.${++this.sent}` }) });
+      this.channel.onMessage((from, data) => {
+        const d = data as { t?: string; i?: I; s?: unknown } | null;
+        if (!d) return;
+        if (d.t === "i" && cfg.host) {
+          if (from >= 0 && from < cfg.n) this.inputs[from] = d.i ?? null;
+        } else if (d.t === "s" && !cfg.host && d.s !== undefined) {
+          this.view = this.hooks().spec.restore(d.s);
+          this.ready = true;
+          this.emit();
+        }
+      });
+    }
+    if (cfg.host || cfg.local) {
+      this.sim = hooks.current.spec.start();
+      let tick = 0;
+      this.timers.push(
+        window.setInterval(() => {
+          const s = this.sim;
+          // Paused while no board shows it (a board closing, the next one opening), stopped at the end.
+          if (!s || !this.subs.size || this.ended || this.hooks().spec.over) return;
+          const ins = this.inputs.map((x, i) => (i === cfg.seat ? this.myInput : x));
+          this.hooks().spec.step(s, ins, (m) => {
+            if (this.ended) return;
+            if (m.startsWith("end:")) this.ended = true;
+            this.hooks().onMove(m);
+          });
+          if (++tick % 2 === 0 || this.ended) {
+            this.view = { ...(s as object) } as S;
+            this.emit();
+            if (!cfg.local) this.channel?.send({ t: "s", s: this.hooks().spec.snapshot(s) });
+          }
+        }, 16),
+      );
+    } else {
+      this.timers.push(
+        window.setInterval(() => {
+          if (this.myInput && this.subs.size) this.channel?.send({ t: "i", i: this.myInput });
+        }, 33),
+      );
+    }
+  }
+  private hooks(): Hooks<S, I> {
+    const any = this.subs.values().next().value as { current: Hooks<S, I> } | undefined;
+    return (any ?? this.last).current;
+  }
+  private emit() {
+    for (const fn of this.subs.keys()) fn(this.view);
+  }
+  /** Seen this delta before? (By its sequence number; the relay keeps only the last 600.) */
+  private mark(d: unknown): boolean {
+    if (!d || typeof d !== "object") return true;
+    const seq = (d as { seq?: unknown }).seq;
+    if (typeof seq === "string") {
+      if (this.seen.has(seq)) return true;
+      this.seen.add(seq);
+      if (this.seen.size > 5000) this.seen = new Set([...this.seen].slice(-2500));
+      return false;
+    }
+    if (this.seenObj.has(d)) return true;
+    this.seenObj.add(d);
+    return false;
+  }
+  feed(ds: readonly unknown[]) {
+    if (!this.channel) return;
+    for (const d of ds) if (!this.mark(d)) this.channel.feed(d);
+  }
+  attach(fn: (v: S) => void, hooks: { current: Hooks<S, I> }) {
+    window.clearTimeout(this.bye);
+    this.subs.set(fn, hooks);
+    this.last = hooks;
+  }
+  detach(fn: (v: S) => void) {
+    this.subs.delete(fn);
+    if (this.subs.size) return;
+    // Give the next board (the hidden copy taking over, the 3D board after the flat one) a moment.
+    window.clearTimeout(this.bye);
+    this.bye = window.setTimeout(() => this.close(), 2500);
+  }
+  private close() {
+    if (this.subs.size) return;
+    for (const t of this.timers) window.clearInterval(t);
+    this.channel?.close();
+    if (sessions.get(this.key) === (this as unknown)) sessions.delete(this.key);
+  }
+}
+
+/** The live session for this board's match round: the view to draw and where to put this player's input. */
+export function useLive<S, I>(p: BoardProps, game: string, spec: LiveSpec<S, I>) {
   const n = Math.max(2, p.seats?.length ?? 2);
-  const players = useMemo(() => Array.from({ length: n }, (_, i) => i), [n]);
-  const channel = useRef<GameChannel | null>(null);
-  const fed = useRef(0);
-  const inputs = useRef<(I | null)[]>(Array(n).fill(null));
-  const myInput = useRef<I | null>(null);
-  const sim = useRef<S | null>(null);
-  const [view, setView] = useState<S>(start);
-  const onDelta = p.onDelta;
+  const key = `${game}|${p.seed ?? ""}|${p.local ? "local" : p.host ? "host" : "guest"}|${p.seat}|${n}`;
+  const hooks = useRef<Hooks<S, I>>({ spec, onMove: p.onMove, onDelta: p.onDelta });
+  hooks.current = { spec, onMove: p.onMove, onDelta: p.onDelta };
+  const session = useRef<LiveSession<S, I> | null>(null);
+  const [view, setView] = useState<S>(() => (sessions.get(key) as LiveSession<S, I> | undefined)?.view ?? spec.start());
+  const [ready, setReady] = useState(!!p.host || !!p.local);
+  const deltas = useRef(p.deltas ?? []);
+  deltas.current = p.deltas ?? [];
   useEffect(() => {
-    if (p.local) return;
-    const ch = new GameChannel({ me: p.seat, host: !!p.host, players, sendDelta: (d) => onDelta?.(d) });
-    channel.current = ch;
-    const off = ch.onMessage((from, data) => {
-      const d = data as { t: string; i?: I; s?: unknown };
-      if (!d) return;
-      if (d.t === "i" && p.host) inputs.current[from] = d.i ?? null;
-      else if (d.t === "s" && !p.host && d.s !== undefined) setView(restore(d.s));
-    });
+    let s = sessions.get(key) as LiveSession<S, I> | undefined;
+    if (!s) {
+      s = new LiveSession<S, I>(key, { host: !!p.host, local: !!p.local, seat: p.seat, n }, hooks, deltas.current);
+      sessions.set(key, s as LiveSession<unknown, unknown>);
+    }
+    const mine = s;
+    const fn = (v: S) => {
+      setView(v);
+      setReady(mine.ready);
+    };
+    mine.attach(fn, hooks);
+    session.current = mine;
+    setView(mine.view);
+    setReady(mine.ready);
+    mine.feed(deltas.current);
     return () => {
-      off();
-      ch.close();
-      channel.current = null;
+      mine.detach(fn);
+      if (session.current === mine) session.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.host, p.seat, p.local, players.length]);
-  // Feed new deltas to the channel (offers, answers, relayed messages).
+  }, [key]);
+  // Feed new deltas to the channel (offers, answers, relayed messages) — each one once.
   useEffect(() => {
-    const ds = p.deltas ?? [];
-    for (; fed.current < ds.length; fed.current++) channel.current?.feed(ds[fed.current]);
+    session.current?.feed(p.deltas ?? []);
   }, [p.deltas]);
-  // The host (or pass & play) runs the game.
-  useEffect(() => {
-    if (!p.host && !p.local) return;
-    sim.current = start();
-    let tick = 0;
-    const t = window.setInterval(() => {
-      const s = sim.current;
-      if (!s) return;
-      const ins = inputs.current.map((x, i) => (i === p.seat ? myInput.current : x));
-      stepFn(s, ins);
-      tick++;
-      if (tick % 2 === 0) {
-        setView({ ...(s as object) } as S);
-        if (!p.local) channel.current?.send({ t: "s", s: snapshot(s) });
-      }
-    }, 16);
-    return () => window.clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.host, p.local]);
-  // Guests pump their input to the host.
-  useEffect(() => {
-    if (p.host || p.local) return;
-    const t = window.setInterval(() => {
-      if (myInput.current) channel.current?.send({ t: "i", i: myInput.current });
-    }, 33);
-    return () => window.clearInterval(t);
-  }, [p.host, p.local]);
-  return { view, setInput: (i: I | null) => (myInput.current = i), sim, n, live: channel.current?.live ?? false, inputs };
+  const setInput = useRef((i: I | null) => {
+    if (session.current) session.current.myInput = i;
+  }).current;
+  return { view, setInput, n, ready, live: session.current?.channel?.live ?? false };
 }
 
 export const label = (p: BoardProps, i: number, n: number) => seatFor(p.seats, p.starter ?? 0, i, n);
+const short = (p: BoardProps, i: number, n: number) => label(p, i, n).name.split(" (")[0];
+
+/** LANX 2.17.0: what's happening, in words, for the live boards (flat and 3D). */
+export function liveStatus(p: BoardProps, rec: RealtimeState | null, n: number, ready: boolean, now: { pause: number; round?: number; meOut?: boolean }): string {
+  if (rec?.winner !== null && rec?.winner !== undefined) return `Game over — ${short(p, rec.winner, n)} wins${rec.reason ? ` (${namesIn(rec.reason, p.seats, p.starter ?? 0, n)})` : ""}`;
+  if (!ready) return `Waiting for ${hostName(p.seats)}'s table to start…`;
+  if (now.round !== undefined) {
+    if (now.meOut) return `Round ${now.round} — you're out, watching`;
+    return now.pause > 0 ? `Round ${now.round} — get ready…` : `Round ${now.round} — bump the others out`;
+  }
+  return now.pause > 0 ? "Get ready — the ball's coming" : "Play on — first to 5";
+}
 
 /** Goals, bounces and knock-outs as sounds, worked out from the positions every PC already sees (2.13.0). */
 export function useArcadeSfx(scores: number[], ball: { vx: number; vy: number } | null, outs = 0) {
@@ -98,19 +232,28 @@ export function useArcadeSfx(scores: number[], ball: { vx: number; vy: number } 
 /** LANX 2.16.0: Air Hockey's live game (the same for the flat and the 3D table). */
 export function useAirHockey(p: BoardProps) {
   const rec = useMemo(() => airhockey.replay(p.moves, 2, ""), [p.moves]);
-  const live = useLive<AHState, { x: number; y: number }>(p, ahStart, (s, ins) => {
-    const g = ahStep(s, ins);
-    if (g >= 0 && (p.host || p.local)) {
-      p.onMove(`g:${g}`);
-      if (s.goals[g] >= 5) p.onMove(`end:${g}`);
-    }
-  }, (s) => ({ puck: s.puck, paddles: s.paddles, goals: s.goals, pause: s.pause }), (snap) => ({ ...(snap as AHState), lastGoal: -1 }));
+  const recRef = useRef(rec);
+  recRef.current = rec;
+  const live = useLive<AHState, { x: number; y: number }>(p, "airhockey", {
+    start: () => ahStart(recRef.current?.goals),
+    step: (s, ins, post) => {
+      const g = ahStep(s, ins);
+      if (g >= 0) {
+        post(`g:${g}`);
+        if (s.goals[g] >= 5) post(`end:${g}`);
+      }
+    },
+    snapshot: (s) => ({ puck: s.puck, paddles: s.paddles, goals: s.goals, pause: s.pause }),
+    restore: (snap) => ({ ...(snap as AHState), lastGoal: -1 }),
+    over: rec?.winner !== null && rec?.winner !== undefined,
+  });
   useArcadeSfx(live.view.goals, live.view.puck);
-  return { rec, ...live };
+  const status = liveStatus(p, rec, 2, live.ready, { pause: live.view.pause });
+  return { rec, status, ...live };
 }
 
 export function AirHockeyBoard(p: BoardProps) {
-  const { rec, view, setInput } = useAirHockey(p);
+  const { rec, view, setInput, status } = useAirHockey(p);
   const canvas = useRef<HTMLCanvasElement>(null);
   const flip = p.seat === 1; // my goal at the bottom
   const scale = 0.78;
@@ -155,6 +298,9 @@ export function AirHockeyBoard(p: BoardProps) {
       <div className="text-[13px] font-semibold" data-live-score>
         {label(p, 0, 2).name} {goals[0]} — {goals[1]} {label(p, 1, 2).name} <span className="text-slate-400 font-normal">· first to 5</span>
       </div>
+      <div className="text-[12px] text-slate-500" data-live-status>
+        {status}
+      </div>
       <canvas
         ref={canvas}
         data-live-canvas
@@ -185,16 +331,24 @@ export function AirHockeyBoard(p: BoardProps) {
 /** LANX 2.16.0: Table Soccer's live game and controls (rod 1-4, the pointer's height, kick). */
 export function useFoosball(p: BoardProps) {
   const rec = useMemo(() => foosball.replay(p.moves, 2, ""), [p.moves]);
+  const recRef = useRef(rec);
+  recRef.current = rec;
   const rod = useRef(2);
   const pointerY = useRef(FB_H / 2);
   const kick = useRef(false);
-  const live = useLive<FBState, FBInput>(p, fbStart, (s, ins) => {
-    const g = fbStep(s, ins);
-    if (g >= 0 && (p.host || p.local)) {
-      p.onMove(`g:${g}`);
-      if (s.goals[g] >= 5) p.onMove(`end:${g}`);
-    }
-  }, (s) => ({ ball: s.ball, rodY: s.rodY, kick: s.kick, goals: s.goals, pause: s.pause }), (snap) => ({ ...(snap as FBState), lastGoal: -1 }));
+  const live = useLive<FBState, FBInput>(p, "foosball", {
+    start: () => fbStart(recRef.current?.goals),
+    step: (s, ins, post) => {
+      const g = fbStep(s, ins);
+      if (g >= 0) {
+        post(`g:${g}`);
+        if (s.goals[g] >= 5) post(`end:${g}`);
+      }
+    },
+    snapshot: (s) => ({ ball: s.ball, rodY: s.rodY, kick: s.kick, goals: s.goals, pause: s.pause }),
+    restore: (snap) => ({ ...(snap as FBState), lastGoal: -1, slow: 0, serves: 0 }),
+    over: rec?.winner !== null && rec?.winner !== undefined,
+  });
   useArcadeSfx(live.view.goals, live.view.ball);
   const side = p.local ? 0 : p.seat;
   const setInput = live.setInput;
@@ -244,11 +398,12 @@ export function useFoosball(p: BoardProps) {
     pointerY.current = y;
     push();
   };
-  return { rec, ...live, side, rod, pickRod, moveTo, kickNow };
+  const status = liveStatus(p, rec, 2, live.ready, { pause: live.view.pause });
+  return { rec, status, ...live, side, rod, pickRod, moveTo, kickNow };
 }
 
 export function FoosballBoard(p: BoardProps) {
-  const { rec, view, side, rod, pickRod, moveTo } = useFoosball(p);
+  const { rec, view, side, rod, pickRod, moveTo, status } = useFoosball(p);
   const canvas = useRef<HTMLCanvasElement>(null);
   const scale = 0.6;
   useEffect(() => {
@@ -297,6 +452,9 @@ export function FoosballBoard(p: BoardProps) {
       <div className="text-[13px] font-semibold" data-live-score>
         {label(p, 0, 2).name} {goals[0]} — {goals[1]} {label(p, 1, 2).name} <span className="text-slate-400 font-normal">· first to 5</span>
       </div>
+      <div className="text-[12px] text-slate-500" data-live-status>
+        {status}
+      </div>
       <canvas
         ref={canvas}
         data-live-canvas
@@ -323,33 +481,39 @@ export function FoosballBoard(p: BoardProps) {
 export function useSpinner(p: BoardProps) {
   const n = Math.max(2, p.seats?.length ?? 2);
   const rec = useMemo(() => spinnerWars.replay(p.moves, n, ""), [p.moves, n]);
-  const live = useLive<SpinState, { x: number; y: number }>(
-    p,
-    () => spinStart(n),
-    (s, ins) => {
-      const outs = spinStep(s, ins);
-      if (!(p.host || p.local)) return;
-      for (const o of outs) p.onMove(`out:${o}`);
+  const recRef = useRef(rec);
+  recRef.current = rec;
+  const live = useLive<SpinState, { x: number; y: number }>(p, "spinnerwars", {
+    start: () => spinStart(n, recRef.current ?? undefined),
+    step: (s, ins, post) => {
+      // Whoever left the table stays out (the record already says so: no "out:" for them).
+      const left = recRef.current?.left ?? [];
+      left.forEach((l, i) => l && s.spinners[i] && (s.spinners[i].out = true));
+      for (const o of spinStep(s, ins)) post(`out:${o}`);
+      if (s.pause > 0) return;
       const alive = s.spinners.map((sp, i) => (sp.out ? -1 : i)).filter((i) => i >= 0);
-      if (alive.length <= 1 && s.pause === 0) {
-        if (alive.length === 1) s.wins[alive[0]]++;
-        const champ = s.wins.findIndex((w) => w >= 2);
-        if (champ >= 0 || s.round >= 3) p.onMove(`end:${champ >= 0 ? champ : s.wins.indexOf(Math.max(...s.wins))}`);
-        else {
-          p.onMove("round");
-          spinReset(s);
-        }
+      if (alive.length > 1) return;
+      if (alive.length === 1) s.wins[alive[0]]++;
+      // First to two round wins; after three rounds the most round wins — and while that's a tie, play on.
+      const champ = spinnerChampion(s.wins, s.round, left);
+      if (champ !== null) post(`end:${champ}`);
+      else {
+        post("round");
+        spinReset(s);
+        left.forEach((l, i) => l && s.spinners[i] && (s.spinners[i].out = true));
       }
     },
-    (s) => ({ spinners: s.spinners, round: s.round, pause: s.pause, wins: s.wins }),
-    (snap) => snap as SpinState,
-  );
+    snapshot: (s) => ({ spinners: s.spinners, round: s.round, pause: s.pause, wins: s.wins }),
+    restore: (snap) => snap as SpinState,
+    over: rec?.winner !== null && rec?.winner !== undefined,
+  });
   useArcadeSfx(live.view.wins, null, live.view.spinners.filter((x) => x.out).length);
-  return { rec, ...live };
+  const status = liveStatus(p, rec, n, live.ready, { pause: live.view.pause, round: live.view.round, meOut: !!live.view.spinners[p.seat]?.out });
+  return { rec, status, ...live };
 }
 
 export function SpinnerBoard(p: BoardProps) {
-  const { rec, n, view, setInput } = useSpinner(p);
+  const { rec, n, view, setInput, status } = useSpinner(p);
   const canvas = useRef<HTMLCanvasElement>(null);
   const size = (ARENA_R + 30) * 2;
   const scale = 0.85;
@@ -390,9 +554,13 @@ export function SpinnerBoard(p: BoardProps) {
         {(rec?.out ?? []).map((o, i) => (
           <span key={i} className={`inline-flex items-center gap-1 ${o ? "line-through opacity-50" : ""}`}>
             <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: label(p, i, n).color }} /> {label(p, i, n).name} {view.wins[i] ?? 0}
+            {rec?.left[i] && <span className="font-normal text-slate-400">(left)</span>}
           </span>
         ))}
-        <span className="text-slate-400 font-normal">round {view.round}/3</span>
+        <span className="text-slate-400 font-normal">round wins · first to 2</span>
+      </div>
+      <div className="text-[12px] text-slate-500" data-live-status>
+        {status}
       </div>
       <canvas
         ref={canvas}
@@ -409,7 +577,7 @@ export function SpinnerBoard(p: BoardProps) {
         }}
         onPointerLeave={() => setInput(null)}
       />
-      <div className="text-[11px] text-slate-500">Your spinner chases the mouse. Bump the others out; the ring around a spinner is its spin left.</div>
+      <div className="text-[11px] text-slate-500">Your spinner chases the mouse. Bump the others out; the ring around a spinner is its spin left. First to win two rounds; a tie at the top plays on.</div>
     </div>
   );
 }

@@ -8,12 +8,39 @@ export interface Outcome {
   winner: number | null;
   draw: boolean;
   reason: string;
+  /** LANX 2.17.0: all the winners when a team wins together. */
+  winners?: number[];
   /** Points per player, for games that keep score. */
   scores?: number[];
 }
 
 export const ON: Outcome = { over: false, winner: null, draw: false, reason: "" };
 export const win = (winner: number, reason: string, scores?: number[]): Outcome => ({ over: true, winner, draw: false, reason, scores });
+/** LANX 2.17.0: a team wins together (Spades, Euchre): every winner gets the win, not just the first. */
+export const teamWin = (players: number[], reason: string, scores?: number[]): Outcome => ({ over: true, winner: players[0] ?? null, draw: false, reason, scores, winners: players });
+
+/** LANX 2.17.0: "x<p>" means player p left the table or gave up. The player number, -1 when it names
+ *  nobody at this table, or null when the move is something else. */
+export function leaver(move: string, n: number): number | null {
+  const m = /^x(\d)$/.exec(move);
+  if (!m) return null;
+  const p = Number(m[1]);
+  return p < n ? p : -1;
+}
+/** The next player after `from` who is still in. */
+export function nextIn(from: number, n: number, out: readonly boolean[]): number {
+  for (let k = 1; k <= n; k++) {
+    const p = (from + k) % n;
+    if (!out[p]) return p;
+  }
+  return from;
+}
+/** The only player still in, or null while two or more are. */
+export function lastIn(out: readonly boolean[], n: number): number | null {
+  const left: number[] = [];
+  for (let p = 0; p < n; p++) if (!out[p]) left.push(p);
+  return left.length === 1 ? left[0] : null;
+}
 export const draw = (reason: string, scores?: number[]): Outcome => ({ over: true, winner: null, draw: true, reason, scores });
 
 /** A game: its rules over the move list, and what the lobby needs to know. */

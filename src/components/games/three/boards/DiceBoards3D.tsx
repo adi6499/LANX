@@ -8,9 +8,9 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
 import { backgammon, bgMoves, bgTarget, type BgState } from "../../../../lib/games/backgammon.ts";
-import { BOARD, bankroll, type BankrollState } from "../../../../lib/games/bankroll.ts";
+import { BOARD, HOUSE_COST, bankroll, buildable, type BankrollState } from "../../../../lib/games/bankroll.ts";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
 import { FONT, canvasTexture, discGeometry, hop, markerRing, mesh, pawnGeometry, plastic, roundRect, slab, wood } from "../kit";
@@ -240,11 +240,10 @@ class BackgammonScene extends TurnScene<BgState> {
     const s = this.replay(this.shown);
     return s && this.info?.canPlay && s.dice.length ? bgMoves(s) : [];
   }
+  /** The die for a move (legal moves only — the forced-move rule; the smaller die when two bear off the same checker). */
   private dieFor(from: number | "bar", to: number): number | null {
-    const s = this.replay(this.shown);
-    if (!s) return null;
-    for (const d of [...new Set(s.dice)]) if (bgTarget(s, from, d, s.turn) === to) return d;
-    return null;
+    const ds = this.legal().filter((m) => m.from === from && m.to === to).map((m) => m.die);
+    return ds.length ? Math.min(...ds) : null;
   }
   private tap() {
     if (!this.settled || !this.info?.canPlay) return;
@@ -304,7 +303,7 @@ class BackgammonScene extends TurnScene<BgState> {
   }
 }
 
-export function Backgammon3D({ moves, canPlay, seed = "", onMove }: BoardProps) {
+export function Backgammon3D({ moves, canPlay, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const state = useMemo(() => backgammon.replay(moves, 2, seed), [moves, seed]);
   const send = useRef(onMove);
   send.current = onMove;
@@ -339,7 +338,12 @@ export function Backgammon3D({ moves, canPlay, seed = "", onMove }: BoardProps) 
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.75} maxH={540} testId="backgammon" />
       <HiddenActions actions={actions} label="Legal moves" />
-      <div className="text-[11px] text-slate-500">White moves round to the bottom right; black the other way. Roll, click a checker, then its new point (or the tray to bear off).</div>
+      <div className="min-h-[18px] text-[12px] text-slate-600 dark:text-slate-300" data-bg-note>
+        {namesIn(state.note, seats, starter, 2)}
+      </div>
+      <div className="max-w-[620px] text-center text-[11px] text-slate-500">
+        White moves anticlockwise, home to the bottom right; black clockwise, home to the top right. Roll, click a checker, then its new point (or the tray to bear off). Use both dice if you can — if only one fits, the higher one.
+      </div>
     </div>
   );
 }
@@ -504,15 +508,25 @@ class BankrollScene extends TurnScene<BankrollState> {
         }
         return;
       }
-      if (have && have.userData.owner === o) return;
+      const built = s.houses[i] ?? 0;
+      if (have && have.userData.owner === o && have.userData.built === built) return;
       if (have) this.stage.scene.remove(have);
       const h = house(this.colours[o] ?? "#94a3b8");
       h.userData.owner = o;
+      h.userData.built = built;
       const v = squarePos(i);
       const [r, c] = ringCell(i);
       // On the inner edge of the square.
-      v.x += c === 0 ? 0.45 : c === 6 ? -0.45 : 0.45;
+      const xoff = c === 0 ? 0.45 : c === 6 ? -0.45 : 0.45;
+      v.x += xoff;
       v.z += r === 0 ? 0.42 : r === 6 ? -0.42 : -0.42;
+      // LANX 2.17.0: built houses — small green ones in a row from the owner's marker across the square.
+      for (let k = 0; k < built; k++) {
+        const g = house("#16a34a");
+        g.scale.setScalar(0.55);
+        g.position.set((xoff > 0 ? -1 : 1) * (0.3 + k * 0.2), 0, 0);
+        h.add(g);
+      }
       h.position.copy(v);
       this.stage.scene.add(h);
       this.houses.set(key, h);
@@ -537,7 +551,7 @@ class BankrollScene extends TurnScene<BankrollState> {
     this.stage.invalidate();
   }
   protected async animateStep(before: BankrollState, after: BankrollState, move: string) {
-    if (move === "b") {
+    if (move === "b" || move.startsWith("h:")) {
       sfx("score", 0.5);
       this.drawHouses(after, true);
       await this.stage.wait(300);
@@ -548,7 +562,7 @@ class BankrollScene extends TurnScene<BankrollState> {
     if (!after.lastRoll || after.rolls === before.rolls) return; // sat out a turn
     await throwDice(this.stage, this.dice, after.lastRoll, { cx: 0, cz: 0, w: 5 * BC - 0.6, d: 5 * BC - 0.6, y: BTOP, from: new THREE.Vector3(0.4, 0, 1) }, `${this.seed}#bank${after.rolls}`, (k) => sfx("thud", 0.2 + k * 0.5));
     const pawn = this.pawns[p];
-    const steps = after.lastRoll[0] + after.lastRoll[1];
+    const steps = after.walk; // 0 on a third double (straight to jail)
     for (let k = 1; k <= steps; k++) {
       const a = pawn.position.clone();
       const b = squarePos((before.pos[p] + k) % BOARD.length).add(new THREE.Vector3(0, 0, 0.18));
@@ -580,12 +594,15 @@ export function Bankroll3D(p: BoardProps) {
   useEffect(() => scene?.setTurn(canRoll, () => send.current("r")), [scene, canRoll]);
   if (!state) return null;
   const offer = state.offer >= 0 ? BOARD[state.offer] : null;
+  const jailed = state.skip[turn] && state.offer < 0;
+  const build = canPlay ? buildable(state, turn) : [];
+  const name = (q: number) => seatFor(seats, starter, q, n).name.split(" (")[0];
   return (
     <div data-game-board="bankroll" data-g3-board="bankroll" className="flex w-full max-w-[720px] flex-col items-center gap-2">
       <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[12px] font-semibold" data-bankroll-cash>
         {state.cash.map((c, q) => (
           <span key={q} className={`inline-flex items-center gap-1.5 ${state.out[q] ? "line-through opacity-50" : ""} ${q === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <SeatDot color={colours[q]} /> ₹{c}
+            <SeatDot color={colours[q]} /> {name(q)} {state.out[q] ? "out" : `₹${c}`}
           </span>
         ))}
       </div>
@@ -609,16 +626,23 @@ export function Bankroll3D(p: BoardProps) {
           </>
         ) : (
           <button type="button" data-bankroll-roll disabled={!canRoll} onClick={() => onMove("r")} className={primary3}>
-            Roll
+            {jailed ? "Miss this turn (in jail)" : state.again ? "Roll again" : "Roll"}
           </button>
         )}
+        {build.map((i) => (
+          <button key={i} type="button" data-bankroll-build={i} onClick={() => onMove(`h:${i}`)} className={quiet3}>
+            House on {BOARD[i].name} ₹{HOUSE_COST[BOARD[i].group!]}
+          </button>
+        ))}
       </BoardBar>
+      {jailed && canPlay && <div className="text-[11.5px] text-slate-500" data-bankroll-jail>In jail: you miss this turn, then roll as normal next time.</div>}
       <SceneBox hostRef={hostRef} aspect={1.25} maxH={600} testId="bankroll" />
       <div data-bankroll-log className="w-full max-w-[520px] text-center text-[11px] text-slate-600 dark:text-slate-300">
         {state.log.slice(-3).map((l, i) => (
-          <div key={i}>{l}</div>
+          <div key={i}>{namesIn(l, seats, starter, n)}</div>
         ))}
       </div>
+      <div className="max-w-[560px] text-center text-[11px] text-slate-500">Own a whole colour to double its rent and build houses (rent ×5 up to ×20). Doubles roll again; three doubles go to jail.</div>
     </div>
   );
 }

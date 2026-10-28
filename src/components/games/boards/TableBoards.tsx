@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { BALL_R, CUP_R, GOLF_H, GOLF_W, HOLES, MAX_STROKES, minigolf } from "../../../lib/games/minigolf.ts";
 import { POOL_BALL_R, POOL_H, POOL_W, pool } from "../../../lib/games/pool.ts";
 import { CARROM_S, QUEEN, STRIKER, carrom } from "../../../lib/games/carrom.ts";
@@ -23,11 +23,8 @@ export function GolfBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: 
   const hole = HOLES[Math.min(state.hole, HOLES.length - 1)];
   const scale = 0.62;
   const ball = state.ball[turn];
-  const lastMover = moves.length ? (() => {
-    // The ball that just moved is the one whose turn it was before: find by elimination (the path's start).
-    const start = path[0];
-    return start ? state.ball.findIndex((b, p) => p !== turn && b && Math.abs(b[0] - path[path.length - 1][0]) < 2 && Math.abs(b[1] - path[path.length - 1][1]) < 2) : -1;
-  })() : -1;
+  // LANX 2.17.0: the rules say who putted last; their ball rolls along the path (on this hole only).
+  const lastMover = state.lastBy >= 0 && state.lastHole === state.hole && path.length > 1 ? state.lastBy : -1;
   const toTable = (e: React.MouseEvent<SVGSVGElement>): [number, number] => {
     const r = e.currentTarget.getBoundingClientRect();
     return [((e.clientX - r.left) / r.width) * GOLF_W, ((e.clientY - r.top) / r.height) * GOLF_H];
@@ -38,8 +35,8 @@ export function GolfBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: 
       <div className="flex flex-wrap justify-center gap-x-4 text-[12.5px] font-semibold" data-golf-scores>
         <span>Hole {Math.min(state.hole + 1, HOLES.length)} · par {hole.par}</span>
         {state.strokes.map((st, p) => (
-          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && !state.done ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {st.reduce((a, b) => a + b, 0)} <span className="text-slate-400 font-normal">(this hole {st[st.length - 1] ?? 0})</span>
+          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && !state.done ? "underline decoration-2 underline-offset-4" : ""} ${state.out[p] ? "line-through opacity-50" : ""}`}>
+            <span className="g3-token h-3 w-3 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {st.reduce((a, b) => a + b, 0)} <span className="text-slate-400 font-normal">({state.out[p] ? "left" : `this hole ${st[st.length - 1] ?? 0}`})</span>
           </span>
         ))}
       </div>
@@ -60,11 +57,11 @@ export function GolfBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: 
         <rect x={hole.cup[0] - 1} y={hole.cup[1] - 40} width={2} height={40} fill="#0f172a" />
         <polygon points={`${hole.cup[0] + 1},${hole.cup[1] - 40} ${hole.cup[0] + 22},${hole.cup[1] - 32} ${hole.cup[0] + 1},${hole.cup[1] - 24}`} fill="#dc2626" />
         {state.ball.map((b, p) => {
-          if (!b) return null;
-          const show = playing && p === lastMover && dot ? dot : b;
-          return <circle key={p} data-golf-ball={p} cx={show[0]} cy={show[1]} r={BALL_R} fill={colour(p)} stroke="#fff" strokeWidth={2} />;
+          if (!b || (playing && p === lastMover)) return null;
+          return <circle key={p} data-golf-ball={p} cx={b[0]} cy={b[1]} r={BALL_R} fill={colour(p)} stroke="#fff" strokeWidth={2} />;
         })}
-        {playing && dot && lastMover < 0 && <circle cx={dot[0]} cy={dot[1]} r={BALL_R} fill="#fff" stroke="#0f172a" />}
+        {/* The ball that was just putted rolls along its path (and drops in when it is holed). */}
+        {playing && dot && lastMover >= 0 && <circle data-golf-ball={lastMover} data-golf-rolling cx={dot[0]} cy={dot[1]} r={BALL_R} fill={colour(lastMover)} stroke="#fff" strokeWidth={2} />}
         {canPlay && ball && aim && shot && <line x1={ball[0]} y1={ball[1]} x2={aim[0]} y2={aim[1]} stroke="#1d4ed8" strokeWidth={3} strokeDasharray="6 6" />}
       </svg>
       <div className="text-[11.5px] text-slate-500">{canPlay && ball ? `Click to putt: the further from the ball, the harder (${shot ? shot.power : 0}%). ${MAX_STROKES} strokes and the hole is over.` : state.done ? "All nine holes played." : `${name(turn)} is putting.`}</div>
@@ -146,7 +143,11 @@ export function PoolBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: 
           <span className="text-slate-500">Move the mouse to aim; click the table or press Shoot.</span>
         </div>
       )}
-      {state.log.length > 0 && <div className="text-[11.5px] text-slate-500">{state.log[state.log.length - 1]}</div>}
+      {state.log.length > 0 && (
+        <div className="text-[11.5px] text-slate-600 dark:text-slate-300" data-pool-log>
+          {namesIn(state.log[state.log.length - 1], seats, starter, n)}
+        </div>
+      )}
     </div>
   );
 }
@@ -184,6 +185,7 @@ export function CarromBoard({ moves, canPlay, turn, seat, seats, starter = 0, on
         <span className={turn === 1 ? "underline decoration-2 underline-offset-4" : ""}>{name(1)} (black) {state.potted[1].filter((id) => id >= 10 && id <= 18).length}/9</span>
         {state.queenBy !== null && <span className="text-rose-600">queen: {name(state.queenBy)}</span>}
         {state.queenPending !== null && <span className="text-rose-600">cover the queen!</span>}
+        {state.due.map((d, p) => (d > 0 ? <span key={p} className="text-amber-600">{name(p)} owes {d === 1 ? "a coin" : `${d} coins`}</span> : null))}
       </div>
       <svg width={CARROM_S * scale} height={CARROM_S * scale} viewBox={`0 0 ${CARROM_S} ${CARROM_S}`} className="rounded-lg shadow-lg ring-8 ring-amber-900" style={{ background: "#fde68a", cursor: canPlay ? "crosshair" : "default" }} onMouseMove={(e) => canPlay && setAim(toBoard(e))} onClick={() => canPlay && !playing && onMove(`s:${pos}:${angle}:${power}`)}>
         {[[14, 14], [CARROM_S - 14, 14], [14, CARROM_S - 14], [CARROM_S - 14, CARROM_S - 14]].map(([x, y], i) => (
@@ -223,7 +225,11 @@ export function CarromBoard({ moves, canPlay, turn, seat, seats, starter = 0, on
           </button>
         </div>
       )}
-      {state.log.length > 0 && <div className="text-[11.5px] text-slate-500">{state.log[state.log.length - 1]}</div>}
+      {state.log.length > 0 && (
+        <div className="max-w-[440px] text-center text-[11.5px] text-slate-600 dark:text-slate-300" data-carrom-log>
+          {namesIn(state.log[state.log.length - 1], seats, starter, n)}
+        </div>
+      )}
       <span className="hidden" data-carrom-striker-id={STRIKER} />
     </div>
   );

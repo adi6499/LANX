@@ -2,7 +2,10 @@
 // four rods (goalie 1, defence 2, midfield 5, attack 3); a player moves one
 // rod at a time up and down with the pointer and kicks with a click. The
 // ball rolls, bounces off the sides, and goes in through the goal mouths.
-// Player 0's goal is on the left.
+// Player 0's goal is on the left. LANX 2.17.0: after a goal the ball is
+// served towards the side that let it in, and a ball that stays (almost)
+// still for two seconds — stuck between rods, out of everyone's reach — is
+// served again from the middle.
 
 export const FB_W = 700;
 export const FB_H = 400;
@@ -27,10 +30,27 @@ export interface FBState {
   goals: number[];
   pause: number;
   lastGoal: number;
+  /** Steps the ball has been (almost) still, and serves so far (they alternate sides). */
+  slow: number;
+  serves: number;
 }
 
-export function fbStart(): FBState {
-  return { ball: { x: FB_W / 2, y: FB_H / 2, vx: 0, vy: 0 }, rodY: [RODS.map(() => FB_H / 2), RODS.map(() => FB_H / 2)], kick: [RODS.map(() => 0), RODS.map(() => 0)], goals: [0, 0], pause: 60, lastGoal: -1 };
+/** Steps a still ball waits before it is served again (two seconds at 60 a second). */
+export const STUCK_STEPS = 120;
+const SLOW = 0.35;
+
+/** The ball from the centre spot, rolling towards `side`'s half (0 = left). */
+function serve(s: FBState, side: number) {
+  s.serves++;
+  s.ball = { x: FB_W / 2, y: FB_H / 2, vx: side === 0 ? -2.2 : 2.2, vy: s.serves % 2 ? 0.6 : -0.6 };
+  s.slow = 0;
+}
+
+/** A fresh table (or, with the goals so far, the table again after the board reopened). */
+export function fbStart(goals: number[] = [0, 0]): FBState {
+  const s: FBState = { ball: { x: FB_W / 2, y: FB_H / 2, vx: 0, vy: 0 }, rodY: [RODS.map(() => FB_H / 2), RODS.map(() => FB_H / 2)], kick: [RODS.map(() => 0), RODS.map(() => 0)], goals: [goals[0] ?? 0, goals[1] ?? 0], pause: 60, lastGoal: -1, slow: 0, serves: 0 };
+  serve(s, (s.goals[0] + s.goals[1]) % 2);
+  return s;
 }
 
 export interface FBInput {
@@ -68,6 +88,13 @@ export function fbStep(s: FBState, inputs: (FBInput | null)[]): number {
   b.y += b.vy;
   b.vx *= 0.992;
   b.vy *= 0.992;
+  // Stuck (between rods, out of reach): serve it again from the middle, to each side in turn.
+  s.slow = Math.hypot(b.vx, b.vy) < SLOW ? (s.slow ?? 0) + 1 : 0;
+  if (s.slow >= STUCK_STEPS) {
+    serve(s, (s.serves ?? 0) % 2);
+    s.pause = 30;
+    return -1;
+  }
   if (b.y < BALL_R) {
     b.y = BALL_R;
     b.vy = Math.abs(b.vy) * 0.85;
@@ -110,7 +137,8 @@ export function fbStep(s: FBState, inputs: (FBInput | null)[]): number {
 function score(s: FBState, p: number): number {
   s.goals[p]++;
   s.lastGoal = p;
-  s.ball = { x: FB_W / 2, y: FB_H / 2, vx: p === 0 ? -2 : 2, vy: 0 };
+  // Kick-off for the side that let the goal in: towards their half.
+  serve(s, 1 - p);
   s.pause = 70;
   return p;
 }

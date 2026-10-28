@@ -3,8 +3,10 @@
 // take a free matching pair (a point) — or pass if there is none for you.
 // The game ends when nobody can take a pair; most pairs wins. 2–4 players.
 // Moves: "a,b" (two tiles) or "p" to pass.
+// LANX 2.17.0: "x<p>" — player p left: skipped from then on, can't win; the
+// last one left wins.
 
-import { ON, draw, shuffled, win, type GameDef, type Outcome } from "./core.ts";
+import { ON, draw, lastIn, leaver, nextIn, shuffled, win, type GameDef, type Outcome } from "./core.ts";
 
 export const MJ_ROWS = 8;
 export const MJ_COLS = 9;
@@ -19,6 +21,8 @@ export interface MahjongState {
   last: number[];
   /** Times the table was reshuffled because no pair was free (three at most). */
   reshuffles: number;
+  /** LANX 2.17.0: players who left. */
+  out: boolean[];
 }
 
 const MAX_RESHUFFLES = 3;
@@ -53,9 +57,11 @@ export function mjPairs(tiles: (string | null)[]): [number, number][] {
 const stuck = (s: MahjongState) => mjPairs(s.tiles).length === 0;
 
 function outcome(s: MahjongState, n: number): Outcome {
-  if (!stuck(s) && s.passes < n) return ON;
-  const best = Math.max(...s.scores);
-  const tops = s.scores.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
+  const alone = lastIn(s.out, n);
+  if (alone !== null) return win(alone, "everyone else left", s.scores);
+  if (!stuck(s) && s.passes < s.out.filter((o) => !o).length) return ON;
+  const best = Math.max(...s.scores.filter((_x, i) => !s.out[i]));
+  const tops = s.scores.map((x, i) => (x === best && !s.out[i] ? i : -1)).filter((i) => i >= 0);
   return tops.length > 1 ? draw(`${best} pairs each`, s.scores) : win(tops[0], `${best} pairs`, s.scores);
 }
 
@@ -67,14 +73,21 @@ export const mahjong: GameDef<MahjongState> = {
   minPlayers: 2,
   maxPlayers: 4,
   replay(moves, n, seed) {
-    const s: MahjongState = { tiles: shuffled([...KINDS, ...KINDS], seed), scores: Array(n).fill(0), turn: 0, passes: 0, last: [], reshuffles: 0 };
+    const s: MahjongState = { tiles: shuffled([...KINDS, ...KINDS], seed), scores: Array(n).fill(0), turn: 0, passes: 0, last: [], reshuffles: 0, out: Array(n).fill(false) };
     reshuffleIfStuck(s, seed);
     for (const m of moves) {
       if (outcome(s, n).over) return null;
+      const p = leaver(m, n);
+      if (p !== null) {
+        if (p < 0 || s.out[p]) return null;
+        s.out[p] = true;
+        if (s.turn === p) s.turn = nextIn(p, n, s.out);
+        continue;
+      }
       if (m === "p") {
         if (mjPairs(s.tiles).length) return null; // you may only pass with no pair on the table
         s.passes++;
-        s.turn = (s.turn + 1) % n;
+        s.turn = nextIn(s.turn, n, s.out);
         s.last = [];
         continue;
       }
@@ -88,12 +101,12 @@ export const mahjong: GameDef<MahjongState> = {
       s.scores[s.turn]++;
       s.last = [a, b];
       s.passes = 0;
-      s.turn = (s.turn + 1) % n;
+      s.turn = nextIn(s.turn, n, s.out);
       reshuffleIfStuck(s, seed);
     }
     return s;
   },
   turn: (s) => s.turn,
   outcome,
-  summary: (s) => s.scores.map((x, i) => `P${i + 1} ${x}`).join(" · ") + (s.reshuffles ? ` · reshuffled ${s.reshuffles}×` : ""),
+  summary: (s) => s.scores.map((x, i) => `P${i + 1} ${x}${s.out[i] ? " (left)" : ""}`).join(" · ") + (s.reshuffles ? ` · reshuffled ${s.reshuffles}×` : ""),
 };

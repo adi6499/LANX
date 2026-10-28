@@ -1,8 +1,48 @@
 import { useMemo, useState } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
-import { deadwood, ginrummy } from "../../../lib/games/ginrummy.ts";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
+import { deadwood, ginrummy, type GinKnock } from "../../../lib/games/ginrummy.ts";
 import { sortHand } from "../../../lib/games/cards.ts";
-import { CardBack, CardFace } from "./CardFace";
+import { CardBack, CardFace, CardRow, ResultPanel } from "./CardFace";
+
+/** LANX 2.17.0: how the last knock was counted — both hands laid out, the layoffs and the score — through the next deal's first turn. */
+export function GinKnockPanel({ knock, name }: { knock: GinKnock | null; name: (p: number) => string }) {
+  if (!knock) return null;
+  const other = 1 - knock.by;
+  const laid = new Set(knock.laid);
+  return (
+    <ResultPanel title={`Round ${knock.round}: ${name(knock.by)} ${knock.gin ? "went gin" : `knocked with ${knock.points}`}`} testId="gin-knock">
+      <div className="flex flex-wrap items-center gap-2" data-gin-knock-melds>
+        <span className="font-semibold">{name(knock.by)}</span>
+        {knock.melds.map((m, i) => (
+          <CardRow key={i} cards={m} />
+        ))}
+        {knock.deadwood.length > 0 && (
+          <span className="inline-flex items-center gap-1 text-slate-500">
+            deadwood <CardRow cards={knock.deadwood} /> {knock.points}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2" data-gin-knock-defender>
+        <span className="font-semibold">{name(other)}</span>
+        {knock.defMelds.map((m, i) => (
+          <CardRow key={i} cards={m} />
+        ))}
+        {knock.laid.length > 0 && (
+          <span className="inline-flex items-center gap-1 text-slate-500" data-gin-laid>
+            laid off <CardRow cards={knock.laid} lit={(c) => laid.has(c)} />
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1 text-slate-500">
+          deadwood {knock.defDeadwood.length ? <CardRow cards={knock.defDeadwood} /> : null} {knock.defPoints}
+        </span>
+      </div>
+      <div className="font-semibold" data-gin-knock-score>
+        {name(knock.scorer)} scores {knock.scored}
+        {knock.gin ? " (gin bonus 25)" : knock.undercut ? " (undercut bonus 25)" : ""} · {name(0)} {knock.scores[0]} · {name(1)} {knock.scores[1]}
+      </div>
+    </ResultPanel>
+  );
+}
 
 /** Gin Rummy: draw (stock or pile), then click a card to discard — or knock. */
 export function GinBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
@@ -20,7 +60,13 @@ export function GinBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed 
   const canKnockWith = (c: string) => deadwood(hand.filter((x) => x !== c)).points <= 10;
   const other = 1 - me;
   return (
-    <div data-game-board="ginrummy" className="flex w-full max-w-[640px] flex-col items-center gap-3">
+    <div data-game-board="ginrummy" className="flex w-full max-w-[680px] flex-col items-center gap-3">
+      <GinKnockPanel knock={state.lastKnock} name={name} />
+      {state.notice && (
+        <div className="text-[11.5px] text-slate-500" data-gin-notice>
+          {namesIn(state.notice, seats, starter, 2)}
+        </div>
+      )}
       <div className="flex items-center gap-6 text-[12.5px] font-semibold" data-gin-scores>
         <span>
           {name(0)} {state.scores[0]}
@@ -50,11 +96,6 @@ export function GinBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed 
           </button>
         )}
       </div>
-      {state.lastKnock && state.log.length > 0 && (
-        <div className="text-[11px] text-slate-500" data-gin-log>
-          {state.log[state.log.length - 1]}
-        </div>
-      )}
       <div className="flex flex-col items-center gap-1">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
           {local ? `${name(turn)}'s cards` : "Your cards"} · deadwood {dw.points} {drawing ? "— draw first" : discarding ? (knocking ? "— choose the card to discard and knock" : "— click a card to discard") : ""}

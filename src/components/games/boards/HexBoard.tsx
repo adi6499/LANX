@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import type { BoardProps } from "../boardProps";
-import { HEX, hex } from "../../../lib/games/hex.ts";
+import { seatFor, type BoardProps } from "../boardProps";
+import { HEX, hex, hexCanSwap, type HexState } from "../../../lib/games/hex.ts";
 
 const R = 17; // hex radius
 const W = Math.sqrt(3) * R;
@@ -12,10 +12,19 @@ const hexPath = (cx: number, cy: number) =>
     return `${(cx + R * Math.cos(a)).toFixed(1)},${(cy + R * Math.sin(a)).toFixed(1)}`;
   }).join(" ");
 
+/** LANX 2.17.0: the swap rule in words, for whoever can see it now. */
+export function hexSwapNote(s: HexState, moves: string[], canPlay: boolean, name: (p: number) => string): string | null {
+  if (hexCanSwap(s, moves)) return canPlay ? `You may swap: take ${name(0)}'s first stone as yours (it turns blue, mirrored across the long diagonal) and ${name(0)} moves next — or just play a hex.` : `${name(1)} may swap: take the first stone as theirs (it turns blue, mirrored), or play a hex.`;
+  if (s.swapped && moves.length === 2) return `${name(1)} swapped: the first stone is now blue (mirrored across the long diagonal). ${name(0)} to play.`;
+  return null;
+}
+
 /** Hex: red joins left and right, blue joins top and bottom. */
-export function HexBoard({ moves, canPlay, onMove }: BoardProps) {
+export function HexBoard({ moves, canPlay, seats, starter = 0, onMove }: BoardProps) {
   const state = useMemo(() => hex.replay(moves, 2, ""), [moves]);
   if (!state) return null;
+  const name = (p: number) => seatFor(seats, starter, p, 2).name.split(" (")[0];
+  const note = hexSwapNote(state, moves, canPlay, name);
   const width = W * HEX + (W / 2) * (HEX - 1) + 24;
   const height = H * 0.75 * (HEX - 1) + H + 24;
   const centre = (i: number) => {
@@ -24,7 +33,11 @@ export function HexBoard({ moves, canPlay, onMove }: BoardProps) {
     return [12 + W / 2 + c * W + (r * W) / 2, 12 + R + r * H * 0.75] as const;
   };
   return (
-    <svg data-game-board="hex" width={width} height={height} className="select-none">
+    <div data-game-board="hex" className="flex flex-col items-center gap-2">
+    <div className="text-[12px] font-semibold text-slate-600 dark:text-slate-300">
+      <span className="text-rose-500">●</span> {name(0)} joins left and right · <span className="text-sky-500">●</span> {name(1)} joins top and bottom
+    </div>
+    <svg width={width} height={height} className="select-none">
       {/* the two pairs of edges */}
       {Array.from({ length: HEX }, (_, k) => {
         const [lx, ly] = centre(k * HEX);
@@ -58,5 +71,16 @@ export function HexBoard({ moves, canPlay, onMove }: BoardProps) {
         );
       })}
     </svg>
+    {note && (
+      <div data-hex-note className="flex max-w-[460px] flex-wrap items-center justify-center gap-2 text-center text-[12px] text-slate-600 dark:text-slate-300">
+        <span>{note}</span>
+        {canPlay && hexCanSwap(state, moves) && (
+          <button type="button" data-hex-swap onClick={() => onMove("swap")} className="rounded-full bg-indigo-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-indigo-700">
+            Swap
+          </button>
+        )}
+      </div>
+    )}
+    </div>
   );
 }

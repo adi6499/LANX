@@ -5,16 +5,19 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
-import type { BoardProps } from "../../boardProps";
-import { GO, go, goScore, type GoState } from "../../../../lib/games/go.ts";
+import { seatFor, type BoardProps } from "../../boardProps";
+import { GO, GO_KOMI, go, goScore, type GoState } from "../../../../lib/games/go.ts";
+import { GO_PASS_HINT, goPassed } from "../../boards/GoBoard";
+import { reversiPassNote } from "../../Boards";
 import { GOMOKU, gomoku, type GomokuState } from "../../../../lib/games/gomoku.ts";
-import { HEX, hex, type HexState } from "../../../../lib/games/hex.ts";
+import { HEX, hex, hexCanSwap, type HexState } from "../../../../lib/games/hex.ts";
+import { hexSwapNote } from "../../boards/HexBoard";
 import { reversiBoard, reversiCount, reversiFlips, reversiLegal, tttBoard, tttLine, type RCell } from "../../../../lib/gameRules";
 import { sfx } from "../../../../lib/gameSounds";
 import { BoardScene, type PieceSpec } from "../boardScene";
 import { boardSlab, canvasTexture, markerDot, mesh, sharedGeo, slab, stoneGeometry, wood } from "../kit";
 import { SceneBox, useScene } from "../Board3D";
-import { BoardBar, HiddenActions, SeatDot, quiet3, type Action } from "../ui";
+import { BoardBar, HiddenActions, SeatDot, primary3, quiet3, type Action } from "../ui";
 import { easeInOut } from "../stage";
 
 // ------------------------------------------------------------ shared bits
@@ -228,18 +231,21 @@ export function Go3D(p: BoardProps) {
   const hostRef = useStoneBoard((el) => new GobanScene<GoState>(el, GO, [20, 24, 40, 56, 60], (m) => go.replay(m, 2, "")), p, state, state?.ko ?? -1);
   if (!state) return null;
   const [b, w] = goScore(state.cells);
+  const passed = goPassed(p.moves, (q) => seatFor(p.seats, p.starter ?? 0, q, 2).name.split(" (")[0]);
   return (
     <div data-game-board="go" data-g3-board="go" className="flex w-full max-w-[640px] flex-col items-center gap-2">
       <BoardBar>
         <span className="inline-flex items-center gap-1.5" data-go-score>
-          <SeatDot color="#15171c" /> {b} <span className="font-normal text-slate-400">(+{state.captured[0]} taken)</span>
+          <SeatDot color="#15171c" /> {b}
           <span className="ml-3" />
-          <SeatDot color="#f3efe6" /> {w + 6.5} <span className="font-normal text-slate-400">(+{state.captured[1]} taken)</span>
+          <SeatDot color="#f3efe6" /> {w + GO_KOMI} <span className="font-normal text-slate-400">(with {GO_KOMI} komi)</span>
         </span>
         <button type="button" data-go-pass disabled={!p.canPlay} onClick={() => p.onMove("p")} className={quiet3}>
           Pass{state.passes === 1 ? " (a second pass ends it)" : ""}
         </button>
       </BoardBar>
+      <div data-go-hint className="-mt-1 text-center text-[11px] text-slate-500">{GO_PASS_HINT}</div>
+      {passed && <div data-go-passed className="text-[12.5px] font-semibold text-slate-700 dark:text-slate-200">{passed}</div>}
       <SceneBox hostRef={hostRef} aspect={1.08} maxH={600} testId="go" />
       <HiddenActions actions={emptyActions(state.cells, p.canPlay, p.onMove, "data-go-cell", state.ko)} label="Points you can play" />
     </div>
@@ -254,7 +260,7 @@ export function Gomoku3D(p: BoardProps) {
     <div data-game-board="gomoku" data-g3-board="gomoku" className="flex w-full max-w-[640px] flex-col items-center gap-2">
       <BoardBar>
         <span className="inline-flex items-center gap-1.5">
-          <SeatDot color={state.turn === 0 ? "#15171c" : "#f3efe6"} /> {state.winner !== null ? "Five in a row!" : `${state.turn === 0 ? "Black" : "White"} to play`}
+          <SeatDot color={state.turn === 0 ? "#15171c" : "#f3efe6"} /> {state.winner !== null ? "Five in a row!" : `${seatFor(p.seats, p.starter ?? 0, state.turn, 2).name.split(" (")[0]} (${state.turn === 0 ? "black" : "white"}) to play`}
         </span>
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.08} maxH={620} testId="gomoku" />
@@ -528,15 +534,26 @@ export function Hex3D(p: BoardProps) {
   useEffect(() => scene?.sync(2, "", p.moves), [scene, p.moves]);
   useEffect(() => scene?.setTurn({ canPlay: p.canPlay, turn: state?.turn ?? 0, onPlay: (i) => move.current(String(i)) }), [scene, p.canPlay, state]);
   if (!state) return null;
+  const name = (q: number) => seatFor(p.seats, p.starter ?? 0, q, 2).name.split(" (")[0];
+  const note = hexSwapNote(state, p.moves, p.canPlay, name);
+  const canSwap = p.canPlay && hexCanSwap(state, p.moves);
+  const actions = emptyActions(state.cells, p.canPlay && state.winner === null, p.onMove, "data-hex-cell");
+  if (canSwap) actions.unshift({ key: "swap", label: "Swap (take the first stone)", run: () => p.onMove("swap"), attrs: { "data-hex-swap-action": "1" } });
   return (
     <div data-game-board="hex" data-g3-board="hex" className="flex w-full max-w-[760px] flex-col items-center gap-2">
       <BoardBar>
         <span className="inline-flex items-center gap-1.5">
-          <SeatDot color="#f43f5e" /> Red joins left and right · <SeatDot color="#0ea5e9" /> Blue joins top and bottom
+          <SeatDot color="#f43f5e" /> {name(0)} joins left and right · <SeatDot color="#0ea5e9" /> {name(1)} joins top and bottom
         </span>
+        {canSwap && (
+          <button type="button" data-hex-swap onClick={() => p.onMove("swap")} className={primary3}>
+            Swap
+          </button>
+        )}
       </BoardBar>
+      {note && <div data-hex-note className="max-w-[560px] text-center text-[12px] text-slate-600 dark:text-slate-300">{note}</div>}
       <SceneBox hostRef={hostRef} aspect={1.55} maxH={540} testId="hex" />
-      <HiddenActions actions={emptyActions(state.cells, p.canPlay && state.winner === null, p.onMove, "data-hex-cell")} label="Free hexes" />
+      <HiddenActions actions={actions} label="Free hexes" />
     </div>
   );
 }
@@ -687,10 +704,11 @@ class ReversiScene extends BoardScene<RState> {
   }
 }
 
-export function Reversi3D({ moves, canPlay, turn, onMove }: BoardProps) {
+export function Reversi3D({ moves, canPlay, turn, seats, starter = 0, onMove }: BoardProps) {
   const board = useMemo(() => reversiBoard(moves) ?? reversiBoard([])!, [moves]);
   const legal = useMemo(() => reversiLegal(board, (turn % 2) as 0 | 1), [board, turn]);
   const [black, white] = reversiCount(board);
+  const note = reversiPassNote(board, moves, turn, canPlay, (q) => seatFor(seats, starter, q, 2).name.split(" (")[0]);
   const move = useRef(onMove);
   move.current = onMove;
   const [hostRef, scene] = useScene((el) => new ReversiScene(el));
@@ -706,12 +724,13 @@ export function Reversi3D({ moves, canPlay, turn, onMove }: BoardProps) {
         <span className="inline-flex items-center gap-1.5" data-reversi-white>
           <SeatDot color="#f5f3ee" /> {white}
         </span>
-        {canPlay && legal.length === 0 && (
+        {note?.mine && (
           <button type="button" data-game-pass onClick={() => onMove("p")} className="rounded-full bg-amber-500 px-4 py-1.5 text-white">
-            No move possible — pass
+            Pass
           </button>
         )}
       </BoardBar>
+      {note && <div data-reversi-note className="text-center text-[12.5px] font-semibold text-slate-700 dark:text-slate-200">{note.text}</div>}
       <SceneBox hostRef={hostRef} aspect={1.12} maxH={560} testId="reversi" />
       <HiddenActions actions={actions} label="Legal moves" />
     </div>

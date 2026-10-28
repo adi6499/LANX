@@ -4,8 +4,10 @@
 //
 // Moves: "h:r:c" (a horizontal line at dot row r 0..5, from column c 0..4)
 // or "v:r:c" (a vertical line from dot row r 0..4 at column c 0..5).
+// LANX 2.17.0: "x<p>" — player p left: they are skipped from then on, keep
+// their boxes but can't win, and the last one left wins.
 
-import { ON, draw, win, type GameDef, type Outcome } from "./core.ts";
+import { ON, draw, lastIn, leaver, nextIn, win, type GameDef, type Outcome } from "./core.ts";
 
 export const DOTS = 6;
 export const BOXES = DOTS - 1;
@@ -20,6 +22,11 @@ export interface DotsState {
   scores: number[];
   turn: number;
   linesLeft: number;
+  /** LANX 2.17.0: players who left. */
+  out: boolean[];
+  /** The last line drawn ("h:r:c"), and who drew it — so everyone sees what the other did. */
+  last: string | null;
+  lastBy: number;
 }
 
 const grid = <T,>(rows: number, cols: number, v: T): T[][] => Array.from({ length: rows }, () => Array(cols).fill(v));
@@ -41,7 +48,7 @@ function apply(s: DotsState, move: string, n: number): DotsState | null {
   const p = parse(move);
   if (!p) return null;
   if (p.kind === "h" ? s.h[p.r][p.c] : s.v[p.r][p.c]) return null;
-  const next: DotsState = { h: s.h.map((x) => [...x]), v: s.v.map((x) => [...x]), box: s.box.map((x) => [...x]), scores: [...s.scores], turn: s.turn, linesLeft: s.linesLeft - 1 };
+  const next: DotsState = { h: s.h.map((x) => [...x]), v: s.v.map((x) => [...x]), box: s.box.map((x) => [...x]), scores: [...s.scores], turn: s.turn, linesLeft: s.linesLeft - 1, out: s.out, last: move, lastBy: s.turn };
   if (p.kind === "h") next.h[p.r][p.c] = true;
   else next.v[p.r][p.c] = true;
   let gained = 0;
@@ -60,14 +67,24 @@ function apply(s: DotsState, move: string, n: number): DotsState | null {
     check(p.r, p.c);
   }
   if (gained) next.scores[s.turn] += gained;
-  else next.turn = (s.turn + 1) % n;
+  else next.turn = nextIn(s.turn, n, s.out);
   return next;
 }
 
-function outcome(s: DotsState, _n: number): Outcome {
+/** Player p leaves: skipped from now on; whoever is next moves if it was their turn. */
+function leave(s: DotsState, p: number, n: number): DotsState | null {
+  if (p < 0 || s.out[p]) return null;
+  const out = [...s.out];
+  out[p] = true;
+  return { ...s, out, turn: s.turn === p ? nextIn(p, n, out) : s.turn };
+}
+
+function outcome(s: DotsState, n: number): Outcome {
+  const alone = lastIn(s.out, n);
+  if (alone !== null) return win(alone, "everyone else left", s.scores);
   if (s.linesLeft > 0) return ON;
-  const best = Math.max(...s.scores);
-  const tops = s.scores.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
+  const best = Math.max(...s.scores.filter((_x, i) => !s.out[i]));
+  const tops = s.scores.map((x, i) => (x === best && !s.out[i] ? i : -1)).filter((i) => i >= 0);
   if (tops.length > 1) return draw(`${best} boxes each`, s.scores);
   return win(tops[0], `${best} boxes`, s.scores);
 }
@@ -80,10 +97,11 @@ export const dots: GameDef<DotsState> = {
   minPlayers: 2,
   maxPlayers: 4,
   replay(moves, n) {
-    let s: DotsState = { h: grid(DOTS, BOXES, false), v: grid(BOXES, DOTS, false), box: grid(BOXES, BOXES, -1), scores: Array(n).fill(0), turn: 0, linesLeft: 2 * DOTS * BOXES };
+    let s: DotsState = { h: grid(DOTS, BOXES, false), v: grid(BOXES, DOTS, false), box: grid(BOXES, BOXES, -1), scores: Array(n).fill(0), turn: 0, linesLeft: 2 * DOTS * BOXES, out: Array(n).fill(false), last: null, lastBy: -1 };
     for (const m of moves) {
       if (outcome(s, n).over) return null;
-      const next = apply(s, m, n);
+      const p = leaver(m, n);
+      const next = p !== null ? leave(s, p, n) : apply(s, m, n);
       if (!next) return null;
       s = next;
     }
@@ -91,5 +109,5 @@ export const dots: GameDef<DotsState> = {
   },
   turn: (s) => s.turn,
   outcome,
-  summary: (s) => s.scores.map((x, i) => `P${i + 1} ${x}`).join(" · "),
+  summary: (s) => s.scores.map((x, i) => `P${i + 1} ${x}${s.out[i] ? " (left)" : ""}`).join(" · "),
 };

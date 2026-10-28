@@ -1,7 +1,7 @@
 // Spinner Wars, run on the host's PC at 60 steps a second: everyone's
 // spinner in a round arena; push towards the pointer, bump into the others;
-// whoever leaves the arena is out, the last one in wins the round. Three
-// rounds.
+// whoever leaves the arena is out, the last one in wins the round. First to
+// two round wins (lib/games/realtime: spinnerChampion).
 
 export const ARENA_R = 230;
 export const SPIN_R = 22;
@@ -13,8 +13,12 @@ export interface SpinState {
   wins: number[];
 }
 
-export function spinStart(n: number): SpinState {
-  return { spinners: place(n), round: 1, pause: 90, wins: Array(n).fill(0) };
+/** A fresh arena — or (2.17.0) the arena again from the record: round wins so far, the round under
+ *  way and who is already out of it. */
+export function spinStart(n: number, from?: { wins: number[]; rounds: number; out: boolean[] }): SpinState {
+  const s: SpinState = { spinners: place(n), round: (from?.rounds ?? 0) + 1, pause: 90, wins: from ? [...from.wins] : Array(n).fill(0) };
+  from?.out.forEach((o, i) => o && s.spinners[i] && (s.spinners[i].out = true));
+  return s;
 }
 
 function place(n: number) {

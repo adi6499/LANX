@@ -6,7 +6,7 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
 import { LADDERS, SNAKES, snakes, type SnakesState } from "../../../../lib/games/snakes.ts";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
@@ -211,6 +211,8 @@ class SnakesScene extends TurnScene<SnakesState> {
       m.visible = p < n;
       if (p < n) m.material = plastic(colours[p]);
     });
+    const s = this.replay(this.shown);
+    if (s) this.snap(s);
     this.stage.invalidate();
   }
 
@@ -231,7 +233,7 @@ class SnakesScene extends TurnScene<SnakesState> {
   private spots(s: SnakesState): THREE.Vector3[] {
     return s.pos.map((sq, p) => {
       if (sq === 0) return startSpot(p);
-      const here = s.pos.map((q, k) => (q === sq ? k : -1)).filter((k) => k >= 0);
+      const here = s.pos.map((q, k) => (q === sq && !s.out[k] ? k : -1)).filter((k) => k >= 0);
       const v = square(sq);
       if (here.length > 1) {
         const i = here.indexOf(p);
@@ -245,8 +247,9 @@ class SnakesScene extends TurnScene<SnakesState> {
 
   protected snap(s: SnakesState) {
     this.spots(s).forEach((v, p) => {
+      this.pawns[p].visible = p < this.n && !s.out[p];
       this.pawns[p].position.copy(v);
-      this.pawns[p].scale.setScalar(s.pos.filter((q) => q === s.pos[p] && q > 0).length > 1 ? 0.54 : 0.7);
+      this.pawns[p].scale.setScalar(s.pos.filter((q, k) => q === s.pos[p] && q > 0 && !s.out[k]).length > 1 ? 0.54 : 0.7);
     });
     if (s.lastBy >= 0 && this.die.value !== s.lastRoll) {
       restOn(this.die, TRAY_X, 0.1, 0.6);
@@ -255,13 +258,14 @@ class SnakesScene extends TurnScene<SnakesState> {
     this.stage.invalidate();
   }
 
-  protected async animateStep(before: SnakesState, after: SnakesState) {
+  protected async animateStep(before: SnakesState, after: SnakesState, move: string) {
+    if (move !== "r") return; // someone left: the snap hides their pawn
     const p = before.turn;
     await throwDice(this.stage, [this.die], [after.lastRoll], { cx: TRAY_X, cz: 0.6, w: 2.4, d: 3.5, y: 0.1, from: new THREE.Vector3(0.2, 0, 1) }, `${this.seed}#snakes${after.rolls}`, (k) => sfx("thud", 0.2 + k * 0.5));
     const pawn = this.pawns[p];
     const from = before.pos[p];
     const via = after.via;
-    if (via === from) {
+    if (via === from || after.lastBy !== p) {
       // Too far for exactly 100: the pawn stays (a little shake).
       const base = pawn.position.clone();
       await this.stage.animate(360, (t) => {
@@ -315,23 +319,27 @@ export default function Snakes3D({ moves, canPlay, turn, seats, starter = 0, see
   useEffect(() => scene?.sync(n, seed, moves), [scene, n, seed, moves]);
   useEffect(() => scene?.setTurn(canPlay, () => move.current("r")), [scene, canPlay]);
   if (!state) return null;
+  const name = (p: number) => seatFor(seats, starter, p, n).name.split(" (")[0];
   return (
     <div data-game-board="snakes" data-g3-board="snakes" className="flex w-full max-w-[760px] flex-col items-center gap-2">
       <BoardBar>
         {state.lastBy >= 0 && (
           <span className="inline-flex items-center gap-1.5" data-snakes-last>
-            <SeatDot color={colours[state.lastBy]} /> rolled <b data-die={state.lastRoll}>{state.lastRoll}</b>
+            <SeatDot color={colours[state.lastBy]} /> {name(state.lastBy)} rolled <b data-die={state.lastRoll}>{state.lastRoll}</b>
           </span>
         )}
         <button type="button" data-snakes-roll disabled={!canPlay} onClick={() => onMove("r")} className={primary3}>
           Roll
         </button>
       </BoardBar>
+      <div className="min-h-[18px] text-[12.5px] text-slate-600 dark:text-slate-300" data-snakes-event>
+        {state.event ? namesIn(state.event, seats, starter, n) : "Roll to start. Exactly 100 wins; a six rolls again."}
+      </div>
       <SceneBox hostRef={hostRef} aspect={1.45} maxH={620} testId="snakes" />
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12px]" data-snakes-positions>
         {state.pos.map((sq, p) => (
-          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "font-bold" : ""}`}>
-            <SeatDot color={colours[p]} size={10} /> {seatFor(seats, starter, p, n).name}: {sq || "start"}
+          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "font-bold" : ""} ${state.out[p] ? "line-through opacity-50" : ""}`}>
+            <SeatDot color={colours[p]} size={10} /> {name(p)}: {state.out[p] ? "left" : sq || "start"}
           </span>
         ))}
       </div>

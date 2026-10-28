@@ -6,25 +6,29 @@
 // votes counted on each player. Draw & Guess puts the drawing on an easel
 // for the guessers, draws the strokes smoothly as they arrive, and shows the
 // word as letter boxes. Rules, timers, rooms and scoring are the same code
-// as before (lib/games/party, werewolf, drawguess; boards/PartyShell).
+// as the flat boards (lib/games/party, werewolf, drawguess; boards/PartyShell,
+// PartyBoards, WerewolfBoard, DrawGuessBoard), so both play the same game.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { seatFor, type BoardProps } from "../../boardProps";
-import { mathRush, trivia, type MathExtra, type TriviaQ } from "../../../../lib/games/party.ts";
-import { drawGuess, type DrawExtra } from "../../../../lib/games/drawguess.ts";
-import { PartyShell, useClock } from "../../boards/PartyShell";
-import { ROLE_TEXT, useWerewolf } from "../../boards/WerewolfBoard";
+import { allAnswered, mathRush, trivia, type MathExtra, type TriviaQ } from "../../../../lib/games/party.ts";
+import { drawGuess, isRightGuess, type DrawExtra } from "../../../../lib/games/drawguess.ts";
+import { wolfCount } from "../../../../lib/games/werewolf.ts";
+import { PartyShell, useRoundClock } from "../../boards/PartyShell";
+import { inCount, partyNames } from "../../boards/PartyBoards";
+import { DayVotes, ROLE_TEXT, VOTE_RULE, useWerewolf } from "../../boards/WerewolfBoard";
+import { DRAW_RULES, drawLabel, drawRoundOver, roundStrokes, type Clear, type Stroke } from "../../boards/DrawGuessBoard";
 import { SeatDot } from "../ui";
 import "../party3d.css";
 
 /** Everyone's score as a bar that grows (the leader's is full). */
-function ScoreBars({ scores, name, colour, me }: { scores: number[]; name: (p: number) => string; colour: (p: number) => string; me: number }) {
+function ScoreBars({ scores, name, colour, me, out = [] }: { scores: number[]; name: (p: number) => string; colour: (p: number) => string; me: number; out?: boolean[] }) {
   const top = Math.max(1, ...scores);
   return (
     <div className="flex w-full max-w-[420px] flex-col gap-1" data-p3-scores>
       {scores.map((s, p) => (
-        <div key={p} className="flex items-center gap-2 text-[11.5px]">
-          <span className={`w-24 truncate ${p === me ? "font-bold" : ""}`}>{name(p)}</span>
+        <div key={p} className={`flex items-center gap-2 text-[11.5px] ${out[p] ? "opacity-50" : ""}`}>
+          <span className={`w-24 truncate ${p === me ? "font-bold" : ""} ${out[p] ? "line-through" : ""}`}>{name(p)}</span>
           <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-500/15">
             <span className="p3-bar block h-full rounded-full" style={{ width: `${Math.max(3, (s / top) * 100)}%`, backgroundColor: colour(p) }} />
           </span>
@@ -35,9 +39,8 @@ function ScoreBars({ scores, name, colour, me }: { scores: number[]; name: (p: n
   );
 }
 
-/** The round's clock as a ring that runs down. */
-function Ring({ deadline, open, seconds }: { deadline: number; open: boolean; seconds: number }) {
-  const left = useClock(deadline, open);
+/** The round's clock as a ring that runs down (this PC's own count — see useRoundClock). */
+function Ring({ left, open, seconds }: { left: number; open: boolean; seconds: number }) {
   const r = 22;
   const c = 2 * Math.PI * r;
   const frac = open ? Math.max(0, Math.min(1, left / seconds)) : 0;
@@ -57,8 +60,9 @@ function Ring({ deadline, open, seconds }: { deadline: number; open: boolean; se
 export function Trivia3D({ moves, canPlay, seat, seats, starter = 0, seed = "", host, onMove }: BoardProps) {
   const n = Math.max(2, seats?.length ?? 2);
   const state = useMemo(() => trivia.replay(moves, n, seed), [moves, n, seed]);
-  const name = (p: number) => seatFor(seats, starter, p, n).name;
-  const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const { name, colour, list } = partyNames(seats, starter, n);
+  const seconds = trivia.rules.seconds;
+  const left = useRoundClock(state ?? { round: 0, open: false, deadline: 0 }, seconds, !!host);
   const q = state?.extra as TriviaQ | null;
   const mine = state?.answers.find((a) => a.player === seat);
   // Keys 1–4 answer.
@@ -74,7 +78,7 @@ export function Trivia3D({ moves, canPlay, seat, seats, starter = 0, seed = "", 
   if (!state) return null;
   const reveal = !state.open && state.round > 0 && !!q;
   return (
-    <PartyShell state={state} rounds={10} seconds={20} host={!!host} seats={seats} starter={starter} n={n} allIn={state.answers.length >= n} onMove={onMove} testId="trivia">
+    <PartyShell state={state} rounds={trivia.total(state, n)} seconds={seconds} host={!!host} seats={seats} starter={starter} n={n} seat={seat} answered={!!mine} allIn={allAnswered(state)} onMove={onMove} testId="trivia">
       <div className="p3-scene flex w-full max-w-[560px] flex-col items-center gap-3" data-g3-board="trivia">
         {q && (state.open || reveal) ? (
           <>
@@ -97,21 +101,19 @@ export function Trivia3D({ moves, canPlay, seat, seats, starter = 0, seed = "", 
                   );
                 })}
               </div>
-              {state.open && <Ring deadline={state.deadline} open={state.open} seconds={20} />}
+              {state.open && <Ring left={left} open={state.open} seconds={seconds} />}
             </div>
             <div className="flex items-center gap-1.5 text-[11.5px] text-slate-500" data-trivia-answered>
               {state.answers.map((a) => (
                 <SeatDot key={a.player} color={colour(a.player)} size={10} />
               ))}
-              <span>
-                {state.answers.length} of {n} answered{reveal ? ` · the answer: ${q.options[q.a]}` : ""}
-              </span>
+              <span>{reveal ? `The answer: ${q.options[q.a]} — right: ${list(state.answers.filter((a) => Number(a.text) === q.a).map((a) => a.player))}` : `${inCount(state)} answered`}</span>
             </div>
           </>
         ) : (
-          <div className="text-[13px] text-slate-500">Ten questions, four options each. Right: 10 points; first right: 15. Keys 1–4 answer.</div>
+          <div className="text-[13px] text-slate-500">Ten questions, four options each. 10 points for every right answer. Keys 1–4 answer.</div>
         )}
-        <ScoreBars scores={state.scores} name={name} colour={colour} me={seat} />
+        <ScoreBars scores={state.scores} name={name} colour={colour} me={seat} out={state.out} />
       </div>
     </PartyShell>
   );
@@ -124,8 +126,9 @@ export function MathRush3D({ moves, canPlay, seat, seats, starter = 0, seed = ""
   const state = useMemo(() => mathRush.replay(moves, n, seed), [moves, n, seed]);
   const [text, setText] = useState("");
   useEffect(() => setText(""), [state?.round]);
-  const name = (p: number) => seatFor(seats, starter, p, n).name;
-  const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const { name, colour, list } = partyNames(seats, starter, n);
+  const seconds = mathRush.rules.seconds;
+  const left = useRoundClock(state ?? { round: 0, open: false, deadline: 0 }, seconds, !!host);
   if (!state) return null;
   const q = state.extra as MathExtra | null;
   const mine = state.answers.find((a) => a.player === seat);
@@ -140,9 +143,9 @@ export function MathRush3D({ moves, canPlay, seat, seats, starter = 0, seed = ""
     else if (k === "⏎") send();
     else setText((t) => (t.length < 4 ? t + k : t));
   };
-  const firstRight = q ? state.answers.find((a) => Number(a.text) === q.answer) : undefined;
+  const right = q ? state.answers.filter((a) => Number(a.text) === q.answer).map((a) => a.player) : [];
   return (
-    <PartyShell state={state} rounds={10} seconds={15} host={!!host} seats={seats} starter={starter} n={n} allIn={state.answers.length >= n} onMove={onMove} testId="mathrush">
+    <PartyShell state={state} rounds={mathRush.total(state, n)} seconds={seconds} host={!!host} seats={seats} starter={starter} n={n} seat={seat} answered={!!mine} allIn={allAnswered(state)} onMove={onMove} testId="mathrush">
       <div className="p3-scene flex w-full max-w-[520px] flex-col items-center gap-3" data-g3-board="mathrush">
         {q && (state.open || reveal) ? (
           <div className="flex items-center gap-4">
@@ -150,17 +153,21 @@ export function MathRush3D({ moves, canPlay, seat, seats, starter = 0, seed = ""
               <div className="text-[36px] font-black tracking-wide tabular-nums" data-math-question>
                 {q.question} = {reveal ? q.answer : state.open ? (mine ? mine.text : text || "?") : "?"}
               </div>
-              {reveal && <div className="text-[12px] text-slate-500">{firstRight ? `${name(firstRight.player)} was first` : "nobody got it"}</div>}
+              {reveal && (
+                <div className="text-[12px] text-slate-500" data-math-reveal>
+                  Right: {list(right)}
+                </div>
+              )}
               {state.open && mine && (
                 <div className="text-[13px] font-semibold text-emerald-600" data-math-sent>
-                  Sent — waiting for the others
+                  Sent — waiting for the others ({inCount(state)} in)
                 </div>
               )}
             </div>
-            {state.open && <Ring deadline={state.deadline} open={state.open} seconds={15} />}
+            {state.open && <Ring left={left} open={state.open} seconds={seconds} />}
           </div>
         ) : (
-          <div className="text-[13px] text-slate-500">Ten quick sums. First right answer: 3 points; others right: 1.</div>
+          <div className="text-[13px] text-slate-500">Ten quick sums, 15 seconds each. A point for every right answer.</div>
         )}
         {state.open && q && !mine && (
           <div className="flex flex-col items-center gap-2">
@@ -177,7 +184,7 @@ export function MathRush3D({ moves, canPlay, seat, seats, starter = 0, seed = ""
             </button>
           </div>
         )}
-        <ScoreBars scores={state.scores} name={name} colour={colour} me={seat} />
+        <ScoreBars scores={state.scores} name={name} colour={colour} me={seat} out={state.out} />
       </div>
     </PartyShell>
   );
@@ -186,20 +193,22 @@ export function MathRush3D({ moves, canPlay, seat, seats, starter = 0, seed = ""
 // ============================================================ Werewolf
 
 export function Werewolf3D(p: BoardProps) {
-  const { state, n, name, colour, myRole, peeks, left, start, attack, peekAt, vote, done, canPlay, seat, host } = useWerewolf(p);
+  const { state, n, name, colour, tidy, myRole, peeks, left, start, attack, peekAt, vote, done, canPlay, seat, host, pack, packPicks, status } = useWerewolf(p);
   const [roleOpen, setRoleOpen] = useState(false);
   useEffect(() => setRoleOpen(false), [myRole?.role]);
   const stars = useMemo(() => Array.from({ length: 26 }, (_, i) => ({ left: `${(i * 37) % 100}%`, top: `${(i * 23) % 60}%` })), []);
   if (!state) return null;
   const alive = state.alive;
   const iAmAlive = alive[seat];
-  const votesFor = (q: number) => Object.values(state.votes).filter((v) => v === q).length;
+  const votesFor = (q: number) => Object.entries(state.votes).filter(([v, t]) => t === q && alive[Number(v)]).length;
   const myVote = state.votes[seat];
   const acting = state.phase === "night" ? iAmAlive && (myRole?.role === "wolf" || myRole?.role === "seer") : state.phase === "day" && iAmAlive;
   const pick = (q: number) => {
     if (state.phase === "night") (myRole?.role === "wolf" ? attack : peekAt)(q);
     else vote(q);
   };
+  const wolves = wolfCount(alive.filter(Boolean).length);
+  const head = state.phase === "night" ? `Night ${state.round} · ${left}s` : state.phase === "day" ? `Day ${state.round} · ${left}s · ${Object.keys(state.votes).filter((v) => alive[Number(v)]).length} of ${alive.filter(Boolean).length} voted` : state.phase === "lobby" ? "The village gathers" : status;
   return (
     <div data-game-board="werewolf" data-g3-board="werewolf" data-ww-phase={state.phase} className="flex w-full max-w-[680px] flex-col items-center gap-3">
       <div className="p3-sky w-full rounded-2xl px-4 pb-4 pt-16" data-p3-sky={state.phase}>
@@ -208,12 +217,10 @@ export function Werewolf3D(p: BoardProps) {
         {stars.map((s, i) => (
           <span key={i} className="p3-star" style={s} />
         ))}
-        <div className="relative text-center text-[15px] font-bold">
-          {state.phase === "lobby" ? "The village gathers" : state.phase === "night" ? `Night ${state.round} · ${left}s` : state.phase === "day" ? `Day ${state.round} · ${left}s · ${Object.keys(state.votes).length} of ${alive.filter(Boolean).length} voted` : state.winner === "village" ? "The village wins" : "The werewolves win"}
-        </div>
+        <div className="relative text-center text-[15px] font-bold">{head}</div>
         <div className="relative mt-3 flex flex-wrap justify-center gap-2" data-ww-players>
           {alive.map((a, q) => {
-            const can = acting && a && q !== seat && canPlay && !done && !(state.phase === "day" && myVote !== undefined);
+            const can = acting && a && q !== seat && canPlay && !(state.phase === "night" && (done || (myRole?.role === "wolf" && pack.includes(q))));
             return (
               <button
                 key={q}
@@ -223,13 +230,19 @@ export function Werewolf3D(p: BoardProps) {
                 data-ww-target={can ? q : undefined}
                 disabled={!can}
                 onClick={() => pick(q)}
-                className={`relative flex w-[92px] flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11.5px] font-semibold transition-transform ${a ? "bg-white/90 text-slate-900 shadow" : "p3-out bg-white/40 text-slate-500"} ${can ? "cursor-pointer hover:-translate-y-0.5" : "cursor-default"} ${myVote === q ? "ring-2 ring-indigo-500" : ""}`}
+                className={`relative flex w-[92px] flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11.5px] font-semibold transition-transform ${a ? "bg-white/90 text-slate-900 shadow" : "p3-out bg-white/40 text-slate-500"} ${can ? "cursor-pointer hover:-translate-y-0.5" : "cursor-default"} ${state.phase === "day" && myVote === q ? "ring-2 ring-indigo-500" : ""}`}
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-full text-[17px] text-white" style={{ backgroundColor: colour(q) }}>
                   {a ? name(q).slice(0, 1).toUpperCase() : "✕"}
                 </span>
                 <span className="w-full truncate text-center">{name(q)}</span>
+                {state.left[q] && <span className="text-[10px] text-slate-500">left</span>}
                 {state.roles && <span className="text-[10px] text-slate-500">{state.roles[q]}</span>}
+                {state.phase === "night" && packPicks.some((x) => x.target === q) && (
+                  <span className="text-[10px] text-rose-600" data-ww-pack-pick={q}>
+                    🐺 {packPicks.filter((x) => x.target === q).map((x) => name(x.wolf)).join(", ")}
+                  </span>
+                )}
                 {state.phase === "day" && votesFor(q) > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10.5px] text-white" data-ww-votes={q}>
                     {votesFor(q)}
@@ -240,13 +253,19 @@ export function Werewolf3D(p: BoardProps) {
           })}
         </div>
       </div>
+      {state.phase !== "lobby" && state.phase !== "over" && (
+        <div className="text-[12.5px] font-semibold" data-ww-status data-ww-night={state.phase === "night" ? "" : undefined}>
+          {status}
+          {state.phase === "night" && acting && !done ? " — click them above" : ""}
+        </div>
+      )}
       {myRole && state.phase !== "lobby" && (
         <button type="button" onClick={() => setRoleOpen((o) => !o)} className="p3-scene" data-ww-role={myRole.role} aria-label="Your role card (click to turn over)">
           <div className="p3-flip relative h-[88px] w-[300px]" data-p3-open={roleOpen ? "" : undefined}>
             <div className="p3-face absolute inset-0 flex items-center justify-center rounded-2xl bg-indigo-700 text-[13px] font-semibold text-white shadow-lg">Your role — click to look (keep it to yourself)</div>
             <div className="p3-face p3-face-back absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-amber-50 px-3 text-[12.5px] text-amber-900 shadow-lg">
               <div>{ROLE_TEXT[myRole.role]}</div>
-              {myRole.role === "wolf" && myRole.wolves.length > 1 && <div>Your pack: {myRole.wolves.filter((q) => q !== seat).map(name).join(", ")}.</div>}
+              {myRole.role === "wolf" && pack.length > 1 && <div>Your pack: {pack.filter((q) => q !== seat).map(name).join(", ")}.</div>}
               {peeks.length > 0 && <div className="mt-0.5">Peeks: {peeks.map((x) => `${name(x.target)} is ${x.wolf ? "a werewolf" : "not a werewolf"}`).join("; ")}</div>}
             </div>
           </div>
@@ -258,27 +277,32 @@ export function Werewolf3D(p: BoardProps) {
             Deal roles & start the first night
           </button>
         ) : (
-          <div className="text-[13px] text-slate-500">Waiting for the host to deal the roles…</div>
+          <div className="text-[13px] text-slate-500" data-ww-status>
+            {status}
+          </div>
         ))}
-      {state.phase === "lobby" && <div className="text-[12px] text-slate-500">{n} players: {Math.max(1, Math.floor(n / 4))} werewolf{Math.floor(n / 4) > 1 ? "s" : ""}, a seer, villagers.</div>}
-      {state.phase === "night" && <div className="text-[12.5px] text-slate-500" data-ww-night>{acting ? (done ? "Done — wait for the dawn." : myRole?.role === "wolf" ? "Pick your victim above." : "Pick someone to peek at above.") : "The village sleeps…"}</div>}
-      {state.phase === "day" && (
-        <div className="flex items-center gap-2 text-[12.5px]" data-ww-day>
-          {iAmAlive ? (
-            <>
-              <span className="text-slate-500">{myVote !== undefined ? "Vote cast." : "Click a player to vote them out."}</span>
-              <button type="button" data-ww-skip disabled={!canPlay || myVote !== undefined} onClick={() => vote("skip")} className="rounded-full bg-slate-500/10 px-3 py-1 text-[12px] font-semibold disabled:opacity-50">
-                Skip this vote
-              </button>
-            </>
-          ) : (
-            <span className="text-slate-500">You are out — watch and whisper nothing.</span>
-          )}
+      {state.phase === "lobby" && (
+        <div className="text-[12px] text-slate-500">
+          {n} players: {wolves} werewolf{wolves > 1 ? "s" : ""}, a seer, villagers.
         </div>
       )}
+      {state.phase === "day" && (
+        <div className="flex flex-col items-center gap-1 text-[12.5px]" data-ww-day>
+          {iAmAlive && (
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">Click a player to vote them out.</span>
+              <button type="button" data-ww-skip disabled={!canPlay} onClick={() => vote("skip")} className={`rounded-full px-3 py-1 text-[12px] font-semibold disabled:opacity-50 ${myVote === "skip" ? "bg-indigo-600 text-white" : "bg-slate-500/10"}`}>
+                Skip this vote
+              </button>
+            </div>
+          )}
+          <div className="text-[11.5px] text-slate-500">{VOTE_RULE}</div>
+        </div>
+      )}
+      <DayVotes state={state} name={name} />
       <div className="max-w-full text-center text-[11.5px] text-slate-600 dark:text-slate-300" data-ww-log>
         {state.log.slice(-3).map((l, i) => (
-          <div key={i}>{l}</div>
+          <div key={i}>{tidy(l)}</div>
         ))}
       </div>
     </div>
@@ -290,8 +314,6 @@ export function Werewolf3D(p: BoardProps) {
 const DW = 520;
 const DH = 340;
 const INK = ["#0f172a", "#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#9333ea"];
-type Stroke = { kind: "stroke"; pts: [number, number][]; c: string; w: number; round: number; __from?: number };
-type Clear = { kind: "clear"; round: number; __from?: number };
 
 /** A smooth line through the points (curves between midpoints). */
 function smooth(ctx: CanvasRenderingContext2D, pts: [number, number][], upto = pts.length) {
@@ -320,15 +342,8 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
   const extra = state?.extra as DrawExtra | null;
   const iDraw = !!extra && extra.drawer === seat;
   const round = state?.round ?? 0;
-  // Only the drawer's strokes count (the match stamps who sent each one).
-  const strokes = useMemo(() => {
-    const mine = (deltas as (Stroke | Clear)[]).filter((d) => d && typeof d === "object" && "round" in d && d.round === round && (typeof d.__from !== "number" || !extra || d.__from === extra.drawer));
-    let from = 0;
-    mine.forEach((d, i) => {
-      if (d.kind === "clear") from = i + 1;
-    });
-    return mine.slice(from).filter((d): d is Stroke => d.kind === "stroke" && d.pts.length > 0);
-  }, [deltas, round, extra]);
+  // Only the drawer's strokes, of this match round and party round (the same as the flat board).
+  const strokes = useMemo(() => roundStrokes(deltas, seed, round, extra?.drawer), [deltas, seed, round, extra?.drawer]);
   // Paint: everything already shown at once, new strokes drawn on smoothly (for the guessers).
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
@@ -367,15 +382,16 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [strokes, iDraw]);
+  }, [strokes, iDraw, state?.open]);
   useEffect(() => {
     setGuess("");
     shownStrokes.current = 0;
-  }, [round]);
+  }, [round, seed]);
   if (!state) return null;
-  const name = (p: number) => seatFor(seats, starter, p, n).name;
+  const name = (p: number) => seatFor(seats, starter, p, n).name.split(" (")[0];
+  const total = drawGuess.total(state, n);
   const guessedBy = extra?.guessedBy;
-  const right = state.open && extra ? state.answers.some((a) => a.text.trim().toLowerCase() === extra.word) : false;
+  const right = state.open && extra ? state.answers.some((a) => isRightGuess(a.text, extra.word)) : false;
   const pos = (e: React.PointerEvent<HTMLCanvasElement>): [number, number] => {
     const r = canvas.current!.getBoundingClientRect();
     return [Math.round(((e.clientX - r.left) / r.width) * DW), Math.round(((e.clientY - r.top) / r.height) * DH)];
@@ -383,7 +399,7 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
   const flush = () => {
     const pts = drawing.current;
     if (!pts || !pts.length) return;
-    onDelta?.({ kind: "stroke", pts, c: colour, w: width, round } satisfies Stroke);
+    onDelta?.({ kind: "stroke", pts, c: colour, w: width, round, s: seed } satisfies Stroke);
     drawing.current = [pts[pts.length - 1]];
   };
   const sendGuess = () => {
@@ -392,7 +408,7 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
     setGuess("");
   };
   return (
-    <PartyShell state={state} rounds={8} seconds={75} host={!!host} seats={seats} starter={starter} n={n} allIn={right} onMove={onMove} testId="drawguess" roundLabel={state.open && extra ? `Round ${state.round}: ${name(extra.drawer)} draws` : undefined}>
+    <PartyShell state={state} rounds={total} seconds={drawGuess.rules.seconds} host={!!host} seats={seats} starter={starter} n={n} seat={seat} allIn={drawRoundOver(state, extra)} onMove={onMove} testId="drawguess" roundLabel={drawLabel(state, extra, seat, name, total)}>
       {state.open && extra ? (
         <div className="flex flex-wrap items-start justify-center gap-5" data-g3-board="drawguess">
           <div className="p3-scene flex flex-col items-center gap-2">
@@ -446,7 +462,7 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
                     {w === 3 ? "thin" : w === 6 ? "mid" : "thick"}
                   </button>
                 ))}
-                <button type="button" data-draw-clear onClick={() => onDelta?.({ kind: "clear", round } satisfies Clear)} className="h-6 rounded-full bg-rose-500/10 px-2 text-[11px] font-semibold text-rose-700">
+                <button type="button" data-draw-clear onClick={() => onDelta?.({ kind: "clear", round, s: seed } satisfies Clear)} className="h-6 rounded-full bg-rose-500/10 px-2 text-[11px] font-semibold text-rose-700">
                   Clear
                 </button>
               </div>
@@ -463,9 +479,9 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
             )}
             <div className="flex flex-col gap-1 text-[12px]" data-draw-guesses>
               {state.answers.slice(-7).map((a, i) => {
-                const hit = a.text.trim().toLowerCase() === extra.word;
+                const hit = isRightGuess(a.text, extra.word);
                 return (
-                  <div key={`${state.answers.length}-${i}`} className={`p3-guess rounded-lg px-2 py-1 ${hit ? "bg-emerald-500/15 font-bold text-emerald-700 dark:text-emerald-300" : "bg-slate-500/5"}`}>
+                  <div key={`${state.answers.length}-${i}`} data-draw-hit={hit ? "1" : undefined} className={`p3-guess rounded-lg px-2 py-1 ${hit ? "bg-emerald-500/15 font-bold text-emerald-700 dark:text-emerald-300" : "bg-slate-500/5"}`}>
                     <span className="text-slate-500">{name(a.player)}:</span> {hit && !iDraw && a.player !== seat ? "got it!" : a.text}
                   </div>
                 );
@@ -475,7 +491,7 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
           </div>
         </div>
       ) : (
-        <div className="text-[13px] text-slate-500">Each round one of you draws a secret word on the shared board; the first right guess scores 10, the drawer 5.</div>
+        <div className="max-w-[480px] text-center text-[13px] text-slate-500">{DRAW_RULES}</div>
       )}
     </PartyShell>
   );

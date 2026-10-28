@@ -246,9 +246,11 @@ pub fn clean_card(v: &Value) -> Result<Value, String> {
                 return Err("Choose who to play with.".to_string());
             }
             // 2.10.0: a table of several players (ids and names, in turn order).
+            // 2.17.0: kept for a table of two as well (a hosted game with one colleague — party games, the
+            // live arcade); without it the guest's LANX took the card for a plain two-player challenge.
             let players = ids(v, "players");
             let names = strings(v, "names", MAX_PEOPLE, 80);
-            if players.len() > 2 {
+            if players.len() >= 2 {
                 json!({ "kind": kind, "id": id, "game": game, "to": to, "to_name": text(v, "to_name", 80), "from_name": text(v, "from_name", 80),
                         "players": players, "names": names })
             } else {
@@ -685,8 +687,11 @@ mod game_card_tests {
         assert_eq!(card_min_version(&table.to_string()), FEATURES_MULTIPLAYER);
         assert!(card_preview(&table.to_string()).contains("3 players"));
         assert!(card_fallback(&table.to_string()).contains("2.10.0"));
-        let pair = clean_card(&json!({ "kind": "game", "id": "m4", "game": "chainreaction", "to": "peer-b", "players": ["peer-a", "peer-b"] })).unwrap();
-        assert!(pair.get("players").is_none(), "two players need no table");
+        // 2.17.0: a hosted table for two keeps its players (otherwise the guest takes it for a plain challenge),
+        // and needs no more than the game itself does.
+        let pair = clean_card(&json!({ "kind": "game", "id": "m4", "game": "trivia", "to": "peer-b", "players": ["peer-a", "peer-b"] })).unwrap();
+        assert_eq!(pair["players"].as_array().map(|p| p.len()), Some(2), "a table for two is still a table");
+        assert_eq!(card_min_version(&pair.to_string()), super::super::games::game_min_version("trivia"));
         assert!(clean_card(&json!({ "kind": "game", "id": "../m", "game": "chess", "to": "x" })).is_err(), "odd id");
         assert!(clean_card(&json!({ "kind": "game", "id": "m1", "game": "chess" })).is_err(), "no opponent");
         // Only the two players record how it ended.

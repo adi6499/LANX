@@ -2,6 +2,11 @@
 // (1–7) or stripes (9–15); pot all of yours, then the 8. Potting the cue
 // ball is a foul (the other player places it anywhere); potting the 8 early
 // loses. A turn ends when you pot nothing of yours or foul.
+// LANX 2.17.0: the 8 down on the break goes back on its spot and play goes
+// on; potting your last ball and the 8 in the same shot loses (you must be
+// on the 8 before the shot); hitting the 8 first while you still have balls
+// up (or on an open table) is a foul — ball in hand. Every shot leaves a line
+// in the log ("P1 missed — P2 to play").
 // Moves: "s:<angle>:<power>" (degrees, 1–100), or "c:<x>:<y>" to place the
 // cue ball when you have it in hand. LANX 2.16.0: "s:<angle>:<power>:<side>:<top>"
 // adds spin (each −100…100: side = english, top = follow/draw); a shot
@@ -30,12 +35,15 @@ export const POOL_TABLE: Table = {
 // Walls sit on the cushion line (0..W, 0..H), inset by a ball so pieces bounce at the rail.
 POOL_TABLE.walls = rectWalls(0, 0, POOL_W * K, POOL_H * K);
 
+/** The foot spot: where the rack's front ball (and a re-spotted 8) sits. */
+const FOOT_X = 560;
+
 export function rack(): Body[] {
   const balls: Body[] = [{ id: 0, x: 200 * K, y: 200 * K, vx: 0, vy: 0, r: POOL_BALL_R * K, mass: 1, out: false }];
   // The triangle: 1 at the front, 8 in the middle of the third row.
   const order = [1, 9, 2, 10, 8, 3, 11, 4, 12, 13, 5, 14, 6, 15, 7];
   let k = 0;
-  const ax = 560;
+  const ax = FOOT_X;
   for (let row = 0; row < 5; row++) {
     for (let i = 0; i <= row; i++) {
       const id = order[k++];
@@ -55,7 +63,10 @@ export interface PoolState {
   reason: string;
   /** Frames of the last shot for the animation (x, y per ball, thousandths). */
   frames: { x: number; y: number; out: boolean }[][];
+  /** What each shot did, newest last ("P1 missed — P2 to play"); boards name the players. */
   log: string[];
+  /** LANX 2.17.0: shots taken (0 = the break is next). */
+  shots: number;
 }
 
 const isSolid = (id: number) => id >= 1 && id <= 7;
@@ -79,13 +90,34 @@ export function poolSimulate(start: Body[], angle: number, power: number, side =
   return { balls, events, frames };
 }
 
+/** LANX 2.17.0: where the 8 goes back after it drops on the break — the foot spot, or straight behind it if a ball is there. */
+function respotEight(balls: Body[]) {
+  const eight = balls.find((b) => b.id === 8)!;
+  const y = (POOL_H / 2) * K;
+  for (let x = FOOT_X; x <= POOL_W - POOL_BALL_R; x++) {
+    const clear = balls.every((b) => b.id === 8 || b.out || (b.x - x * K) ** 2 + (b.y - y) ** 2 >= (2 * POOL_BALL_R * K) ** 2);
+    if (!clear) continue;
+    eight.x = x * K;
+    eight.y = y;
+    break;
+  }
+  eight.out = false;
+  eight.vx = 0;
+  eight.vy = 0;
+}
+
 export function poolShot(s: PoolState, angle: number, power: number, n: number, side = 0, top = 0): PoolState {
   const { balls, events, frames } = poolSimulate(s.balls, angle, power, side, top);
   const cue = balls[0];
   const potted = events.filter((e) => e.kind === "pocket").map((e) => e.a);
-  const next: PoolState = { ...s, balls, frames, log: [...s.log] };
+  const next: PoolState = { ...s, balls, frames, log: [...s.log], shots: (s.shots ?? 0) + 1 };
   const p = s.turn;
+  const o = (p + 1) % n;
+  const who = `P${p + 1}`;
+  const brk = (s.shots ?? 0) === 0;
   const mineGroup = s.groups[p];
+  // Counted before the shot: potting your last ball and the 8 together is not "on the 8".
+  const onEight = mineGroup !== null && ownBallsLeft(s, p) === 0;
   const firstHit = events.find((e) => e.kind === "hit" && (e.a === 0 || e.b === 0));
   const hitId = firstHit ? (firstHit.a === 0 ? firstHit.b! : firstHit.a) : null;
   let foul = false;
@@ -101,34 +133,57 @@ export function poolShot(s: PoolState, angle: number, power: number, n: number, 
   } else if (hitId === null) {
     foul = true;
     why = "hit nothing";
-  } else if (mineGroup && groupOf(hitId) && groupOf(hitId) !== mineGroup && !(hitId === 8 && ownBallsLeft(next, p) === 0)) {
+  } else if (hitId === 8 && !onEight && !brk) {
+    foul = true;
+    why = mineGroup ? "hit the 8 first while their own balls are still up" : "hit the 8 first on an open table";
+  } else if (mineGroup && groupOf(hitId) && groupOf(hitId) !== mineGroup) {
     foul = true;
     why = "hit the wrong ball first";
   }
+  let eightNote = "";
   if (potted.includes(8)) {
-    const legal = mineGroup !== null && ownBallsLeft(next, p) === 0 && !foul;
-    if (legal) {
-      next.winner = p;
-      next.reason = "the 8 is down";
+    if (brk) {
+      // The 8 on the break: back on its spot, and play goes on.
+      respotEight(balls);
+      eightNote = "the 8 went down on the break — back on its spot";
     } else {
-      next.winner = (p + 1) % n;
-      next.reason = "the 8 went down too early";
+      const legal = onEight && !foul;
+      if (legal) {
+        next.winner = p;
+        next.reason = "the 8 is down";
+        next.log.push(`${who} potted the 8 — wins!`);
+      } else {
+        next.winner = o;
+        next.reason = foul ? "the 8 went down on a foul" : "the 8 went down too early";
+        next.log.push(`${who} potted the 8 ${foul ? `on a foul (${why})` : "too early"} — P${o + 1} wins`);
+      }
+      return next;
     }
-    next.log.push(`Player ${p + 1}: ${next.reason}`);
-    return next;
   }
   // Decide groups on the first pot (not on a foul).
   const object = potted.filter((id) => id !== 0 && id !== 8);
+  let groupNote = "";
   if (!foul && mineGroup === null && object.length) {
     const g = groupOf(object[0])!;
     next.groups = next.groups.map((x, i) => (i === p ? g : x === null && n === 2 ? (g === "solid" ? "stripe" : "solid") : x));
+    groupNote = `${who} takes ${g}s`;
   }
   const mine = next.groups[p];
   const keep = !foul && object.some((id) => groupOf(id) === mine);
   next.inHand = foul;
-  if (foul) next.log.push(`Player ${p + 1}: foul — ${why}`);
-  else if (object.length) next.log.push(`Player ${p + 1} potted ${object.join(", ")}`);
-  if (!keep) next.turn = (p + 1) % n;
+  const parts: string[] = [];
+  if (eightNote) parts.push(eightNote);
+  if (foul) parts.push(`Foul by ${who}: ${why}${object.length ? ` (potted ${object.join(", ")})` : ""}`);
+  else if (object.length) {
+    const own = object.filter((id) => groupOf(id) === mine);
+    const other = object.filter((id) => groupOf(id) !== mine);
+    parts.push(`${who} potted ${object.join(", ")}${!own.length && other.length ? " — not theirs" : ""}`);
+  } else if (!eightNote) parts.push(`${who} missed`);
+  if (groupNote) parts.push(groupNote);
+  if (foul) parts.push(`P${o + 1} has the cue ball in hand`);
+  else parts.push(keep ? `${who} shoots again` : `P${o + 1} to play`);
+  next.log.push(parts.join(" — "));
+  if (!keep) next.turn = o;
   return next;
 }
 
@@ -150,7 +205,7 @@ export const pool: GameDef<PoolState> = {
   minPlayers: 2,
   maxPlayers: 2,
   replay(moves, n) {
-    let s: PoolState = { balls: rack(), turn: 0, groups: [null, null], inHand: false, winner: null, reason: "", frames: [], log: [] };
+    let s: PoolState = { balls: rack(), turn: 0, groups: [null, null], inHand: false, winner: null, reason: "", frames: [], log: [], shots: 0 };
     for (const m of moves) {
       if (s.winner !== null) return null;
       const place = /^c:(\d+):(\d+)$/.exec(m);
@@ -174,3 +229,14 @@ export const pool: GameDef<PoolState> = {
   outcome: (s) => outcome(s),
   summary: (s) => s.groups.map((g, i) => `P${i + 1} ${g ?? "?"} ${g ? ownBallsLeft(s, i) : ""}`).join(" · "),
 };
+
+/** LANX 2.17.0: a clear place for the cue ball in hand — the head spot, or the nearest free point along the middle line. */
+export function poolFreeSpot(s: PoolState): [number, number] {
+  const y = POOL_H / 2;
+  for (let d = 0; d < POOL_W / 2; d++)
+    for (const x of [200 - d, 200 + d]) {
+      if (x < POOL_BALL_R || x > POOL_W - POOL_BALL_R) continue;
+      if (s.balls.every((b) => b.id === 0 || b.out || (b.x - x * K) ** 2 + (b.y - y * K) ** 2 >= (2 * POOL_BALL_R * K) ** 2)) return [x, y];
+    }
+  return [200, y];
+}

@@ -1,14 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
-import { drawGuess, type DrawExtra } from "../../../lib/games/drawguess.ts";
+import { drawGuess, isRightGuess, type DrawExtra, type DrawState } from "../../../lib/games/drawguess.ts";
 import { PartyShell } from "./PartyShell";
 
 const W = 520;
 const H = 340;
 const COLOURS = ["#0f172a", "#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#9333ea"];
 
-type Stroke = { kind: "stroke"; pts: [number, number][]; c: string; w: number; round: number };
-type Clear = { kind: "clear"; round: number };
+/** A piece of the drawing. LANX 2.17.0: tagged with the match round's seed (`s`) as well as the party
+ *  round, so a rematch's round 1 never shows the last game's round-1 picture. */
+export type Stroke = { kind: "stroke"; pts: [number, number][]; c: string; w: number; round: number; s?: string; __from?: number };
+export type Clear = { kind: "clear"; round: number; s?: string; __from?: number };
+
+/** This round's picture: the drawer's strokes since their last "clear" (the match stamps who sent each). */
+export function roundStrokes(deltas: unknown[], seed: string, round: number, drawer: number | undefined): Stroke[] {
+  const mine = (deltas as (Stroke | Clear)[]).filter((d) => d && typeof d === "object" && "round" in d && d.round === round && (d.s === undefined || d.s === seed) && (typeof d.__from !== "number" || drawer === undefined || d.__from === drawer));
+  let from = 0;
+  mine.forEach((d, i) => {
+    if (d.kind === "clear") from = i + 1;
+  });
+  return mine.slice(from).filter((d): d is Stroke => d.kind === "stroke" && Array.isArray(d.pts) && d.pts.length > 0);
+}
+
+/** Someone guessed the word, or the drawer left: the host closes the round. */
+export const drawRoundOver = (state: DrawState, extra: DrawExtra | null) => !!extra && state.open && (state.answers.some((a) => isRightGuess(a.text, extra.word)) || !!state.out[extra.drawer]);
+
+/** What's happening in an open round, for the status line. */
+export function drawLabel(state: DrawState, extra: DrawExtra | null, seat: number, name: (p: number) => string, total: number): string | undefined {
+  if (!state.open || !extra) return undefined;
+  const head = `Round ${state.round} of ${total}`;
+  if (state.out[extra.drawer]) return `${head} — ${name(extra.drawer)} left, the round ends`;
+  if (extra.drawer === seat) return `${head} — you draw, the others guess`;
+  return `${head} — ${name(extra.drawer)} draws, guess now`;
+}
+
+export const DRAW_RULES = "Each round one of you draws a secret word on the shared board; the first right guess scores 10, the drawer 5. Everyone draws as often as everyone else.";
 
 /** Draw & Guess: the drawer sketches the word; the others type guesses. */
 export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed = "", host, deltas = [], onDelta, onMove }: BoardProps) {
@@ -22,6 +48,7 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
   const extra = state?.extra as DrawExtra | null;
   const iDraw = !!extra && extra.drawer === seat;
   const round = state?.round ?? 0;
+  const strokes = useMemo(() => roundStrokes(deltas, seed, round, extra?.drawer), [deltas, seed, round, extra?.drawer]);
 
   // Repaint from every stroke of this round whenever one arrives.
   useEffect(() => {
@@ -29,13 +56,7 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
     if (!ctx) return;
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, W, H);
-    const mine = (deltas as (Stroke | Clear)[]).filter((d) => d && typeof d === "object" && "round" in d && d.round === round);
-    let from = 0;
-    mine.forEach((d, i) => {
-      if (d.kind === "clear") from = i + 1;
-    });
-    for (const d of mine.slice(from)) {
-      if (d.kind !== "stroke" || d.pts.length < 1) continue;
+    for (const d of strokes) {
       ctx.strokeStyle = d.c;
       ctx.lineWidth = d.w;
       ctx.lineCap = "round";
@@ -46,13 +67,14 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
       if (d.pts.length === 1) ctx.lineTo(d.pts[0][0] + 0.1, d.pts[0][1]);
       ctx.stroke();
     }
-  }, [deltas, round]);
+  }, [strokes, state?.open]);
 
   useEffect(() => setGuess(""), [round]);
   if (!state) return null;
-  const name = (p: number) => seatFor(seats, starter, p, n).name;
+  const name = (p: number) => seatFor(seats, starter, p, n).name.split(" (")[0];
+  const total = drawGuess.total(state, n);
   const guessedBy = extra?.guessedBy;
-  const right = state.open && extra ? state.answers.some((a) => a.text.trim().toLowerCase() === extra.word) : false;
+  const right = state.open && extra ? state.answers.some((a) => isRightGuess(a.text, extra.word)) : false;
 
   const pos = (e: React.PointerEvent<HTMLCanvasElement>): [number, number] => {
     const r = canvas.current!.getBoundingClientRect();
@@ -61,7 +83,7 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
   const flush = () => {
     const pts = drawing.current;
     if (!pts || !pts.length) return;
-    onDelta?.({ kind: "stroke", pts, c: colour, w: width, round } satisfies Stroke);
+    onDelta?.({ kind: "stroke", pts, c: colour, w: width, round, s: seed } satisfies Stroke);
     drawing.current = [pts[pts.length - 1]];
   };
   const sendGuess = () => {
@@ -70,7 +92,7 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
     setGuess("");
   };
   return (
-    <PartyShell state={state} rounds={8} seconds={75} host={!!host} seats={seats} starter={starter} n={n} allIn={right} onMove={onMove} testId="drawguess" roundLabel={state.open && extra ? `Round ${state.round}: ${name(extra.drawer)} draws` : undefined}>
+    <PartyShell state={state} rounds={total} seconds={drawGuess.rules.seconds} host={!!host} seats={seats} starter={starter} n={n} seat={seat} allIn={drawRoundOver(state, extra)} onMove={onMove} testId="drawguess" roundLabel={drawLabel(state, extra, seat, name, total)}>
       {state.open && extra ? (
         <div className="flex flex-wrap items-start justify-center gap-4">
           <div className="flex flex-col items-center gap-2">
@@ -80,7 +102,7 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
               </div>
             ) : (
               <div className="text-[13px] text-slate-500" data-draw-hint>
-                {extra.word.length} letters — type your guess
+                {extra.word.replace(/ /g, "").length} letters{extra.word.includes(" ") ? ", two words" : ""} — type your guess
               </div>
             )}
             <canvas
@@ -115,7 +137,7 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
                     {w === 3 ? "thin" : w === 6 ? "mid" : "thick"}
                   </button>
                 ))}
-                <button type="button" data-draw-clear onClick={() => onDelta?.({ kind: "clear", round } satisfies Clear)} className="h-6 rounded-full bg-rose-500/10 px-2 text-[11px] font-semibold text-rose-700">
+                <button type="button" data-draw-clear onClick={() => onDelta?.({ kind: "clear", round, s: seed } satisfies Clear)} className="h-6 rounded-full bg-rose-500/10 px-2 text-[11px] font-semibold text-rose-700">
                   Clear
                 </button>
               </div>
@@ -131,17 +153,20 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
               </div>
             )}
             <div className="flex flex-col gap-0.5 text-[12px]" data-draw-guesses>
-              {state.answers.slice(-6).map((a, i) => (
-                <div key={i} className={a.text.trim().toLowerCase() === extra.word ? "font-bold text-emerald-600" : ""}>
-                  <span className="text-slate-500">{name(a.player)}:</span> {a.text.trim().toLowerCase() === extra.word && !iDraw && a.player !== seat ? "got it!" : a.text}
-                </div>
-              ))}
+              {state.answers.slice(-6).map((a, i) => {
+                const hit = isRightGuess(a.text, extra.word);
+                return (
+                  <div key={i} className={hit ? "font-bold text-emerald-600" : ""} data-draw-hit={hit ? "1" : undefined}>
+                    <span className="text-slate-500">{name(a.player)}:</span> {hit && !iDraw && a.player !== seat ? "got it!" : a.text}
+                  </div>
+                );
+              })}
             </div>
             {guessedBy !== undefined && <div className="text-[12px] font-semibold text-emerald-600">{name(guessedBy)} got it!</div>}
           </div>
         </div>
       ) : (
-        <div className="text-[13px] text-slate-500">Each round one of you draws a secret word on the shared board; the first right guess scores 10, the drawer 5.</div>
+        <div className="max-w-[480px] text-center text-[13px] text-slate-500">{DRAW_RULES}</div>
       )}
     </PartyShell>
   );

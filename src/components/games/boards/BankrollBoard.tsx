@@ -1,7 +1,7 @@
 import { Dice3D } from "./Dice3D";
 import { useMemo } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
-import { BOARD, bankroll } from "../../../lib/games/bankroll.ts";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
+import { BOARD, HOUSE_COST, bankroll, buildable } from "../../../lib/games/bankroll.ts";
 
 const GROUP: Record<string, string> = { brown: "#92400e", sky: "#0ea5e9", pink: "#ec4899", orange: "#f97316", red: "#dc2626", yellow: "#eab308", blue: "#1d4ed8" };
 const CELL = 64;
@@ -21,13 +21,16 @@ export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed =
   const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const name = (p: number) => seatFor(seats, starter, p, n).name.split(" (")[0];
   const offer = state.offer >= 0 ? BOARD[state.offer] : null;
+  const jailed = state.skip[turn] && state.offer < 0;
+  const build = canPlay ? buildable(state, turn) : [];
   return (
     <div data-game-board="bankroll" className="flex flex-col items-center gap-2">
       <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[12px] font-semibold" data-bankroll-cash>
         {state.cash.map((c, p) => (
           <span key={p} className={`inline-flex items-center gap-1.5 ${state.out[p] ? "line-through opacity-50" : ""} ${p === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> ₹{c}
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {state.out[p] ? "out" : `₹${c}`}
           </span>
         ))}
       </div>
@@ -46,6 +49,13 @@ export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed =
               {sq.group && <div className="h-2.5 w-full" style={{ backgroundColor: GROUP[sq.group] }} />}
               <div className="px-1 pt-0.5 font-semibold">{sq.name}</div>
               {sq.price && <div className="px-1 text-slate-500">₹{sq.price}</div>}
+              {state.houses[i] > 0 && (
+                <div className="flex gap-0.5 px-1" data-bankroll-houses={state.houses[i]}>
+                  {Array.from({ length: state.houses[i] }, (_, k) => (
+                    <span key={k} className="h-1.5 w-1.5 rounded-[2px] bg-emerald-600" />
+                  ))}
+                </div>
+              )}
               {owner >= 0 && <div className="mx-1 mt-auto mb-1 h-1.5 rounded-full" style={{ backgroundColor: colour(owner) }} />}
               {here.length > 0 && (
                 <div className="absolute bottom-1 right-1 flex gap-0.5">
@@ -81,12 +91,22 @@ export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed =
             </div>
           ) : (
             <button type="button" data-bankroll-roll disabled={!canPlay || state.offer >= 0} onClick={() => onMove("r")} className="rounded-full bg-indigo-600 px-5 py-2 text-[13px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
-              🎲 Roll
+              {jailed ? "Miss this turn (in jail)" : state.again ? "🎲 Roll again" : "🎲 Roll"}
             </button>
+          )}
+          {jailed && canPlay && <div className="text-[11px] text-slate-500" data-bankroll-jail>In jail: you miss this turn, then roll as normal next time.</div>}
+          {build.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-1" data-bankroll-builds>
+              {build.map((i) => (
+                <button key={i} type="button" data-bankroll-build={i} onClick={() => onMove(`h:${i}`)} className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700">
+                  House on {BOARD[i].name} ₹{HOUSE_COST[BOARD[i].group!]}
+                </button>
+              ))}
+            </div>
           )}
           <div data-bankroll-log className="mt-1 max-h-[90px] w-full overflow-hidden text-[10.5px] text-slate-600 dark:text-slate-300">
             {state.log.slice(-4).map((l, i) => (
-              <div key={i}>{l}</div>
+              <div key={i}>{namesIn(l, seats, starter, n)}</div>
             ))}
           </div>
         </div>

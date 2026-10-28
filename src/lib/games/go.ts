@@ -1,13 +1,15 @@
 // Go on a 9×9 board, two players, black (player 0) starts. Stones with no
 // liberties are captured; you may not fill your own last liberty (suicide)
 // or retake a ko at once. Two passes in a row end the game, scored by area
-// (stones plus surrounded empty points) with 6.5 points to white for
-// moving second. Moves: the point "0".."80" or "p" to pass.
+// (stones plus surrounded empty points) with 7.5 points to white for
+// moving second (2.17.0; it was 6.5, the figure for territory scoring).
+// Captures don't add to an area score. Moves: the point "0".."80" or "p" to pass.
 
 import { ON, num, orthogonal, win, type GameDef, type Outcome } from "./core.ts";
 
 export const GO = 9;
-const KOMI = 6.5;
+export const GO_KOMI = 7.5;
+const KOMI = GO_KOMI;
 
 export interface GoState {
   cells: (number | null)[];
@@ -127,6 +129,6 @@ export const go: GameDef<GoState> = {
   outcome: (s) => outcome(s),
   summary: (s) => {
     const [b, w] = goScore(s.cells);
-    return `black ${b} · white ${w + KOMI} (area) · taken ${s.captured[0]}/${s.captured[1]}`;
+    return `P1 (black) ${b} · P2 (white) ${w + KOMI} by area, komi ${KOMI}`;
   },
 };

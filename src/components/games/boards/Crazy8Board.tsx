@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { crazy8, crazy8Playable } from "../../../lib/games/crazy8.ts";
 import { SUIT_SYMBOL, rankOf, sortHand } from "../../../lib/games/cards.ts";
 import { CardBack, CardFace, OtherHands } from "./CardFace";
@@ -18,7 +18,7 @@ export function Crazy8Board({ moves, canPlay, turn, seat, seats, starter = 0, se
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
   return (
     <div data-game-board="crazy8" className="flex w-full max-w-[600px] flex-col items-center gap-3">
-      <OtherHands counts={state.hands.map((h) => h.length)} names={name} colours={colour} turn={turn} exclude={local ? undefined : me} />
+      <OtherHands counts={state.hands.map((h) => h.length)} names={name} colours={colour} turn={turn} exclude={local ? undefined : me} gone={state.gone} />
       <div className="flex items-center gap-4">
         <div className="flex flex-col items-center gap-1">
           <CardBack count={state.stock.length} />
@@ -41,6 +41,12 @@ export function Crazy8Board({ moves, canPlay, turn, seat, seats, starter = 0, se
           </button>
         )}
       </div>
+      {state.event && (
+        <div className="text-[11.5px] text-slate-500" data-crazy8-event>
+          {namesIn(state.event, seats, starter, n)}
+        </div>
+      )}
+      {stuck && state.stock.length === 0 && state.passes > 0 && <div className="text-[11px] text-slate-500">If everyone passes in a row the game is blocked: fewest card points wins (8 = 50, pictures 10, ace 1).</div>}
       {eight && (
         <div className="flex items-center gap-2 text-[12.5px]" data-crazy8-pick-suit>
           <span>Name the suit:</span>

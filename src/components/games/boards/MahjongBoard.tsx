@@ -3,7 +3,7 @@ import { seatFor, type BoardProps } from "../boardProps";
 import { MJ_COLS, mahjong, mjFree, mjPairs } from "../../../lib/games/mahjong.ts";
 
 /** Mahjong Duels: pick two free matching tiles. */
-export function MahjongBoard({ moves, canPlay, seats, starter = 0, seed = "", onMove }: BoardProps) {
+export function MahjongBoard({ moves, canPlay, turn, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const n = Math.max(2, seats?.length ?? 2);
   const state = useMemo(() => mahjong.replay(moves, n, seed), [moves, n, seed]);
   const [first, setFirst] = useState<number | null>(null);
@@ -29,7 +29,7 @@ export function MahjongBoard({ moves, canPlay, seats, starter = 0, seed = "", on
     <div data-game-board="mahjong" className="flex flex-col items-center gap-2">
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-mahjong-scores>
         {state.scores.map((s, p) => (
-          <span key={p} className="inline-flex items-center gap-1.5">
+          <span key={p} data-mahjong-seat={p} data-mahjong-out={state.out[p] ? "1" : undefined} title={seatFor(seats, starter, p, n).name + (state.out[p] ? " left" : "")} className={`inline-flex items-center gap-1.5 ${state.out[p] ? "line-through opacity-50" : p === turn ? "underline decoration-2 underline-offset-4" : ""}`}>
             <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: colour(p) }} /> {s}
           </span>
         ))}

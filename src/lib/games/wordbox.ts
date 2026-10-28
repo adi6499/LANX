@@ -1,9 +1,9 @@
-// Wordbox — the letter-grid word hunt. A 4×4 grid of letters for 90
-// seconds; make words of three letters or more by moving to a touching
+// Wordbox — the letter-grid word hunt (Boggle). A 4×4 grid of letters for
+// 90 seconds; make words of three letters or more by moving to a touching
 // letter each time (no square twice). Three rounds. A word scores by
-// length (3–4: 1, 5: 2, 6: 3, 7+: 5); a word two or more people found
-// scores nobody. There is no dictionary on board: play fair, as among
-// colleagues — nonsense is for the others to call out.
+// length, as in Boggle (3–4: 1, 5: 2, 6: 3, 7: 5, 8 or more: 11); a word two
+// or more people found scores nobody. The rules check the grid; the boards
+// (flat and 3D alike) also check an English word list before a word is sent.
 // Moves: "<player>@a:<word>" as you find them; the host opens and closes rounds.
 
 import { partyDef, type PartyState } from "./party.ts";
@@ -48,7 +48,28 @@ export function wordOnGrid(grid: string[], word: string): boolean {
   return false;
 }
 
-export const wordPoints = (word: string) => (word.length >= 7 ? 5 : word.length === 6 ? 3 : word.length === 5 ? 2 : word.length >= 3 ? 1 : 0);
+/** Boggle scoring (LANX 2.17.0: 8 letters or more score 11). "Qu" is two letters. */
+export const wordPoints = (word: string) => {
+  const k = word.length;
+  return k >= 8 ? 11 : k === 7 ? 5 : k === 6 ? 3 : k === 5 ? 2 : k >= 3 ? 1 : 0;
+};
+
+/** The words of a round by player, each marked when somebody else found it too (it scores nobody). */
+export function wordsByPlayer(answers: { player: number; text: string }[], n: number): { word: string; shared: boolean; points: number }[][] {
+  const finders = new Map<string, Set<number>>();
+  for (const a of answers) {
+    const w = a.text.toUpperCase();
+    finders.set(w, (finders.get(w) ?? new Set()).add(a.player));
+  }
+  const out: { word: string; shared: boolean; points: number }[][] = Array.from({ length: n }, () => []);
+  for (const a of answers) {
+    const w = a.text.toUpperCase();
+    if (a.player < 0 || a.player >= n || out[a.player].some((x) => x.word === w)) continue;
+    const shared = (finders.get(w)?.size ?? 0) > 1;
+    out[a.player].push({ word: w, shared, points: shared ? 0 : wordPoints(w) });
+  }
+  return out;
+}
 
 export const wordbox = partyDef<WordboxExtra>(
   "wordbox",

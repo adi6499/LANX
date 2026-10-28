@@ -16,6 +16,7 @@ import {
 } from "./types";
 import { api, events, errorText, isTauri } from "./lib/api";
 import { applyAppearance } from "./lib/background";
+import { HostRunner } from "./components/games/HostRunner";
 import { lessMotion, originOf, revealChange, setMotion, usePresence } from "./lib/motion";
 import { Sidebar } from "./components/Sidebar";
 import { ConversationPanel } from "./components/ConversationPanel";
@@ -1902,6 +1903,8 @@ export default function App() {
       <Suspense fallback={null}>
         <MusicPlayer onOpenMusic={() => setShowMusic({ query: "" })} />
       </Suspense>
+      {/* LANX 2.17.0: keeps a hosted game going while the host looks elsewhere. */}
+      <HostRunner />
       {gamesPresence.mounted && lastGames.current && settings && (
         <Suspense fallback={null}>
           <GamesPanel

@@ -9,8 +9,8 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
-import { POOL_BALL_R, POOL_H, POOL_W, ownBallsLeft, pool, poolSimulate, type PoolState } from "../../../../lib/games/pool.ts";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
+import { POOL_BALL_R, POOL_H, POOL_W, ownBallsLeft, pool, poolFreeSpot, poolSimulate, type PoolState } from "../../../../lib/games/pool.ts";
 import { K, type Body } from "../../../../lib/games/physics2d.ts";
 import { sfx } from "../../../../lib/gameSounds";
 import { useTableCaps } from "../../caps";
@@ -665,7 +665,7 @@ export default function Pool3D(p: BoardProps) {
       )}
       {state.inHand && canPlay && (
         <div className="flex gap-2 text-[12px]">
-          <button type="button" data-pool-place-spot onClick={() => onMove(`c:200:200`)} className={quiet3}>
+          <button type="button" data-pool-place-spot onClick={() => onMove(`c:${poolFreeSpot(state).join(":")}`)} className={quiet3}>
             Place on the spot
           </button>
         </div>
@@ -673,7 +673,7 @@ export default function Pool3D(p: BoardProps) {
       <HiddenActions actions={[]} label="Pool" />
       {state.log.length > 0 && (
         <div className="text-[11.5px] text-slate-500" data-pool-log>
-          {state.log[state.log.length - 1]}
+          {namesIn(state.log[state.log.length - 1], seats, starter, 2)}
         </div>
       )}
     </div>

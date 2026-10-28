@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { gofish } from "../../../lib/games/gofish.ts";
 import { RANK_NAME, RANKS, rankOf, sortHand } from "../../../lib/games/cards.ts";
 import { CardBack, CardFace, OtherHands } from "./CardFace";
@@ -27,10 +27,10 @@ export function GoFishBoard({ moves, canPlay, turn, seat, seats, starter = 0, se
           <CardBack small count={state.stock.length} /> stock
         </span>
       </div>
-      <OtherHands counts={state.hands.map((h) => h.length)} names={name} colours={colour} turn={turn} exclude={local ? undefined : me} />
+      <OtherHands counts={state.hands.map((h) => h.length)} names={name} colours={colour} turn={turn} exclude={local ? undefined : me} gone={state.gone} />
       {state.event && (
         <div className="rounded-full bg-sky-500/15 px-3 py-1 text-[12px] text-sky-800 dark:text-sky-200" data-gofish-event>
-          {state.event}
+          {namesIn(state.event, seats, starter, n)}
         </div>
       )}
       {canPlay && (
@@ -47,7 +47,7 @@ export function GoFishBoard({ moves, canPlay, turn, seat, seats, starter = 0, se
             <div className="flex flex-wrap items-center justify-center gap-1.5">
               <span>from:</span>
               {state.hands.map((h, p) =>
-                p === me || h.length === 0 ? null : (
+                p === me || h.length === 0 || state.gone[p] ? null : (
                   <button key={p} type="button" data-gofish-ask-player={p} onClick={() => { onMove(`a:${p}:${rank}`); setRank(null); }} className="rounded-full bg-indigo-600 px-3 py-1 font-semibold text-white">
                     {name(p)}
                   </button>

@@ -22,6 +22,8 @@ export interface Outcome {
   winner: number | null;
   draw: boolean;
   reason: string;
+  /** LANX 2.17.0: all the winners when a team wins together (Spades, Euchre, Werewolf). */
+  winners?: number[];
 }
 
 const ON: Outcome = { over: false, winner: null, draw: false, reason: "" };
@@ -400,7 +402,8 @@ function crOutcome(moves: string[], n: number): Outcome {
 
 /** True when every move is allowed, in order, from the start. `n` players; `seed` for dice and shuffles. */
 export function validateMoves(game: GameId, moves: string[], n = 2, seed = ""): boolean {
-  if (moves.length > 600) return false;
+  // LANX 2.17.0: a whole game of Hearts or Spades is well over 600 moves.
+  if (moves.length > 6000) return false;
   switch (game) {
     case "tictactoe":
       return tttValid(moves);

@@ -2,19 +2,24 @@
 // Each game only lays out its cards — your hand, the others' face-down
 // hands, the stock, the pile, the trick, the dealer, the chips — and keeps
 // the buttons it always had (bids, suits, raises) under the table. The
-// moves are exactly the flat boards' moves.
+// moves are exactly the flat boards' moves. LANX 2.17.0: the same words,
+// buttons and result panels as the flat boards (they share them).
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
-import { RANK_NAME, RANKS, SUIT_SYMBOL, rankOf, sortHand } from "../../../../lib/games/cards.ts";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
+import { RANK_NAME, RANKS, SUIT_SYMBOL, cardText, rankOf, sortHand } from "../../../../lib/games/cards.ts";
 import { crazy8, crazy8Playable } from "../../../../lib/games/crazy8.ts";
-import { OCHO_COLOUR_NAME, ocho, ochoPlayable } from "../../../../lib/games/ocho.ts";
+import { OCHO_COLOUR_NAME, ocho, ochoCardName, ochoPlayable } from "../../../../lib/games/ocho.ts";
 import { gofish } from "../../../../lib/games/gofish.ts";
 import { BJ_ROUNDS, bjValue, blackjack } from "../../../../lib/games/blackjack.ts";
-import { TRICK_RULES, euchre, hearts, spades, trickPlayable, type TrickState } from "../../../../lib/games/tricks.ts";
+import { TRICK_RULES, partnerOf, trickPlayable } from "../../../../lib/games/tricks.ts";
 import { deadwood, ginrummy } from "../../../../lib/games/ginrummy.ts";
 import { HOLDEM_HANDS, holdem } from "../../../../lib/games/holdem.ts";
+import { TrickControls, lastTrickText, togglePick, trickHandMode, trickPrompt, trickSeatNote, trickStatus, useTrickState, type TrickGame } from "../../boards/TrickBoard";
+import { BlackjackActions, BlackjackLast, bjDealerLine } from "../../boards/BlackjackBoard";
+import { HoldemActions, HoldemLastHand } from "../../boards/HoldemBoard";
+import { GinKnockPanel } from "../../boards/GinBoard";
 import { CardTableScene, TOP, backFan, handSpots, pileSpots, seatPlaces, towardMiddle, type CardSpot, type ChipStack, type FacePainter } from "../cardTable";
 import { FONT, roundRect } from "../kit";
 import { SceneBox, useScene } from "../Board3D";
@@ -81,6 +86,12 @@ const occ = (cards: string[]) => {
   });
 };
 
+const Note = ({ children, testId }: { children: ReactNode; testId: string }) => (
+  <span className="font-normal text-slate-500" {...{ [`data-${testId}`]: "" }}>
+    {children}
+  </span>
+);
+
 // ============================================================ Crazy Eights
 
 export function Crazy83D(p: BoardProps) {
@@ -106,16 +117,16 @@ export function Crazy83D(p: BoardProps) {
         return { key: `c:${c}#0`, card: c, faceUp: true, pos: s.pos, yaw: s.yaw, from: at.get((state.turn - 1 + n) % n)?.clone() };
       }),
       ...handCards(hand, (c) => crazy8Playable(state, c), pick, p.canPlay, undefined, (c) => `c:${c}#0`),
-      ...others.flatMap((q) => backSpots(q, at.get(q)!, state.hands[q].length)),
+      ...others.flatMap((q) => (state.gone[q] ? [] : backSpots(q, at.get(q)!, state.hands[q].length))),
     ];
     scene.setCards(spots);
-    scene.setSeats(others.map((q) => ({ name: name(q), colour: colour(q), at: at.get(q)!, active: q === state.turn, note: `${state.hands[q].length} cards` })));
+    scene.setSeats(others.map((q) => ({ name: name(q), colour: colour(q), at: at.get(q)!, active: q === state.turn && !state.gone[q], note: state.gone[q] ? "left" : `${state.hands[q].length} cards` })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, state, me, p.canPlay, others, at]);
   if (!state) return null;
   const hand = state.hands[me] ?? [];
   const stuck = p.canPlay && !hand.some((c) => crazy8Playable(state, c));
-  const actions: Action[] = p.canPlay ? hand.filter((c) => crazy8Playable(state, c)).map((c) => ({ key: c, label: `Play ${c}`, run: () => (rankOf(c) === "8" ? setEight(c) : p.onMove(`p:${c}`)), attrs: { "data-card": `hand:${c}` } })) : [];
+  const actions: Action[] = p.canPlay ? hand.filter((c) => crazy8Playable(state, c)).map((c) => ({ key: c, label: `Play ${cardText(c)}`, run: () => (rankOf(c) === "8" ? setEight(c) : p.onMove(`p:${c}`)), attrs: { "data-card": `hand:${c}` } })) : [];
   return (
     <Frame
       testId="crazy8"
@@ -132,6 +143,7 @@ export function Crazy83D(p: BoardProps) {
               ))}
             </div>
           )}
+          {stuck && state.stock.length === 0 && state.passes > 0 && <div className="text-[11px] text-slate-500">If everyone passes in a row the game is blocked: fewest card points wins (8 = 50, pictures 10, ace 1).</div>}
           <HiddenActions actions={actions} label="Cards you can play" />
         </>
       }
@@ -148,7 +160,7 @@ export function Crazy83D(p: BoardProps) {
             Pass
           </button>
         )}
-        <span className="font-normal text-slate-500">{p.local ? `${name(me)}'s cards` : "Your cards"} at the front</span>
+        {state.event ? <Note testId="crazy8-event">{namesIn(state.event, p.seats, p.starter ?? 0, n)}</Note> : <Note testId="crazy8-front">{p.local ? `${name(me)}'s cards` : "Your cards"} at the front</Note>}
       </BoardBar>
     </Frame>
   );
@@ -228,17 +240,17 @@ export function Ocho3D(p: BoardProps) {
         return { key: `pile:${idx}:${c}`, card: c, faceUp: true, pos: s.pos, yaw: s.yaw, from: (at.get((state.turn - state.dir + n) % n) ?? at.get(me)!).clone().setY(TOP + 0.3) };
       }),
       ...handCards(hand, playable, pick, p.canPlay, (c) => c === state.drawn, (c, i) => `h:${c}#${ho[i]}`),
-      ...others.flatMap((q) => backSpots(q, at.get(q)!, state.hands[q].length)),
+      ...others.flatMap((q) => (state.gone[q] ? [] : backSpots(q, at.get(q)!, state.hands[q].length))),
     ];
     scene.setCards(spots);
-    scene.setSeats(others.map((q) => ({ name: name(q), colour: colour(q), at: at.get(q)!, active: q === state.turn, note: `${state.hands[q].length} cards` })));
+    scene.setSeats(others.map((q) => ({ name: name(q), colour: colour(q), at: at.get(q)!, active: q === state.turn && !state.gone[q], note: state.gone[q] ? "left" : `${state.hands[q].length} cards` })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, state, me, p.canPlay, others, at]);
   if (!state) return null;
   const hand = state.hands[me] ?? [];
   const playable = (c: string) => p.canPlay && ochoPlayable(state, c) && (!state.drawn || c === state.drawn);
   const stuck = p.canPlay && !state.drawn && !hand.some((c) => ochoPlayable(state, c));
-  const actions: Action[] = hand.filter(playable).map((c, i) => ({ key: `${c}${i}`, label: `Play ${c}`, run: () => (c === "W" || c === "F" ? setWild(c) : p.onMove(`p:${c}`)), attrs: { "data-ocho-card": `hand:${c}` } }));
+  const actions: Action[] = hand.filter(playable).map((c, i) => ({ key: `${c}${i}`, label: `Play ${ochoCardName(c)}`, run: () => (c === "W" || c === "F" ? setWild(c) : p.onMove(`p:${c}`)), attrs: { "data-ocho-card": `hand:${c}` } }));
   return (
     <Frame
       testId="ocho"
@@ -249,7 +261,7 @@ export function Ocho3D(p: BoardProps) {
             <div className="flex items-center gap-2 text-[12.5px]" data-ocho-pick-colour>
               <span>Name the colour:</span>
               {["R", "G", "B", "Y"].map((c) => (
-                <button key={c} type="button" data-ocho-colour-pick={c} onClick={() => { p.onMove(`p:${wild}:${c}`); setWild(null); }} className="h-8 w-8 rounded-full shadow ring-2 ring-white" style={{ backgroundColor: OBG[c] }} />
+                <button key={c} type="button" data-ocho-colour-pick={c} aria-label={OCHO_COLOUR_NAME[c]} onClick={() => { p.onMove(`p:${wild}:${c}`); setWild(null); }} className="h-8 w-8 rounded-full shadow ring-2 ring-white" style={{ backgroundColor: OBG[c] }} />
               ))}
             </div>
           )}
@@ -271,7 +283,7 @@ export function Ocho3D(p: BoardProps) {
             Keep it, pass
           </button>
         )}
-        {state.event && <span className="font-normal text-slate-500" data-ocho-event>{state.event}</span>}
+        {state.event && <Note testId="ocho-event">{namesIn(state.event, p.seats, p.starter ?? 0, n)}</Note>}
       </BoardBar>
     </Frame>
   );
@@ -297,7 +309,7 @@ export function GoFish3D(p: BoardProps) {
       ...others.flatMap((q) => backSpots(q, at.get(q)!, state.hands[q].length)),
     ];
     scene.setCards(spots);
-    scene.setSeats(others.map((q) => ({ name: name(q), colour: colour(q), at: at.get(q)!, active: q === state.turn, note: `${state.hands[q].length} cards · ${state.books[q]} books` })));
+    scene.setSeats(others.map((q) => ({ name: name(q), colour: colour(q), at: at.get(q)!, active: q === state.turn && !state.gone[q], note: state.gone[q] ? `left · ${state.books[q]} books` : `${state.hands[q].length} cards · ${state.books[q]} books` })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, state, me, p.canPlay, others, at, rank]);
   if (!state) return null;
@@ -322,7 +334,7 @@ export function GoFish3D(p: BoardProps) {
               <div className="flex flex-wrap items-center justify-center gap-1.5">
                 <span>from:</span>
                 {state.hands.map((h, q) =>
-                  q === me || h.length === 0 ? null : (
+                  q === me || h.length === 0 || state.gone[q] ? null : (
                     <button key={q} type="button" data-gofish-ask-player={q} onClick={() => { p.onMove(`a:${q}:${rank}`); setRank(null); }} className={primary3}>
                       {name(q)}
                     </button>
@@ -340,7 +352,7 @@ export function GoFish3D(p: BoardProps) {
         </span>
         {state.event && (
           <span className="rounded-full bg-sky-500/15 px-3 py-0.5 font-normal text-sky-800 dark:text-sky-200" data-gofish-event>
-            {state.event}
+            {namesIn(state.event, p.seats, p.starter ?? 0, n)}
           </span>
         )}
       </BoardBar>
@@ -367,58 +379,53 @@ export function Blackjack3D(p: BoardProps) {
     const spots: CardSpot[] = [];
     state.dealer.forEach((c, i) => {
       const hidden = i === 1 && !dealerDone;
-      spots.push({ key: `d:${i}`, card: hidden ? null : c, faceUp: !hidden, pos: new THREE.Vector3((i - (state.dealer.length - 1) / 2) * 0.8, TOP + 0.01 + i * 0.002, -2.3), from: shoe });
+      spots.push({ key: `d:${state.round}:${i}`, card: hidden ? null : c, faceUp: !hidden, pos: new THREE.Vector3((i - (state.dealer.length - 1) / 2) * 0.8, TOP + 0.01 + i * 0.002, -2.3), from: shoe });
     });
-    state.hands.forEach((h, q) =>
-      h.forEach((c, i) => {
-        spots.push({ key: `p:${q}:${i}`, card: c, faceUp: true, pos: places[q].clone().add(new THREE.Vector3((i - (h.length - 1) / 2) * 0.32, 0.01 + i * 0.004, -0.1 * i)), yaw: (i - (h.length - 1) / 2) * 0.05, from: shoe });
-      }),
-    );
+    const width = Math.min(3, 10 / Math.max(1, n));
+    state.boxes.forEach((box, q) => {
+      const seen = new Map<string, number>();
+      box.forEach((h, b) => {
+        const centre = places[q].clone().add(new THREE.Vector3(box.length > 1 ? (b - 0.5) * Math.min(1.35, width * 0.48) : 0, 0, 0));
+        h.cards.forEach((c, i) => {
+          const k = seen.get(c) ?? 0;
+          seen.set(c, k + 1);
+          const on = q === state.turn && state.active[q] && state.hand === b && box.length > 1;
+          spots.push({ key: `p:${state.round}:${q}:${c}#${k}`, card: c, faceUp: true, lit: on, pos: centre.clone().add(new THREE.Vector3((i - (h.cards.length - 1) / 2) * 0.3, 0.01 + i * 0.004, -0.1 * i)), yaw: (i - (h.cards.length - 1) / 2) * 0.05, from: shoe });
+        });
+      });
+    });
     scene.setCards(spots);
     scene.setChips(state.points.map((pt, q) => ({ key: `bj${q}`, amount: Math.max(0, pt) + 25, pos: places[q].clone().add(new THREE.Vector3(0.9, 0, 0.7)) } satisfies ChipStack)));
     scene.setSeats(
-      state.hands.map((h, q) => ({
+      state.boxes.map((box, q) => ({
         name: `${name(q)}${q === me && !p.local ? " (you)" : ""}`,
         colour: colour(q),
         at: places[q].clone().add(new THREE.Vector3(0, 0, 1.2)),
         active: q === state.turn && state.active[q] && !state.over,
-        note: `${bjValue(h)}${bjValue(h) > 21 ? " bust" : ""} · ${state.points[q] >= 0 ? "+" : ""}${state.points[q]} pts`,
+        note: state.gone[q]
+          ? "left"
+          : `${box.map((h) => `${bjValue(h.cards)}${bjValue(h.cards) > 21 ? " bust" : ""}${h.stake > 1 ? " ×2" : ""}`).join(" / ")} · ${state.points[q] >= 0 ? "+" : ""}${state.points[q]} pts`,
       })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, state, places, me]);
   if (!state) return null;
-  const dealerDone = state.settled || !state.active.some(Boolean);
   return (
     <Frame
       testId="blackjack"
       hostRef={hostRef}
       under={
         <>
-          {p.canPlay && state.active[p.turn] && (
-            <div className="flex gap-2">
-              <button type="button" data-bj-hit onClick={() => p.onMove("h")} className={primary3}>
-                Hit
-              </button>
-              <button type="button" data-bj-stand onClick={() => p.onMove("s")} className={quiet3}>
-                Stand
-              </button>
-            </div>
-          )}
-          {state.results.length > 0 && (
-            <div className="max-w-full text-center text-[11px] text-slate-500" data-bj-results>
-              {state.results.slice(-2).map((r, i) => (
-                <div key={i}>{r}</div>
-              ))}
-            </div>
-          )}
+          {p.canPlay && <BlackjackActions state={state} onMove={p.onMove} primary={primary3} quiet={quiet3} />}
+          <BlackjackLast rounds={state.lastRounds} name={name} />
         </>
       }
     >
       <BoardBar>
         <span>
-          Round {state.round} of {BJ_ROUNDS} · dealer {dealerDone ? `shows ${bjValue(state.dealer)}` : "shows one card"}
+          Round {state.round} of {BJ_ROUNDS} · {bjDealerLine(state)}
         </span>
+        {state.boxes[state.turn]?.length > 1 && state.active[state.turn] && <Note testId="bj-split">{name(state.turn)}: hand {state.hand + 1} of 2</Note>}
       </BoardBar>
     </Frame>
   );
@@ -426,89 +433,79 @@ export function Blackjack3D(p: BoardProps) {
 
 // ============================================================ Hearts, Spades, Euchre
 
-function Tricks3D(p: BoardProps & { game: "hearts" | "spades" | "euchre" }) {
-  const def = p.game === "hearts" ? hearts : p.game === "spades" ? spades : euchre;
+function Tricks3D(p: BoardProps & { game: TrickGame }) {
   const rules = TRICK_RULES[p.game];
   const seed = p.seed ?? "";
-  const state = useMemo(() => def.replay(p.moves, 4, seed) as TrickState | null, [def, p.moves, seed]);
+  const state = useTrickState(p.game, p.moves, seed);
   const { me, others, at } = useSeating(p, 4);
+  const [picked, setPicked] = useState<string[]>([]);
   const send = useRef(p.onMove);
   send.current = p.onMove;
   const [hostRef, scene] = useTable();
   const name = (q: number) => seatFor(p.seats, p.starter ?? 0, q, 4).name;
   const colour = (q: number) => seatFor(p.seats, p.starter ?? 0, q, 4).color;
+  const teams = p.game !== "hearts";
   useEffect(() => {
     if (!scene || !state) return;
     const hand = sortHand(state.hands[me] ?? []);
-    const playable = p.canPlay && state.phase === 2 ? trickPlayable(state, me, rules) : [];
-    const tricks = state.trick.length ? state.trick : state.lastTrick;
+    const mode = trickHandMode(state, p.game, me, p.canPlay);
+    const playable = mode === "play" ? trickPlayable(state, me, rules) : [];
+    const chosen = picked.filter((c) => hand.includes(c));
+    // The last trick stays on the table until the next card (not across a new deal: those cards are dealt again).
+    const thisRound = state.won.some((w) => w > 0);
+    const showing = state.trick.length ? state.trick : thisRound ? state.lastTrick : [];
+    const onPick = (c: string) => {
+      if (mode === "play") send.current(`p:${c}`);
+      else if (mode === "pass") setPicked((cur) => togglePick(cur.filter((x) => hand.includes(x)), c));
+      else if (mode === "discard") send.current(`d:${c}`);
+    };
+    const clickable = (c: string) => (mode === "play" ? playable.includes(c) : mode !== null);
+    const lit = (c: string) => (mode === "pass" ? chosen.includes(c) : (state.received[me] ?? []).includes(c));
     const spots: CardSpot[] = [
-      ...handCards(hand, (c) => playable.includes(c), (c) => send.current(`p:${c}`), p.canPlay && state.phase === 2, undefined, (c) => `c:${c}#0`),
+      ...handCards(hand, clickable, onPick, mode !== null, lit, (c) => `c:${c}#0`),
       ...others.flatMap((q) => backSpots(q, at.get(q)!, state.hands[q].length)),
-      ...tricks.map((t, k) => ({ key: `c:${t.card}#0`, card: t.card, faceUp: true, pos: towardMiddle(at.get(t.player)!, 0.62).setY(TOP + 0.01 + k * 0.004), yaw: (t.player - me) * 0.2, from: at.get(t.player)!.clone().setY(TOP + 0.3) })),
+      ...showing.map((t, k) => ({ key: `c:${t.card}#0`, card: t.card, faceUp: true, lit: !state.trick.length && t.player === state.lastWinner, pos: towardMiddle(at.get(t.player)!, 0.62).setY(TOP + 0.01 + k * 0.004), yaw: (t.player - me) * 0.2, from: at.get(t.player)!.clone().setY(TOP + 0.3) })),
     ];
-    if (p.game === "euchre" && state.upcard && !state.trump) spots.push({ key: `c:${state.upcard}#0`, card: state.upcard, faceUp: true, pos: new THREE.Vector3(0, TOP + 0.01, -0.2) });
+    if (p.game === "euchre" && state.upcard && !state.trump && state.phase === 0) spots.push({ key: `c:${state.upcard}#0`, card: state.upcard, faceUp: true, pos: new THREE.Vector3(0, TOP + 0.01, -0.2) });
     scene.setCards(spots);
     scene.setSeats(
       others.map((q) => ({
-        name: name(q),
+        name: `${name(q)}${teams && q === state.dealer ? " · dealer" : ""}`,
         colour: colour(q),
         at: at.get(q)!,
-        active: q === state.turn && state.phase === 2,
-        note: `${state.won[q]} tricks${p.game === "spades" && state.bids[q] >= 0 ? ` · bid ${state.bids[q] === 0 ? "nil" : state.bids[q]}` : ""} · ${state.scores[q]} pts${p.game !== "hearts" ? ` · team ${q % 2 === 0 ? "1+3" : "2+4"}` : ""}`,
+        active: q === state.turn && !state.over,
+        note: `${teams && q === partnerOf(me) ? "your partner · " : ""}${trickSeatNote(state, p.game, q)}`,
       })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, state, me, p.canPlay, others, at]);
+  }, [scene, state, me, p.canPlay, others, at, picked]);
   if (!state) return null;
-  const bidding = state.phase === 0 && p.game === "spades";
-  const ordering = state.phase === 0 && p.game === "euchre";
-  const naming = state.phase === 1 && p.game === "euchre";
-  const playable = p.canPlay && state.phase === 2 ? trickPlayable(state, me, rules) : [];
-  const actions: Action[] = playable.map((c) => ({ key: c, label: `Play ${c}`, run: () => p.onMove(`p:${c}`), attrs: { "data-card": `hand:${c}` } }));
+  const hand = sortHand(state.hands[me] ?? []);
+  const mode = trickHandMode(state, p.game, me, p.canPlay);
+  const playable = mode === "play" ? trickPlayable(state, me, rules) : [];
+  const chosen = picked.filter((c) => hand.includes(c));
+  const actions: Action[] =
+    mode === "play"
+      ? playable.map((c) => ({ key: c, label: `Play ${cardText(c)}`, run: () => p.onMove(`p:${c}`), attrs: { "data-card": `hand:${c}` } }))
+      : mode === "pass"
+        ? hand.map((c) => ({ key: c, label: `${chosen.includes(c) ? "Keep" : "Pass"} ${cardText(c)}`, run: () => setPicked(togglePick(chosen, c)), attrs: { "data-card": `hand:${c}` } }))
+        : mode === "discard"
+          ? hand.map((c) => ({ key: c, label: `Put away ${cardText(c)}`, run: () => p.onMove(`d:${c}`), attrs: { "data-card": `hand:${c}` } }))
+          : [];
+  const prompt = trickPrompt(state, p.game, name);
+  const lastText = lastTrickText(state, name);
+  const status = trickStatus(state, p.game, name);
   return (
     <Frame
       testId={p.game}
       hostRef={hostRef}
       under={
         <>
-          {bidding && p.canPlay && (
-            <div className="flex flex-wrap items-center justify-center gap-1.5 text-[12.5px]" data-spades-bid>
-              <span>Your bid:</span>
-              {Array.from({ length: 14 }, (_, k) => (
-                <button key={k} type="button" data-spades-bid-n={k} onClick={() => p.onMove(`b:${k}`)} className="h-8 min-w-8 rounded-full bg-white px-2 text-[12.5px] font-bold text-slate-900 shadow ring-1 ring-black/20 hover:bg-indigo-600 hover:text-white">
-                  {k === 0 ? "nil" : k}
-                </button>
-              ))}
-            </div>
-          )}
-          {ordering && p.canPlay && (
-            <div className="flex items-center gap-2 text-[12.5px]" data-euchre-order>
-              <button type="button" data-euchre-orderup onClick={() => p.onMove("o")} className={primary3}>
-                Order it up ({state.upcard && SUIT_SYMBOL[state.upcard[1]]})
-              </button>
-              <button type="button" data-euchre-pass onClick={() => p.onMove("x")} className={quiet3}>
-                Pass
-              </button>
-            </div>
-          )}
-          {naming && p.canPlay && (
-            <div className="flex items-center gap-2 text-[12.5px]" data-euchre-name>
-              <span>Name trump:</span>
-              {["S", "H", "D", "C"].filter((s) => !state.upcard || s !== state.upcard[1]).map((s) => (
-                <button key={s} type="button" data-euchre-trump-pick={s} onClick={() => p.onMove(`t:${s}`)} className={`h-8 w-8 rounded-full bg-white text-[18px] shadow ring-1 ring-black/20 ${s === "H" || s === "D" ? "text-rose-600" : "text-slate-900"}`}>
-                  {SUIT_SYMBOL[s]}
-                </button>
-              ))}
-              <button type="button" data-euchre-pass onClick={() => p.onMove("x")} className={quiet3}>
-                Pass
-              </button>
-            </div>
-          )}
-          <HiddenActions actions={actions} label="Cards you can play" />
+          <TrickControls state={state} game={p.game} me={me} canPlay={p.canPlay} name={name} onMove={p.onMove} picked={chosen} onPicked={setPicked} primary={primary3} quiet={quiet3} />
+          <HiddenActions actions={actions} label={mode === "pass" ? "Cards to pass" : mode === "discard" ? "The card to put away" : "Cards you can play"} />
           {state.log.length > 0 && (
             <div className="text-[11px] text-slate-500" data-trick-log>
-              {state.log[state.log.length - 1]}
+              {namesIn(state.log[state.log.length - 1], p.seats, p.starter ?? 0, 4)}
             </div>
           )}
         </>
@@ -516,14 +513,13 @@ function Tricks3D(p: BoardProps & { game: "hearts" | "spades" | "euchre" }) {
     >
       <BoardBar>
         <span data-trick-me>
-          {p.local ? name(me) : "You"}: {state.won[me]} tricks · {state.scores[me]} pts{p.game === "spades" && state.bids[me] >= 0 ? ` · bid ${state.bids[me] === 0 ? "nil" : state.bids[me]}` : ""}
+          {p.local ? name(me) : "You"}
+          {teams && me === state.dealer ? " (dealer)" : ""}: {trickSeatNote(state, p.game, me)}
+          {teams ? ` · Partner: ${name(partnerOf(me))}` : ""}
         </span>
-        {p.game === "euchre" && (
-          <span data-euchre-trump className="font-normal text-slate-500">
-            {state.trump ? `trump ${SUIT_SYMBOL[state.trump]}` : state.upcard ? `turned up: ${state.upcard}` : ""}
-          </span>
-        )}
-        {bidding && <span className="font-normal text-slate-500">Bidding…</span>}
+        {prompt && <span data-trick-prompt>{prompt}</span>}
+        {lastText && <Note testId="trick-last">{lastText}</Note>}
+        {status && <Note testId="euchre-trump">{status}</Note>}
       </BoardBar>
     </Frame>
   );
@@ -574,7 +570,7 @@ export function Gin3D(p: BoardProps) {
   const canKnockWith = (c: string) => deadwood(hand.filter((x) => x !== c)).points <= 10;
   const actions: Action[] = [
     ...(drawing ? [{ key: "ds", label: "Draw from the stock", run: () => p.onMove("ds"), attrs: { "data-gin-stock": "1" } }, { key: "dd", label: "Take the discard", run: () => p.onMove("dd"), attrs: { "data-gin-discard": "1" } }] : []),
-    ...(discarding ? hand.filter((c) => c !== state.tookDiscard).map((c) => ({ key: c, label: `Discard ${c}`, run: () => p.onMove(`x:${c}`), attrs: { "data-card": `hand:${c}` } })) : []),
+    ...(discarding ? hand.filter((c) => c !== state.tookDiscard).map((c) => ({ key: c, label: `Discard ${cardText(c)}`, run: () => p.onMove(`x:${c}`), attrs: { "data-card": `hand:${c}` } })) : []),
   ];
   return (
     <Frame
@@ -583,9 +579,10 @@ export function Gin3D(p: BoardProps) {
       under={
         <>
           <HiddenActions actions={actions} label="Your moves" />
-          {state.lastKnock && state.log.length > 0 && (
-            <div className="text-[11px] text-slate-500" data-gin-log>
-              {state.log[state.log.length - 1]}
+          <GinKnockPanel knock={state.lastKnock} name={name} />
+          {state.notice && (
+            <div className="text-[11px] text-slate-500" data-gin-notice>
+              {namesIn(state.notice, p.seats, p.starter ?? 0, 2)}
             </div>
           )}
         </>
@@ -615,27 +612,25 @@ export function Holdem3D(p: BoardProps) {
   const seed = p.seed ?? "";
   const state = useMemo(() => holdem.replay(p.moves, n, seed), [p.moves, n, seed]);
   const { me, others, at } = useSeating(p, n);
-  const [raise, setRaise] = useState(0);
   const [hostRef, scene] = useTable(undefined, "#14532d");
   const name = (q: number) => seatFor(p.seats, p.starter ?? 0, q, n).name;
   const colour = (q: number) => seatFor(p.seats, p.starter ?? 0, q, n).color;
+  const say = (t: string) => namesIn(t, p.seats, p.starter ?? 0, n);
   useEffect(() => {
     if (!scene || !state) return;
-    const showAll = state.street === 4 || state.showdown.length > 0;
     const deck = new THREE.Vector3(-3.2, TOP, -0.4);
     const spots: CardSpot[] = [];
     state.board.forEach((c, i) => spots.push({ key: `c:${c}#0`, card: c, faceUp: true, pos: new THREE.Vector3((i - 2) * 1.0, TOP + 0.01, -0.4), from: deck }));
     for (let q = 0; q < n; q++) {
       const hole = state.hole[q] ?? [];
       if (!hole.length || state.out[q]) continue;
-      const mine = q === me;
-      const reveal = mine || (showAll && !state.folded[q]);
-      if (mine) {
+      // Only your own hole cards are face up; the showdown is in the panel above.
+      if (q === me) {
         const hs = handSpots(2);
         hole.forEach((c, i) => spots.push({ key: `c:${c}#0`, card: c, faceUp: true, pos: hs[i].pos.clone().setX((i - 0.5) * 1.0), yaw: (0.5 - i) * 0.1, tilt: 0.3, dim: state.folded[q], from: deck }));
       } else {
         const base = towardMiddle(at.get(q)!, 0.18);
-        hole.forEach((c, i) => spots.push({ key: reveal ? `c:${c}#0` : `h:${q}:${i}`, card: reveal ? c : null, faceUp: reveal, pos: base.clone().add(new THREE.Vector3((i - 0.5) * 0.5, 0.01 + i * 0.004, 0)), yaw: (i - 0.5) * 0.15, dim: state.folded[q], from: deck }));
+        hole.forEach((_, i) => spots.push({ key: `h:${state.hand}:${q}:${i}`, card: null, faceUp: false, pos: base.clone().add(new THREE.Vector3((i - 0.5) * 0.5, 0.01 + i * 0.004, 0)), yaw: (i - 0.5) * 0.15, dim: state.folded[q], from: deck }));
       }
     }
     scene.setCards(spots);
@@ -650,49 +645,25 @@ export function Holdem3D(p: BoardProps) {
         colour: colour(q),
         at: at.get(q)!,
         active: q === state.turn && state.street < 4,
-        note: state.out[q] ? "out" : `${state.chips[q]} chips${state.folded[q] ? " · folded" : state.allin[q] ? " · all in" : ""}`,
+        note: state.gone[q] ? "left" : state.out[q] ? "out" : `${state.chips[q]} chips${state.folded[q] ? " · folded" : state.allin[q] ? " · all in" : ""}`,
       })),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, state, me, others, at]);
   if (!state) return null;
   const pot = state.contributed.reduce((a, b) => a + b, 0);
-  const call = Math.max(0, state.toCall - (state.bets[p.turn] ?? 0));
-  const minTo = state.toCall + state.minRaise;
-  const maxTo = (state.bets[p.turn] ?? 0) + (state.chips[p.turn] ?? 0);
-  const raiseTo = Math.min(Math.max(raise || minTo, minTo), maxTo);
-  const sd = state.showdown;
   return (
     <Frame
       testId="holdem"
       hostRef={hostRef}
       under={
         <>
-          {p.canPlay && state.street < 4 && state.pending[p.turn] && (
-            <div className="flex flex-wrap items-center justify-center gap-2 text-[12.5px]" data-holdem-actions>
-              <button type="button" data-holdem-fold onClick={() => p.onMove("f")} className={quiet3}>
-                Fold
-              </button>
-              <button type="button" data-holdem-call onClick={() => p.onMove("c")} className={primary3}>
-                {call === 0 ? "Check" : `Call ${call}`}
-              </button>
-              {maxTo >= minTo && (
-                <span className="inline-flex items-center gap-1">
-                  <input type="range" data-holdem-raise-to min={minTo} max={maxTo} step={10} value={raiseTo} onChange={(e) => setRaise(Number(e.target.value))} className="w-28 accent-amber-500" />
-                  <button type="button" data-holdem-raise onClick={() => p.onMove(`r:${raiseTo}`)} className="rounded-full bg-amber-500 px-4 py-1.5 font-semibold text-white">
-                    Raise to {raiseTo}
-                  </button>
-                </span>
-              )}
-              <button type="button" data-holdem-allin onClick={() => p.onMove("a")} className="rounded-full bg-rose-600 px-4 py-1.5 font-semibold text-white">
-                All in
-              </button>
-            </div>
-          )}
-          {state.log.length > 0 && (
+          {p.canPlay && <HoldemActions state={state} onMove={p.onMove} quiet={quiet3} primary={primary3} range />}
+          <HoldemLastHand last={state.last} name={name} say={say} />
+          {state.log.length > 0 && !state.last && (
             <div className="max-w-full text-center text-[11px] text-slate-500" data-holdem-log>
               {state.log.slice(-2).map((l, i) => (
-                <div key={i}>{l}</div>
+                <div key={i}>{say(l)}</div>
               ))}
             </div>
           )}
@@ -704,12 +675,11 @@ export function Holdem3D(p: BoardProps) {
           Hand {state.hand} of {HOLDEM_HANDS} · pot {pot} · {["pre-flop", "flop", "turn", "river", "showdown"][state.street]}
         </span>
         <span className="font-normal text-slate-500" data-holdem-me>
-          {p.local ? name(me) : "You"}: {state.chips[me]} chips{state.bets[me] ? ` · bet ${state.bets[me]}` : ""}
+          {p.local ? name(me) : "You"}: {state.gone[me] ? "left" : `${state.chips[me]} chips`}
+          {state.bets[me] ? ` · bet ${state.bets[me]}` : ""}
           {me === state.button ? " · dealer" : ""}
         </span>
-        {sd.length > 0 && <span className="text-amber-700 dark:text-amber-300">{sd.filter((x) => x.won).map((x) => `${name(x.player)}: ${x.name} +${x.won}`).join(" · ")}</span>}
       </BoardBar>
     </Frame>
   );
 }
-

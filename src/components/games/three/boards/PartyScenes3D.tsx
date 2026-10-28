@@ -1,18 +1,21 @@
 // LANX 2.16.0: the two party games with a 3D scene of their own.
-// Tap Roulette: a prize wheel with a slice per player; when the round closes
-// it spins, slows and stops on the loser — the loser the rules drew from the
-// match seed (lib/games/party), so the wheel only shows a result that is
-// already fixed and the same on every PC. Wordbox: sixteen wooden letter
-// tiles; drag across touching tiles to spell a word (or type it), checked
-// against the grid and an English word list before it is sent.
+// Tap Roulette: a prize wheel with a slice per player. Whoever hasn't tapped
+// in when the round closes loses it (their slices stay dark); when everyone
+// is in, the wheel spins, slows and stops on the loser the rules drew from
+// the match seed (lib/games/party: tapLosers), so it only shows a result
+// that is already fixed and the same on every PC. Wordbox: sixteen wooden
+// letter tiles; drag across touching tiles to spell a word (or type it),
+// checked against the grid and an English word list before it is sent —
+// the same checks as the flat board (boards/PartyBoards).
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { seatFor, type BoardProps } from "../../boardProps";
-import { tapRoulette, type PartyState, type TapExtra } from "../../../../lib/games/party.ts";
-import { wordOnGrid, wordPoints, wordbox, type WordboxExtra } from "../../../../lib/games/wordbox.ts";
+import { allAnswered, tapRoulette, type PartyState, type TapExtra } from "../../../../lib/games/party.ts";
+import { wordPoints, wordbox, type WordboxExtra } from "../../../../lib/games/wordbox.ts";
 import { sfx } from "../../../../lib/gameSounds";
 import { PartyShell } from "../../boards/PartyShell";
+import { WORDBOX_RULES, WordLists, inCount, partyNames, tapResult, useWordList, wordProblem } from "../../boards/PartyBoards";
 import { TurnScene } from "../turnScene";
 import { FONT, canvasTexture, mesh, repaint, sharedGeo, slab, wood } from "../kit";
 import { SceneBox, useScene } from "../Board3D";
@@ -21,16 +24,10 @@ import { easeOut } from "../stage";
 
 // ============================================================ Tap Roulette
 
-/** Who loses a closed round: the drawn player if they tapped in, else the first who did not (the rules' own sum). */
-export function rouletteLoser(s: PartyState<TapExtra>, n: number): number | null {
-  if (!s.extra) return null;
-  const tapped = s.answers.map((a) => a.player);
-  let loser = s.extra.loser;
-  if (!tapped.includes(loser)) {
-    const missing = Array.from({ length: n }, (_, p) => p).filter((p) => !tapped.includes(p));
-    loser = missing[0] ?? loser;
-  }
-  return loser;
+/** The loser the wheel drew in a closed round (everyone was in), or null when nobody was drawn —
+ *  those who didn't tap in lost instead (the rules' own result, lib/games/party: tapLosers). */
+export function rouletteLoser(s: PartyState<TapExtra>): number | null {
+  return !s.open && s.extra?.drawn && s.extra.losers?.length ? s.extra.losers[0] : null;
 }
 
 class WheelScene extends TurnScene<PartyState<TapExtra>> {
@@ -137,8 +134,12 @@ class WheelScene extends TurnScene<PartyState<TapExtra>> {
       if (move.includes("@a:")) sfx("pop", 0.5);
       return;
     }
-    const loser = rouletteLoser(after, this.n);
-    if (loser === null) return;
+    const loser = rouletteLoser(after);
+    if (loser === null) {
+      // Someone didn't tap in: they lose, no spin.
+      sfx("buzz", 0.7);
+      return;
+    }
     const slice = (Math.PI * 2) / this.n;
     const from = this.wheel.rotation.z;
     // The loser's slice centre under the pointer (turning the wheel anticlockwise brings later slices up); four turns first.
@@ -178,42 +179,31 @@ export function TapRoulette3D({ moves, canPlay, seat, seats, starter = 0, seed =
   useEffect(() => scene?.setLook(names, colours), [scene, names, colours]);
   useEffect(() => scene?.sync(n, seed, moves), [scene, n, seed, moves]);
   if (!state) return null;
+  const { list } = partyNames(seats, starter, n);
   const tapped = state.answers.some((a) => a.player === seat);
-  const allIn = state.answers.length >= n;
+  const result = tapResult(state, list);
   return (
-    <PartyShell state={state} rounds={5} seconds={10} host={!!host} seats={seats} starter={starter} n={n} allIn={allIn} onMove={onMove} testId="taproulette">
+    <PartyShell state={state} rounds={tapRoulette.total(state, n)} seconds={tapRoulette.rules.seconds} host={!!host} seats={seats} starter={starter} n={n} seat={seat} answered={tapped} verb="tap in now" allIn={allAnswered(state)} onMove={onMove} testId="taproulette">
       <div className="flex w-full flex-col items-center gap-2" data-g3-board="taproulette">
         <SceneBox hostRef={hostRef} aspect={1.25} minH={260} maxH={360} testId="taproulette" />
         {state.open ? (
-          <button type="button" data-tap-in disabled={!canPlay || tapped} onClick={() => onMove(`${seat}@a:in`)} className={`h-20 w-20 rounded-full text-[16px] font-black text-white shadow-lg transition-transform ${tapped ? "bg-emerald-500" : "bg-rose-600 hover:bg-rose-500 active:scale-95"} disabled:opacity-90`}>
+          <button type="button" data-tap-in disabled={!canPlay || tapped || state.out[seat]} onClick={() => onMove(`${seat}@a:in`)} className={`h-20 w-20 rounded-full text-[16px] font-black text-white shadow-lg transition-transform ${tapped ? "bg-emerald-500" : "bg-rose-600 hover:bg-rose-500 active:scale-95"} disabled:opacity-90`}>
             {tapped ? "IN" : "TAP"}
           </button>
+        ) : result ? (
+          <div className="text-[14px] font-bold" data-tap-result>
+            {result}
+          </div>
         ) : (
-          <div className="text-[12.5px] text-slate-500">Everyone taps in; when the round closes the wheel picks one loser. Five rounds.</div>
+          <div className="max-w-[460px] text-center text-[12.5px] text-slate-500">Tap in before the clock runs out — anyone who doesn't loses the round. If everyone's in, the wheel picks one loser. Five rounds; a point for each round you survive.</div>
         )}
-        <div className="text-[11.5px] text-slate-500">
-          {state.answers.length} of {n} in
-        </div>
+        {state.open && <div className="text-[11.5px] text-slate-500">{inCount(state)} in</div>}
       </div>
     </PartyShell>
   );
 }
 
 // ============================================================ Wordbox
-
-let dictionary: Set<string> | null = null;
-let loadingDict: Promise<Set<string> | null> | null = null;
-/** The English word list (about 270,000 words), loaded the first time Wordbox opens. */
-function loadDictionary(): Promise<Set<string> | null> {
-  if (dictionary) return Promise.resolve(dictionary);
-  loadingDict ??= import("../../../../../node_modules/word-list/words.txt?raw")
-    .then((m) => {
-      dictionary = new Set((m.default as string).split("\n").map((w) => w.trim().toUpperCase()));
-      return dictionary;
-    })
-    .catch(() => null);
-  return loadingDict;
-}
 
 const TG = 1.15;
 
@@ -341,23 +331,19 @@ export function Wordbox3D({ moves, canPlay, seat, seats, starter = 0, seed = "",
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [tracing, setTracing] = useState("");
-  const [dict, setDict] = useState<Set<string> | null>(dictionary);
-  useEffect(() => {
-    void loadDictionary().then(setDict);
-  }, []);
+  const dict = useWordList();
   useEffect(() => {
     setText("");
     setNote("");
   }, [state?.round]);
   const grid = (state?.extra as WordboxExtra | null)?.grid ?? [];
+  const names = partyNames(seats, starter, n);
   const mine = useMemo(() => (state ? state.answers.filter((a) => a.player === seat).map((a) => a.text.toUpperCase()) : []), [state, seat]);
   const submit = (raw: string) => {
     const w = raw.trim().toUpperCase();
     if (!w) return;
-    if (w.length < 3) return setNote("Three letters or more.");
-    if (mine.includes(w)) return setNote("Already have it.");
-    if (!wordOnGrid(grid, w)) return setNote("Those letters don't touch on the grid.");
-    if (dict && !dict.has(w)) return setNote(`"${w}" isn't in the word list.`);
+    const problem = wordProblem(w, grid, mine, dict);
+    if (problem) return setNote(problem);
     onMove(`${seat}@a:${w}`);
     sfx("pop", 0.6);
     setText("");
@@ -370,7 +356,7 @@ export function Wordbox3D({ moves, canPlay, seat, seats, starter = 0, seed = "",
   useEffect(() => scene?.setTurn({ canPlay: canPlay && !!state?.open, onWord: (w) => submitRef.current(w), onPath: setTracing }), [scene, canPlay, state?.open]);
   if (!state) return null;
   return (
-    <PartyShell state={state} rounds={3} seconds={90} host={!!host} seats={seats} starter={starter} n={n} onMove={onMove} testId="wordbox">
+    <PartyShell state={state} rounds={wordbox.total(state, n)} seconds={wordbox.rules.seconds} host={!!host} seats={seats} starter={starter} n={n} seat={seat} verb="find words now" onMove={onMove} testId="wordbox">
       <div className="flex w-full flex-wrap items-start justify-center gap-4" data-g3-board="wordbox">
         <div className="flex w-[340px] flex-col items-center gap-1">
           <SceneBox hostRef={hostRef} aspect={1.05} minH={300} maxH={360} testId="wordbox" />
@@ -394,12 +380,15 @@ export function Wordbox3D({ moves, canPlay, seat, seats, starter = 0, seed = "",
                 </span>
               ))}
             </div>
-            <div className="text-[10.5px] text-slate-500">Drag across touching tiles to spell a word (no tile twice). {dict ? "Words are checked against an English word list." : "Loading the word list…"} A word two of you found scores nobody.</div>
+            <div className="text-[10.5px] text-slate-500">
+              Drag across touching tiles to spell a word, or type it. {WORDBOX_RULES} {dict ? "Words are checked against an English word list." : "Loading the word list…"}
+            </div>
           </div>
         ) : (
-          <div className="max-w-[220px] text-[13px] text-slate-500">Three rounds of 90 seconds on a fresh letter grid.</div>
+          <div className="max-w-[220px] text-[13px] text-slate-500">Three rounds of 90 seconds on a fresh letter grid. {WORDBOX_RULES}</div>
         )}
       </div>
+      {!state.open && state.round > 0 && <WordLists answers={state.answers} n={n} name={names.name} colour={names.colour} me={seat} />}
     </PartyShell>
   );
 }

@@ -8,10 +8,10 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
-import { DART_R, darts, type DartsState } from "../../../../lib/games/darts.ts";
-import { ARROWS, TARGET_R, archery, windFor, type ArcheryState } from "../../../../lib/games/archery.ts";
-import { CUPS, CUP_R, cupPong, type PongState } from "../../../../lib/games/cuppong.ts";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
+import { DART_R, DART_START, dartFinish, darts, type DartsState } from "../../../../lib/games/darts.ts";
+import { ARROWS, TARGET_R, archery, archerySway, windFor, type ArcheryState } from "../../../../lib/games/archery.ts";
+import { CUPS, CUP_R, cupPong, pongSide, pongSway, type PongState } from "../../../../lib/games/cuppong.ts";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
 import { FONT, canvasTexture, felt, mesh, metal, slab, wood } from "../kit";
@@ -262,11 +262,14 @@ export function Darts3D({ moves, canPlay, turn, seats, starter = 0, onMove }: Bo
     <div data-game-board="darts" data-g3-board="darts" className="flex w-full max-w-[640px] flex-col items-center gap-2">
       <BoardBar>
         {state.left.map((l, p) => (
-          <span key={p} data-darts-left className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <SeatDot color={colours[p]} /> {name(p)} {l}
+          <span key={p} data-darts-left className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""} ${state.out[p] ? "line-through opacity-50" : ""}`}>
+            <SeatDot color={colours[p]} /> {name(p)} {state.out[p] ? "left" : l}
           </span>
         ))}
       </BoardBar>
+      <div className="max-w-[460px] text-center text-[11.5px] text-slate-500" data-darts-rule>
+        {DART_START} down to exactly 0. The last dart must be a double (outer ring, or the bull). Below 0, 1 left, or 0 without a double is a bust.
+      </div>
       <SceneBox hostRef={hostRef} aspect={1.15} maxH={560} testId="darts" />
       <div className="flex items-center gap-2 text-[12px]">
         {canPlay && (
@@ -277,6 +280,14 @@ export function Darts3D({ moves, canPlay, turn, seats, starter = 0, onMove }: Bo
         <span className="text-slate-500" data-darts-thrown>
           {state.thrown.map((t) => t.text).join(", ") || "Point at the board; the sight sways — click (or Throw) when it's where you want."}
         </span>
+      </div>
+      <div className="flex flex-col items-center text-[11.5px] text-slate-600 dark:text-slate-300" data-darts-news>
+        {state.log.length > 0 && <span data-darts-log>{namesIn(state.log[state.log.length - 1], seats, starter, n)}</span>}
+        {state.winner === null && dartFinish(state.left[turn] ?? 0) && (
+          <span className="font-semibold text-emerald-600 dark:text-emerald-400" data-darts-finish>
+            {name(turn)} can finish with {dartFinish(state.left[turn] ?? 0)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -412,8 +423,7 @@ class ArcheryScene extends TurnScene<ArcheryState> {
         // Breathing sway; drawing steadies it for two seconds, then the arm tires.
         const t = (performance.now() - t0) / 1000;
         const held = this.drawStart ? (performance.now() - this.drawStart) / 1000 : 0;
-        const amp = this.drawStart ? (held < 2 ? 14 - held * 5 : 4 + (held - 2) * 10) : 14;
-        this.sway = [Math.sin(t * 2.1) * amp, Math.sin(t * 1.6 + 1) * amp];
+        this.sway = archerySway(t, this.drawStart ? held : null);
         if (this.drawStart) this.info?.onDraw(Math.min(1, held / 1.2));
         this.sight.position.set((this.aim[0] + this.sway[0]) * TS, T_Y - (this.aim[1] + this.sway[1]) * TS, T_Z + 0.05);
         return true;
@@ -456,7 +466,8 @@ class ArcheryScene extends TurnScene<ArcheryState> {
       }
     this.stage.invalidate();
   }
-  protected async animateStep(before: ArcheryState, after: ArcheryState) {
+  protected async animateStep(before: ArcheryState, after: ArcheryState, move: string) {
+    if (!move.startsWith("s:")) return;
     const p = before.turn;
     const k = before.hits[p].length;
     const h = after.hits[p][k];
@@ -504,11 +515,16 @@ export function Archery3D({ moves, canPlay, turn, seats, starter = 0, seed = "",
     <div data-game-board="archery" data-g3-board="archery" className="flex w-full max-w-[680px] flex-col items-center gap-2">
       <BoardBar>
         {state.scores.map((s, p) => (
-          <span key={p} data-archery-scores className={`inline-flex items-center gap-1.5 ${p === turn && !state.done ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <SeatDot color={colours[p]} /> {name(p)} {s} <span className="font-normal text-slate-400">({state.hits[p].length}/{ARROWS})</span>
+          <span key={p} data-archery-scores className={`inline-flex items-center gap-1.5 ${p === turn && !state.done ? "underline decoration-2 underline-offset-4" : ""} ${state.out[p] ? "line-through opacity-50" : ""}`}>
+            <SeatDot color={colours[p]} /> {name(p)} {s} <span className="font-normal text-slate-400">({state.out[p] ? "left" : `${state.hits[p].length}/${ARROWS}`})</span>
           </span>
         ))}
       </BoardBar>
+      {state.event && (
+        <div className="text-[11.5px] text-slate-600 dark:text-slate-300" data-archery-event>
+          {namesIn(state.event, seats, starter, n)}
+        </div>
+      )}
       {!state.done && (
         <div className="flex items-center gap-2 text-[12px]" data-archery-wind>
           Wind
@@ -576,6 +592,10 @@ class PongScene extends TurnScene<PongState> {
   private reticle: THREE.Mesh;
   private mySide = 0;
   private info: { canPlay: boolean; target: number; onThrow: (x: number, y: number) => void } | null = null;
+  /** Where you point (table units on their end), and the sway on top of it (pongSway). */
+  private aim: [number, number] = [150, 110];
+  private sway: [number, number] = [0, 0];
+  private stopSway: (() => void) | null = null;
   constructor(host: HTMLElement) {
     super(host, { fov: 26 });
     const s = this.stage;
@@ -597,13 +617,15 @@ class PongScene extends TurnScene<PongState> {
     this.reticle.rotation.x = -Math.PI / 2;
     this.reticle.visible = false;
     s.scene.add(this.reticle);
-    s.onPointerMove = () => this.hover();
+    s.onPointerMove = () => {
+      const u = this.unitsUnder();
+      if (u) this.aim = u;
+      this.stage.renderer.domElement.style.cursor = u && this.info?.canPlay ? "crosshair" : "";
+    };
     s.onTap = () => {
       const u = this.unitsUnder();
-      if (u && this.info?.canPlay && this.settled) {
-        this.reticle.visible = false;
-        this.info.onThrow(u[0], u[1]);
-      }
+      if (u) this.aim = u;
+      this.throwNow();
     };
     s.frame(new THREE.Box3(new THREE.Vector3(-TABLE_W / 2 - 0.2, 0, -TABLE_L / 2 - 0.2), new THREE.Vector3(TABLE_W / 2 + 0.2, PTOP + 0.5, TABLE_L / 2 + 0.2)), [0, 1.15, 1], 1.02);
   }
@@ -617,7 +639,39 @@ class PongScene extends TurnScene<PongState> {
   }
   setTurn(info: { canPlay: boolean; target: number; onThrow: (x: number, y: number) => void }) {
     this.info = info;
-    this.hover();
+    this.swayLoop();
+  }
+  /** Where a throw now goes: the aim plus the sway. */
+  get sightAt(): [number, number] {
+    return [Math.round(this.aim[0] + this.sway[0]), Math.round(this.aim[1] + this.sway[1])];
+  }
+  throwNow() {
+    if (!this.info?.canPlay || !this.settled) return;
+    this.reticle.visible = false;
+    const [x, y] = this.sightAt;
+    this.info.onThrow(x, y);
+  }
+  /** While it is your throw, the sight sways over their end of the table. */
+  private swayLoop() {
+    const on = !!this.info?.canPlay;
+    if (on && !this.stopSway) {
+      const t0 = performance.now();
+      this.stopSway = this.stage.onFrame(() => {
+        this.sway = pongSway((performance.now() - t0) / 1000);
+        const ok = !!this.info?.canPlay && this.settled;
+        this.reticle.visible = ok;
+        if (ok) {
+          const [x, y] = this.sightAt;
+          this.reticle.position.copy(cupWorld(x, y, this.far(this.info!.target))).setY(PTOP + 0.003);
+        }
+        return true;
+      });
+    } else if (!on && this.stopSway) {
+      this.stopSway();
+      this.stopSway = null;
+      this.reticle.visible = false;
+    }
+    this.stage.invalidate();
   }
   protected replay(moves: string[]) {
     return cupPong.replay(moves, this.n, this.seed);
@@ -635,14 +689,6 @@ class PongScene extends TurnScene<PongState> {
     const y = Math.round(200 - (TABLE_L / 2 - 0.5 - 0.6 - z) / PU);
     if (x < -20 || x > 320 || y < -20 || y > 260) return null;
     return [x, y];
-  }
-  private hover() {
-    const u = this.unitsUnder();
-    const ok = !!u && !!this.info?.canPlay && this.settled;
-    this.reticle.visible = ok;
-    if (ok && u) this.reticle.position.copy(cupWorld(u[0], u[1], this.far(this.info!.target))).setY(PTOP + 0.003);
-    this.stage.renderer.domElement.style.cursor = ok ? "crosshair" : "";
-    this.stage.invalidate();
   }
   protected snap(s: PongState) {
     s.cups.forEach((row, side) =>
@@ -663,17 +709,17 @@ class PongScene extends TurnScene<PongState> {
     );
     this.stage.invalidate();
   }
-  protected async animateStep(before: PongState, after: PongState) {
+  protected async animateStep(_before: PongState, after: PongState, move: string) {
     const last = after.last;
-    if (!last) return;
-    const target = 1 - (before.turn % 2);
+    if (!last || !move.startsWith("t:")) return;
+    const target = last.target;
     const far = this.far(target);
     const land = cupWorld(last.x, last.y, far);
     const start = new THREE.Vector3(0, PTOP + 0.9, far ? TABLE_L / 2 + 0.3 : -TABLE_L / 2 - 0.3);
     this.ball.visible = true;
     sfx("whoosh", 0.5);
     const hit = last.hit >= 0;
-    const end = hit ? land.clone().setY(PTOP + 0.5) : land.clone().setY(PTOP + 0.06);
+    const end = hit ? cupWorld(CUPS[last.hit][0], CUPS[last.hit][1], far).setY(PTOP + 0.5) : land.clone().setY(PTOP + (last.rim ? 0.45 : 0.06));
     await this.stage.animate(
       720,
       (t) => {
@@ -690,7 +736,7 @@ class PongScene extends TurnScene<PongState> {
       this.ball.visible = false;
       if (cup) await this.stage.animate(360, (t) => cup.position.setY(PTOP - t * 0.5), easeIn);
     } else {
-      // A bounce or two, then off the end.
+      // Off the rim (or the table), a bounce or two, then off the end.
       sfx("bounce", 0.7);
       const dir = new THREE.Vector3(0, 0, far ? -1 : 1);
       const a = this.ball.position.clone();
@@ -698,12 +744,16 @@ class PongScene extends TurnScene<PongState> {
         700,
         (t) => {
           this.ball.position.copy(a).addScaledVector(dir, t * 2.4);
-          this.ball.position.y = PTOP + 0.06 + Math.abs(Math.sin(t * Math.PI * 2)) * 0.5 * (1 - t);
+          this.ball.position.y = Math.max(PTOP + 0.06, a.y * (1 - t)) + Math.abs(Math.sin(t * Math.PI * 2)) * 0.5 * (1 - t);
         },
         linear,
       );
       this.ball.visible = false;
     }
+  }
+  dispose() {
+    this.stopSway?.();
+    super.dispose();
   }
 }
 
@@ -713,26 +763,41 @@ export function CupPong3D({ moves, canPlay, turn, seat, seats, starter = 0, seed
   const send = useRef(onMove);
   send.current = onMove;
   const [hostRef, scene] = useScene((el) => new PongScene(el));
-  const mySide = local ? turn % 2 : seat % 2;
+  const side = state?.side ?? pongSide(turn);
+  const mySide = local ? side : pongSide(seat);
   useEffect(() => scene?.sync(n, seed, moves), [scene, n, seed, moves]);
   useEffect(() => scene?.setSide(mySide), [scene, mySide]);
-  useEffect(() => scene?.setTurn({ canPlay, target: 1 - (turn % 2), onThrow: (x, y) => send.current(`t:${x}:${y}`) }), [scene, canPlay, turn]);
-  if (!state) return null;
-  const name = (p: number) => seatFor(seats, starter, p, n).name;
+  useEffect(() => scene?.setTurn({ canPlay, target: 1 - side, onThrow: (x, y) => send.current(`t:${x}:${y}`) }), [scene, canPlay, side]);
+  if (!state) return <div className="text-[12.5px] text-slate-500">Cup Pong is for two players, or two teams of two.</div>;
+  const name = (p: number) => seatFor(seats, starter, p, n).name.split(" (")[0];
+  const cupsOf = (s: number) => state.cups[s].filter(Boolean).length;
+  const teamOf = (s: number) => (n === 4 ? [s, s + 2] : [s]).map(name).join(" & ");
+  const targetIsMine = 1 - side === mySide;
   return (
     <div data-game-board="cuppong" data-g3-board="cuppong" className="flex w-full max-w-[680px] flex-col items-center gap-2">
       <BoardBar>
         <span data-cuppong-cups>
-          Side A cups {state.cups[0].filter(Boolean).length} · Side B cups {state.cups[1].filter(Boolean).length} · {name(turn)} throws
+          {local ? `${teamOf(0)}: ${cupsOf(0)} cups · ${teamOf(1)}: ${cupsOf(1)} cups` : `Your cups ${cupsOf(mySide)} · Their cups ${cupsOf(1 - mySide)}`}
+        </span>
+        <span className="font-normal text-slate-500" data-cuppong-thrower>
+          {state.winner === null ? `${name(turn)} throws ${state.shot === 0 ? "the first" : "the second"} ball${local ? "" : targetIsMine ? " at your cups" : " at their cups"}` : ""}
         </span>
       </BoardBar>
+      {state.rebuttal && state.winner === null && (
+        <div className="text-[12px] font-semibold text-rose-600" data-cuppong-rebuttal>
+          Last chance: sink every cup left on the other side with these two balls to force overtime.
+        </div>
+      )}
       <SceneBox hostRef={hostRef} aspect={1.25} maxH={560} testId="cuppong" />
+      <div className="min-h-[18px] text-[12px] text-slate-600 dark:text-slate-300" data-cuppong-event>
+        {namesIn(state.event, seats, starter, n)}
+      </div>
       {canPlay && (
         <div className="flex items-center gap-2 text-[12px]">
-          <button type="button" data-cuppong-aim-middle onClick={() => onMove(`t:150:110`)} className={primary3}>
-            Throw at the middle
+          <button type="button" data-cuppong-throw onClick={() => scene?.throwNow()} className={primary3}>
+            Throw
           </button>
-          <span className="text-slate-500">Or click a spot on their end of the table — the ball lands near it.</span>
+          <span className="max-w-[360px] text-slate-500">Point at their cups; the sight sways — click (or Throw) when it is on a cup. Two balls a turn.</span>
         </div>
       )}
     </div>

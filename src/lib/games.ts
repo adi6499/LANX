@@ -45,6 +45,8 @@ export interface GameMeta {
   hosted?: boolean;
   /** The host streams positions live (lib/gameChannel.ts) rather than everyone replaying moves. */
   realtime?: boolean;
+  /** LANX 2.17.0: only these table sizes work (Cup Pong: 2, or two teams of 2). */
+  sizes?: number[];
   /** Belongs to a group in the list. */
   group: "grid" | "board" | "dice" | "cards" | "party" | "shots" | "live" | "solo";
 }
@@ -62,7 +64,7 @@ export const GAMES: GameMeta[] = [
   g("minesvs", "Minesweeper Versus", "One shared field; open safe squares for points, mines cost you.", "💣", "grid", 2, 4),
   g("memory", "Memory", "Find the pairs before the others do.", "🃏", "grid", 2, 8),
   g("chainreaction", "Chain Reaction", "Any number of players. Fill cells with orbs; explode across the board.", "💥", "grid", 2, 32),
-  g("paintfight", "Paint Fight", "Tap fast: paint more squares than the others in thirty seconds.", "🎨", "grid", 2, 8, { hosted: true }),
+  g("paintfight", "Paint Fight", "Tap fast: paint more squares than the others in thirty seconds.", "🎨", "grid", 2, 8, { hosted: true, noLocal: true }),
   // board
   g("chess", "Chess", "The real thing, full rules.", "♞", "board", 2, 2),
   g("checkers", "Checkers", "Jump to capture; crown a king on the far row.", "🔴", "board", 2, 2),
@@ -72,7 +74,7 @@ export const GAMES: GameMeta[] = [
   g("mahjong", "Mahjong Duels", "Take free matching tiles in turn; most pairs wins.", "🀄", "board", 2, 4),
   // dice
   g("ludo", "Ludo", "Four tokens round the board; a six gets you out and rolls again.", "🎲", "dice", 2, 4),
-  g("snakes", "Snakes & Ladders", "Pure luck: climb the ladders, dodge the snakes, hit 100 exactly.", "🪜", "dice", 2, 8),
+  g("snakes", "Snakes & Ladders", "Climb the ladders, dodge the snakes, hit 100 exactly — a six rolls again.", "🪜", "dice", 2, 8),
   g("bankroll", "Bankroll", "Fast property trading: buy streets, collect rent, don't go broke.", "🏦", "dice", 2, 6),
   g("backgammon", "Backgammon", "Race your checkers home on the dice; hit lone ones on the way.", "🎯", "dice", 2, 2),
   g("dominoes", "Dominoes", "Match the ends of the line; first out of tiles wins.", "🁡", "dice", 2, 4),
@@ -85,21 +87,21 @@ export const GAMES: GameMeta[] = [
   g("euchre", "Euchre", "Fast partnership tricks with bowers; first team to ten.", "🃑", "cards", 4, 4),
   g("ginrummy", "Gin Rummy", "Build sets and runs; knock when your deadwood is ten or less.", "🂭", "cards", 2, 2),
   g("gofish", "Go Fish", "Ask for a rank; collect books of four.", "🐟", "cards", 2, 6),
-  g("blackjack", "Blackjack 21", "Hit or stand against the house; five rounds, most points wins.", "🂡", "cards", 1, 6),
+  g("blackjack", "Blackjack 21", "Hit, stand, double or split against the house; five rounds, most points wins.", "🂡", "cards", 1, 6),
   // party
   g("drawguess", "Draw & Guess", "One draws, the rest guess — first right answer wins the round.", "✏️", "party", 3, 8, { hosted: true, noLocal: true }),
-  g("trivia", "Trivia Night", "Ten questions, four options, everyone answers at once.", "❓", "party", 2, 8, { hosted: true }),
+  g("trivia", "Trivia Night", "Ten questions, four options, everyone answers at once.", "❓", "party", 2, 8, { hosted: true, noLocal: true }),
   g("werewolf", "Werewolf", "Hidden roles: find the wolves by day before they eat the village by night.", "🐺", "party", 5, 12, { hosted: true, noLocal: true }),
-  g("wordbox", "Wordbox", "Find words on a 4×4 letter grid against the clock.", "🔤", "party", 2, 8, { hosted: true }),
-  g("mathrush", "Math Rush", "Quick sums, head to head: first right answer scores most.", "➗", "party", 2, 8, { hosted: true }),
-  g("taproulette", "Tap Roulette", "Everyone taps in; the app picks one loser at random.", "🎯", "party", 2, 8, { hosted: true }),
+  g("wordbox", "Wordbox", "Find words on a 4×4 letter grid against the clock.", "🔤", "party", 2, 8, { hosted: true, noLocal: true }),
+  g("mathrush", "Math Rush", "Quick sums for everyone at once: a point for each right answer.", "➗", "party", 2, 8, { hosted: true, noLocal: true }),
+  g("taproulette", "Tap Roulette", "Tap in before the clock runs out — miss it and you lose; if everyone\'s in, the wheel picks one loser.", "🎯", "party", 2, 8, { hosted: true, noLocal: true }),
   // aim and shoot
   g("carrom", "Carrom", "Flick the striker; pocket your nine coins and cover the queen.", "🪙", "shots", 2, 2),
   g("pool", "8-Ball Pool", "Solids or stripes, then the 8 — real angles, real bounces.", "🎱", "shots", 2, 2),
-  g("cuppong", "Cup Pong", "Bounce the ball into their cups before they clear yours.", "🥤", "shots", 2, 4),
+  g("cuppong", "Cup Pong", "Bounce the ball into their cups before they clear yours.", "🥤", "shots", 2, 4, { sizes: [2, 4] }),
   g("minigolf", "Mini Golf", "Nine holes; bounce off the walls and sink it in the fewest strokes.", "⛳", "shots", 1, 8),
   g("bowling", "Bowling", "Ten frames, strikes and spares; aim and power are up to you.", "🎳", "shots", 1, 8),
-  g("darts", "Darts", "301 down to zero, three darts a turn; bust and you lose the turn.", "🎯", "shots", 1, 8),
+  g("darts", "Darts", "501, finish on a double; three darts a turn — bust and you lose the turn.", "🎯", "shots", 1, 8),
   g("archery", "Archery", "Six arrows each; allow for the wind.", "🏹", "shots", 1, 8),
   // live
   g("airhockey", "Air Hockey", "Live puck, live paddles — first to five.", "🏒", "live", 2, 2, { hosted: true, realtime: true }),
@@ -127,6 +129,13 @@ export function findGame(query: string): GameMeta | undefined {
 
 /** Seat colours: the first twelve are picked by hand, after that a spread of hues. */
 const SEAT_COLOURS = ["#f43f5e", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#f97316", "#14b8a6", "#ec4899", "#84cc16", "#6366f1", "#06b6d4", "#d946ef"];
+/** LANX 2.17.0: games whose rules changed in 2.17.0 — both PCs need 2.17.0 (src-tauri RULES_2170_GAMES). */
+export const RULES_2170 = new Set<string>(["ludo", "dots", "memory", "minesvs", "mahjong", "battleship", "go", "hex", "checkers", "taproulette", "mathrush", "trivia", "drawguess", "wordbox", "paintfight", "werewolf", "airhockey", "foosball", "spinnerwars", "hearts", "spades", "euchre", "blackjack", "ginrummy", "holdem", "ocho", "crazy8", "gofish", "snakes", "bankroll", "backgammon", "dominoes", "carrom", "pool", "cuppong", "bowling", "darts", "minigolf", "archery"]);
+/** The oldest LANX a colleague needs to play this game with you. */
+export const needsVersion = (id: string) => (RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
+/** Whether this many players can sit at the game. */
+export const sizeOk = (meta: GameMeta | undefined, n: number) => !!meta && n >= meta.minPlayers && n <= meta.maxPlayers && (!meta.sizes || meta.sizes.includes(n));
+
 export const seatColour = (i: number): string => SEAT_COLOURS[i] ?? `hsl(${(i * 47) % 360} 80% 55%)`;
 
 export type GameAction = "accept" | "decline" | "move" | "resign" | "rematch" | "leave" | "state" | "delta";
@@ -169,6 +178,8 @@ export interface Seat {
 export interface MatchResult {
   /** The winning seat, or null for a draw. */
   winner: number | null;
+  /** LANX 2.17.0: every winning seat when a team wins together. */
+  winners?: number[];
   draw: boolean;
   reason: string;
 }
@@ -196,6 +207,10 @@ export interface Match {
   note: string;
   /** Something this PC keeps to itself for the game (a hidden fleet); never sent. */
   secret?: unknown;
+  /** The round that secret belongs to (2.17.0: it is kept on disk too, so a restart doesn't lose a fleet). */
+  secretRound?: number;
+  /** multi, the host (2.17.0): colleagues who pressed Play after the game started; they sit down at the next round. */
+  late?: { id: string; name: string }[];
   /** LANX 2.16.1: this PC lost the game (LANX restarted), so the other player's next full list of moves
    *  is taken as it stands (the rules still check it) instead of only their new moves. */
   catchUp?: boolean;
@@ -239,6 +254,15 @@ const bump = () => {
 };
 
 export const getMatch = (id: string) => matches.get(id);
+
+/** LANX 2.17.0: the match the games window has on screen (a hosted game nobody looks at is run by HostRunner). */
+let showing: string | null = null;
+export const showingMatch = () => showing;
+export function setShowing(id: string | null) {
+  if (showing === id) return;
+  showing = id;
+  bump();
+}
 export const allMatches = () => [...matches.values()].sort((a, b) => b.lastAt - a.lastAt);
 export const liveMatches = () => allMatches().filter((m) => m.status === "waiting" || m.status === "lobby" || m.status === "playing");
 
@@ -257,12 +281,31 @@ export const myTurn = (m: Match) => m.status === "playing" && (m.mode === "local
 /** The seed for this round's dice and shuffles: the same on every PC. */
 export const seedOf = (m: Match) => `${m.id}#${m.round}`;
 
-/** Save something this PC keeps to itself for the game (never sent). */
+/** Save something this PC keeps to itself for the game (never sent). LANX 2.17.0: kept on this PC's disk
+ *  too, for this round, so restarting LANX mid-game doesn't lose it (a Sea Battle fleet, say). */
 export function setSecret(id: string, value: unknown) {
   const m = matches.get(id);
   if (!m) return;
   m.secret = value;
+  m.secretRound = m.round;
+  try {
+    localStorage.setItem(`lanx-game-secret:${id}`, JSON.stringify({ round: m.round, value }));
+  } catch {
+    /* fine: kept in memory */
+  }
   bump();
+}
+/** This round's secret (a fleet placed in an earlier round doesn't count). */
+export function secretOf(m: Match): unknown {
+  if (m.secret !== undefined && (m.secretRound ?? m.round) === m.round) return m.secret;
+  try {
+    const raw = localStorage.getItem(`lanx-game-secret:${m.id}`);
+    const saved = raw ? (JSON.parse(raw) as { round?: number; value?: unknown }) : null;
+    if (saved && saved.round === m.round) return saved.value;
+  } catch {
+    /* nothing saved */
+  }
+  return undefined;
 }
 export const isHost = (m: Match) => m.mode === "local" || m.host === me;
 /** The colleague on the other side of a two-player match. */
@@ -276,13 +319,27 @@ export function seatName(m: Match, seat: number): string {
   return s.id === me ? "You" : s.name;
 }
 
+/** LANX 2.17.0: the rules name players as "P2" (turn order, from 1); say who that is. */
+export function namedText(m: Match, text: string): string {
+  return text.replace(/\bP(\d+)\b/g, (all, k: string) => {
+    const seat = seatOf(m, Number(k) - 1);
+    const name = seatName(m, seat);
+    return name === "Someone" ? all : name.split(" (")[0];
+  });
+}
+
 export function resultText(m: Match): string {
   const r = m.result;
   if (!r) return "";
-  if (r.draw) return `Draw — ${r.reason}`;
-  if (r.winner === null) return r.reason;
-  const who = seatName(m, r.winner);
-  return `${who === "You" ? "You won" : `${who} won`} — ${r.reason}`;
+  const reason = namedText(m, r.reason);
+  if (r.draw) return `Draw — ${reason}`;
+  if (r.winner === null) return reason;
+  // LANX 2.17.0: a team wins together.
+  const names = (r.winners && r.winners.length > 1 ? r.winners : [r.winner]).map((s) => seatName(m, s));
+  const you = names.includes("You");
+  const others = names.filter((x) => x !== "You");
+  const who = you ? (others.length ? `You and ${others.join(" and ")}` : "You") : others.join(" and ");
+  return `${who} won — ${reason}`;
 }
 
 const newId = () => `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -305,7 +362,7 @@ function resultSfx(m: Match) {
   if (!m.result) return;
   if (m.result.draw || m.result.winner === null) return sfx("draw");
   if (m.mode === "local") return sfx("win");
-  sfx(m.result.winner === mySeat(m) ? "win" : "lose");
+  sfx(wonBy(m.result, mySeat(m)) ? "win" : "lose");
 }
 
 let nudge: ((text: string, match: Match) => void) | null = null;
@@ -370,7 +427,8 @@ export function localMatch(game: GameId, count = 2): Match {
 export async function openFromCard(card: GameCardData, msg: Message, peers: Peer[]): Promise<Match> {
   let m = matches.get(card.id);
   const invited = card.to === me;
-  const table = card.players && card.players.length > 2 ? card.players : null;
+  // LANX 2.17.0: a card that lists the players is a table, even with two (a hosted game with one colleague).
+  const table = card.players && card.players.length >= 2 ? card.players : null;
   const host = msg.is_outgoing ? me : msg.sender_id;
   // LANX 2.16.1: the card knows who challenged; put a two-player match rebuilt the wrong way round right.
   if (m && m.mode === "duo" && !table && m.seats.length === 2 && m.seats[0].id !== host && m.seats[1].id === host) {
@@ -417,7 +475,33 @@ async function sendTo(peerId: string, m: Match, action: GameAction, data: unknow
   }
 }
 
-const stateData = (m: Match) => ({ moves: m.moves, seats: m.seats.map((s) => ({ id: s.id, name: s.name })), round: m.round, status: m.status, joined: m.joined });
+const stateData = (m: Match) => ({
+  moves: m.moves,
+  seats: m.seats.map((s) => ({ id: s.id, name: s.name })),
+  round: m.round,
+  status: m.status,
+  joined: m.joined,
+  // LANX 2.17.0: a game that ended because someone left (the rules alone wouldn't say it is over).
+  ended: m.status === "over" && m.result && m.result.winner === null && !m.result.draw ? m.result.reason : undefined,
+});
+
+/** LANX 2.17.0: did this seat win (alone, or with their team)? */
+export const wonBy = (r: MatchResult, seat: number) => !r.draw && r.winner !== null && (r.winners ? r.winners.includes(seat) : r.winner === seat);
+
+/** LANX 2.17.0: a player left or gave up. The rules take them out (the others play on) when the game
+ *  allows it; otherwise the game ends there with nobody winning, rather than waiting for them forever. */
+async function dropOut(m: Match, player: number, who: string) {
+  if (await appendValid(m, `x${player}`)) return;
+  if (m.status !== "playing") return;
+  if (m.seats.length === 2) {
+    m.status = "over";
+    m.result = { winner: seatOf(m, 1 - player), draw: false, reason: `${who} gave up` };
+    void recordResult(m);
+    return;
+  }
+  m.status = "over";
+  m.result = { winner: null, draw: false, reason: `${who} left — the game can't go on without them` };
+}
 
 /** The host tells everyone at the table how things stand. */
 async function broadcast(m: Match) {
@@ -433,7 +517,7 @@ async function settle(m: Match) {
   const end = rules.outcome(m.game, m.moves, n, seedOf(m));
   if (end.over && m.status === "playing") {
     m.status = "over";
-    m.result = { winner: end.winner === null ? null : seatOf(m, end.winner), draw: end.draw, reason: end.reason };
+    m.result = { winner: end.winner === null ? null : seatOf(m, end.winner), draw: end.draw, reason: end.reason, winners: end.winners?.map((p) => seatOf(m, p)) };
     void recordResult(m);
   }
   bump(); // the turn (or the result) changed after the rules were loaded
@@ -482,12 +566,7 @@ export async function resign(id: string) {
     return;
   }
   if (m.mode === "local") {
-    if (m.game === "chainreaction") await appendValid(m, `x${m.turn}`);
-    else {
-      m.status = "over";
-      m.result = { winner: seatOf(m, 1 - m.turn), draw: false, reason: `${seatName(m, turnSeat(m))} resigned` };
-      void recordResult(m);
-    }
+    await dropOut(m, m.turn, seatName(m, turnSeat(m)));
     if (isOver(m)) resultSfx(m);
     else sfx("buzz");
     bump();
@@ -496,7 +575,7 @@ export async function resign(id: string) {
   // multi
   const seat = mySeat(m);
   if (seat < 0) return;
-  await appendValid(m, `x${playerOf(m, seat)}`);
+  await dropOut(m, playerOf(m, seat), seatName(m, seat));
   if (isOver(m)) resultSfx(m);
   else sfx("buzz");
   bump();
@@ -510,14 +589,21 @@ export async function rematch(id: string) {
   if (!m || (m.status !== "over" && m.status !== "playing")) return;
   if (m.mode === "multi") {
     if (!isHost(m)) return;
-    m.seats = m.seats.filter((s) => !m.gone.includes(s.id));
-    if (m.seats.length < 2) return;
+    const meta = gameMeta(m.game);
+    // LANX 2.17.0: whoever pressed Play after the start sits down now (room allowing); colours follow the places.
+    const late = (m.late ?? []).filter((l) => !m.seats.some((s) => s.id === l.id)).map((l) => ({ id: l.id, name: l.name, color: "" }));
+    const seats = [...m.seats.filter((s) => !m.gone.includes(s.id)), ...late].slice(0, meta?.maxPlayers ?? 8);
+    if (seats.length < Math.max(2, meta?.minPlayers ?? 2)) return;
+    m.seats = seats.map((s, i) => ({ ...s, color: seatColour(i) }));
+    m.joined = [...new Set([...m.joined, ...late.map((l) => l.id)])];
+    m.late = [];
   }
   m.round += 1;
   m.moves = [];
   m.turn = 0;
   m.result = null;
   m.status = "playing";
+  m.deltas = [];
   m.lastAt = Date.now();
   await settle(m);
   sfx("start");
@@ -532,11 +618,16 @@ export async function startNow(id: string): Promise<string | null> {
   if (!m || m.mode !== "multi" || !isHost(m) || m.status !== "lobby") return "Not a table you host.";
   const seats = m.seats.filter((s) => m.joined.includes(s.id) && !m.gone.includes(s.id));
   if (seats.length < 2) return "Nobody has joined yet — they press Play on the card in their chat.";
-  m.seats = seats;
+  const min = gameMeta(m.game)?.minPlayers ?? 2;
+  if (seats.length < min) return `${gameName(m.game)} needs at least ${min} players — ${seats.length} at the table so far.`;
+  if (!sizeOk(gameMeta(m.game), seats.length)) return `${gameName(m.game)} is for ${gameMeta(m.game)?.sizes?.join(" or ")} players — ${seats.length} at the table now.`;
+  // LANX 2.17.0: colours by the new places, as every guest's PC does.
+  m.seats = seats.map((s, i) => ({ ...s, color: seatColour(i) }));
   m.status = "playing";
   m.moves = [];
   m.turn = 0;
   m.result = null;
+  m.deltas = [];
   m.lastAt = Date.now();
   await settle(m);
   sfx("start");
@@ -618,7 +709,7 @@ export function markSeen(id: string) {
 
 // ---------------------------------------------------------------- steps from colleagues
 
-type Data = { moves?: unknown; round?: unknown; cell?: unknown; seats?: unknown; status?: unknown; joined?: unknown; first?: unknown; sync?: unknown };
+type Data = { moves?: unknown; round?: unknown; cell?: unknown; seats?: unknown; status?: unknown; joined?: unknown; first?: unknown; sync?: unknown; ended?: unknown };
 
 /** What a two-player match tells the other PC: the moves, the round and (2.16.1) who sits first. */
 const duoData = (m: Match) => ({ moves: m.moves, round: m.round, first: m.seats[0]?.id });
@@ -751,6 +842,7 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       if (round !== null && round > m.round) {
         m.round = round;
         m.moves = [];
+        m.deltas = [];
         m.turn = 0;
         m.result = null;
         m.status = "playing";
@@ -832,7 +924,12 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
         m.gone = m.gone.filter((id) => id !== e.from_id);
         await broadcast(m);
       } else {
-        await sendTo(e.from_id, m, "state", stateData(m)); // started already: they see it
+        // Started already: they see it, and sit down at the next round (2.17.0).
+        if (!m.seats.some((s) => s.id === e.from_id) && !(m.late ?? []).some((l) => l.id === e.from_id)) {
+          m.late = [...(m.late ?? []), { id: e.from_id, name: e.from_name }];
+          note = `${e.from_name} wants to join the ${game} table — they sit down at the next round.`;
+        }
+        await sendTo(e.from_id, m, "state", stateData(m));
       }
       break;
     case "decline":
@@ -844,7 +941,7 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
         note = `${who} is not joining the ${game} table.`;
         await broadcast(m);
       } else if (m.status === "playing") {
-        await appendValid(m, `x${playerOf(m, seat)}`);
+        await dropOut(m, playerOf(m, seat), who);
         if (!m.gone.includes(e.from_id)) m.gone.push(e.from_id);
         if (isOver(m)) resultSfx(m);
         else sfx("buzz");
@@ -854,7 +951,7 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
       break;
     case "resign":
       if (m.status === "playing") {
-        await appendValid(m, `x${playerOf(m, seat)}`);
+        await dropOut(m, playerOf(m, seat), who);
         if (isOver(m)) resultSfx(m);
         else sfx("buzz");
         note = `${who} is out of the ${game} game.`;
@@ -919,6 +1016,7 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
       const had = m.round === round ? m.moves.length : -1;
       const hadJoined = m.joined.length;
       const newRound = m.round !== round;
+      if (newRound) m.deltas = []; // last round's strokes and taps (2.17.0)
       m.seats = seats;
       m.moves = moves;
       m.round = round;
@@ -927,6 +1025,11 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
       m.result = null;
       m.note = "";
       await settle(m);
+      // LANX 2.17.0: the host ended it because someone left.
+      if (!isOver(m) && d.status === "over" && typeof d.ended === "string") {
+        m.status = "over";
+        m.result = { winner: null, draw: false, reason: d.ended };
+      }
       if (isOver(m)) {
         resultSfx(m);
         note = `${game}: ${resultText(m)}`;
@@ -989,7 +1092,8 @@ async function recordResult(m: Match) {
   const g = (s[m.game] ??= fresh());
   g.played += 1;
   if (m.result.draw) g.drawn += 1;
-  else if (m.result.winner === seat) g.won += 1;
+  else if (m.result.winner === null) return; // abandoned: nobody won or lost
+  else if (wonBy(m.result, seat)) g.won += 1;
   else g.lost += 1;
   await saveStats();
   bump();

@@ -22,11 +22,12 @@ import {
   reversiBoard,
   reversiCount,
   reversiLegal,
+  reversiStart,
   tttBoard,
   tttLine,
 } from "../../lib/gameRules";
 
-import type { BoardProps } from "./boardProps";
+import { seatFor, type BoardProps } from "./boardProps";
 export type { BoardProps } from "./boardProps";
 
 export const SEAT_COLOURS: [string, string] = ["bg-sky-500", "bg-rose-500"];
@@ -101,11 +102,22 @@ export function ConnectFourBoard({ moves, canPlay, turn, onMove }: BoardProps) {
 
 // ---------------------------------------------------------------- Reversi
 
-export function ReversiBoard({ moves, canPlay, turn, onMove }: BoardProps) {
+/** LANX 2.17.0: when the player to move has no move, say so to everyone — and that the turn passes. */
+export function reversiPassNote(board: ReturnType<typeof reversiStart>, moves: string[], turn: number, canPlay: boolean, name: (p: number) => string): { text: string; mine: boolean } | null {
+  const mover = (turn % 2) as 0 | 1;
+  const other = (1 - mover) as 0 | 1;
+  if (!reversiLegal(board, mover).length && reversiLegal(board, other).length)
+    return canPlay ? { text: `You have no move this turn — press Pass and ${name(other)} plays again.`, mine: true } : { text: `${name(mover)} has no move — passes, and it's ${name(other)}'s turn again.`, mine: false };
+  if (moves.length && moves[moves.length - 1] === "p") return { text: `${name(other)} had no move and passed.`, mine: false };
+  return null;
+}
+
+export function ReversiBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: BoardProps) {
   const board = useMemo(() => reversiBoard(moves) ?? reversiBoard([])!, [moves]);
   const legal = useMemo(() => reversiLegal(board, (turn % 2) as 0 | 1), [board, turn]);
   const [black, white] = reversiCount(board);
   const last = moves.length ? Number(moves[moves.length - 1]) : -1;
+  const note = reversiPassNote(board, moves, turn, canPlay, (p) => seatFor(seats, starter, p, 2).name.split(" (")[0]);
   return (
     <div data-game-board="reversi" className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-4 text-[12.5px] font-semibold">
@@ -135,10 +147,15 @@ export function ReversiBoard({ moves, canPlay, turn, onMove }: BoardProps) {
           );
         })}
       </div>
-      {canPlay && legal.length === 0 && (
-        <button type="button" data-game-pass onClick={() => onMove("p")} className="rounded-full bg-amber-500 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-amber-600">
-          No move possible — pass
-        </button>
+      {note && (
+        <div data-reversi-note className="flex max-w-[400px] flex-wrap items-center justify-center gap-2 text-center text-[12.5px] font-semibold text-slate-700 dark:text-slate-200">
+          <span>{note.text}</span>
+          {note.mine && (
+            <button type="button" data-game-pass onClick={() => onMove("p")} className="rounded-full bg-amber-500 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-amber-600">
+              Pass
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -250,9 +267,19 @@ export function ChainReactionBoard({ moves, canPlay, turn, seats = DEFAULT_SEATS
 const GLYPH: Record<string, string> = { wk: "♔", wq: "♕", wr: "♖", wb: "♗", wn: "♘", wp: "♙", bk: "♚", bq: "♛", br: "♜", bb: "♝", bn: "♞", bp: "♟" };
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
+const PROMO: [string, string][] = [
+  ["q", "Queen"],
+  ["r", "Rook"],
+  ["b", "Bishop"],
+  ["n", "Knight"],
+];
+
 export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
   const game = useMemo(() => chessGame(moves), [moves]);
   const [from, setFrom] = useState<Square | null>(null);
+  // LANX 2.17.0: a pawn reaching the last rank asks what it becomes (it was always a queen).
+  const [promo, setPromo] = useState<{ from: Square; to: Square } | null>(null);
+  useEffect(() => setPromo(null), [moves.length]);
   const targets = useMemo(() => (from ? chessTargets(moves, from) : []), [moves, from]);
   const flip = seat === 1;
   const board = game?.board() ?? [];
@@ -269,13 +296,31 @@ export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
     if (!canPlay || !game) return;
     const mine = (turn === 0 ? "w" : "b") as "w" | "b";
     if (from && targets.includes(sq)) {
-      const san = chessSan(moves, from, sq);
+      const p = game.get(from);
       setFrom(null);
+      if (p?.type === "p" && (sq[1] === "8" || sq[1] === "1")) {
+        setPromo({ from, to: sq });
+        return;
+      }
+      const san = chessSan(moves, from, sq);
       if (san) onMove(san);
       return;
     }
+    setPromo(null);
     if (piece && piece.color === mine) setFrom(from === sq ? null : sq);
     else setFrom(null);
+  };
+
+  const promote = (piece: string) => {
+    if (!promo) return;
+    const g = chessGame(moves);
+    setPromo(null);
+    try {
+      const mv = g?.move({ from: promo.from, to: promo.to, promotion: piece });
+      if (mv) onMove(mv.san);
+    } catch {
+      /* not allowed */
+    }
   };
 
   // The board takes the room it has (up to 54 px a square) instead of overflowing.
@@ -293,7 +338,7 @@ export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
 
   const ranks = flip ? [...board].reverse() : board;
   return (
-    <div ref={wrap} className="flex w-full max-w-[432px] justify-center">
+    <div ref={wrap} className="flex w-full max-w-[432px] flex-col items-center">
     <div data-game-board="chess" className="rounded-xl overflow-hidden ring-1 ring-black/20 shadow-lg select-none" style={{ width: cell * 8 }}>
       {ranks.map((row, ri) => {
         const rank = flip ? ri + 1 : 8 - ri;
@@ -303,7 +348,8 @@ export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
             {cells.map((piece, ci) => {
               const file = flip ? 7 - ci : ci;
               const sq = `${FILES[file]}${rank}` as Square;
-              const dark = (file + rank) % 2 === 0;
+              // a1 is a dark square (2.17.0: the colours were the wrong way round).
+              const dark = (file + rank) % 2 === 1;
               const isFrom = from === sq;
               const isTarget = targets.includes(sq);
               const wasLast = lastMove && (lastMove.from === sq || lastMove.to === sq);
@@ -328,6 +374,17 @@ export function ChessBoard({ moves, canPlay, turn, seat, onMove }: BoardProps) {
         );
       })}
     </div>
+    {promo && (
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-[12.5px]" data-chess-promote>
+        <span className="font-semibold">Promote to:</span>
+        {PROMO.map(([k, label]) => (
+          <button key={k} type="button" data-chess-promote-to={k} onClick={() => promote(k)} className="rounded-full bg-slate-500/10 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-500/20 dark:text-slate-200">
+            <span className="mr-1 text-[15px] leading-none">{GLYPH[`${turn === 0 ? "w" : "b"}${k}`]}</span>
+            {label}
+          </button>
+        ))}
+      </div>
+    )}
     </div>
   );
 }

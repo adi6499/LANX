@@ -12,7 +12,7 @@ export function PaintFightBoard({ moves, canPlay, seat, seats, starter = 0, seed
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
   const mine = colour(seat);
   return (
-    <PartyShell state={state} rounds={3} seconds={30} host={!!host} seats={seats} starter={starter} n={n} onMove={onMove} testId="paintfight">
+    <PartyShell state={state} rounds={paintFight.total(state, n)} seconds={paintFight.rules.seconds} host={!!host} seats={seats} starter={starter} n={n} seat={seat} verb="paint now" onMove={onMove} testId="paintfight">
       {state.open ? (
         <div className="grid gap-[2px] rounded-xl bg-slate-300 p-[4px] dark:bg-slate-700" style={{ gridTemplateColumns: `repeat(${PAINT}, 26px)` }} data-paint-grid>
           {grid.map((owner, i) => (
@@ -21,8 +21,8 @@ export function PaintFightBoard({ moves, canPlay, seat, seats, starter = 0, seed
               type="button"
               data-paint-cell={i}
               data-paint-owner={owner >= 0 ? owner : undefined}
-              disabled={!canPlay || owner === seat}
-              onPointerDown={() => canPlay && owner !== seat && onMove(`${seat}@a:${i}`)}
+              disabled={!canPlay || owner === seat || state.out[seat]}
+              onPointerDown={() => canPlay && owner !== seat && !state.out[seat] && onMove(`${seat}@a:${i}`)}
               className="h-[26px] w-[26px] rounded-[3px] transition-colors"
               style={{ backgroundColor: owner >= 0 ? colour(owner) : "#f8fafc", outline: owner === seat ? `2px solid ${mine}` : undefined }}
             />

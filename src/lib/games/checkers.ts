@@ -65,7 +65,10 @@ export function checkersMoves(s: CheckersState): string[] {
   const steps: string[] = [];
   s.cells.forEach((piece, from) => {
     if (!piece || piece.p !== player) return;
-    for (const seq of jumps(s.cells, from, piece, new Set())) captures.push([from, ...seq].join("-"));
+    // LANX 2.17.0: the piece leaves its square while it jumps, so a king can end a loop where it began.
+    const lifted = [...s.cells];
+    lifted[from] = null;
+    for (const seq of jumps(lifted, from, piece, new Set())) captures.push([from, ...seq].join("-"));
     if (captures.length) return;
     const r = Math.floor(from / SIZE);
     const c = from % SIZE;
@@ -127,5 +130,20 @@ export const checkers: GameDef<CheckersState> = {
   },
   turn: (s) => s.turn,
   outcome: (s) => outcome(s),
-  summary: (s) => `${s.cells.filter((x) => x?.p === 0).length} red · ${s.cells.filter((x) => x?.p === 1).length} black`,
+  summary: (s) => `P1 (red) ${s.cells.filter((x) => x?.p === 0).length} · P2 (black) ${s.cells.filter((x) => x?.p === 1).length}`,
 };
+
+/** LANX 2.17.0: when more than one capture route fits what the player has clicked so far, the
+ *  squares the routes share (start included) and where they part (the squares to pick from next). */
+export function checkersRouteStep(routes: string[]): { path: number[]; next: number[] } {
+  const paths = routes.map((m) => m.split("-").map(Number));
+  if (!paths.length) return { path: [], next: [] };
+  const path: number[] = [];
+  for (let k = 0; ; k++) {
+    const v = paths[0][k];
+    if (v === undefined || paths.some((p) => p[k] !== v)) break;
+    path.push(v);
+  }
+  const next = [...new Set(paths.map((p) => p[path.length]).filter((x) => x !== undefined))];
+  return { path, next };
+}

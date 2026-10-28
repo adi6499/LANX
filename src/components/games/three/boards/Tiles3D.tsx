@@ -25,6 +25,20 @@ import { easeInOut, easeOut } from "../stage";
 const EMOJI = `"Segoe UI Emoji", "Segoe UI Symbol", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
 const colourList = (p: BoardProps, n: number) => Array.from({ length: n }, (_, i) => seatFor(p.seats, p.starter ?? 0, i, n).color);
 const tint = (hex: string, k: number) => new THREE.Color(hex).lerp(new THREE.Color(0xffffff), k);
+const names = (p: BoardProps, n: number) => Array.from({ length: n }, (_, i) => seatFor(p.seats, p.starter ?? 0, i, n).name);
+
+/** The scores over a board: whose turn it is is underlined; a player who left is struck through (2.17.0). */
+function Scores({ scores, out, turn, colours, names }: { scores: number[]; out: boolean[]; turn: number; colours: string[]; names: string[] }) {
+  return (
+    <>
+      {scores.map((s, q) => (
+        <span key={q} data-g3-seat={q} data-g3-out={out[q] ? "1" : undefined} title={out[q] ? `${names[q]} left` : names[q]} className={`inline-flex items-center gap-1.5 ${out[q] ? "line-through opacity-50" : q === turn ? "underline decoration-2 underline-offset-4" : ""}`}>
+          <SeatDot color={colours[q]} /> {s}
+        </span>
+      ))}
+    </>
+  );
+}
 
 function baseSlab(w: number, d: number, h: number, colour: THREE.Material) {
   const m = mesh(slab(w, h, d, 0.12), colour);
@@ -265,14 +279,23 @@ class DotsScene extends BoardScene<DotsState> {
   }
   private specs(s: DotsState): PieceSpec[] {
     const out: PieceSpec[] = [];
-    const rail = new THREE.MeshPhysicalMaterial({ color: 0x334155, roughness: 0.35, clearcoat: 0.4 });
     const bar = (kind: "h" | "v") => {
-      const m = mesh(slab(DG - 0.26, 0.12, 0.13, 0.05), rail);
+      const m = mesh(slab(DG - 0.26, 0.12, 0.13, 0.05), new THREE.MeshPhysicalMaterial({ color: 0x334155, roughness: 0.35, clearcoat: 0.4 }));
       if (kind === "v") m.rotation.y = Math.PI / 2;
       return m;
     };
-    for (let r = 0; r < DOTS; r++) for (let c = 0; c < BOXES; c++) if (s.h[r][c]) out.push({ key: `h:${r}:${c}`, pos: this.cellPos(encodeLine("h", r, c)), make: () => bar("h") });
-    for (let r = 0; r < BOXES; r++) for (let c = 0; c < DOTS; c++) if (s.v[r][c]) out.push({ key: `v:${r}:${c}`, pos: this.cellPos(encodeLine("v", r, c)), make: () => bar("v") });
+    // LANX 2.17.0: the line drawn last is in its player's colour (and a touch thicker), as on the flat board.
+    const look = (key: string) => (o: THREE.Object3D) => {
+      const last = s.last === key;
+      ((o as THREE.Mesh).material as THREE.MeshPhysicalMaterial).color.set(last ? (this.colours[s.lastBy] ?? "#6366f1") : 0x334155);
+      o.scale.set(1, last ? 1.25 : 1, last ? 1.5 : 1);
+    };
+    const line = (kind: "h" | "v", r: number, c: number) => {
+      const key = `${kind}:${r}:${c}`;
+      out.push({ key, pos: this.cellPos(encodeLine(kind, r, c)), make: () => bar(kind), update: look(key) });
+    };
+    for (let r = 0; r < DOTS; r++) for (let c = 0; c < BOXES; c++) if (s.h[r][c]) line("h", r, c);
+    for (let r = 0; r < BOXES; r++) for (let c = 0; c < DOTS; c++) if (s.v[r][c]) line("v", r, c);
     s.box.forEach((row, r) =>
       row.forEach((o, c) => {
         if (o < 0) return;
@@ -313,11 +336,7 @@ export function Dots3D(p: BoardProps) {
   return (
     <div data-game-board="dots" data-g3-board="dots" className="flex w-full max-w-[600px] flex-col items-center gap-2">
       <BoardBar>
-        {state.scores.map((s, q) => (
-          <span key={q} className={`inline-flex items-center gap-1.5 ${q === p.turn ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <SeatDot color={colours[q]} /> {s}
-          </span>
-        ))}
+        <Scores scores={state.scores} out={state.out} turn={p.turn} colours={colours} names={names(p, n)} />
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.12} maxH={540} testId="dots" />
       <HiddenActions actions={actions} label="Lines you can draw" />
@@ -484,7 +503,12 @@ class MemoryScene extends BoardScene<MemoryState> {
     this.back?.dispose();
     super.dispose();
   }
-  protected async animateStep(_b: MemoryState, after: MemoryState) {
+  protected async animateStep(_b: MemoryState, after: MemoryState, move: string) {
+    if (move.startsWith("x")) {
+      // Someone left: a card they had turned goes back down, quietly.
+      await this.place(this.specs(after), true);
+      return;
+    }
     if (after.lastMiss.length === 2) {
       // Both shown for a moment, then back down.
       this.peeking = true;
@@ -513,11 +537,7 @@ export function Memory3D(p: BoardProps) {
   return (
     <div data-game-board="memory" data-g3-board="memory" className="flex w-full max-w-[600px] flex-col items-center gap-2">
       <BoardBar>
-        {state.scores.map((s, q) => (
-          <span key={q} className={`inline-flex items-center gap-1.5 ${q === p.turn ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <SeatDot color={colours[q]} /> {s}
-          </span>
-        ))}
+        <Scores scores={state.scores} out={state.out} turn={p.turn} colours={colours} names={names(p, n)} />
         <span className="font-normal text-slate-500">{state.pairsLeft} pairs left</span>
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.12} maxH={540} testId="memory" />
@@ -648,7 +668,8 @@ class MinesVsScene extends BoardScene<MinesVsState> {
   protected snap(s: MinesVsState) {
     void this.place(this.specs(s), false);
   }
-  protected async animateStep(before: MinesVsState, after: MinesVsState) {
+  protected async animateStep(before: MinesVsState, after: MinesVsState, move: string) {
+    if (move.startsWith("x")) return; // someone left: nothing on the field changes
     const boom = after.open.some((o, i) => o && !before.open[i] && after.mines?.[i]);
     await this.place(this.specs(after), true, { appear: "pop", vanish: "sink", sound: null, stagger: 8 });
     sfx(boom ? "boom" : "tap", boom ? 1 : 0.5);
@@ -671,14 +692,11 @@ export function MinesVersus3D(p: BoardProps) {
   return (
     <div data-game-board="minesvs" data-g3-board="minesvs" className="flex w-full max-w-[620px] flex-col items-center gap-2">
       <BoardBar>
-        {state.scores.map((s, q) => (
-          <span key={q} className={`inline-flex items-center gap-1.5 ${q === p.turn ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <SeatDot color={colours[q]} /> {s}
-          </span>
-        ))}
+        <Scores scores={state.scores} out={state.out} turn={p.turn} colours={colours} names={names(p, n)} />
         <span className="font-normal text-slate-500">{state.safeLeft} safe squares left</span>
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.12} maxH={560} testId="minesvs" />
+      {state.last < 0 && <div data-minesvs-start className="text-center text-[11px] text-slate-500">The open area is everyone's start — it scores for nobody. Open a square next to the numbers.</div>}
       <HiddenActions actions={actions} label="Squares you can open" />
     </div>
   );
@@ -798,7 +816,8 @@ class MahjongScene extends BoardScene<MahjongState> {
   protected snap(s: MahjongState) {
     void this.place(this.specs(s), false);
   }
-  protected async animateStep(_b: MahjongState, after: MahjongState) {
+  protected async animateStep(_b: MahjongState, after: MahjongState, move: string) {
+    if (move.startsWith("x") || move === "p") return; // someone left or passed: no tiles move
     this.first = null;
     await this.place(this.specs(after), true, { appear: "none", vanish: "lift", sound: null });
     sfx("score", 0.5);
@@ -822,11 +841,7 @@ export function Mahjong3D(p: BoardProps) {
   return (
     <div data-game-board="mahjong" data-g3-board="mahjong" className="flex w-full max-w-[680px] flex-col items-center gap-2">
       <BoardBar>
-        {state.scores.map((s, q) => (
-          <span key={q} className={`inline-flex items-center gap-1.5 ${q === p.turn ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <SeatDot color={colours[q]} /> {s}
-          </span>
-        ))}
+        <Scores scores={state.scores} out={state.out} turn={p.turn} colours={colours} names={names(p, n)} />
         <span className="font-normal text-slate-500">{pairs.length} pairs free</span>
         {p.canPlay && pairs.length === 0 && (
           <button type="button" data-mahjong-pass onClick={() => p.onMove("p")} className="rounded-full bg-amber-500 px-4 py-1.5 text-white">
@@ -924,7 +939,7 @@ export function PaintFight3D(p: BoardProps) {
   const grid = paintGrid(state.answers);
   const actions: Action[] = p.canPlay && state.open ? grid.flatMap((o, i): Action[] => (o === p.seat ? [] : [{ key: String(i), label: `Paint ${i}`, run: () => p.onMove(`${p.seat}@a:${i}`), attrs: { "data-paint-cell": String(i) } }])) : [];
   return (
-    <PartyShell state={state} rounds={3} seconds={30} host={!!p.host} seats={p.seats} starter={p.starter ?? 0} n={n} onMove={p.onMove} testId="paintfight">
+    <PartyShell state={state} rounds={3} seconds={30} host={!!p.host} seats={p.seats} starter={p.starter ?? 0} n={n} seat={p.seat} verb="paint now" onMove={p.onMove} testId="paintfight">
       <div className="flex w-full flex-col items-center gap-1" data-g3-board="paintfight">
         <SceneBox hostRef={hostRef} aspect={1.25} minH={300} maxH={460} testId="paintfight" />
         <HiddenActions actions={actions.slice(0, 40)} label="Squares to paint" />

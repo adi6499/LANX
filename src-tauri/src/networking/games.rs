@@ -74,6 +74,9 @@ pub fn game_name(id: &str) -> &'static str {
 
 /// The oldest LANX that knows this game.
 pub fn game_min_version(id: &str) -> &'static str {
+    if RULES_2170_GAMES.contains(&id) {
+        return FEATURES_RULES_2170;
+    }
     match id {
         "chainreaction" => FEATURES_CHAIN_REACTION,
         "tictactoe" | "connect4" | "reversi" | "chess" => FEATURES_GAMES,
@@ -137,7 +140,7 @@ impl NetworkService {
             let v = chan.remote.app_version.clone();
             chan.close().await;
             return Err(format!(
-                "{}'s LANX ({}) is older than {} and does not have {} yet. Send them the update from Settings → Updates.",
+                "{}'s LANX ({}) needs {} or newer to play {} with you. Send them the update from Settings → Updates.",
                 peer.display_name,
                 v,
                 min,
@@ -154,13 +157,18 @@ impl NetworkService {
     }
 
     /// A step from a colleague: checked, then straight to the UI.
-    pub(super) fn handle_game(&self, peer: &Peer, p: GamePayload) -> AckPayload {
+    pub(super) fn handle_game(&self, peer: &Peer, p: GamePayload, remote_version: &str) -> AckPayload {
         let no = |r: &str| AckPayload { ok: false, reason: Some(r.to_string()) };
         if peer.trust_state == "blocked" {
             return no("Not available");
         }
         if let Err(e) = check_game_step(&p) {
             return no(&e);
+        }
+        // LANX 2.17.0: a copy with older rules for this game would see a different board.
+        let min = game_min_version(&p.game);
+        if !version_at_least(remote_version, min) {
+            return no(&format!("{} has new rules in LANX {}. Update LANX (Settings → Updates) to keep playing.", game_name(&p.game), min));
         }
         if self.privacy.is_locked() {
             return no("LANX is locked on that PC right now.");
@@ -212,8 +220,14 @@ mod tests {
     fn newer_games_need_newer_copies() {
         assert_eq!(game_min_version("chess"), FEATURES_GAMES);
         assert_eq!(game_min_version("chainreaction"), FEATURES_CHAIN_REACTION);
-        assert_eq!(game_min_version("go"), FEATURES_GAMES_B);
-        assert_eq!(game_min_version("holdem"), FEATURES_GAMES_C);
+        assert_eq!(game_min_version("gomoku"), FEATURES_GAMES_B);
+        // 2.17.0 changed the rules of these (and every 2.12.0 game): both PCs need 2.17.0.
+        assert_eq!(game_min_version("go"), FEATURES_RULES_2170);
+        assert_eq!(game_min_version("holdem"), FEATURES_RULES_2170);
+        assert_eq!(game_min_version("ludo"), FEATURES_RULES_2170);
+        assert_eq!(game_min_version("hearts"), FEATURES_RULES_2170);
+        assert_eq!(game_min_version("chess"), FEATURES_GAMES);
+        assert!(RULES_2170_GAMES.iter().all(|g| GAME_IDS.contains(g)));
         assert_eq!(game_name("foosball"), "Table Soccer");
         assert!(check_game_step(&step("drawguess", "delta")).is_ok());
         assert_eq!(GAME_IDS.len(), 46);

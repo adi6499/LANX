@@ -1,8 +1,7 @@
 import { Dice3D } from "./Dice3D";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
-import { FINISH, ludo, ludoMovable, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
-import { seatColour } from "../../../lib/games";
+import { FINISH, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
 import { sfx } from "../../../lib/gameSounds";
 
 const C = 28; // cell size
@@ -36,18 +35,55 @@ export const SPOT: [number, number][] = [[1.5, 1.5], [1.5, 3.5], [3.5, 1.5], [3.
 
 type Pt = [number, number]; // [y, x] in pixels
 
-function cellOf(player: number, rel: number, token: number): Pt {
+const CLASSIC = ["#f43f5e", "#0ea5e9", "#10b981", "#f59e0b"];
+
+/** Each corner's colour and who plays it (-1: nobody). The corners nobody plays take the
+ *  classic colours the players don't use, so no colour appears twice. */
+export function cornerColours(n: number, colourOf: (p: number) => string): { colour: string; player: number }[] {
+  const taken = new Set<string>();
+  const out = [0, 1, 2, 3].map((c) => {
+    const p = ludoPlayerAt(c, n);
+    if (p < 0) return null;
+    const colour = colourOf(p);
+    taken.add(colour.toLowerCase());
+    return { colour, player: p };
+  });
+  const spare = CLASSIC.filter((x) => !taken.has(x));
+  return out.map((o) => o ?? { colour: spare.shift() ?? "#cbd5e1", player: -1 });
+}
+
+/** LANX 2.17.0: when only one move is possible, the token moves by itself after a moment (as in Ludo King). */
+export function useLudoAutoMove(state: LudoState | null, canPlay: boolean, onMove: (m: string) => void, delay: number) {
+  const send = useRef(onMove);
+  send.current = onMove;
+  const done = useRef(-1);
+  const roll = state?.roll ?? 0;
+  const rolls = state?.rolls ?? 0;
+  const only = state && canPlay && roll ? ludoChoices(state) : [];
+  const pick = only.length === 1 ? only[0] : -1;
+  useEffect(() => {
+    if (pick < 0 || done.current === rolls) return;
+    const t = window.setTimeout(() => {
+      done.current = rolls;
+      send.current(`m:${pick}`);
+    }, delay);
+    return () => window.clearTimeout(t);
+  }, [pick, rolls, delay]);
+}
+
+/** A corner's square for a token: its yard spot (-1), the track, its home column, or the centre. */
+function cellOf(corner: number, rel: number, token: number): Pt {
   if (rel === -1) {
-    const [yr, yc] = YARD[player];
+    const [yr, yc] = YARD[corner];
     const [dr, dc] = SPOT[token];
     return [(yr + dr) * C + C / 2, (yc + dc) * C + C / 2];
   }
   if (rel >= FINISH) return [7 * C + C / 2, 7 * C + C / 2];
   if (rel >= 51) {
-    const [r, c] = HOME[player][rel - 51];
+    const [r, c] = HOME[corner][rel - 51];
     return [r * C + C / 2, c * C + C / 2];
   }
-  const [r, c] = LOOP[toAbsolute(player, rel)];
+  const [r, c] = LOOP[toAbsolute(corner, rel)];
   return [r * C + C / 2, c * C + C / 2];
 }
 
@@ -84,7 +120,8 @@ interface Motion {
 }
 
 /** LANX 2.16.1: a moved token hops square by square along its way, and a knocked one flies home after. */
-function useLudoMotion(state: LudoState | null, moves: string[]) {
+function useLudoMotion(state: LudoState | null, moves: string[], n: number) {
+  const cellOfPlayer = (p: number, rel: number, t: number) => cellOf(ludoCorner(p, n), rel, t);
   const prev = useRef<{ moves: string[]; state: LudoState | null }>({ moves, state });
   const [motion, setMotion] = useState<Motion | null>(null);
   const [, setFrame] = useState(0);
@@ -107,17 +144,18 @@ function useLudoMotion(state: LudoState | null, moves: string[]) {
       setMotion(null);
       return;
     }
-    const path: Pt[] = [cellOf(p, from, t)];
-    if (from === -1) path.push(cellOf(p, 0, t));
-    else for (let r = from + 1; r <= to; r++) path.push(cellOf(p, r, t));
+    const path: Pt[] = [cellOfPlayer(p, from, t)];
+    if (from === -1) path.push(cellOfPlayer(p, 0, t));
+    else for (let r = from + 1; r <= to; r++) path.push(cellOfPlayer(p, r, t));
     const knocked: Motion["knocked"] = [];
     state.pos.forEach((tokens, q) =>
       tokens.forEach((rel, k) => {
         const was = before.state!.pos[q]?.[k] ?? -1;
-        if (q !== p && was >= 0 && rel === -1) knocked.push({ key: `${q}-${k}`, from: cellOf(q, was, k), to: cellOf(q, -1, k) });
+        if (q !== p && was >= 0 && rel === -1) knocked.push({ key: `${q}-${k}`, from: cellOfPlayer(q, was, k), to: cellOfPlayer(q, -1, k) });
       }),
     );
     setMotion({ key: `${p}-${t}`, path, knocked, t0: performance.now() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moves, state]);
   useEffect(() => {
     if (!motion) return;
@@ -169,17 +207,21 @@ export function LudoBoard({ moves, canPlay, turn, seats, starter = 0, seed = "",
   const n = Math.max(2, Math.min(4, seats?.length ?? 2));
   const state = useMemo(() => ludo.replay(moves, n, seed), [moves, n, seed]);
   const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
-  const place = useLudoMotion(state, moves);
+  const place = useLudoMotion(state, moves, n);
+  useLudoAutoMove(state, canPlay, onMove, 800);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const name = (p: number) => seatFor(seats, starter, p, n).name;
   const movable = canPlay && state.roll ? ludoMovable(state) : [];
   // Every corner keeps its colour, like a real board; the corners nobody plays are paler.
-  const tint = (p: number) => (p < n ? colour(p) : seatColour(p));
-  const strength = (p: number) => (p < n ? 1 : 0.32);
-  const startPlayer = (i: number) => [0, 1, 2, 3].find((p) => startOf(p) === i) ?? -1;
+  const corners = cornerColours(n, colour);
+  const tint = (c: number) => corners[c].colour;
+  const strength = (c: number) => (corners[c].player >= 0 ? 1 : 0.32);
+  const startPlayer = (i: number) => [0, 1, 2, 3].find((c) => startOf(c) === i) ?? -1;
+  const said = ludoEventText(state, name);
   const tokens = state.pos.flatMap((list, p) =>
     list.map((rel, t) => {
-      const rest = cellOf(p, rel, t);
+      const rest = cellOf(ludoCorner(p, n), rel, t);
       const stack = rel >= 0 && rel < FINISH ? list.filter((o, k) => k < t && o === rel).length : 0;
       const at = place(`${p}-${t}`, [rest[0] - stack * 4, rest[1] + stack * 4]);
       return { p, t, rel, at, can: p === turn && movable.includes(t) };
@@ -192,14 +234,15 @@ export function LudoBoard({ moves, canPlay, turn, seats, starter = 0, seed = "",
       <div className="flex items-center gap-3 text-[12.5px] font-semibold">
         {state.lastRoll > 0 && (
           <span className="inline-flex items-center gap-1.5" data-ludo-last>
-            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(turn) }} /> <Dice3D value={state.lastRoll} size={30} rollKey={rolls} />
-            {state.event && <span className="text-slate-500 font-normal">· {state.event}</span>}
+            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(state.roller) }} /> <Dice3D value={state.lastRoll} size={30} rollKey={rolls} />
+            {said && <span className="text-slate-500 font-normal" data-ludo-event={state.event || "six"}>· {said}</span>}
           </span>
         )}
         <button type="button" data-ludo-roll disabled={!canPlay || state.roll > 0} onClick={() => onMove("r")} className="rounded-full bg-indigo-600 px-4 py-1.5 text-white hover:bg-indigo-700 disabled:opacity-50">
           🎲 Roll
         </button>
-        {state.roll > 0 && canPlay && <span className="text-indigo-600 dark:text-indigo-300">Pick a token to move {state.roll}</span>}
+        {state.roll > 0 && canPlay && <span className="text-indigo-600 dark:text-indigo-300">{movable.length > 1 && ludoChoices(state).length > 1 ? `Pick a token to move ${state.roll}` : `Moving ${state.roll}…`}</span>}
+        {!state.roll && canPlay && state.again && <span className="text-indigo-600 dark:text-indigo-300" data-ludo-again>Roll again!</span>}
       </div>
       <svg width={SIZE} height={SIZE} className="rounded-2xl shadow-lg ring-1 ring-black/10 select-none" style={{ background: "#ffffff" }} data-ludo-classic>
         <defs>

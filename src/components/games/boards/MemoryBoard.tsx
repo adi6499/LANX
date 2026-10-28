@@ -3,7 +3,7 @@ import { seatFor, type BoardProps } from "../boardProps";
 import { memory } from "../../../lib/games/memory.ts";
 
 /** Memory: turn two cards; a pair is yours and you go again. */
-export function MemoryBoard({ moves, canPlay, seats, starter = 0, seed = "", onMove }: BoardProps) {
+export function MemoryBoard({ moves, canPlay, turn, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const n = Math.max(2, seats?.length ?? 2);
   const state = useMemo(() => memory.replay(moves, n, seed), [moves, n, seed]);
   // A missed pair stays face up for a moment so everyone sees it.
@@ -23,7 +23,7 @@ export function MemoryBoard({ moves, canPlay, seats, starter = 0, seed = "", onM
     <div data-game-board="memory" data-memory-peeking={peek.length ? "1" : undefined} className="flex flex-col items-center gap-2">
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-memory-scores>
         {state.scores.map((s, p) => (
-          <span key={p} className="inline-flex items-center gap-1.5">
+          <span key={p} data-memory-seat={p} data-memory-out={state.out[p] ? "1" : undefined} title={seatFor(seats, starter, p, n).name + (state.out[p] ? " left" : "")} className={`inline-flex items-center gap-1.5 ${state.out[p] ? "line-through opacity-50" : p === turn ? "underline decoration-2 underline-offset-4" : ""}`}>
             <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: colour(p) }} /> {s}
           </span>
         ))}

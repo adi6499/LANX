@@ -6,7 +6,7 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
 import { dominoPlayable, dominoes, type DominoState, type Tile } from "../../../../lib/games/dominoes.ts";
 import { BoardScene, type PieceSpec } from "../boardScene";
 import { canvasTexture, labelMesh, mesh, roundRect, sharedGeo, slab } from "../kit";
@@ -112,7 +112,7 @@ class DominoScene extends BoardScene<DominoState> {
     const out: PieceSpec[] = [];
     s.line.forEach((t, k) => {
       const spot = this.lineSpot(k, s.line.length);
-      const placedBy = v?.at.get(s.turn === 0 ? this.n - 1 : s.turn - 1);
+      const placedBy = s.lastBy >= 0 && s.lastBy !== v?.me ? v?.at.get(s.lastBy) : undefined;
       out.push({ key: tileKey(t), pos: spot.pos, quat: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, spot.yaw, 0)), make: () => this.tile(t), from: placedBy?.clone().setY(TOP + 0.4), update: (o) => this.flipTo(o, t) });
     });
     if (!v) return out;
@@ -124,7 +124,7 @@ class DominoScene extends BoardScene<DominoState> {
       out.push({ key: tileKey(t), pos: new THREE.Vector3(x, TOP + 0.12 + (ok ? 0.12 : 0), 3.05), quat: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.35, 0, 0)), make: () => this.tile(t) });
     });
     for (const q of v.others) {
-      const n = s.hands[q]?.length ?? 0;
+      const n = s.out[q] ? 0 : (s.hands[q]?.length ?? 0);
       backFan(v.at.get(q)!, n).forEach((b, k) => out.push({ key: `back:${q}:${k}`, pos: b.pos, quat: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, b.yaw + Math.PI / 2, 0)), make: () => this.tile(null) }));
     }
     return out;
@@ -186,7 +186,7 @@ export default function Dominoes3D(p: BoardProps) {
     return m;
   }, [others]);
   const playable = useMemo(() => (state && p.canPlay ? dominoPlayable(state, state.hands[me] ?? []) : []), [state, p.canPlay, me]);
-  const names = Array.from({ length: n }, (_, q) => seatFor(p.seats, p.starter ?? 0, q, n).name);
+  const names = Array.from({ length: n }, (_, q) => seatFor(p.seats, p.starter ?? 0, q, n).name.split(" (")[0]);
   const play = (t: Tile, end: "l" | "r") => {
     setPick(null);
     send.current(`p:${t[0]}-${t[1]}:${end}`);
@@ -210,7 +210,7 @@ export default function Dominoes3D(p: BoardProps) {
     <div data-game-board="dominoes" data-g3-board="dominoes" className="flex w-full max-w-[860px] flex-col items-center gap-2">
       <BoardBar>
         <span data-domino-hands>
-          {state.hands.map((h, q) => `${names[q]} ${h.length}`).join(" · ")}
+          {state.hands.map((h, q) => `${names[q]} ${state.out[q] ? "left" : h.length}`).join(" · ")}
         </span>
         {pick && (
           <span className="inline-flex items-center gap-2" data-domino-ends>
@@ -229,6 +229,11 @@ export default function Dominoes3D(p: BoardProps) {
           </button>
         )}
       </BoardBar>
+      <div className="min-h-[18px] text-[12px] text-slate-600 dark:text-slate-300" data-domino-event>
+        {state.line.length === 0
+          ? `${names[state.turn]} has the ${state.lead[0] === state.lead[1] ? "highest double" : "heaviest tile"} and sets ${state.lead[0]}-${state.lead[1]} to start.`
+          : namesIn(state.event, p.seats, p.starter ?? 0, n)}
+      </div>
       <SceneBox hostRef={hostRef} aspect={1.5} maxH={540} testId="dominoes" />
       <HiddenActions actions={actions} label="Tiles you can play" />
     </div>

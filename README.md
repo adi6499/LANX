@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.16.1)
+# LANX — Local Network Messenger (v2.17.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,32 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 2.17.0: games that play like the real thing
+Every multiplayer game was checked against how people really play it, and fixed where it wasn't.
+- **Everyone, every game:** names instead of "P1"/"player 2" everywhere; a player who leaves or gives up no longer
+  freezes the table (the others play on; the last one in wins); team games credit the whole team (Spades, Euchre,
+  Werewolf, Cup Pong); long games (Hearts, Spades, Paint Fight) no longer stop at 600 moves; "starts" marks who really
+  goes first; a Sea Battle fleet survives a restart; two-player party and live tables work for the guest too; a hosted
+  game keeps running when the host looks away; latecomers sit down at the next round.
+- **Ludo (Ludo King rules):** two players sit opposite; a six, a knock-out or a token home rolls again; three sixes end
+  the turn; a lone possible move happens by itself.
+- **Board and grid games:** chess (correct square colours, choose the promotion piece), Go (komi 7.5, no capture count),
+  Hex (swap rule), Minesweeper Versus (a fair shared start), Sea Battle (whole sunk ships named, ships afloat, a hint
+  when ships touch), Mancala, Checkers, Reversi and Dots & Boxes explain what happened.
+- **Dice and shot games:** Bowling (real pin action: strikes, splits, a correct 10th frame), Pool and Carrom (proper
+  fouls), Backgammon (forced moves), Bankroll (houses, doubles, real bankruptcy), Cup Pong (skill throws, two balls a
+  turn, rebuttal, teams of two), Darts (501, double out), Snakes & Ladders (a six rolls again), Dominoes (7 tiles, the
+  highest double opens).
+- **Card games:** Hearts (pass three cards, no points on the first trick), Euchre (bowers fixed, dealer's discard, going
+  alone), Spades (J♣ is not a spade), Blackjack (dealer blackjack, double, split), Gin Rummy (layoffs), Hold'em (the
+  showdown stays on screen, short all-ins), Ocho (Wild +4 rule), Crazy Eights (a blocked game ends), Go Fish (who asked
+  whom). Card faces always show symbols.
+- **Party and live games:** Werewolf (night picks stay private, wolves agree on a victim, votes shown), Draw & Guess
+  (everyone draws equally), Wordbox (the same word checks everywhere, word lists after each round), Trivia and Math
+  Rush (fair clocks, no speed bonus), Tap Roulette (don't tap in time and you lose), Table Soccer (serve to the side
+  that conceded, no stuck ball), Spinner Wars (ties play on), rematches reset properly.
+- 39 games changed their rules, so both PCs need 2.17.0 to play them together; an older LANX is told to update.
 
 ### New in 2.16.1: Ludo you can follow, and games that survive a restart
 - **Ludo, flat board:** tokens now hop square by square along their way (a soft tick on every square), and a knocked

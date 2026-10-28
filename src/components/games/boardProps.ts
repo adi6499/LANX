@@ -2,6 +2,8 @@
 // position from the list of moves and reports the move a player makes; the
 // rules live in lib/gameRules.ts and lib/games/*, the match in lib/games.ts.
 
+import { createContext } from "react";
+
 export interface Seat {
   id: string;
   name: string;
@@ -32,6 +34,19 @@ export interface BoardProps {
   onDelta?: (data: unknown) => void;
   /** Whether this PC hosts the table. */
   host?: boolean;
+}
+
+/** LANX 2.17.0: true inside HostRunner — the host isn't looking at this board, so it keeps the game
+ *  moving by itself (a party board opens the next round after a short pause). */
+export const HostAway = createContext(false);
+
+/** LANX 2.17.0: the rules say "P2" (player numbers count from 1 in turn order); boards say who that is. */
+export function namesIn(text: string, seats: Seat[] | undefined, starter: number, n: number): string {
+  if (!text || !seats?.length) return text;
+  return text.replace(/\bP(\d+)\b/g, (all, k: string) => {
+    const p = Number(k) - 1;
+    return p >= 0 && p < n ? seatFor(seats, starter, p, n).name.split(" (")[0] : all;
+  });
 }
 
 /** Player number → seat (colour, name), given who started this round. */

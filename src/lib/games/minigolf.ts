@@ -2,8 +2,10 @@
 // rolls, bounces off the walls, and drops in when it reaches the cup slowly
 // enough. Fewest strokes over nine holes wins (eight strokes is the most a
 // hole can cost). Moves: "s:<angle>:<power>" (angle in degrees, power 1–100).
+// LANX 2.17.0: "x<p>" — player p left: their ball is picked up, they are
+// skipped and can't win; when only one player is left, they win.
 
-import { ON, draw, win, type GameDef, type Outcome } from "./core.ts";
+import { ON, draw, lastIn, leaver, win, type GameDef, type Outcome } from "./core.ts";
 import { K, rectWalls, settle, type Body, type Table, type Wall, velocity } from "./physics2d.ts";
 
 export const GOLF_W = 400;
@@ -48,6 +50,11 @@ export interface GolfState {
   /** The last shot's path, for the animation. */
   path: [number, number][];
   done: boolean;
+  /** LANX 2.17.0: who played the last shot (−1 before the first), and on which hole. */
+  lastBy: number;
+  lastHole: number;
+  /** Who has left. */
+  out: boolean[];
 }
 
 function nextTurn(s: GolfState, n: number) {
@@ -65,9 +72,9 @@ function nextTurn(s: GolfState, n: number) {
     return;
   }
   const h = HOLES[s.hole];
-  s.ball = s.ball.map(() => [h.tee[0], h.tee[1]] as [number, number]);
+  s.ball = s.ball.map((_b, p) => (s.out[p] ? null : ([h.tee[0], h.tee[1]] as [number, number])));
   for (const st of s.strokes) st.push(0);
-  s.turn = 0;
+  s.turn = Math.max(0, s.ball.findIndex(Boolean));
 }
 
 export function golfShot(hole: Hole, from: [number, number], angle: number, power: number): { end: [number, number] | null; path: [number, number][] } {
@@ -80,11 +87,14 @@ export function golfShot(hole: Hole, from: [number, number], angle: number, powe
   return { end: ball.out ? null : [Math.round(ball.x / K), Math.round(ball.y / K)], path };
 }
 
-function outcome(s: GolfState): Outcome {
+function outcome(s: GolfState, n: number): Outcome {
   if (!s.done) return ON;
   const totals = s.strokes.map((st) => st.reduce((a, b) => a + b, 0));
-  const best = Math.min(...totals);
-  const tops = totals.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
+  const last = n > 1 && s.out.some(Boolean) ? lastIn(s.out, n) : null;
+  if (last !== null) return win(last, "the others left", totals);
+  const live = totals.map((x, i) => (s.out[i] ? Infinity : x));
+  const best = Math.min(...live);
+  const tops = live.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
   return tops.length > 1 ? draw(`${best} strokes each`, totals) : win(tops[0], `${best} strokes`, totals);
 }
 
@@ -97,9 +107,19 @@ export const minigolf: GameDef<GolfState> = {
   maxPlayers: 8,
   replay(moves, n) {
     const h0 = HOLES[0];
-    const s: GolfState = { hole: 0, ball: Array.from({ length: n }, () => [h0.tee[0], h0.tee[1]] as [number, number]), strokes: Array.from({ length: n }, () => [0]), turn: 0, path: [], done: false };
+    const s: GolfState = { hole: 0, ball: Array.from({ length: n }, () => [h0.tee[0], h0.tee[1]] as [number, number]), strokes: Array.from({ length: n }, () => [0]), turn: 0, path: [], done: false, lastBy: -1, lastHole: 0, out: Array(n).fill(false) };
     for (const m of moves) {
       if (s.done) return null;
+      const gone = leaver(m, n);
+      if (gone !== null) {
+        if (gone < 0 || s.out[gone] || n < 2) return null;
+        s.out[gone] = true;
+        s.ball[gone] = null;
+        s.path = [];
+        if (lastIn(s.out, n) !== null) s.done = true;
+        else if (s.turn === gone) nextTurn(s, n);
+        continue;
+      }
       const mv = /^s:(-?\d+):(\d+)$/.exec(m);
       if (!mv) return null;
       const p = s.turn;
@@ -108,6 +128,8 @@ export const minigolf: GameDef<GolfState> = {
       const power = Math.max(1, Math.min(100, Number(mv[2])));
       const { end, path } = golfShot(HOLES[s.hole], from, Number(mv[1]), power);
       s.path = path;
+      s.lastBy = p;
+      s.lastHole = s.hole;
       s.strokes[p][s.hole]++;
       if (!end || s.strokes[p][s.hole] >= MAX_STROKES) {
         s.ball[p] = null;
@@ -118,6 +140,6 @@ export const minigolf: GameDef<GolfState> = {
     return s;
   },
   turn: (s) => s.turn,
-  outcome: (s) => outcome(s),
-  summary: (s) => `hole ${Math.min(s.hole + 1, HOLES_COUNT)} · ` + s.strokes.map((st, i) => `P${i + 1} ${st.reduce((a, b) => a + b, 0)}`).join(" · "),
+  outcome: (s, n) => outcome(s, n),
+  summary: (s) => `hole ${Math.min(s.hole + 1, HOLES_COUNT)} · ` + s.strokes.map((st, i) => `P${i + 1} ${s.out[i] ? "left" : st.reduce((a, b) => a + b, 0)}`).join(" · "),
 };

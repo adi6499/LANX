@@ -12,7 +12,7 @@ import * as games from "../../lib/games";
 import { GAMES, GROUP_LABEL, type GameCardData, type GameId, type GameMeta, type Match, type SoloId } from "../../lib/games";
 import { ChainReactionBoard, ChessBoard, ChessMoves, ConnectFourBoard, ReversiBoard, TicTacToeBoard, type BoardProps } from "./Boards";
 import { BOARDS } from "./boards/index";
-import { summaryOf } from "../../lib/gameRules";
+import { summaryOf, turnOf } from "../../lib/gameRules";
 import { Game2048, Minesweeper, SnakeGame } from "./Solo";
 import { gameSoundOn, setGameSound, sfx } from "../../lib/gameSounds";
 import { game3dOn, setGame3d } from "../../lib/game3d";
@@ -51,8 +51,13 @@ const SIDE_LABEL: Partial<Record<GameId, [string, string]>> = {
   gomoku: ["Black", "White"],
   hex: ["Red", "Blue"],
   go: ["Black", "White"],
-  mancala: ["Bottom", "Top"],
+  mancala: ["Moves first", "Moves second"],
+  backgammon: ["White", "Black"],
+  carrom: ["White", "Black"],
 };
+
+/** LANX 2.17.0: the rules number players by turn order ("P1 3 · P2 5"); say who they are instead. */
+const namedSummary = (m: games.Match, text: string) => games.namedText(m, text);
 
 function statsLine(id: string): string {
   const s = games.statsFor(id);
@@ -359,7 +364,7 @@ function Lobby({
 }) {
   const s = games.statsFor(game.id);
   const many = game.maxPlayers > 2 || !!game.hosted;
-  const counts = Array.from({ length: Math.min(8, game.maxPlayers) - Math.max(1, game.minPlayers) + 1 }, (_, k) => Math.max(1, game.minPlayers) + k);
+  const counts = Array.from({ length: Math.min(8, game.maxPlayers) - Math.max(1, game.minPlayers) + 1 }, (_, k) => Math.max(1, game.minPlayers) + k).filter((n) => !game.sizes || n === 1 || game.sizes.includes(n));
   const [chosen, setChosen] = useState<string[]>([]);
   const [count, setCount] = useState(Math.max(1, game.minPlayers));
   useEffect(() => {
@@ -420,13 +425,13 @@ function Lobby({
             })}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" data-game-challenge-many disabled={busy || chosenPeers.length + 1 < Math.max(2, game.minPlayers)} onClick={() => onChallengeMany(chosenPeers)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
+            <button type="button" data-game-challenge-many disabled={busy || chosenPeers.length + 1 < Math.max(2, game.minPlayers) || (!!game.sizes && !game.sizes.includes(chosenPeers.length + 1))} onClick={() => onChallengeMany(chosenPeers)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Swords className="h-3.5 w-3.5" />}
               {chosenPeers.length === 0 ? `Invite colleagues${game.minPlayers > 2 ? ` (${game.minPlayers - 1} or more)` : ""}` : `Invite ${chosenPeers.length} ${chosenPeers.length === 1 ? "colleague" : "colleagues"} — ${chosenPeers.length + 1} at the table`}
             </button>
             <span className="text-[11.5px] text-slate-500">
               Each gets a card in your chat; you start once they have pressed Play.{" "}
-              {game.minPlayers === game.maxPlayers ? `Exactly ${game.minPlayers} players.` : game.minPlayers > 2 ? `${game.minPlayers} to ${game.maxPlayers} players.` : `Up to ${game.maxPlayers} players.`} Their LANX needs {["chainreaction"].includes(game.id) ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(game.id) ? "2.11.0" : "2.12.0"}.
+              {game.sizes ? `${game.sizes.join(" or ")} players.` : game.minPlayers === game.maxPlayers ? `Exactly ${game.minPlayers} players.` : game.minPlayers > 2 ? `${game.minPlayers} to ${game.maxPlayers} players.` : `Up to ${game.maxPlayers} players.`} Their LANX needs {games.needsVersion(game.id)}.
             </span>
           </div>
 
@@ -500,6 +505,13 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
   const host = games.isHost(m);
   const sides = SIDE_LABEL[m.game];
   const [sure, setSure] = useState(false);
+  // LANX 2.17.0: this match is on screen; while it is, its own board runs a hosted game (not HostRunner).
+  useEffect(() => {
+    games.setShowing(m.id);
+    return () => games.setShowing(null);
+  }, [m.id]);
+  // LANX 2.17.0: who really moves first (the 2♣ in Hearts, the player after the dealer in Spades).
+  const firstMover = useMemo(() => turnOf(m.game, [], m.seats.length, games.seedOf(m)), [m.game, m.seats.length, m.id, m.round]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setSure(false), [m.id, m.round]);
 
   const status = (() => {
@@ -508,11 +520,11 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
     if (m.status === "declined") return m.note || `${games.opponent(m)?.name ?? "They"} declined.`;
     if (m.status === "left") return m.note || `${games.opponent(m)?.name ?? "They"} left the game.`;
     if (m.status === "over") return games.resultText(m);
-    if (m.turn < 0) return "Both sides act now";
+    if (m.turn < 0) return meta.group === "party" || meta.realtime ? "Everyone plays at once — follow the board" : "Both sides act now";
     if (m.mode === "local") return `${games.seatName(m, seatNow)} to move${sides ? ` (${sides[m.turn]})` : ""}`;
     return canPlay ? "Your move" : `${games.seatName(m, seatNow)}'s move`;
   })();
-  const summary = m.status === "playing" || m.status === "over" ? summaryOf(m.game, m.moves, m.seats.length, games.seedOf(m)) : "";
+  const summary = m.status === "playing" || m.status === "over" ? namedSummary(m, summaryOf(m.game, m.moves, m.seats.length, games.seedOf(m))) : "";
 
   const title = m.mode === "local" ? "pass & play" : m.mode === "multi" ? `${m.seats.length} players` : `vs ${games.opponent(m)?.name ?? "?"}`;
   const board: BoardProps = {
@@ -523,7 +535,7 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
     seats: m.seats,
     starter: games.starterSeat(m),
     seed: games.seedOf(m),
-    secret: m.secret,
+    secret: games.secretOf(m),
     onSecret: (v) => games.setSecret(m.id, v),
     local: m.mode === "local",
     deltas: m.deltas,
@@ -565,10 +577,12 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
               <Users className="h-8 w-8 text-indigo-500" />
               <div className="text-[14px] font-semibold">{status}</div>
               <div className="text-[12px] text-slate-500 max-w-[340px]">
-                {host ? "Each colleague has a card in their chat with you; they press Play to sit down. Start whenever enough have joined — the rest can watch next round." : `${m.seats[0]?.name ?? "The host"} starts the game once everyone has sat down.`}
+                {host
+                  ? `Each colleague has a card in their chat with you; they press Play to sit down. Start once ${Math.max(2, meta.minPlayers)} or more have joined — anyone who presses Play later sits down at the next round.`
+                  : `${m.seats[0]?.name ?? "The host"} starts the game once everyone has sat down.`}
               </div>
               {host && (
-                <button type="button" data-game-start disabled={m.joined.length < 2} onClick={() => void games.startNow(m.id).then((p) => p && onError(p))} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700 !px-5 !py-2`}>
+                <button type="button" data-game-start disabled={m.joined.length < Math.max(2, meta.minPlayers)} onClick={() => void games.startNow(m.id).then((p) => p && onError(p))} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700 !px-5 !py-2`}>
                   <Play className="h-4 w-4" /> Start with {m.joined.length}
                 </button>
               )}
@@ -610,18 +624,18 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
                     <div className="truncate text-[12.5px] font-semibold text-slate-900 dark:text-white">{name}</div>
                     <div className="text-[10.5px] text-slate-500 flex items-center gap-1">
                       {sides ? sides[p] : <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.color }} />}
-                      {p === 0 && m.status !== "lobby" ? " · starts" : ""}
+                      {p === firstMover && m.status !== "lobby" ? " · starts" : ""}
                       {gone ? " · left" : m.status === "lobby" ? (joined ? " · joined" : " · invited") : ""}
                     </div>
                   </div>
                   {m.status === "lobby" && joined && <Check className="h-4 w-4 text-emerald-500" />}
                   {toMove && <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300">to move</span>}
-                  {m.result && !m.result.draw && m.result.winner === i && <Trophy className="h-4 w-4 text-amber-500" />}
+                  {m.result && games.wonBy(m.result, i) && <Trophy className="h-4 w-4 text-amber-500" />}
                 </div>
               );
             })}
           </div>
-          <div data-game-status className={`rounded-2xl px-3 py-2 text-[13px] font-semibold ${m.status === "over" ? "bg-amber-500/15 text-amber-800 dark:text-amber-200" : canPlay && m.status === "playing" ? "bg-indigo-600 text-white" : "bg-white/70 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200"}`}>
+          <div data-game-status className={`rounded-2xl px-3 py-2 text-[13px] font-semibold ${m.status === "over" ? "bg-amber-500/15 text-amber-800 dark:text-amber-200" : canPlay && m.status === "playing" && m.turn >= 0 ? "bg-indigo-600 text-white" : "bg-white/70 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200"}`}>
             {status}
             {summary && (
               <div data-game-summary className="mt-0.5 text-[11px] font-medium opacity-80">
@@ -635,7 +649,7 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
             </div>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {m.status === "playing" && m.moves.length > 0 && (m.mode === "local" || mine >= 0) && (sure ? (
+            {m.status === "playing" && m.moves.length > 0 && (m.mode === "local" || mine >= 0) && meta.group !== "party" && !meta.realtime && (sure ? (
               <button type="button" data-game-resign-sure onClick={() => void games.resign(m.id)} className={`${btn} bg-rose-600 text-white hover:bg-rose-700`}>
                 <Flag className="h-3.5 w-3.5" /> Yes, give up
               </button>
@@ -660,6 +674,19 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
                 className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}
               >
                 <LogOut className="h-3.5 w-3.5" /> {m.status === "waiting" ? "Cancel challenge" : m.status === "lobby" ? (host ? "Close table" : "Leave table") : "Clear"}
+              </button>
+            )}
+            {m.status === "playing" && m.mode === "duo" && m.moves.length === 0 && (
+              <button
+                type="button"
+                data-game-leave
+                onClick={() => {
+                  void games.leave(m.id).catch((e) => onError(String(e)));
+                  onBack();
+                }}
+                className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}
+              >
+                <LogOut className="h-3.5 w-3.5" /> Leave game
               </button>
             )}
             {m.status === "playing" && m.mode === "multi" && (

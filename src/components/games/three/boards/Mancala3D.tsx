@@ -5,8 +5,9 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
-import type { BoardProps } from "../../boardProps";
+import { seatFor, type BoardProps } from "../../boardProps";
 import { mancala, type MancalaState } from "../../../../lib/games/mancala.ts";
+import { mancalaNews, mancalaStoreLabel } from "../../boards/MancalaBoard";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
 import { hop, labelMesh, mesh, slab, wood } from "../kit";
@@ -264,7 +265,7 @@ class MancalaScene extends TurnScene<MancalaState> {
   }
 }
 
-export function Mancala3D({ moves, canPlay, turn, seat, local, onMove }: BoardProps) {
+export function Mancala3D({ moves, canPlay, turn, seat, seats, starter = 0, local, onMove }: BoardProps) {
   const state = useMemo(() => mancala.replay(moves, 2, ""), [moves]);
   const send = useRef(onMove);
   send.current = onMove;
@@ -273,14 +274,25 @@ export function Mancala3D({ moves, canPlay, turn, seat, local, onMove }: BoardPr
   useEffect(() => scene?.sync(2, "", moves), [scene, moves]);
   useEffect(() => scene?.setTurn({ canPlay, turn, onPit: (rel) => send.current(String(rel)) }), [scene, canPlay, turn]);
   if (!state) return null;
+  const me = local ? -1 : seat;
+  const name = (p: number) => seatFor(seats, starter, p, 2).name.split(" (")[0];
+  const news = mancalaNews(state, me, name);
   const mine = turn === 0 ? [0, 1, 2, 3, 4, 5] : [7, 8, 9, 10, 11, 12];
   const actions: Action[] = canPlay ? mine.filter((i) => state.pits[i] > 0).map((i) => ({ key: String(i), label: `Sow pit ${i}`, run: () => onMove(String(turn === 0 ? i : i - 7)), attrs: { "data-mancala-pit": String(i) } })) : [];
   return (
     <div data-game-board="mancala" data-g3-board="mancala" className="flex w-full max-w-[760px] flex-col items-center gap-2">
       <BoardBar>
-        <span data-mancala-store="0">Store (bottom player): {state.pits[6]}</span>
-        <span data-mancala-store="1">Store (top player): {state.pits[13]}</span>
+        {/* LANX 2.17.0: by person ("top"/"bottom" was wrong on the other player's screen), in the order
+            they sit on the board: the store on the left first. */}
+        {(!local && seat === 1 ? [0, 1] : [1, 0]).map((p) => (
+          <span key={p} data-mancala-store={p}>
+            {mancalaStoreLabel(p, me, name)}: {state.pits[p === 0 ? 6 : 13]}
+          </span>
+        ))}
       </BoardBar>
+      <div data-mancala-news className="min-h-[18px] text-[12.5px] font-semibold text-slate-700 dark:text-slate-200">
+        {news ?? ""}
+      </div>
       <SceneBox hostRef={hostRef} aspect={2.1} minH={260} maxH={420} testId="mancala" />
       <HiddenActions actions={actions} label="Pits you can sow" />
     </div>

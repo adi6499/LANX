@@ -1,7 +1,7 @@
 import { Dice3D } from "./Dice3D";
 import { useMemo, useState } from "react";
-import type { BoardProps } from "../boardProps";
-import { backgammon, bgMoves, bgTarget } from "../../../lib/games/backgammon.ts";
+import { namesIn, type BoardProps } from "../boardProps";
+import { backgammon, bgMoves } from "../../../lib/games/backgammon.ts";
 
 const PW = 40; // point width
 const PH = 150; // point height
@@ -16,7 +16,7 @@ function px(i: number): number {
 }
 
 /** Backgammon: Roll, click a checker (or the bar), then where it goes; "Off" bears off. */
-export function BackgammonBoard({ moves, canPlay, turn, seat, seed = "", onMove }: BoardProps) {
+export function BackgammonBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed = "", onMove }: BoardProps) {
   const state = useMemo(() => backgammon.replay(moves, 2, seed), [moves, seed]);
   const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   const [from, setFrom] = useState<number | "bar" | null>(null);
@@ -24,9 +24,10 @@ export function BackgammonBoard({ moves, canPlay, turn, seat, seed = "", onMove 
   const legal = canPlay ? bgMoves(state) : [];
   const stuck = canPlay && state.dice.length > 0 && legal.length === 0;
   const fromOk = (f: number | "bar") => legal.some((m) => m.from === f);
+  // Only legal moves (the forced-move rule); when two dice bear off the same checker, use the smaller.
   const dieFor = (f: number | "bar", to: number) => {
-    for (const d of [...new Set(state.dice)]) if (bgTarget(state, f, d, state.turn) === to) return d;
-    return null;
+    const ds = legal.filter((m) => m.from === f && m.to === to).map((m) => m.die);
+    return ds.length ? Math.min(...ds) : null;
   };
   const tap = (where: number | "bar" | "off") => {
     if (!canPlay || !state.dice.length) return;
@@ -129,7 +130,12 @@ export function BackgammonBoard({ moves, canPlay, turn, seat, seed = "", onMove 
           ● {state.off[1]}
         </text>
       </svg>
-      <div className="text-[11px] text-slate-500">White moves clockwise down to the bottom right; black the other way. Roll, click a checker, then its new point.</div>
+      <div className="min-h-[18px] text-[12px] text-slate-600 dark:text-slate-300" data-bg-note>
+        {namesIn(state.note, seats, starter, 2)}
+      </div>
+      <div className="max-w-[560px] text-center text-[11px] text-slate-500">
+        White moves anticlockwise, home to the bottom right; black clockwise, home to the top right. Roll, click a checker, then its new point. Use both dice if you can — if only one fits, the higher one.
+      </div>
     </div>
   );
 }

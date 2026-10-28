@@ -8,8 +8,8 @@
 
 import * as THREE from "three";
 import { useEffect, useMemo, useState } from "react";
-import { seatFor, type BoardProps } from "../../boardProps";
-import { PINS, bowling, bowlingScore, rollResult, type BowlingState } from "../../../../lib/games/bowling.ts";
+import { namesIn, seatFor, type BoardProps } from "../../boardProps";
+import { LANE_HALF as LANE_UNITS, PINS, bowling, bowlingLine, bowlingScore, rollResult, type BowlingState, type PinHit } from "../../../../lib/games/bowling.ts";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
 import { canvasTexture, mesh, sharedGeo, slab, wood } from "../kit";
@@ -195,7 +195,7 @@ class BowlingScene extends TurnScene<BowlingState> {
     if (info.canPlay) {
       // A 6 m guide from the ball along the chosen line.
       const start = new THREE.Vector3(info.pos * U, 0.003, 0);
-      const end = new THREE.Vector3((info.pos + Math.tan((info.angle * Math.PI) / 180) * 600) * U, 0.003, DECK_Z);
+      const end = new THREE.Vector3(bowlingLine(info.pos, info.angle) * U, 0.003, DECK_Z);
       this.arrow.rotation.z = Math.atan2(end.x - start.x, start.z - end.z);
       this.arrow.position.copy(start.lerp(end, 3 / 18));
     }
@@ -222,10 +222,10 @@ class BowlingScene extends TurnScene<BowlingState> {
     const pos = Math.max(-100, Math.min(100, Number(mv[1])));
     const angle = Math.max(-30, Math.min(30, Number(mv[2])));
     const power = Math.max(1, Math.min(100, Number(mv[3])));
-    const roll = rollResult(this.seed, before.rolls, pos, angle, power);
+    const roll = rollResult(this.seed, before.rolls, pos, angle, power, before.standing);
     const knocked = roll.fell.map((f, i) => f && before.standing[i]);
     const at = roll.xAtPins + roll.drift;
-    const gutter = power >= 15 && Math.abs(at) > 150;
+    const gutter = power >= 15 && Math.abs(at) > LANE_UNITS; // off the lane before the pins (the rules' gutter)
     const slow = power < 15;
     // The ball's line: foul line → pins (or into a gutter, or rolling to a stop).
     const x0 = pos * U;
@@ -235,14 +235,14 @@ class BowlingScene extends TurnScene<BowlingState> {
       const t = z / DECK_Z;
       let x = x0 + (x1 - x0) * t;
       let y = BALL_R;
-      if (Math.abs(x) > LANE_HALF + 0.02) {
+      if (Math.abs(x) > LANE_HALF) {
         x = Math.sign(x) * (LANE_HALF + 0.12);
         y = BALL_R - 0.08;
       }
       return new THREE.Vector3(x, y, z);
     };
     // Simulate the pins (Rapier) while the ball crosses the deck.
-    const frames = await this.simulate(path, speed, knocked, gutter || slow);
+    const frames = await this.simulate(path, speed, knocked, gutter || slow, roll.hits, power);
     const cam = this.stage.camera;
     const look = new THREE.Vector3(0, 0.15, DECK_Z - 0.4);
     const endZ = slow ? DECK_Z * 0.7 : DECK_Z - 2.2;
@@ -310,7 +310,7 @@ class BowlingScene extends TurnScene<BowlingState> {
     await this.home(true);
   }
   /** The pins that fall (and only those) as rigid bodies; the ball pushes through on its line. */
-  private async simulate(path: (z: number) => THREE.Vector3, speed: number, knocked: boolean[], none: boolean): Promise<Frame3[]> {
+  private async simulate(path: (z: number) => THREE.Vector3, speed: number, knocked: boolean[], none: boolean, hits: (PinHit | null)[] = [], power = 50): Promise<Frame3[]> {
     if (none || !knocked.some(Boolean)) return [];
     const R = await loadRapier().catch(() => null);
     if (!R || this.stage.isDisposed) return this.fallback(path, speed, knocked);
@@ -344,13 +344,17 @@ class BowlingScene extends TurnScene<BowlingState> {
           z = Math.max(DECK_Z - 2.15, z - speed / 120);
           const bp = path(z);
           ballBody.setNextKinematicTranslation({ x: bp.x, y: bp.y, z: bp.z });
-          // A falling pin the ball does not reach still goes over (the rules say it fell): a push from the ball's side.
+          // Each falling pin is pushed over when the rules' pin action knocked it (as far down the deck as the
+          // ball had come by then), the way the rules sent it; without that, from the ball's side.
           PINS.forEach((_p, i) => {
             if (!knocked[i] || pushed.has(i)) return;
             const c = pinXZ(i);
-            if (z > c.z + 0.05) return;
+            const h = hits[i];
+            // How far past the head pin the ball had come (lane units) when this pin went over.
+            const depth = h && h.step ? -70 + (2.5 + power * 0.045) * h.step : (DECK_Z - c.z) / U;
+            if (z > DECK_Z - depth * U + 0.05) return;
             pushed.add(i);
-            const away = new THREE.Vector3(c.x - bp.x + (rnd() - 0.5) * 0.08, 0, -0.6).normalize();
+            const away = h && (h.dx || h.dy) ? new THREE.Vector3(h.dx + (rnd() - 0.5) * 0.08, 0, -h.dy).normalize() : new THREE.Vector3(c.x - bp.x + (rnd() - 0.5) * 0.08, 0, -0.6).normalize();
             const strength = 0.9 + speed * 0.12 + rnd() * 0.4;
             bodies[i].applyImpulseAtPoint({ x: away.x * strength, y: 0.05, z: away.z * strength }, { x: c.x, y: PIN_H * 0.85, z: c.z }, true);
           });
@@ -436,6 +440,9 @@ export default function Bowling3D({ moves, canPlay, turn, seats, starter = 0, se
   return (
     <div data-game-board="bowling" data-g3-board="bowling" className="flex w-full max-w-[760px] flex-col items-center gap-2">
       <SceneBox hostRef={hostRef} aspect={1.6} maxH={460} testId="bowling" />
+      <div className="min-h-[18px] text-[12.5px] font-semibold text-slate-700 dark:text-slate-200" data-bowling-event>
+        {namesIn(state.event, seats, starter, n)}
+      </div>
       {canPlay && (
         <div className="flex flex-wrap items-center justify-center gap-3 text-[12px]" data-bowling-controls>
           <label className="inline-flex items-center gap-1">
@@ -461,7 +468,7 @@ export default function Bowling3D({ moves, canPlay, turn, seats, starter = 0, se
       <table className="text-[11px]" data-bowling-scores>
         <tbody>
           {state.frames.map((fr, p) => (
-            <tr key={p} className={p === turn && !state.done ? "font-semibold" : ""}>
+            <tr key={p} className={`${p === turn && !state.done ? "font-semibold" : ""} ${state.out[p] ? "line-through opacity-50" : ""}`}>
               <td className="pr-2">
                 <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: seatFor(seats, starter, p, n).color }} />
                 {name(p)}

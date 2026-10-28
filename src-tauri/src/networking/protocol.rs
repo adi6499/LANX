@@ -99,6 +99,51 @@ pub const FEATURES_MULTIPLAYER: &str = "2.10.0";
 pub const FEATURES_GAMES_B: &str = "2.11.0";
 /// LANX 2.12.0: the rest of the games (dice, cards, party, aim-and-shoot, live) and "delta" steps.
 pub const FEATURES_GAMES_C: &str = "2.12.0";
+/// LANX 2.17.0: games whose rules were brought in line with how people really play them
+/// (a copy with the old rules would replay the same moves differently, so both need 2.17.0).
+pub const FEATURES_RULES_2170: &str = "2.17.0";
+/// The games whose rules changed in 2.17.0 (mirrors RULES_2170 in src/lib/games.ts).
+pub const RULES_2170_GAMES: [&str; 39] = [
+    "ludo",
+    "dots",
+    "memory",
+    "minesvs",
+    "mahjong",
+    "battleship",
+    "go",
+    "hex",
+    "checkers",
+    "taproulette",
+    "mathrush",
+    "trivia",
+    "drawguess",
+    "wordbox",
+    "paintfight",
+    "werewolf",
+    "airhockey",
+    "foosball",
+    "spinnerwars",
+    "hearts",
+    "spades",
+    "euchre",
+    "blackjack",
+    "ginrummy",
+    "holdem",
+    "ocho",
+    "crazy8",
+    "gofish",
+    "snakes",
+    "bankroll",
+    "backgammon",
+    "dominoes",
+    "carrom",
+    "pool",
+    "cuppong",
+    "bowling",
+    "darts",
+    "minigolf",
+    "archery",
+];
 
 /// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
 /// whose reason is the colleague's status (waiting | accepted | declined | …).

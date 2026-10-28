@@ -19,8 +19,9 @@ export interface AHState {
   lastGoal: number;
 }
 
-export function ahStart(): AHState {
-  return { puck: { x: AH_W / 2, y: AH_H / 2, vx: 0, vy: 0 }, paddles: [{ x: AH_W / 2, y: AH_H - 80 }, { x: AH_W / 2, y: 80 }], goals: [0, 0], pause: 60, lastGoal: -1 };
+/** A fresh table — or (2.17.0) the table again with the goals so far, when the board reopens. */
+export function ahStart(goals: number[] = [0, 0]): AHState {
+  return { puck: { x: AH_W / 2, y: AH_H / 2, vx: 0, vy: 0 }, paddles: [{ x: AH_W / 2, y: AH_H - 80 }, { x: AH_W / 2, y: 80 }], goals: [goals[0] ?? 0, goals[1] ?? 0], pause: 60, lastGoal: -1 };
 }
 
 /** Where each player wants their paddle (their last pointer position). */

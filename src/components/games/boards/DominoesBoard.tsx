@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { seatFor, type BoardProps } from "../boardProps";
+import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { dominoPlayable, dominoes, type Tile } from "../../../lib/games/dominoes.ts";
 
 const PIPS = ["", "•", "••", "•••", "••••", "•••••", "••••••"];
@@ -26,6 +26,7 @@ export function DominoesBoard({ moves, canPlay, turn, seat, seats, starter = 0, 
   const [pick, setPick] = useState<Tile | null>(null);
   if (!state) return null;
   const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const name = (p: number) => seatFor(seats, starter, p, n).name.split(" (")[0];
   const me = local ? turn : seat;
   const hand = state.hands[me] ?? [];
   const playable = canPlay ? dominoPlayable(state, hand) : [];
@@ -44,17 +45,26 @@ export function DominoesBoard({ moves, canPlay, turn, seat, seats, starter = 0, 
     <div data-game-board="dominoes" className="flex w-full max-w-[560px] flex-col items-center gap-3">
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12.5px] font-semibold" data-domino-hands>
         {state.hands.map((h, p) => (
-          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""}`}>
-            <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: colour(p) }} /> {h.length} tiles
+          <span key={p} className={`inline-flex items-center gap-1.5 ${p === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""} ${state.out[p] ? "line-through opacity-50" : ""}`}>
+            <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: colour(p) }} /> {name(p)} {state.out[p] ? "left" : `${h.length} tiles`}
           </span>
         ))}
       </div>
       <div data-domino-line className="flex min-h-[48px] w-full flex-wrap items-center justify-center gap-1 rounded-2xl bg-emerald-800 p-3">
-        {state.line.length === 0 && <span className="text-[12px] text-emerald-100">The line starts with your first tile.</span>}
+        {state.line.length === 0 && (
+          <span className="text-[12px] text-emerald-100" data-domino-lead>
+            {name(state.turn)} has the {state.lead[0] === state.lead[1] ? "highest double" : "heaviest tile"} and sets {state.lead[0]}-{state.lead[1]} to start.
+          </span>
+        )}
         {state.line.map((t, i) => (
           <TileView key={i} t={t} horizontal lit={false} testId={`line:${i}`} />
         ))}
       </div>
+      {state.event && (
+        <div className="text-[12px] text-slate-600 dark:text-slate-300" data-domino-event>
+          {namesIn(state.event, seats, starter, n)}
+        </div>
+      )}
       {pick && (
         <div className="flex items-center gap-2 text-[12px]" data-domino-ends>
           <span>Put {pick[0]}-{pick[1]} on the</span>
@@ -67,7 +77,7 @@ export function DominoesBoard({ moves, canPlay, turn, seat, seats, starter = 0, 
         </div>
       )}
       <div className="flex flex-col items-center gap-1">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{local ? `Player ${turn + 1}'s tiles` : "Your tiles"}</div>
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{local ? `${name(turn)}'s tiles` : "Your tiles"}</div>
         <div data-domino-hand className="flex flex-wrap justify-center gap-1.5">
           {hand.map((t, i) => {
             const ok = endsFor(t).length > 0;

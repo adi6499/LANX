@@ -2,8 +2,9 @@
 // puck and two mallets, a table-football pitch with rods of little players
 // that swing when they kick, and a spinning-top arena. The host's PC still
 // runs each game and streams it (boards/RealtimeBoards: useAirHockey,
-// useFoosball, useSpinner — shared with the flat boards); this only draws
-// it, smoothing between the snapshots so it moves at the screen's own rate.
+// useFoosball, useSpinner — shared with the flat boards, one live session per
+// match round however many boards show it); this only draws it, smoothing
+// between the snapshots so it moves at the screen's own rate.
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
@@ -137,7 +138,7 @@ class AirHockeyScene {
 }
 
 export function AirHockey3D(p: BoardProps) {
-  const { rec, view, setInput } = useAirHockey(p);
+  const { rec, view, setInput, status } = useAirHockey(p);
   const [hostRef, scene] = useScene((el) => new AirHockeyScene(el));
   const flip = p.seat === 1 && !p.local;
   const colours = useMemo(() => [label(p, 0, 2).color, label(p, 1, 2).color], [p]);
@@ -163,6 +164,9 @@ export function AirHockey3D(p: BoardProps) {
           {label(p, 0, 2).name} {goals[0]} — {goals[1]} {label(p, 1, 2).name} <span className="font-normal text-slate-400">· first to 5</span>
         </span>
       </BoardBar>
+      <div className="text-[12px] text-slate-500" data-live-status>
+        {status}
+      </div>
       <SceneBox hostRef={hostRef} aspect={0.95} minH={380} maxH={600} testId="airhockey" />
       <div className="text-[11px] text-slate-500">{p.local ? "Pass & play: one pointer moves the near mallet." : "Move the mouse over your half to move your mallet."}</div>
     </div>
@@ -321,7 +325,7 @@ class FoosballScene {
 }
 
 export function Foosball3D(p: BoardProps) {
-  const { rec, view, side, rod, pickRod, moveTo } = useFoosball(p);
+  const { rec, view, side, rod, pickRod, moveTo, status } = useFoosball(p);
   const [hostRef, scene] = useScene((el) => new FoosballScene(el));
   const colours = useMemo(() => [label(p, 0, 2).color, label(p, 1, 2).color], [p]);
   useEffect(() => scene?.setLook(colours, side, side === 1), [scene, colours, side]);
@@ -347,6 +351,9 @@ export function Foosball3D(p: BoardProps) {
           {label(p, 0, 2).name} {goals[0]} — {goals[1]} {label(p, 1, 2).name} <span className="font-normal text-slate-400">· first to 5</span>
         </span>
       </BoardBar>
+      <div className="text-[12px] text-slate-500" data-live-status>
+        {status}
+      </div>
       <SceneBox hostRef={hostRef} aspect={1.45} maxH={520} testId="foosball" />
       <div className="text-[11px] text-slate-500">Keys 1–4 (or click near a rod) pick a rod; move the mouse up and down; click or Space to kick.</div>
     </div>
@@ -464,7 +471,7 @@ class SpinnerScene {
 }
 
 export function Spinner3D(p: BoardProps) {
-  const { rec, n, view, setInput } = useSpinner(p);
+  const { rec, n, view, setInput, status } = useSpinner(p);
   const [hostRef, scene] = useScene((el) => new SpinnerScene(el));
   const colours = useMemo(() => Array.from({ length: n }, (_, i) => label(p, i, n).color), [p, n]);
   useEffect(() => scene?.setLook(n, colours), [scene, n, colours]);
@@ -488,13 +495,17 @@ export function Spinner3D(p: BoardProps) {
           {(rec?.out ?? []).map((o, i) => (
             <span key={i} className={`inline-flex items-center gap-1 ${o ? "line-through opacity-50" : ""}`}>
               <SeatDot color={colours[i]} size={10} /> {label(p, i, n).name} {view.wins[i] ?? 0}
+              {rec?.left[i] && <span className="font-normal text-slate-400">(left)</span>}
             </span>
           ))}
-          <span className="font-normal text-slate-400">round {view.round}/3</span>
+          <span className="font-normal text-slate-400">round wins · first to 2</span>
         </span>
       </BoardBar>
+      <div className="text-[12px] text-slate-500" data-live-status>
+        {status}
+      </div>
       <SceneBox hostRef={hostRef} aspect={1.15} maxH={560} testId="spinnerwars" />
-      <div className="text-[11px] text-slate-500">Your top chases the mouse. Bump the others out; a slow top wobbles and drops.</div>
+      <div className="text-[11px] text-slate-500">Your top chases the mouse. Bump the others out; a slow top wobbles and drops. First to win two rounds; a tie at the top plays on.</div>
     </div>
   );
 }
