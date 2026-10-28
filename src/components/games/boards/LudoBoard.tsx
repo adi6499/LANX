@@ -1,10 +1,10 @@
 import { Dice3D } from "./Dice3D";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
-import { FINISH, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
+import { FINISH, TRACK, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
 import { sfx } from "../../../lib/gameSounds";
 
-const C = 28; // cell size
+const C = 30; // cell size
 const SIZE = 15 * C;
 
 /** The 52 squares of the loop, clockwise from red's start, as [row, col]. */
@@ -35,21 +35,16 @@ export const SPOT: [number, number][] = [[1.5, 1.5], [1.5, 3.5], [3.5, 1.5], [3.
 
 type Pt = [number, number]; // [y, x] in pixels
 
-const CLASSIC = ["#f43f5e", "#0ea5e9", "#10b981", "#f59e0b"];
+/** LANX 2.17.1: Ludo King's strong colours, one per corner (top left, top right, bottom right, bottom left
+ *  of the unturned board) — the same in the flat board, the 3D board and the seat list. */
+export const LUDO_COLOURS = ["#e53935", "#2e9e44", "#f9b800", "#1e88e5"];
+export const LUDO_DARK = ["#a91f1c", "#1d6b2d", "#b07f00", "#1259a8"];
+/** A player's colour: the colour of the corner they sit at. */
+export const ludoColour = (player: number, n: number) => LUDO_COLOURS[ludoCorner(player, n)];
 
-/** Each corner's colour and who plays it (-1: nobody). The corners nobody plays take the
- *  classic colours the players don't use, so no colour appears twice. */
-export function cornerColours(n: number, colourOf: (p: number) => string): { colour: string; player: number }[] {
-  const taken = new Set<string>();
-  const out = [0, 1, 2, 3].map((c) => {
-    const p = ludoPlayerAt(c, n);
-    if (p < 0) return null;
-    const colour = colourOf(p);
-    taken.add(colour.toLowerCase());
-    return { colour, player: p };
-  });
-  const spare = CLASSIC.filter((x) => !taken.has(x));
-  return out.map((o) => o ?? { colour: spare.shift() ?? "#cbd5e1", player: -1 });
+/** Each corner's colour and who plays it (-1: nobody). Every corner keeps its full colour, as on a real board. */
+export function cornerColours(n: number): { colour: string; player: number }[] {
+  return [0, 1, 2, 3].map((c) => ({ colour: LUDO_COLOURS[c], player: ludoPlayerAt(c, n) }));
 }
 
 /** LANX 2.17.0: when only one move is possible, the token moves by itself after a moment (as in Ludo King). */
@@ -202,104 +197,213 @@ function useLudoMotion(state: LudoState | null, moves: string[], n: number) {
   };
 }
 
-/** Ludo: Roll, then click the token to move. */
-export function LudoBoard({ moves, canPlay, turn, seats, starter = 0, seed = "", onMove }: BoardProps) {
+/** Ludo: Roll, then click the token to move. LANX 2.17.1: the look of Ludo King — four strong colours,
+ *  pin tokens, your colour at the bottom left, a player plate at each corner with the die. */
+export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
   const n = Math.max(2, Math.min(4, seats?.length ?? 2));
   const state = useMemo(() => ludo.replay(moves, n, seed), [moves, n, seed]);
   const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
   const place = useLudoMotion(state, moves, n);
   useLudoAutoMove(state, canPlay, onMove, 800);
   if (!state) return null;
-  const colour = (p: number) => seatFor(seats, starter, p, n).color;
-  const name = (p: number) => seatFor(seats, starter, p, n).name;
+  const me = local ? -1 : Math.max(0, seat);
+  const name = (p: number) => (p === me ? "You" : seatFor(seats, starter, p, n).name.split(" (")[0]);
+  const colour = (p: number) => ludoColour(p, n);
   const movable = canPlay && state.roll ? ludoMovable(state) : [];
-  // Every corner keeps its colour, like a real board; the corners nobody plays are paler.
-  const corners = cornerColours(n, colour);
-  const tint = (c: number) => corners[c].colour;
-  const strength = (c: number) => (corners[c].player >= 0 ? 1 : 0.32);
-  const startPlayer = (i: number) => [0, 1, 2, 3].find((c) => startOf(c) === i) ?? -1;
+  const startCorner = (i: number) => [0, 1, 2, 3].find((c) => startOf(c) === i) ?? -1;
   const said = ludoEventText(state, name);
-  const tokens = state.pos.flatMap((list, p) =>
+  // Your colour sits at the bottom left (as in Ludo King); at one PC the board stays put.
+  const k = me < 0 ? 0 : (3 - ludoCorner(me, n) + 4) % 4;
+  const spin = (p: Pt): Pt => {
+    let [y, x] = p;
+    for (let i = 0; i < k; i++) [x, y] = [SIZE - y, x];
+    return [y, x];
+  };
+  const screenCorner = (c: number) => (c + k) % 4; // 0 top left, 1 top right, 2 bottom right, 3 bottom left
+  const cornerAt = (s: number) => [0, 1, 2, 3].find((c) => screenCorner(c) === s) ?? 0;
+
+  // Tokens: where each stands on screen; tokens sharing a square stand side by side, smaller.
+  const placed = state.pos.flatMap((list, p) =>
     list.map((rel, t) => {
-      const rest = cellOf(ludoCorner(p, n), rel, t);
-      const stack = rel >= 0 && rel < FINISH ? list.filter((o, k) => k < t && o === rel).length : 0;
-      const at = place(`${p}-${t}`, [rest[0] - stack * 4, rest[1] + stack * 4]);
-      return { p, t, rel, at, can: p === turn && movable.includes(t) };
+      const at = place(`${p}-${t}`, cellOf(ludoCorner(p, n), rel, t));
+      const [y, x] = spin([at.y, at.x]);
+      return { p, t, rel, x, y, lift: at.lift, moving: at.moving, can: p === turn && movable.includes(t) };
     }),
   );
-  // Moving tokens are drawn last, so they pass over the others.
-  tokens.sort((a, b) => Number(a.at.moving) - Number(b.at.moving));
-  return (
-    <div data-game-board="ludo" className="flex flex-col items-center gap-2">
-      <div className="flex items-center gap-3 text-[12.5px] font-semibold">
-        {state.lastRoll > 0 && (
-          <span className="inline-flex items-center gap-1.5" data-ludo-last>
-            <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(state.roller) }} /> <Dice3D value={state.lastRoll} size={30} rollKey={rolls} />
-            {said && <span className="text-slate-500 font-normal" data-ludo-event={state.event || "six"}>· {said}</span>}
-          </span>
+  const groups = new Map<string, number[]>();
+  placed.forEach((tk, i) => {
+    if (tk.moving || tk.rel < 0) return;
+    const key = `${Math.round(tk.x)},${Math.round(tk.y)}`;
+    groups.set(key, [...(groups.get(key) ?? []), i]);
+  });
+  const offsetOf = new Map<number, { dx: number; dy: number; s: number }>();
+  for (const ids of groups.values()) {
+    if (ids.length < 2) continue;
+    const offs = ids.length === 2 ? [[-0.2, 0], [0.2, 0]] : [[-0.2, -0.16], [0.2, -0.16], [-0.2, 0.18], [0.2, 0.18]];
+    ids.forEach((id, j) => {
+      const [ox, oy] = offs[j % offs.length];
+      offsetOf.set(id, { dx: ox * C, dy: oy * C, s: ids.length === 2 ? 0.8 : 0.66 });
+    });
+  }
+  const tokens = placed.map((tk, i) => ({ ...tk, off: offsetOf.get(i) ?? { dx: 0, dy: 0, s: 1 } }));
+  // Moving tokens are drawn last, so they pass over the others; then by height, so lower pins overlap higher ones.
+  tokens.sort((a, b) => Number(a.moving) - Number(b.moving) || a.y + a.off.dy - (b.y + b.off.dy));
+
+  const home = (p: number) => state.pos[p].filter((x) => x === FINISH).length;
+  const canRoll = canPlay && !state.roll && state.winner === null;
+  const plate = (s: number) => {
+    const c = cornerAt(s);
+    const p = ludoPlayerAt(c, n);
+    if (p < 0) return <div className="h-[58px] flex-1" />;
+    const active = p === turn && state.winner === null;
+    const out = state.out[p];
+    return (
+      <div
+        className={`flex h-[58px] flex-1 items-center gap-2.5 rounded-2xl px-3 transition-shadow ${s % 3 === 0 ? "" : "flex-row-reverse text-right"} ${active ? "bg-white shadow-md dark:bg-slate-800" : "bg-white/60 dark:bg-slate-800/50"}`}
+        style={active ? { boxShadow: `0 0 0 2.5px ${LUDO_COLOURS[c]}` } : undefined}
+        data-ludo-plate={p}
+        data-ludo-active={active ? "1" : undefined}
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[14px] font-bold text-white" style={{ backgroundColor: LUDO_COLOURS[c], opacity: out ? 0.4 : 1 }}>
+          {seatFor(seats, starter, p, n).name.slice(0, 1).toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className={`truncate text-[13px] font-semibold text-slate-900 dark:text-white ${out ? "line-through opacity-50" : ""}`}>{name(p)}</div>
+          <div className="text-[11px] text-slate-500">{out ? "left the game" : `${home(p)}/4 home`}</div>
+        </div>
+        {active && (
+          <div
+            role="button"
+            tabIndex={canRoll ? 0 : -1}
+            data-ludo-roll
+            aria-disabled={!canRoll}
+            {...(canRoll ? {} : ({ disabled: "" } as Record<string, string>))}
+            onClick={() => canRoll && onMove("r")}
+            onKeyDown={(e) => canRoll && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onMove("r"))}
+            aria-label={canRoll ? "Roll the die" : "The die"}
+            className={`flex shrink-0 select-none items-center justify-center rounded-xl p-1 ${canRoll ? "ludo-roll cursor-pointer active:scale-95" : "cursor-default"}`}
+            style={{ backgroundColor: `${LUDO_COLOURS[c]}22`, boxShadow: canRoll ? `0 0 0 2px ${LUDO_COLOURS[c]}` : undefined }}
+          >
+            {state.lastRoll > 0 && state.roller === p ? (
+              <span data-ludo-last>
+                <Dice3D value={state.lastRoll} size={32} rollKey={rolls} />
+              </span>
+            ) : (
+              <Dice3D value={6} size={32} />
+            )}
+          </div>
         )}
-        <button type="button" data-ludo-roll disabled={!canPlay || state.roll > 0} onClick={() => onMove("r")} className="rounded-full bg-indigo-600 px-4 py-1.5 text-white hover:bg-indigo-700 disabled:opacity-50">
-          🎲 Roll
-        </button>
-        {state.roll > 0 && canPlay && <span className="text-indigo-600 dark:text-indigo-300">{movable.length > 1 && ludoChoices(state).length > 1 ? `Pick a token to move ${state.roll}` : `Moving ${state.roll}…`}</span>}
-        {!state.roll && canPlay && state.again && <span className="text-indigo-600 dark:text-indigo-300" data-ludo-again>Roll again!</span>}
       </div>
-      <svg width={SIZE} height={SIZE} className="rounded-2xl shadow-lg ring-1 ring-black/10 select-none" style={{ background: "#ffffff" }} data-ludo-classic>
+    );
+  };
+  const r = C * 0.3;
+  const h = C * 0.24;
+  const tip = C * 0.38;
+  const PIN = `M 0 ${tip} Q ${-r * 0.95} ${-h + r * 0.55} ${-r} ${-h} A ${r} ${r} 0 1 1 ${r} ${-h} Q ${r * 0.95} ${-h + r * 0.55} 0 ${tip} Z`;
+  const status = state.winner !== null
+    ? `${name(state.winner)} ${state.winner === me ? "win" : "wins"}!`
+    : state.roll > 0 && canPlay
+      ? movable.length > 1 && ludoChoices(state).length > 1
+        ? `Pick a token to move ${state.roll}`
+        : `Moving ${state.roll}…`
+      : canPlay
+        ? state.again
+          ? "Roll again!"
+          : "Your turn — tap your die to roll"
+        : `${name(turn)}'s turn`;
+
+  return (
+    <div data-game-board="ludo" className="flex flex-col items-center gap-2" style={{ width: SIZE }}>
+      <div className="flex w-full gap-3">
+        {plate(0)}
+        {plate(1)}
+      </div>
+      <svg width={SIZE} height={SIZE} className="select-none rounded-[14px] shadow-lg" style={{ background: "#ffffff" }} data-ludo-classic>
         <defs>
-          <radialGradient id="g3gloss" cx="0.5" cy="0.5" r="0.5">
-            <stop offset="0" stopColor="#fff" stopOpacity="0.95" />
-            <stop offset="1" stopColor="#fff" stopOpacity="0" />
-          </radialGradient>
           <clipPath id="ludoRound">
-            <rect width={SIZE} height={SIZE} rx={16} />
+            <rect width={SIZE} height={SIZE} rx={14} />
           </clipPath>
+          <style>{`
+            .ludo-bob { animation: ludoBob 0.9s ease-in-out infinite; }
+            .ludo-glow { animation: ludoGlow 1.4s ease-in-out infinite; }
+            @keyframes ludoBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(${-C * 0.18}px); } }
+            @keyframes ludoGlow { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
+            @media (prefers-reduced-motion: reduce) { .ludo-bob, .ludo-glow { animation: none; } }
+          `}</style>
         </defs>
         <g clipPath="url(#ludoRound)">
-          {/* yards: a coloured corner, a white court, four token bases */}
-          {YARD.map(([r, c], p) => (
-            <g key={p} opacity={strength(p)}>
-              <rect x={c * C} y={r * C} width={6 * C} height={6 * C} fill={tint(p)} />
-              <rect x={c * C + C * 0.8} y={r * C + C * 0.8} width={C * 4.4} height={C * 4.4} fill="#fff" rx={10} />
-              {SPOT.map(([dr, dc], k) => (
-                <circle key={k} cx={(c + dc) * C + C / 2} cy={(r + dr) * C + C / 2} r={C * 0.58} fill={tint(p)} fillOpacity={0.22} stroke={tint(p)} strokeWidth={2} />
-              ))}
-            </g>
-          ))}
-          {/* loop squares: each player's start in their colour; stars on the safe squares */}
-          {LOOP.map(([r, c], i) => {
-            const sp = startPlayer(i);
-            return (
-              <g key={i}>
-                <rect data-ludo-square={i} x={c * C} y={r * C} width={C} height={C} fill={sp >= 0 ? tint(sp) : "#fff"} fillOpacity={sp >= 0 ? strength(sp) : 1} stroke="#cbd5e1" strokeWidth={1} />
-                {SAFE.has(i) && <polygon points={star(c * C + C / 2, r * C + C / 2, C * 0.34)} fill={sp >= 0 ? "#fff" : "none"} stroke={sp >= 0 ? "none" : "#94a3b8"} strokeWidth={1.4} strokeLinejoin="round" pointerEvents="none" />}
-              </g>
-            );
-          })}
-          {/* home columns, in full colour */}
-          {HOME.map((cells, p) => cells.slice(0, 5).map(([r, c], k) => <rect key={`${p}-${k}`} x={c * C} y={r * C} width={C} height={C} fill={tint(p)} fillOpacity={strength(p) * 0.9} stroke="#cbd5e1" />))}
-          {/* the centre: four triangles pointing home */}
-          <rect x={6 * C} y={6 * C} width={3 * C} height={3 * C} fill="#fff" />
-          <polygon points={`${6 * C},${6 * C} ${9 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={tint(1)} fillOpacity={strength(1)} stroke="#fff" strokeWidth={1.5} />
-          <polygon points={`${9 * C},${6 * C} ${9 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={tint(2)} fillOpacity={strength(2)} stroke="#fff" strokeWidth={1.5} />
-          <polygon points={`${9 * C},${9 * C} ${6 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={tint(3)} fillOpacity={strength(3)} stroke="#fff" strokeWidth={1.5} />
-          <polygon points={`${6 * C},${9 * C} ${6 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={tint(0)} fillOpacity={strength(0)} stroke="#fff" strokeWidth={1.5} />
+          <g transform={`rotate(${k * 90} ${SIZE / 2} ${SIZE / 2})`}>
+            {/* yards: a strong coloured corner, a white court, four coloured token spots */}
+            {YARD.map(([yr, yc], c) => {
+              const active = ludoPlayerAt(c, n) === turn && state.winner === null;
+              return (
+                <g key={c}>
+                  <rect x={yc * C} y={yr * C} width={6 * C} height={6 * C} fill={LUDO_COLOURS[c]} />
+                  <rect x={yc * C + C * 0.7} y={yr * C + C * 0.7} width={C * 4.6} height={C * 4.6} fill="#fff" rx={C * 0.5} />
+                  {active && <rect className="ludo-glow" x={yc * C + C * 0.45} y={yr * C + C * 0.45} width={C * 5.1} height={C * 5.1} rx={C * 0.65} fill="none" stroke="#fff" strokeWidth={C * 0.16} />}
+                  {SPOT.map(([dr, dc], s) => (
+                    <circle key={s} cx={(yc + dc) * C + C / 2} cy={(yr + dr) * C + C / 2} r={C * 0.62} fill={LUDO_COLOURS[c]} stroke={LUDO_DARK[c]} strokeWidth={1.5} />
+                  ))}
+                </g>
+              );
+            })}
+            {/* the track: white squares; each start square in its colour with a star; grey stars on the safe squares */}
+            {LOOP.map(([rr, cc], i) => {
+              const sc = startCorner(i);
+              return (
+                <g key={i}>
+                  <rect data-ludo-square={i} x={cc * C} y={rr * C} width={C} height={C} fill={sc >= 0 ? LUDO_COLOURS[sc] : "#fff"} stroke="#c9d1d9" strokeWidth={1} />
+                  {SAFE.has(i) && <polygon points={star(cc * C + C / 2, rr * C + C / 2, C * 0.36)} fill={sc >= 0 ? "#fff" : "none"} stroke={sc >= 0 ? "none" : "#9aa5b1"} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none" />}
+                </g>
+              );
+            })}
+            {/* home lanes in full colour, with an arrow where each colour turns in */}
+            {HOME.map((cells, c) => cells.slice(0, 5).map(([rr, cc], j) => <rect key={`${c}-${j}`} x={cc * C} y={rr * C} width={C} height={C} fill={LUDO_COLOURS[c]} stroke="#c9d1d9" />))}
+            {[0, 1, 2, 3].map((c) => {
+              const [er, ec] = LOOP[(startOf(c) + 50) % TRACK];
+              const [hr, hc] = HOME[c][0];
+              const ang = (Math.atan2(hr - er, hc - ec) * 180) / Math.PI;
+              const cx = ec * C + C / 2;
+              const cy = er * C + C / 2;
+              return <polygon key={c} points={`${cx + C * 0.3},${cy} ${cx - C * 0.18},${cy - C * 0.26} ${cx - C * 0.18},${cy + C * 0.26}`} transform={`rotate(${ang} ${cx} ${cy})`} fill={LUDO_COLOURS[c]} pointerEvents="none" />;
+            })}
+            {/* the centre: four triangles pointing home */}
+            <polygon points={`${6 * C},${6 * C} ${9 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[1]} />
+            <polygon points={`${9 * C},${6 * C} ${9 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[2]} />
+            <polygon points={`${9 * C},${9 * C} ${6 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[3]} />
+            <polygon points={`${6 * C},${9 * C} ${6 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[0]} />
+          </g>
         </g>
-        {/* tokens */}
-        {tokens.map(({ p, t, rel, at, can }) => {
-          const { x, y, lift } = at;
+        {/* tokens: pins that stand upright whichever way the board is turned */}
+        {tokens.map(({ p, t, rel, x, y, lift, can, off }) => {
+          const col = colour(p);
+          const dark = LUDO_DARK[ludoCorner(p, n)];
+          const s = off.s * (1 + lift * 0.12);
           return (
             <g key={`${p}-${t}`} data-ludo-token={`${p}:${t}`} data-ludo-pos={rel} data-ludo-can={can ? "1" : undefined} className={can ? "cursor-pointer" : ""} onClick={() => can && onMove(`m:${t}`)}>
-              <ellipse className="g3-shadow" cx={x + 1.5} cy={y + 3} rx={10 - lift * 2} ry={9 - lift * 2} fill="#0f172a" opacity={0.28 - lift * 0.12} />
-              <g transform={`translate(${x.toFixed(2)} ${(y - lift * 8).toFixed(2)}) scale(${(1 + lift * 0.14).toFixed(3)})`}>
-                <circle r={10.5} fill={colour(p)} stroke="#fff" strokeWidth={2.5} />
-                <circle r={4.6} fill="none" stroke="#fff" strokeOpacity={0.55} strokeWidth={1.6} />
-                <circle className="g3-gloss" cx={-3} cy={-3.5} r={4.5} fill="url(#g3gloss)" pointerEvents="none" />
-                {can && <circle r={13.5} fill="none" stroke="#4f46e5" strokeWidth={3} className="animate-pulse" />}
+              <g transform={`translate(${(x + off.dx).toFixed(2)} ${(y + off.dy - lift * 8).toFixed(2)}) scale(${s.toFixed(3)})`}>
+                <ellipse cx={0} cy={tip + lift * 8} rx={C * 0.28 * (1 - lift * 0.3)} ry={C * 0.09} fill="#0f172a" opacity={0.28 - lift * 0.12} />
+                {can && <ellipse className="ludo-glow" cx={0} cy={tip} rx={C * 0.42} ry={C * 0.16} fill="none" stroke={col} strokeWidth={2.5} />}
+                <g className={can ? "ludo-bob" : ""}>
+                  <path d={PIN} fill={col} stroke={dark} strokeWidth={1.3} strokeLinejoin="round" />
+                  <circle cx={0} cy={-h} r={C * 0.15} fill="#fff" />
+                  <circle cx={0} cy={-h} r={C * 0.085} fill={col} />
+                  <ellipse cx={-r * 0.45} cy={-h - r * 0.45} rx={r * 0.18} ry={r * 0.3} fill="#fff" opacity={0.55} transform={`rotate(-30 ${-r * 0.45} ${-h - r * 0.45})`} />
+                </g>
               </g>
             </g>
           );
         })}
       </svg>
+      <div className="flex w-full gap-3">
+        {plate(3)}
+        {plate(2)}
+      </div>
+      <div className="min-h-[20px] text-center text-[12.5px] font-semibold text-slate-700 dark:text-slate-200" data-ludo-status>
+        {status}
+        {said && <span className="font-normal text-slate-500" data-ludo-event={state.event || "six"}> · {said}</span>}
+        {!state.roll && canPlay && state.again && <span className="sr-only" data-ludo-again>Roll again!</span>}
+      </div>
     </div>
   );
 }

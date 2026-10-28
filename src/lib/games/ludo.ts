@@ -6,7 +6,7 @@
 // - land on a lone enemy token and it goes back to its yard, except on the eight
 //   safe squares (the four start squares and the four stars); two tokens of one
 //   colour on a square are safe too;
-// - you need the exact number to get a token into the centre;
+// - you need the exact number to get a token into the centre (five home squares, then home);
 // - with two players you sit on opposite corners.
 // First to bring all four home wins. Someone who leaves ("x<p>") is out: their
 // tokens leave the board and the turn skips them; the last one in wins.
@@ -17,8 +17,8 @@
 import { ON, dice, lastIn, leaver, nextIn, win, type GameDef, type Outcome } from "./core.ts";
 
 export const TRACK = 52;
-export const HOME_COL = 6; // 51..56 are the home column, 57 = in
-export const FINISH = 57;
+export const HOME_COL = 5; // 51..55 are the home column, 56 = in (2.17.1: five squares, as on a real board)
+export const FINISH = 56;
 export const SAFE = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 
 /** What just happened, for the boards to put into words with the players' names. */

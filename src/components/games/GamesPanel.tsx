@@ -12,6 +12,7 @@ import * as games from "../../lib/games";
 import { GAMES, GROUP_LABEL, type GameCardData, type GameId, type GameMeta, type Match, type SoloId } from "../../lib/games";
 import { ChainReactionBoard, ChessBoard, ChessMoves, ConnectFourBoard, ReversiBoard, TicTacToeBoard, type BoardProps } from "./Boards";
 import { BOARDS } from "./boards/index";
+import { ludoColour } from "./boards/LudoBoard";
 import { summaryOf, turnOf } from "../../lib/gameRules";
 import { Game2048, Minesweeper, SnakeGame } from "./Solo";
 import { gameSoundOn, setGameSound, sfx } from "../../lib/gameSounds";
@@ -510,6 +511,8 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
     games.setShowing(m.id);
     return () => games.setShowing(null);
   }, [m.id]);
+  // LANX 2.17.1: in Ludo a player's colour is their corner's (as on the board).
+  const dot = (i: number) => (m.game === "ludo" ? ludoColour(games.playerOf(m, i), m.seats.length) : m.seats[i]?.color || "#6366f1");
   // LANX 2.17.0: who really moves first (the 2♣ in Hearts, the player after the dealer in Spades).
   const firstMover = useMemo(() => turnOf(m.game, [], m.seats.length, games.seedOf(m)), [m.game, m.seats.length, m.id, m.round]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setSure(false), [m.id, m.round]);
@@ -619,11 +622,11 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
               const toMove = m.status === "playing" && seatNow === i;
               return (
                 <div key={s.id} className={`flex items-center gap-2 rounded-xl px-2 py-1.5 ${toMove ? "bg-indigo-500/10 ring-1 ring-indigo-500/40" : ""} ${gone ? "opacity-50" : ""}`} data-game-seat={i} data-game-joined={joined ? s.id : undefined}>
-                  {m.mode !== "local" && !isMe ? <Avatar name={s.name} color={s.color || "#6366f1"} size={28} /> : <span className="h-7 w-7 rounded-full flex items-center justify-center text-[12px] font-bold text-white" style={{ backgroundColor: s.color }}>{i + 1}</span>}
+                  {m.mode !== "local" && !isMe ? <Avatar name={s.name} color={dot(i)} size={28} /> : <span className="h-7 w-7 rounded-full flex items-center justify-center text-[12px] font-bold text-white" style={{ backgroundColor: dot(i) }}>{i + 1}</span>}
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12.5px] font-semibold text-slate-900 dark:text-white">{name}</div>
                     <div className="text-[10.5px] text-slate-500 flex items-center gap-1">
-                      {sides ? sides[p] : <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.color }} />}
+                      {sides ? sides[p] : <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dot(i) }} />}
                       {p === firstMover && m.status !== "lobby" ? " · starts" : ""}
                       {gone ? " · left" : m.status === "lobby" ? (joined ? " · joined" : " · invited") : ""}
                     </div>

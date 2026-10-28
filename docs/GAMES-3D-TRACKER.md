@@ -73,7 +73,7 @@ scenario in the test lab (dev-only `lab.html`).
 | 14 | Go | go | board | 2 | Grid3D | Goban, stones, captures lift away | none | generic | Done |
 | 15 | Mancala | mancala | board | 2 | Mancala3D | Carved board, seeds sown one by one | none | generic | Done |
 | 16 | Mahjong Duels | mahjong | board | 2–4 | Tiles3D | Thick tiles lift away in pairs | none | generic | Done |
-| 17 | Ludo | ludo | dice | 2–4 | Ludo3D | Wooden board, pawns hop square by square, knocked pawns fly home. 2.16.1: the flat board hops too, with a classic look | Rapier die | ludo, ludoflat, ludoknock | Done |
+| 17 | Ludo | ludo | dice | 2–4 | Ludo3D | Wooden board, pawns hop square by square, knocked pawns fly home. 2.16.1: the flat board hops too. 2.17.0: Ludo King rules (opposite corners for two, bonus rolls, three sixes, auto move). 2.17.1: Ludo King look (four strong colours, your corner bottom-left, pin tokens, player plates with the die) and a five-square home stretch | Rapier die | ludo, ludorules, ludoflat, ludoknock, ludoking | Done |
 | 18 | Snakes & Ladders | snakes | dice | 2–8 | Snakes3D | Ladders, curling snakes, pawns climb and slide | Rapier die | snakes | Done |
 | 19 | Bankroll | bankroll | dice | 2–6 | DiceBoards3D | Ring of streets, pawns walk, houses in owner's colour | Rapier dice | dicegames | Done |
 | 20 | Backgammon | backgammon | dice | 2 | DiceBoards3D | Wooden case, stacked checkers, bar and bear-off tray | Rapier dice | dicegames | Done |

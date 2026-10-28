@@ -5,6 +5,7 @@ import "@fontsource/plus-jakarta-sans/400.css";
 import "@fontsource/plus-jakarta-sans/600.css";
 import "@fontsource/plus-jakarta-sans/700.css";
 import "../App.css";
+import "../components/games/games3d.css";
 import { StrictMode, Suspense, useCallback, useMemo, useState, type ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 import { GAMES } from "../lib/games";

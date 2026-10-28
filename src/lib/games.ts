@@ -131,8 +131,10 @@ export function findGame(query: string): GameMeta | undefined {
 const SEAT_COLOURS = ["#f43f5e", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#f97316", "#14b8a6", "#ec4899", "#84cc16", "#6366f1", "#06b6d4", "#d946ef"];
 /** LANX 2.17.0: games whose rules changed in 2.17.0 — both PCs need 2.17.0 (src-tauri RULES_2170_GAMES). */
 export const RULES_2170 = new Set<string>(["ludo", "dots", "memory", "minesvs", "mahjong", "battleship", "go", "hex", "checkers", "taproulette", "mathrush", "trivia", "drawguess", "wordbox", "paintfight", "werewolf", "airhockey", "foosball", "spinnerwars", "hearts", "spades", "euchre", "blackjack", "ginrummy", "holdem", "ocho", "crazy8", "gofish", "snakes", "bankroll", "backgammon", "dominoes", "carrom", "pool", "cuppong", "bowling", "darts", "minigolf", "archery"]);
+/** LANX 2.17.1: Ludo's home stretch was fixed (five squares), so Ludo needs 2.17.1 on both PCs. */
+export const RULES_2171 = new Set<string>(["ludo"]);
 /** The oldest LANX a colleague needs to play this game with you. */
-export const needsVersion = (id: string) => (RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
+export const needsVersion = (id: string) => (RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
 /** Whether this many players can sit at the game. */
 export const sizeOk = (meta: GameMeta | undefined, n: number) => !!meta && n >= meta.minPlayers && n <= meta.maxPlayers && (!meta.sizes || meta.sizes.includes(n));
 

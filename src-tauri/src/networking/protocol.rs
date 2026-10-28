@@ -102,6 +102,9 @@ pub const FEATURES_GAMES_C: &str = "2.12.0";
 /// LANX 2.17.0: games whose rules were brought in line with how people really play them
 /// (a copy with the old rules would replay the same moves differently, so both need 2.17.0).
 pub const FEATURES_RULES_2170: &str = "2.17.0";
+/// LANX 2.17.1: Ludo's home stretch was a square too long; both PCs need 2.17.1 for Ludo.
+pub const FEATURES_RULES_2171: &str = "2.17.1";
+pub const RULES_2171_GAMES: [&str; 1] = ["ludo"];
 /// The games whose rules changed in 2.17.0 (mirrors RULES_2170 in src/lib/games.ts).
 pub const RULES_2170_GAMES: [&str; 39] = [
     "ludo",

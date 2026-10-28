@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
 import { seatFor, type BoardProps } from "../../boardProps";
 import { FINISH, SAFE, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, toAbsolute, type LudoState } from "../../../../lib/games/ludo.ts";
-import { HOME, LOOP, SPOT, YARD, cornerColours, useLudoAutoMove } from "../../boards/LudoBoard";
+import { HOME, LOOP, SPOT, YARD, cornerColours, ludoColour, useLudoAutoMove } from "../../boards/LudoBoard";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
 import { FONT, boardSlab, canvasTexture, felt, hop, markerDot, markerRing, mesh, pawnGeometry, plastic, repaint, roundRect, slab, wood } from "../kit";
@@ -355,21 +355,12 @@ class LudoScene extends TurnScene<LudoState> {
   }
 }
 
-/** A corner nobody plays: its colour, much lighter. */
-function pale(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return "#e2e8f0";
-  const v = parseInt(m[1], 16);
-  const mix = (x: number) => Math.round(x + (255 - x) * 0.68);
-  return `#${[(v >> 16) & 255, (v >> 8) & 255, v & 255].map((x) => mix(x).toString(16).padStart(2, "0")).join("")}`;
-}
-
 /** Ludo, the 3D board. */
 export default function Ludo3D({ moves, canPlay, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
   const n = Math.max(2, Math.min(4, seats?.length ?? 2));
   const state = useMemo(() => ludo.replay(moves, n, seed), [moves, n, seed]);
-  // Each corner's colour; the corners nobody plays are pale (2.17.0).
-  const colours = useMemo(() => cornerColours(n, (p) => seatFor(seats, starter, p, n).color).map((c) => (c.player >= 0 ? c.colour : pale(c.colour))), [seats, starter, n]);
+  // Each corner's colour — Ludo King's four, every corner full (2.17.1).
+  const colours = useMemo(() => cornerColours(n).map((c) => c.colour), [n]);
   const me = local ? 0 : Math.max(0, seat);
   const move = useRef(onMove);
   move.current = onMove;
@@ -382,7 +373,7 @@ export default function Ludo3D({ moves, canPlay, seat, seats, starter = 0, seed 
   }, [scene, canPlay, state, movable]);
   useLudoAutoMove(state, canPlay, onMove, 900);
   if (!state) return null;
-  const colour = (p: number) => seatFor(seats, starter, p, n).color;
+  const colour = (p: number) => ludoColour(p, n);
   const said = ludoEventText(state, (p) => seatFor(seats, starter, p, n).name);
   const choose = movable.length > 1 && ludoChoices(state).length > 1;
   const actions: Action[] = movable.map((t) => ({ key: `t${t}`, label: `Move token ${t + 1}`, run: () => onMove(`m:${t}`), attrs: { "data-ludo-token": `${state.turn}:${t}`, "data-ludo-can": "1" } }));
