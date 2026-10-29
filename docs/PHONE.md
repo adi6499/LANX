@@ -28,6 +28,16 @@ more and the PC asks *Allow?* again.
   downloaded them. Pictures show inline; videos play; anything else downloads.
 - Reading a chat on the phone marks it read on the PC (and sends "seen").
 - **Who's in**: the same list as the PC, tap a person to chat.
+- (3.1) Hold a message: quick reactions, Reply, Forward, Copy, Star, Pin,
+  Remind me (with "only if nobody replied"), Edit, Delete for me / everyone.
+  The **+** button: a file, a sticker (the 24 LANX stickers), a quick reply
+  ("/" in the box lists them), "Send later" (the chat shows what is waiting;
+  cancel from the phone). @mentions in groups, a pinned bar, search (type in
+  the search box, Enter), Starred messages.
+- (3.1) Groups: create (name + people), tap the group's name for its page —
+  rename, add or remove people (the one who made it), leave.
+- (3.1) Files tab: everything the PC sent or received, with progress; Accept,
+  Decline, Cancel, Try again; download finished files to the phone.
 - Light and dark follow the phone.
 - Removing a phone in Settings disconnects it at once; its token is dead.
 
@@ -64,15 +74,22 @@ more and the PC asks *Allow?* again.
   out). First message `{"op":"auth","token":…}`; then requests
   `{"id","op",…}` → `{"id","ok",…}` and pushes `{"ev",…}`.
 - `src-tauri/src/phone/api.rs` — the ops (`hello`, `conversations`, `peers`,
-  `messages`, `send`, `read`, `typing`, `open`) call the same engine functions
+  `messages`, `send`, `read`, `typing`, `open`; 3.1: `react`, `sticker`,
+  `edit`, `delete`, `forward`, `star`, `pin`, `starred`, `search`, `later`,
+  `scheduled`, `cancel_later`, `remind`, `cancel_remind`, `group_create`,
+  `group`, `group_update`, `group_leave`, `transfers`, `accept`, `cancel`,
+  `retry`; pushes also `progress` (≤ 2/s per transfer), `scheduled`,
+  `reminder`) call the same engine functions
   the window uses (`send_message_full`, `mark_read_and_notify`, …); every
   window event passes through `Events::emit`, which the phone server taps
   (`events.rs`) and maps to pushes (`message`, `transfer`, `deleted`, `peer`,
   `peer-offline`, `profile`, `typing`, `read`, `reload`, `lock`). PIN lock and
   hidden chats are respected exactly as in the window.
 - `src/phone/` — the page (React + the app's own CSS tokens, no Tauri):
-  `client.ts` (pairing, the socket, uploads), `PhoneApp.tsx` (connect, chats,
-  chat, who's in), `phone.css`. Built by `vite.phone.config.ts` into
+  `client.ts` (pairing, the socket, uploads, every op), `PhoneApp.tsx`
+  (connect, the state and navigation), `ChatView.tsx` (a chat, the composer,
+  the message actions), `screens.tsx` (chats, who's in, files, groups, search
+  results, forward picker), `parts.tsx` (bubbles, sheets), `phone.css`. Built by `vite.phone.config.ts` into
   `src-tauri/phone-dist/`; `build.rs` lists every file there for
   `include_bytes!`, so `lanx.exe` carries the whole page.
 - `src/components/phone/` — Settings → Phone (`PhonePanel`), the QR code drawn
@@ -91,7 +108,9 @@ more and the PC asks *Allow?* again.
   picks its port; with `LANX_BIND=127.0.0.1` the QR address is loopback.
   The end-to-end script (`run300.mjs`) drives two copies and a phone-sized
   headless Edge through pairing, chat both ways, a photo, typing, read marks,
-  dark mode, a reload and removal.
+  dark mode, a reload and removal; `run310.mjs` adds the 3.1 extras (react,
+  reply, edit, star, pin, remind, sticker, quick reply, send later, forward,
+  delete, search, starred, a group with an @mention, accepting a file).
 
 ## Troubleshooting
 

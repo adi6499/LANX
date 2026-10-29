@@ -234,6 +234,37 @@ async fn ws_wait<F: Fn(&Value) -> bool>(s: &mut TcpStream, pred: F, secs: u64) -
     None
 }
 
+/// Sends request `id` and returns its reply (pushes on the way are skipped).
+async fn ask(s: &mut TcpStream, id: i64, mut req: Value) -> Value {
+    req["id"] = json!(id);
+    ws_send(s, &req).await;
+    ws_wait(s, |v| v["id"] == id, 10).await.unwrap_or_else(|| panic!("no reply to request {}", id))
+}
+
+/// Sends request `id` and returns its reply, having also seen a push matching
+/// `pred` — before or after the reply, since a push caused by the request
+/// races with the reply itself.
+async fn ask_and_push<F: Fn(&Value) -> bool>(s: &mut TcpStream, id: i64, mut req: Value, pred: F) -> Value {
+    req["id"] = json!(id);
+    ws_send(s, &req).await;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut reply = None;
+    let mut pushed = false;
+    while Instant::now() < deadline && !(reply.is_some() && pushed) {
+        let v = match tokio::time::timeout(deadline - Instant::now(), ws_next(s)).await {
+            Ok(v) => v,
+            Err(_) => break,
+        };
+        if v["id"] == id {
+            reply = Some(v);
+        } else if pred(&v) {
+            pushed = true;
+        }
+    }
+    assert!(pushed, "the push for request {} never came", id);
+    reply.unwrap_or_else(|| panic!("no reply to request {}", id))
+}
+
 // ------------------------------------------------------------------ tests
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -432,4 +463,225 @@ async fn a_locked_pc_tells_the_phone_nothing() {
     assert_eq!(r["ok"], false);
     assert_eq!(r["error"], "LOCKED");
     assert_eq!(http(port, "GET", "/api/file/x", &[("Cookie", &format!("lanx_phone={}", token))], b"").await.status, 423);
+}
+
+/// LANX 3.1: everything else the desktop can do, done from the phone —
+/// stickers, reactions, edits, stars, pins, search, "send later", "remind
+/// me", groups, the Files list, and deleting — each one reaching Bharat (or
+/// the database) through the PC like the desktop's own actions do.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_does_everything_the_desktop_does() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let conv_a = link(&a, &b).await;
+    let (phone, port, _cancel) = phone_server(&a.svc).await;
+    let info = phone.start_pairing();
+    let request = phone.claim(&info.code, "Safari on iPhone", "127.0.0.1").unwrap();
+    phone.answer(&request, true).unwrap();
+    let token = phone.poll(&request).token.unwrap();
+    let cookie = format!("lanx_phone={}", token);
+    let mut ws = ws_connect(port, &token).await;
+    let bharat = b.svc.identity.device_id.clone();
+    let a_db = a.svc.db.clone();
+    let b_db = b.svc.db.clone();
+    let now = crate::networking::now_secs();
+
+    // hello carries the quick replies and the sticker list.
+    let hello = ask(&mut ws, 1, json!({ "op": "hello" })).await;
+    assert_eq!(hello["ok"], true, "{}", hello);
+    assert_eq!(hello["quick_replies"].as_array().unwrap().len(), 6);
+    assert_eq!(hello["quick_replies"][0], "On my way 🚶");
+    let stickers = hello["stickers"].as_array().unwrap();
+    assert_eq!(stickers.len(), 24);
+    assert_eq!(stickers[0], json!({ "id": "thanks", "emoji": "🙏", "label": "Thank you!" }));
+
+    // A sticker from the phone reaches Bharat, and every phone sees it echoed.
+    let r = ask_and_push(&mut ws, 2, json!({ "op": "sticker", "conv": conv_a, "sticker": "thanks" }), |v| {
+        v["ev"] == "message" && v["message"]["message_type"] == "sticker"
+    })
+    .await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["message_type"], "sticker");
+    assert_eq!(r["message"]["content"], "thanks");
+    assert_eq!(r["message"]["transfer"], Value::Null);
+    assert_eq!(ask(&mut ws, 3, json!({ "op": "sticker", "conv": conv_a, "sticker": "nope" })).await["error"], "Unknown sticker");
+    let conv_b = {
+        let b_db = b_db.clone();
+        assert!(wait_for(|| !b_db.get_conversations(true).unwrap().is_empty(), 10).await);
+        b_db.get_conversations(true).unwrap()[0].id.clone()
+    };
+    {
+        let b_db = b_db.clone();
+        let conv_b = conv_b.clone();
+        assert!(
+            wait_for(|| b_db.get_messages(&conv_b).unwrap().iter().any(|m| m.message_type == "sticker" && m.content == "thanks"), 10).await,
+            "Bharat got the sticker"
+        );
+    }
+
+    // Bharat says something; the phone reacts to it (one reaction, mine).
+    b.svc.send_message_full(&conv_b, "stock count done", None, vec![]).await.unwrap();
+    let pushed = ws_wait(&mut ws, |v| v["ev"] == "message" && v["message"]["content"] == "stock count done", 10).await.expect("push");
+    let their_id = pushed["message"]["id"].as_str().unwrap().to_string();
+    let r = ask(&mut ws, 4, json!({ "op": "react", "message_id": their_id, "emoji": "👍" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let reactions = r["message"]["reactions"].as_array().unwrap();
+    assert_eq!(reactions.len(), 1, "{}", r);
+    assert_eq!(reactions[0]["emoji"], "👍");
+    assert_eq!(reactions[0]["mine"], true);
+    assert_eq!(reactions[0]["count"], 1);
+    assert_eq!(ask(&mut ws, 5, json!({ "op": "react", "message_id": "nothing", "emoji": "👍" })).await["error"], "Message not found");
+
+    // The phone's own text, edited.
+    let sent = ask(&mut ws, 6, json!({ "op": "send", "conv": conv_a, "text": "pls chek the count" })).await;
+    assert_eq!(sent["ok"], true, "{}", sent);
+    let mine_id = sent["message"]["id"].as_str().unwrap().to_string();
+    let r = ask(&mut ws, 7, json!({ "op": "edit", "message_id": mine_id, "text": "please check the count" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["content"], "please check the count");
+    assert!(r["message"]["edited_at"].is_i64());
+    assert_eq!(ask(&mut ws, 8, json!({ "op": "edit", "message_id": their_id, "text": "x" })).await["ok"], false, "not mine");
+
+    // Star and pin; the starred list shows it with the chat's name.
+    let r = ask(&mut ws, 9, json!({ "op": "star", "message_id": mine_id, "on": true })).await;
+    assert_eq!(r["message"]["starred"], true, "{}", r);
+    let r = ask(&mut ws, 10, json!({ "op": "pin", "message_id": mine_id, "on": true })).await;
+    assert!(r["message"]["pinned_at"].is_i64(), "{}", r);
+    let r = ask(&mut ws, 11, json!({ "op": "starred" })).await;
+    let hits = r["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{}", r);
+    assert_eq!(hits[0]["message"]["id"], mine_id.as_str());
+    assert_eq!(hits[0]["message"]["transfer"], Value::Null);
+    assert_eq!(hits[0]["peer_name"], "Bharat (Stores)");
+    assert!(hits[0]["peer_avatar_color"].is_string());
+    let r = ask(&mut ws, 12, json!({ "op": "star", "message_id": mine_id, "on": false })).await;
+    assert_eq!(r["message"]["starred"], false);
+    assert!(ask(&mut ws, 13, json!({ "op": "starred" })).await["hits"].as_array().unwrap().is_empty());
+
+    // Search finds both sides' texts.
+    let r = ask(&mut ws, 14, json!({ "op": "search", "query": "count" })).await;
+    let found: Vec<&str> = r["hits"].as_array().unwrap().iter().map(|h| h["message"]["content"].as_str().unwrap()).collect();
+    assert!(found.contains(&"please check the count") && found.contains(&"stock count done"), "{:?}", found);
+    assert!(ask(&mut ws, 15, json!({ "op": "search", "query": "zebra" })).await["hits"].as_array().unwrap().is_empty());
+
+    // Send later: listed, then cancelled (the window is told each time).
+    let at = now + 3600;
+    let r = ask_and_push(
+        &mut ws,
+        16,
+        json!({ "op": "later", "conv": conv_a, "text": "Stock count at 4", "at": at }),
+        |v| v["ev"] == "scheduled" && v["conversation_id"] == conv_a.as_str() && v["problem"].is_null(),
+    )
+    .await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["scheduled"]["send_at"], at);
+    assert_eq!(r["scheduled"]["content"], "Stock count at 4");
+    let sid = r["scheduled"]["id"].as_str().unwrap().to_string();
+    let r = ask(&mut ws, 17, json!({ "op": "scheduled", "conv": conv_a })).await;
+    assert_eq!(r["items"].as_array().unwrap().len(), 1);
+    assert_eq!(r["items"][0]["id"], sid.as_str());
+    assert_eq!(ask(&mut ws, 18, json!({ "op": "cancel_later", "scheduled_id": "nothing", "conv": conv_a })).await["ok"], false);
+    assert_eq!(ask(&mut ws, 19, json!({ "op": "cancel_later", "scheduled_id": sid, "conv": conv_a })).await["ok"], true);
+    assert!(ask(&mut ws, 20, json!({ "op": "scheduled", "conv": conv_a })).await["items"].as_array().unwrap().is_empty());
+    assert_eq!(ask(&mut ws, 21, json!({ "op": "later", "conv": conv_a, "text": "late", "at": now - 5 })).await["error"], "Pick a time in the future.");
+
+    // Remind me: set, cleared, and (a short one) delivered as a push.
+    let r = ask(&mut ws, 22, json!({ "op": "remind", "message_id": their_id, "at": at })).await;
+    assert_eq!(r["message"]["remind_at"], at, "{}", r);
+    let r = ask(&mut ws, 23, json!({ "op": "cancel_remind", "message_id": their_id })).await;
+    assert_eq!(r["message"]["remind_at"], Value::Null, "{}", r);
+    let soon = crate::networking::now_secs() + 1;
+    assert_eq!(ask(&mut ws, 24, json!({ "op": "remind", "message_id": their_id, "at": soon })).await["ok"], true);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    a.svc.run_chat_timers().await;
+    let reminder = ws_wait(&mut ws, |v| v["ev"] == "reminder", 10).await.expect("reminder push");
+    assert_eq!(reminder["message"]["id"], their_id.as_str());
+    assert_eq!(reminder["conversation_id"], conv_a.as_str());
+    assert!(reminder["title"].as_str().unwrap().contains("Reminder"), "{}", reminder);
+    assert_eq!(reminder["text"], "stock count done");
+
+    // A group made from the phone: Bharat gets it, and a text in it.
+    let r = ask(&mut ws, 25, json!({ "op": "group_create", "name": "Site team", "member_ids": [bharat] })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["conversation"]["kind"], "group");
+    assert_eq!(r["conversation"]["peer_name"], "Site team");
+    let gid = r["conversation"]["id"].as_str().unwrap().to_string();
+    let r = ask(&mut ws, 26, json!({ "op": "group", "group_id": gid })).await;
+    assert_eq!(r["group"]["name"], "Site team", "{}", r);
+    assert_eq!(r["group"]["members"].as_array().unwrap().len(), 2);
+    assert!(r["group"]["members"].as_array().unwrap().iter().any(|m| m["device_id"] == bharat.as_str()));
+    assert_eq!(ask(&mut ws, 27, json!({ "op": "group", "group_id": "nothing" })).await["error"], "Group not found");
+    let r = ask(&mut ws, 28, json!({ "op": "group_update", "group_id": gid, "name": "Site crew" })).await;
+    assert_eq!(r["group"]["name"], "Site crew", "{}", r);
+    {
+        let b_db = b_db.clone();
+        let gid = gid.clone();
+        assert!(wait_for(|| b_db.get_conversation(&gid).unwrap().is_some(), 10).await, "Bharat got the group");
+    }
+    let r = ask(&mut ws, 29, json!({ "op": "send", "conv": gid, "text": "Meeting at the gate", "mentions": [bharat] })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["mentions"][0], bharat.as_str());
+    {
+        let b_db = b_db.clone();
+        let gid = gid.clone();
+        assert!(
+            wait_for(|| b_db.get_messages(&gid).unwrap().iter().any(|m| m.content == "Meeting at the gate"), 10).await,
+            "Bharat got the group text"
+        );
+    }
+    assert_eq!(ask(&mut ws, 30, json!({ "op": "group_leave", "group_id": gid })).await["ok"], true);
+    assert_eq!(a_db.get_conversation(&gid).unwrap().unwrap().membership, "left");
+
+    // Forward Bharat's text back into the chat.
+    let r = ask(&mut ws, 31, json!({ "op": "forward", "message_ids": [their_id], "conversation_ids": [conv_a] })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["sent"], 1);
+    assert_eq!(r["problems"], json!([]));
+
+    // The Files list after a photo from the phone, and Cancel on it.
+    let pixels: Vec<u8> = (0..3000u32).map(|i| (i * 13 % 256) as u8).collect();
+    let up = http(
+        port,
+        "POST",
+        &format!("/api/upload?conv={}&name={}", conv_a, "gate.png"),
+        &[("Cookie", &cookie), ("Content-Type", "application/octet-stream")],
+        &pixels,
+    )
+    .await;
+    assert_eq!(up.status, 200, "{}", String::from_utf8_lossy(&up.body));
+    let tid = up.json()["message"]["transfer"]["id"].as_str().unwrap().to_string();
+    let r = ask(&mut ws, 32, json!({ "op": "transfers" })).await;
+    let listed = r["transfers"].as_array().unwrap().iter().find(|t| t["id"] == tid.as_str()).unwrap_or_else(|| panic!("{}", r));
+    assert_eq!(listed["file_name"], "gate.png");
+    assert_eq!(listed["conversation_id"], conv_a.as_str());
+    assert_eq!(listed["direction"], "outgoing");
+    assert!(listed["created_at"].as_i64().unwrap() > 0);
+    assert!(listed.get("completed_at").is_some() && listed.get("error_reason").is_some() && listed.get("parent_id").is_some());
+    {
+        let a_db = a_db.clone();
+        let tid = tid.clone();
+        assert!(wait_for(|| a_db.get_transfer(&tid).unwrap().is_some_and(|t| t.status == "completed"), 20).await, "the photo went");
+    }
+    let r = ask(&mut ws, 33, json!({ "op": "cancel", "transfer_id": tid })).await;
+    assert!(r["ok"] == true || r["error"] == "This transfer has already finished.", "{}", r);
+    assert_eq!(ask(&mut ws, 34, json!({ "op": "retry", "transfer_id": "nothing" })).await["error"], "Transfer not found");
+
+    // Delete for everyone leaves a stub; delete for me removes the message here.
+    let r = ask(&mut ws, 35, json!({ "op": "delete", "message_id": mine_id, "everyone": true })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["deleted"], true);
+    let r = ask_and_push(&mut ws, 36, json!({ "op": "delete", "message_id": their_id, "everyone": false }), |v| {
+        v["ev"] == "deleted" && v["message_ids"][0] == their_id.as_str()
+    })
+    .await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let page = ask(&mut ws, 37, json!({ "op": "messages", "conv": conv_a })).await;
+    let ids: Vec<&str> = page["messages"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&mine_id.as_str()) && !ids.contains(&their_id.as_str()), "{:?}", ids);
+
+    // Locked PC: nothing works.
+    a.svc.privacy.lock();
+    let r = ask(&mut ws, 38, json!({ "op": "react", "message_id": mine_id, "emoji": "👍" })).await;
+    assert_eq!(r["ok"], false);
+    assert_eq!(r["error"], "LOCKED");
 }

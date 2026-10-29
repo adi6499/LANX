@@ -1,6 +1,6 @@
 /** LANX 3.0: how the phone page talks to the PC — pairing over HTTP, then one
  *  WebSocket carrying JSON lines (see src-tauri/src/phone/api.rs). */
-import type { Conversation, Message, Peer, Profile } from "../types";
+import type { Conversation, ForwardResult, GroupInfo, Message, Peer, Profile, ScheduledMessage } from "../types";
 
 export interface PhoneTransfer {
   id: string;
@@ -14,6 +14,11 @@ export interface PhoneTransfer {
   /** The file is on the PC (sent from it, or finished downloading). */
   ready: boolean;
   peer_name: string | null;
+  conversation_id?: string | null;
+  created_at?: number;
+  completed_at?: number | null;
+  error_reason?: string | null;
+  parent_id?: string | null;
 }
 
 export type PhoneMessage = Message & { transfer: PhoneTransfer | null };
@@ -26,6 +31,12 @@ export interface Me {
   profile: Profile | null;
 }
 
+export interface StickerInfo {
+  id: string;
+  emoji: string;
+  label: string;
+}
+
 export interface Hello {
   me: Me;
   conversations: Conversation[];
@@ -36,17 +47,34 @@ export interface Hello {
   /** What the PC calls this phone ("Safari on iPhone"). */
   device: string;
   ip: string;
+  quick_replies?: string[];
+  stickers?: StickerInfo[];
+}
+
+export interface Hit {
+  message: PhoneMessage;
+  peer_name: string;
+  peer_avatar_color: string;
+}
+
+export interface Progress {
+  transferred_bytes: number;
+  file_size: number;
+  bytes_per_sec: number;
 }
 
 export type Push =
   | { ev: "message"; message: PhoneMessage; conversation?: Conversation | null; from_phone?: number }
   | { ev: "transfer"; transfer: PhoneTransfer }
+  | { ev: "progress"; transfer_id: string; transferred_bytes: number; file_size: number; bytes_per_sec: number }
   | { ev: "deleted"; message_ids: string[]; conversation_ids: string[] }
   | { ev: "peer"; peer: Peer }
   | { ev: "peer-offline"; peer_id: string }
   | { ev: "profile"; peer_id: string; profile: Profile }
   | { ev: "typing"; conversation_id: string; display_name: string }
   | { ev: "read"; conversation_id: string; conversation: Conversation | null }
+  | { ev: "scheduled"; conversation_id: string; problem: string | null }
+  | { ev: "reminder"; message: PhoneMessage; conversation_id: string; title: string; text: string }
   | { ev: "reload" }
   | { ev: "lock"; locked: boolean };
 
@@ -100,8 +128,7 @@ export async function pair(code: string): Promise<{ request?: string; status: nu
 
 export async function pollPair(request: string): Promise<{ state: string; token?: string }> {
   const r = await fetch(`/api/pair/${encodeURIComponent(request)}`, { credentials: "same-origin" });
-  const json = (await r.json()) as { state: string; token?: string };
-  return json;
+  return (await r.json()) as { state: string; token?: string };
 }
 
 /** Gives this browser the cookie for pictures and downloads (a copy added to
@@ -245,28 +272,97 @@ export class PhoneClient {
     });
   }
 
+  // ---- chats
   hello() {
     return this.request<Hello>("hello");
   }
-
   messages(conv: string, before?: number) {
     return this.request<{ messages: PhoneMessage[]; more: boolean; conversation: Conversation | null }>("messages", { conv, before, limit: 60 });
   }
-
-  send(conv: string, text: string) {
-    return this.request<{ message: PhoneMessage }>("send", { conv, text });
+  send(conv: string, text: string, replyTo?: string | null, mentions: string[] = []) {
+    return this.request<{ message: PhoneMessage }>("send", { conv, text, reply_to: replyTo ?? undefined, mentions });
   }
-
   read(conv: string) {
     return this.request<{ conversation: Conversation | null }>("read", { conv });
   }
-
   typing(conv: string) {
     this.request("typing", { conv }).catch(() => {});
   }
-
   openChat(peerId: string) {
     return this.request<{ conversation: Conversation }>("open", { peer_id: peerId });
+  }
+
+  // ---- 3.1 chat extras
+  react(messageId: string, emoji: string) {
+    return this.request<{ message: PhoneMessage }>("react", { message_id: messageId, emoji });
+  }
+  sticker(conv: string, sticker: string) {
+    return this.request<{ message: PhoneMessage }>("sticker", { conv, sticker });
+  }
+  edit(messageId: string, text: string, mentions: string[] = []) {
+    return this.request<{ message: PhoneMessage }>("edit", { message_id: messageId, text, mentions });
+  }
+  delete(messageId: string, everyone: boolean) {
+    return this.request<{ message?: PhoneMessage }>("delete", { message_id: messageId, everyone });
+  }
+  forward(messageIds: string[], conversationIds: string[]) {
+    return this.request<ForwardResult>("forward", { message_ids: messageIds, conversation_ids: conversationIds });
+  }
+  star(messageId: string, on: boolean) {
+    return this.request<{ message: PhoneMessage }>("star", { message_id: messageId, on });
+  }
+  pin(messageId: string, on: boolean) {
+    return this.request<{ message: PhoneMessage }>("pin", { message_id: messageId, on });
+  }
+  starred() {
+    return this.request<{ hits: Hit[] }>("starred");
+  }
+  search(query: string) {
+    return this.request<{ hits: Hit[] }>("search", { query });
+  }
+  later(conv: string, text: string, at: number, replyTo?: string | null, mentions: string[] = []) {
+    return this.request<{ scheduled: ScheduledMessage }>("later", { conv, text, at, reply_to: replyTo ?? undefined, mentions });
+  }
+  scheduled(conv: string) {
+    return this.request<{ items: ScheduledMessage[] }>("scheduled", { conv });
+  }
+  cancelLater(id: string, conv: string) {
+    // (`id` is the request envelope's id, so the item goes as `scheduled_id`.)
+    return this.request<Record<string, never>>("cancel_later", { scheduled_id: id, conv });
+  }
+  remind(messageId: string, at: number, noReply: boolean) {
+    return this.request<{ message: PhoneMessage }>("remind", { message_id: messageId, at, no_reply: noReply });
+  }
+  cancelRemind(messageId: string) {
+    return this.request<{ message: PhoneMessage }>("cancel_remind", { message_id: messageId });
+  }
+
+  // ---- groups
+  groupCreate(name: string, memberIds: string[]) {
+    return this.request<{ conversation: Conversation }>("group_create", { name, member_ids: memberIds });
+  }
+  group(groupId: string) {
+    return this.request<{ group: GroupInfo }>("group", { group_id: groupId });
+  }
+  groupUpdate(groupId: string, name: string | null, add: string[], remove: string[]) {
+    return this.request<{ group: GroupInfo }>("group_update", { group_id: groupId, name: name ?? undefined, add, remove });
+  }
+  groupLeave(groupId: string) {
+    return this.request<Record<string, never>>("group_leave", { group_id: groupId });
+  }
+
+  // ---- files
+  transfers() {
+    return this.request<{ transfers: PhoneTransfer[] }>("transfers");
+  }
+  accept(transferId: string) {
+    return this.request<{ transfer: PhoneTransfer }>("accept", { transfer_id: transferId });
+  }
+  cancel(transferId: string) {
+    return this.request<{ transfer: PhoneTransfer }>("cancel", { transfer_id: transferId });
+  }
+  retry(transferId: string) {
+    return this.request<{ transfer: PhoneTransfer }>("retry", { transfer_id: transferId });
   }
 
   fileUrl(transferId: string) {

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.0.0)
+# LANX — Local Network Messenger (v3.1.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,16 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.1.0: the phone does what the PC does — chats, groups, files
+- **Chat extras on the phone:** hold a message for reactions, Reply, Forward, Copy, Star, Pin, Remind me, Edit and
+  Delete (for me / for everyone). The **+** button sends files, stickers, quick replies ("/" in the box) and
+  "Send later" (the chat shows what is waiting; cancel from the phone). @mentions in groups, a pinned bar, search
+  across all chats (type in the search box, press Enter) and a Starred messages list.
+- **Groups on the phone:** make a group, rename it, add or remove people, leave it — tap the group's name for
+  its page.
+- **Files tab on the phone:** everything sent and received on the PC, with progress; Accept, Decline, Cancel
+  and Try again work from the phone; finished files download to the phone.
 
 ### New in 3.0.0: LANX on your phone
 - **Settings → Phone.** Your PC serves a small page on the office Wi-Fi. Scan the QR code with your phone (or
