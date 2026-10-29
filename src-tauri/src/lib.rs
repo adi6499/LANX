@@ -4,6 +4,7 @@ pub mod discovery;
 pub mod events;
 pub mod export;
 pub mod networking;
+pub mod phone;
 pub mod privacy;
 pub mod recordings;
 pub mod remote;
@@ -95,6 +96,7 @@ pub(crate) fn quit_app(app: &AppHandle) {
             }
             state.discovery.announce_offline().await;
             state.discovery.stop();
+            state.phone.stop();
             state.network.stop();
         }
         app.exit(0);
@@ -301,6 +303,12 @@ pub fn run() {
                 if let Some(port) = testmode::udp_port() {
                     let _ = db.set_setting("udp_discovery_port", &port.to_string());
                 }
+                if let Some(port) = testmode::phone_port() {
+                    let _ = db.set_setting("phone_port", &port.to_string());
+                }
+                if testmode::phone_on() {
+                    let _ = db.set_setting("phone_enabled", "true");
+                }
                 if testmode::quiet() {
                     let _ = db.set_setting("notifications_enabled", "false");
                     let _ = db.set_setting("launch_at_startup", "false");
@@ -317,12 +325,16 @@ pub fn run() {
             network.start();
             let discovery = Arc::new(DiscoveryService::new(network.clone()));
             discovery.start();
+            // LANX 3.0: "LANX on your phone" (serves only when switched on in Settings).
+            let phone = phone::PhoneService::new(network.clone(), app_version.clone());
+            phone.start();
 
             app.manage(AppState {
                 db: db.clone(),
                 network,
                 discovery,
                 identity,
+                phone,
             });
 
             if profile.is_none() || testmode::webview_base().is_some() {
@@ -693,6 +705,13 @@ pub fn run() {
             commands::office::send_intercom,
             commands::speed_test,
             commands::pick_folder_to_send,
+            commands::phone::phone_status,
+            commands::phone::phone_set_enabled,
+            commands::phone::phone_start_pairing,
+            commands::phone::phone_cancel_pairing,
+            commands::phone::phone_answer,
+            commands::phone::phone_forget,
+            commands::phone::phone_qr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LANX desktop application");

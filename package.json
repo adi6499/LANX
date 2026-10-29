@@ -1,11 +1,13 @@
 {
   "name": "lanx",
   "private": true,
-  "version": "2.17.2",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && vite build --config vite.phone.config.ts",
+    "build:phone": "vite build --config vite.phone.config.ts",
+    "dev:phone": "vite --config vite.phone.config.ts",
     "preview": "vite preview",
     "test": "tsc --noEmit && cd src-tauri && cargo test",
     "tauri": "tauri",

@@ -783,3 +783,45 @@ export interface Occurrence {
   start: number;
   end: number;
 }
+
+// ---- LANX 3.0: "Use on your phone" (src-tauri/src/phone)
+
+/** A phone allowed in (its token stays on the phone). */
+export interface PhoneDeviceInfo {
+  id: string;
+  name: string;
+  created_at: number;
+  last_seen: number;
+  connected: boolean;
+}
+
+/** A phone that typed the right code and waits for "Allow". */
+export interface PairRequestInfo {
+  id: string;
+  name: string;
+  ip: string;
+}
+
+export interface PairingInfo {
+  /** Eight digits. */
+  code: string;
+  expires_at: number;
+}
+
+export interface PhoneStatus {
+  enabled: boolean;
+  listening: boolean;
+  port: number;
+  /** http://<ip>:<port> per office-network adapter. */
+  urls: string[];
+  pairing: PairingInfo | null;
+  requests: PairRequestInfo[];
+  devices: PhoneDeviceInfo[];
+  connected: number;
+}
+
+/** A QR code as dark/light modules ("1"/"0"), row by row. */
+export interface QrData {
+  size: number;
+  modules: string;
+}

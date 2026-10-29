@@ -18,6 +18,8 @@
 //!   screen picture (another size than any real screen)
 //! - `LANX_WEBVIEW_BASE=dir` pick the WebView2 folder in `dir` the way a normal
 //!   installation picks it in %LOCALAPPDATA% (tests the blank-window fix)
+//! - `LANX_PHONE=1` / `LANX_PHONE_PORT=52960` (LANX 3.0) start with "Use on
+//!   your phone" switched on, on that port
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -86,4 +88,14 @@ pub fn remote_frame() -> bool {
 /// remote control then uses the main screen.
 pub fn remote_any_screen() -> bool {
     var("LANX_REMOTE_ANY_SCREEN").is_some()
+}
+
+/// LANX 3.0: the phone web server's port for a test copy.
+pub fn phone_port() -> Option<u16> {
+    var("LANX_PHONE_PORT").and_then(|v| v.trim().parse().ok())
+}
+
+/// LANX 3.0: a test copy starts with "Use on your phone" switched on.
+pub fn phone_on() -> bool {
+    var("LANX_PHONE").is_some()
 }

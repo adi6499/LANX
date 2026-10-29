@@ -73,6 +73,8 @@ import { GlassFilters } from "./components/GlassFilters";
 import { parseCard } from "./components/org/cardModel";
 import { AdminPanel, type AdminTab } from "./components/admin/AdminPanel";
 import { PolicyOfferDialog } from "./components/admin/AppsLauncher";
+import { PhoneAskDialog } from "./components/phone/PhoneAskDialog";
+import type { PairRequestInfo } from "./types";
 import { exportChatExcel, printChat } from "./lib/exportChat";
 import type { OfficePolicy } from "./types";
 import type { AlertInfo } from "./types";
@@ -255,6 +257,8 @@ export default function App() {
   // ---- LANX 1.9.0
   const [adminTab, setAdminTab] = useState<AdminTab | null>(null);
   const [policyOffer, setPolicyOffer] = useState<OfficePolicy | null>(null);
+  // LANX 3.0: a phone typed the code from Settings → Phone.
+  const [phoneAsk, setPhoneAsk] = useState<PairRequestInfo | null>(null);
   const upsertAlert = useCallback((a: AlertInfo) => setAlerts((prev) => [a, ...prev.filter((x) => x.id !== a.id)].sort((x, y) => y.at - x.at)), []);
   // The first click anywhere lets LANX play intercom messages by itself.
   useEffect(() => {
@@ -704,6 +708,15 @@ export default function App() {
     add(events.onAlert((a) => upsertAlert(a)));
     // LANX 1.9.0: the LANX admin asks to manage this computer.
     add(events.onPolicyOffer((p) => setPolicyOffer(p)));
+    add(events.onPhonePair((r) => setPhoneAsk(r)));
+    add(
+      events.onPhoneChanged(() =>
+        api
+          .phoneStatus()
+          .then((st) => setPhoneAsk((cur) => (cur && st.requests.some((r) => r.id === cur.id) ? cur : null)))
+          .catch(() => {})
+      )
+    );
     add(events.onAdminNotice(({ text }) => setNotice(text)));
     // LANX 2.9.0: a colleague's step in a game.
     add(events.onGame((e) => games.receive(e as games.GameEvent)));
@@ -1728,6 +1741,23 @@ export default function App() {
         />
       )}
 
+      {phoneAsk && (
+        <PhoneAskDialog
+          request={phoneAsk}
+          onAnswer={(allow) =>
+            api
+              .phoneAnswer(phoneAsk.id, allow)
+              .then(() => {
+                setPhoneAsk(null);
+                setNotice(allow ? `${phoneAsk.name} can use LANX now — it shows your chats through this PC.` : "OK — that phone was not allowed in.");
+              })
+              .catch((err) => {
+                setPhoneAsk(null);
+                showError(err);
+              })
+          }
+        />
+      )}
       {policyOffer && (
         <PolicyOfferDialog
           offer={policyOffer}

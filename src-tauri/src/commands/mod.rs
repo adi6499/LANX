@@ -15,6 +15,7 @@ pub mod remote;
 pub mod tools;
 pub mod memes;
 pub mod games;
+pub mod phone;
 
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};
 use crate::networking::NetworkService;
@@ -35,6 +36,8 @@ pub struct AppState {
     pub network: NetworkService,
     pub discovery: Arc<DiscoveryService>,
     pub identity: Arc<DeviceIdentity>,
+    /// LANX 3.0: the phone web server.
+    pub phone: crate::phone::PhoneService,
 }
 
 pub(crate) fn err<E: std::fmt::Display>(e: E) -> String {

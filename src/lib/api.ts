@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import type { PairRequestInfo, PhoneStatus, QrData } from "../types";
 import type { RemoteInput } from "./remote";
 import {
   UserSettings,
@@ -425,6 +426,8 @@ const previewOnly = () =>
 let mockNotes: Note[] = [];
 let mockEvents: CalendarEvent[] = [];
 const mockPrefs: Record<string, string> = {};
+
+let mockPhone: PhoneStatus = { enabled: false, listening: false, port: 0, urls: [], pairing: null, requests: [], devices: [], connected: 0 };
 
 export const api = {
   /** LANX 1.3.0: say hello to every computer on the local network; returns
@@ -1648,6 +1651,50 @@ export const api = {
 
   /** Share on WhatsApp: text (and number) straight in; a file goes to the
    *  clipboard and WhatsApp opens. Returns "copied" or "opened". */
+  // ---- LANX 3.0: "Use on your phone" (Settings → Phone)
+  phoneStatus: async (): Promise<PhoneStatus> => {
+    if (isTauri) return invoke("phone_status");
+    return { ...mockPhone };
+  },
+  phoneSetEnabled: async (enabled: boolean): Promise<PhoneStatus> => {
+    if (isTauri) return invoke("phone_set_enabled", { enabled });
+    mockPhone = { ...mockPhone, enabled, listening: enabled, port: enabled ? 52930 : 0, urls: enabled ? ["http://192.168.1.88:52930"] : [], pairing: enabled ? mockPhone.pairing : null };
+    return { ...mockPhone };
+  },
+  phoneStartPairing: async (): Promise<PhoneStatus> => {
+    if (isTauri) return invoke("phone_start_pairing");
+    mockPhone = { ...mockPhone, enabled: true, listening: true, port: 52930, urls: ["http://192.168.1.88:52930"], pairing: { code: "48219937", expires_at: Math.floor(Date.now() / 1000) + 600 } };
+    return { ...mockPhone };
+  },
+  phoneCancelPairing: async (): Promise<PhoneStatus> => {
+    if (isTauri) return invoke("phone_cancel_pairing");
+    mockPhone = { ...mockPhone, pairing: null };
+    return { ...mockPhone };
+  },
+  phoneAnswer: async (requestId: string, allow: boolean): Promise<PhoneStatus> => {
+    if (isTauri) return invoke("phone_answer", { requestId, allow });
+    const r = mockPhone.requests.find((x) => x.id === requestId);
+    mockPhone = {
+      ...mockPhone,
+      requests: mockPhone.requests.filter((x) => x.id !== requestId),
+      devices: allow && r ? [...mockPhone.devices, { id: `d-${requestId}`, name: r.name, created_at: Math.floor(Date.now() / 1000), last_seen: Math.floor(Date.now() / 1000), connected: false }] : mockPhone.devices,
+    };
+    return { ...mockPhone };
+  },
+  phoneForget: async (deviceId: string): Promise<PhoneStatus> => {
+    if (isTauri) return invoke("phone_forget", { deviceId });
+    mockPhone = { ...mockPhone, devices: mockPhone.devices.filter((d) => d.id !== deviceId) };
+    return { ...mockPhone };
+  },
+  phoneQr: async (text: string): Promise<QrData> => {
+    if (isTauri) return invoke("phone_qr", { text });
+    // A checkerboard stands in for the real code in the browser preview.
+    const size = 21;
+    let modules = "";
+    for (let i = 0; i < size * size; i++) modules += (i + Math.floor(i / size) + text.length) % 2 ? "1" : "0";
+    return { size, modules };
+  },
+
   shareWhatsApp: async (req: { text?: string; phone?: string; file?: string }): Promise<"copied" | "opened"> => {
     if (isTauri) return invoke("share_whatsapp", { req });
     window.open(`https://wa.me/?text=${encodeURIComponent(req.text ?? "")}`, "_blank");
@@ -1834,6 +1881,10 @@ export const events = {
     on<{ peer_id: string; profile: Profile }>("lanx://peer-profile", cb),
   onOpenConversation: (cb: (p: { conversation_id: string }) => void) =>
     on<{ conversation_id: string }>("lanx://open-conversation", cb),
+  /** LANX 3.0: a phone typed the right code — "Allow this phone?". */
+  onPhonePair: (cb: (r: PairRequestInfo) => void) => on<PairRequestInfo>("lanx://phone-pair", cb),
+  /** LANX 3.0: the phone server's status changed (phones, requests, port). */
+  onPhoneChanged: (cb: () => void) => on<null>("lanx://phone-changed", () => cb()),
   onUpdateChanged: (cb: () => void) => on<null>("lanx://update-changed", () => cb()),
   onUpdateProblem: (cb: (p: UpdateProblemPayload) => void) =>
     on<UpdateProblemPayload>("lanx://update-problem", cb),

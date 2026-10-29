@@ -13,7 +13,12 @@ pub struct Events {
     app: Option<AppHandle>,
     /// Alerts waiting for the desktop island window to pick them up.
     island: Arc<Mutex<Vec<IslandAlert>>>,
+    /// LANX 3.0: every event, as JSON, for connected phones (phone/ws.rs).
+    tap: Option<tokio::sync::broadcast::Sender<Arc<TapEvent>>>,
 }
+
+/// LANX 3.0: (event name, payload) as the phone server sees it.
+pub type TapEvent = (String, serde_json::Value);
 
 /// LANX 1.2.7: an alert for the desktop Dynamic Island, the small window at
 /// the top of the screen that shows (with the delivery cat) new messages and
@@ -82,7 +87,12 @@ struct TransferProgressPayload<'a> {
 
 impl Events {
     pub fn new(app: Option<AppHandle>) -> Self {
-        Self { app, island: Arc::default() }
+        Self { app, island: Arc::default(), tap: Some(tokio::sync::broadcast::channel(512).0) }
+    }
+
+    /// LANX 3.0: a receiver for every event from now on (None: `Events::default()`).
+    pub fn subscribe(&self) -> Option<tokio::sync::broadcast::Receiver<Arc<TapEvent>>> {
+        self.tap.as_ref().map(|t| t.subscribe())
     }
 
     pub fn app(&self) -> Option<&AppHandle> {
@@ -90,6 +100,13 @@ impl Events {
     }
 
     fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) {
+        if let Some(tap) = &self.tap {
+            if tap.receiver_count() > 0 {
+                if let Ok(v) = serde_json::to_value(&payload) {
+                    let _ = tap.send(Arc::new((event.to_string(), v)));
+                }
+            }
+        }
         if let Some(app) = &self.app {
             let _ = app.emit(event, payload);
         }

@@ -1,6 +1,6 @@
 [package]
 name = "lanx"
-version = "2.17.2"
+version = "3.0.0"
 description = "LANX Desktop - Local Network Messenger"
 authors = ["LANX Team"]
 edition = "2024"
@@ -44,6 +44,10 @@ socket2 = "0.6"
 if-addrs = "0.13"
 argon2 = "0.5"
 base64 = "0.22"
+# LANX 3.0: the phone page's web server (HTTP head parsing, WebSocket handshake) and the QR code in Settings.
+httparse = "1"
+sha1 = "0.10"
+qrcode = { version = "0.14", default-features = false }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 zstd = { version = "0.13", default-features = false }
 

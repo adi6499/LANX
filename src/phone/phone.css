@@ -1,0 +1,58 @@
+/* LANX 3.0: the phone page. Everything else (tokens, bubbles, glass) comes
+   from App.css; this only makes it fit a phone. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  background: var(--lanx-wall, var(--bg-app));
+  color: var(--text-primary);
+}
+.ph-root {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+}
+.ph-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.ph-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.ph-select,
+.ph-select * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* No zoom-in on focus (iOS zooms fields under 16px). */
+.ph-root input,
+.ph-root textarea {
+  font-size: 16px;
+}
+.ph-code {
+  letter-spacing: 0.22em;
+  font-variant-numeric: tabular-nums;
+}
+.ph-bubble-img {
+  max-width: min(260px, 70vw);
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+}
+.ph-tab {
+  color: var(--text-muted);
+}
+.ph-tab[aria-selected="true"] {
+  color: var(--accent);
+}

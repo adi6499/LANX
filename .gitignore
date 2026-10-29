@@ -31,3 +31,6 @@ dist-ssr
 # LANX release signing key (private; back it up, never commit it)
 /signing/
 *.pem
+
+# LANX 3.0: the phone page as built for the web server (npm run build:phone)
+/src-tauri/phone-dist/

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v2.17.2)
+# LANX — Local Network Messenger (v3.0.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,17 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.0.0: LANX on your phone
+- **Settings → Phone.** Your PC serves a small page on the office Wi-Fi. Scan the QR code with your phone (or
+  type the 8-digit code), tap **Allow** on the PC, and the phone shows your chats *through your PC* — same name,
+  same colleagues, same history. Send text, photos, videos and files; see who's in; typing and seen marks work.
+  Nothing goes through the internet and there is no server: the phone talks only to your PC, while LANX runs
+  there. Works in Safari on iPhone and iPad, Chrome on Android, and any browser on a Mac — nothing to install;
+  "Add to Home Screen" gives it an icon.
+- Alerts arrive while the page is open; closed, it waits (a local address cannot do background alerts).
+  Calls, remote control and games stay on the PC. Remove a phone any time in Settings; it has to scan again.
+- Details, limits and how it is built: `docs/PHONE.md`.
 
 ### New in 2.17.2: the Ludo board fits the window
 - The Ludo board sizes itself to the games window, so the player plates, the die and the status line are always

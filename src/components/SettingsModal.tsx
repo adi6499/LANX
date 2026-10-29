@@ -27,6 +27,7 @@ import {
   Sparkles,
   ArrowUpCircle,
   DatabaseBackup,
+  Smartphone,
 } from "lucide-react";
 import { BackupPanel } from "./BackupPanel";
 import { AppearancePanel } from "./AppearancePanel";
@@ -34,6 +35,7 @@ import { ProfilePanel } from "./ProfilePanel";
 import { Avatar } from "./Avatar";
 import { ToolsSettings } from "./tools/ToolsSettings";
 import { Origin, revealChange, usePresence } from "../lib/motion";
+import { PhonePanel } from "./phone/PhonePanel";
 
 export type SettingsTab =
   | "profile"
@@ -44,6 +46,7 @@ export type SettingsTab =
   | "appearance"
   | "files"
   | "updates"
+  | "phone"
   | "network"
   | "diagnostics"
   | "help"
@@ -353,6 +356,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     appearance: "Appearance",
     files: "Files",
     updates: "Updates",
+    phone: "Phone",
     network: "Network",
     diagnostics: "Diagnostics",
     help: "Help",
@@ -414,6 +418,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {navItem("appearance", "Appearance", Sun, "linear-gradient(135deg, #1c1c1e, #48484a)")}
             {navItem("files", "Files", FolderOpen, "#0ea5e9")}
             {navItem("updates", "Updates", ArrowUpCircle, "#8e8e93")}
+            {navItem("phone", "Phone", Smartphone, "#34c759")}
             {navItem("network", "Network", Network, "#32ade6")}
             <div className="h-2" />
             {navItem("diagnostics", "Diagnostics", Activity, "#ff9500")}
@@ -687,6 +692,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </>
             )}
 
+            {activeTab === "phone" && <PhonePanel />}
             {activeTab === "updates" && (
               <UpdatesPanel
                 status={updateStatus}
