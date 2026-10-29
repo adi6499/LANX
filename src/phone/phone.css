@@ -77,6 +77,34 @@ body {
 .ph-root [data-games-panel] [data-games-3d-toggle] {
   display: none;
 }
+/* A game on a phone: the board on top at full width, then who plays and
+   whose turn it is (the PC puts those in a 220 px column beside the board). */
+.ph-root [data-game-match] > div:nth-child(2) {
+  flex-direction: column;
+  padding: 8px !important;
+  gap: 8px !important;
+  overflow-y: auto;
+}
+.ph-root [data-game-match] > div:nth-child(2) > div:first-child {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+.ph-root [data-game-match] > div:nth-child(2) > aside {
+  width: 100% !important;
+  flex-shrink: 0;
+}
+.ph-root [data-game-match] [data-game-seats] {
+  max-height: none !important;
+}
+/* Boards drawn for a PC window shrink to the phone's width. */
+.ph-root [data-game-match] [data-game-board] {
+  max-width: 100%;
+}
+.ph-root [data-game-match] [data-game-board] svg,
+.ph-root [data-game-match] [data-game-board] canvas {
+  max-width: 100%;
+  height: auto;
+}
 .ph-root [data-create-card] {
   max-height: 92dvh !important;
 }

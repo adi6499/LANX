@@ -16,6 +16,8 @@ import { AlertBanner, CalendarScreen, CardsScreen, EmergencyScreen, KudosSheet, 
 import { GamesScreen } from "./GamesScreen";
 import { type PhoneSettings, installBridge } from "./bridge";
 import { type Recording, enablePush, pushState as readPushState, secure as isSecure } from "./media";
+import { PhoneCall, canCall, unlockAudio } from "./call";
+import { CallScreen } from "./CallScreen";
 
 const sortConvs = (list: Conversation[]) => [...list].sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || b.last_message_time - a.last_message_time);
 
@@ -284,6 +286,9 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
   profilesRef.current = profiles;
   const secure = isSecure();
 
+  // 3.2: calls on the phone (the PC does the signalling).
+  const calls = useMemo(() => new PhoneCall(client, (t) => setProblem(t)), [client]);
+
   // The PC's own code (games, cards) calls `api`; route it through the PC.
   useMemo(() => installBridge(client, { peers: () => peersRef.current, profiles: () => profilesRef.current }), [client]);
 
@@ -315,10 +320,12 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       setStickers(h.stickers ?? []);
       if (h.settings) setSettings(h.settings as PhoneSettings);
       setLocked(false);
+      calls.myDeviceId = h.device_id ?? "";
+      void calls.resume();
     } catch (e) {
       fail(e);
     }
-  }, [client, fail]);
+  }, [client, fail, calls]);
 
   const loadSettings = useCallback(() => {
     client
@@ -527,6 +534,9 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         case "game":
           games.receive(p as unknown as games.GameEvent);
           break;
+        case "call":
+          void calls.handle(p);
+          break;
         case "alert": {
           const a = p.alert as AlertInfo;
           setAlerts((list) => (list.some((x) => x.id === a.id) ? list.map((x) => (x.id === a.id ? a : x)) : [a, ...list]));
@@ -575,7 +585,18 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       offPush();
       client.close();
     };
-  }, [client, load, loadMessages, markRead, upsertConv, onForget, changed]);
+  }, [client, load, loadMessages, markRead, upsertConv, onForget, changed, calls]);
+
+  // For the end-to-end tests: the call's packet counts (like the games' __lanxStages).
+  useEffect(() => {
+    (window as unknown as { __lanxPhoneCall?: PhoneCall }).__lanxPhoneCall = calls;
+  }, [calls]);
+
+  // Phones only play the ring after a tap: the first tap anywhere unlocks sound.
+  useEffect(() => {
+    window.addEventListener("pointerdown", unlockAudio, { passive: true });
+    return () => window.removeEventListener("pointerdown", unlockAudio);
+  }, []);
 
   // The PC's secure address, and whether alerts are on.
   useEffect(() => {
@@ -909,6 +930,13 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         onProblem={fail}
         onAccept={(id) => transferAction("accept", id)}
         onCreateCard={() => setCreateCardFor(active)}
+        onCall={(video) => {
+          if (!canCall()) {
+            setNotice("Calls on the phone need the secure connection — More → Secure connection & alerts.");
+            return;
+          }
+          void calls.start(activeConv, video);
+        }}
         secure={secure}
         onVoice={(rec) => sendRecording(active, rec, false)}
         onIntercom={(rec) => sendRecording(active, rec, true)}
@@ -990,6 +1018,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         </nav>
       )}
       {alertBanner && <AlertBanner alert={alertBanner} onAnswer={answerAlert} onOpen={() => go({ page: "emergency" })} />}
+      <CallScreen manager={calls} profiles={profiles} />
       {forwardFrom && (
         <ForwardPicker
           conversations={conversations}

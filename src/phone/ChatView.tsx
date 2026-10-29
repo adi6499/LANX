@@ -2,7 +2,7 @@
  *  message actions: reply, react, forward, star, pin, remind, edit, delete,
  *  stickers, quick replies, @mentions and "send later". */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, ArrowLeft, ArrowUp, ClipboardList, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Pin, Plus, Radio, Smile, Star, Trash2, X, Zap } from "lucide-react";
+import { AlarmClock, ArrowLeft, ArrowUp, ClipboardList, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Phone, Pin, Plus, Radio, Smile, Star, Trash2, Video, X, Zap } from "lucide-react";
 import type { Conversation, GroupInfo, Peer, Profile, ScheduledMessage } from "../types";
 import { Avatar } from "../components/Avatar";
 import { QUICK_REACTIONS, localInputValue, whenChoices, whenText } from "../components/chat/chatUtils";
@@ -54,6 +54,7 @@ export function ChatView({
   onProblem,
   onAccept,
   onCreateCard,
+  onCall,
   secure,
   onVoice,
   onIntercom,
@@ -88,6 +89,8 @@ export function ChatView({
   onAccept: (transferId: string) => void;
   /** 3.2: a card (poll, task…) into this chat. */
   onCreateCard: () => void;
+  /** 3.2: a voice or video call from the phone (one-to-one chats). */
+  onCall: (video: boolean) => void;
   /** 3.2: the page is served securely (microphone allowed). */
   secure: boolean;
   onVoice: (rec: Recording) => Promise<void>;
@@ -331,10 +334,19 @@ export function ChatView({
             </span>
           </span>
         </button>
-        {isGroup && (
+        {isGroup ? (
           <button type="button" onClick={onInfo} className="lanx-tool p-2 text-slate-500" aria-label="Group info">
             <Info className="h-5 w-5" />
           </button>
+        ) : (
+          <>
+            <button type="button" data-ph-call-start="voice" onClick={() => onCall(false)} className="lanx-tool p-2 text-sky-600 dark:text-sky-400" aria-label="Voice call">
+              <Phone className="h-5 w-5" />
+            </button>
+            <button type="button" data-ph-call-start="video" onClick={() => onCall(true)} className="lanx-tool p-2 text-sky-600 dark:text-sky-400" aria-label="Video call">
+              <Video className="h-5 w-5" />
+            </button>
+          </>
         )}
       </header>
 

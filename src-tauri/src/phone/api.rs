@@ -279,6 +279,7 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                     "version": svc.app_version,
                     "now": crate::networking::now_secs(),
                     "device": client.device.name,
+                    "device_id": client.device.id,
                     "ip": client.ip,
                     "quick_replies": quick_replies,
                     "stickers": stickers(),
@@ -765,6 +766,73 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                 Err(e) => fail(&id, &e),
             }
         }
+        // ---- LANX 3.2.0 calls: the PC still does the signalling; the phone
+        // makes the offer / answer and carries the sound and picture.
+        "call_get" => {
+            // A page that opens (or reopens) asks whether a call is on. A ringing
+            // incoming call comes with the caller's offer, so it can be answered.
+            let call = svc.network.current_call().filter(|c| conversation_allowed(svc, &c.conversation_id).is_ok());
+            let offer = call.as_ref().filter(|c| !c.outgoing && c.phase == "ringing").and_then(|c| c.offer.clone());
+            ok(&id, obj(json!({ "call": call, "offer": offer })))
+        }
+        "call_start" => {
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            let sdp = v["sdp"].as_str().unwrap_or("").to_string();
+            if sdp.is_empty() {
+                return fail(&id, "No offer");
+            }
+            let video = v["video"].as_bool().unwrap_or(false);
+            match svc.network.start_call_ex(conv, video, sdp, None, Some(client.device.id.clone())).await {
+                Ok(call) => ok(&id, obj(json!({ "call": call }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "call_answer" => {
+            let call_id = v["call_id"].as_str().unwrap_or("");
+            let Some(call) = svc.network.current_call().filter(|c| c.call_id == call_id) else {
+                return fail(&id, "This call has ended.");
+            };
+            if let Err(e) = conversation_allowed(svc, &call.conversation_id) {
+                return fail(&id, e);
+            }
+            let sdp = v["sdp"].as_str().unwrap_or("").to_string();
+            if sdp.is_empty() {
+                return fail(&id, "No answer");
+            }
+            let video = v["video"].as_bool().unwrap_or(false);
+            match svc.network.answer_call_ex(call_id, sdp, video, Some(client.device.id.clone())).await {
+                Ok(call) => ok(&id, obj(json!({ "call": call }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "call_decline" => {
+            let call_id = v["call_id"].as_str().unwrap_or("");
+            match svc.network.decline_call(call_id).await {
+                Ok(()) => ok(&id, serde_json::Map::new()),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "call_hangup" => {
+            let call_id = v["call_id"].as_str().unwrap_or("");
+            match svc.network.hangup_call(call_id).await {
+                Ok(()) => ok(&id, serde_json::Map::new()),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "call_media" => {
+            // Mute, camera and screen from the phone (recording stays on the PC).
+            let call_id = v["call_id"].as_str().unwrap_or("");
+            let video = v["video"].as_bool();
+            let muted = v["muted"].as_bool();
+            let screen = v["screen"].as_bool();
+            match svc.network.call_media(call_id, video, muted, screen, None).await {
+                Ok(()) => ok(&id, serde_json::Map::new()),
+                Err(e) => fail(&id, &e),
+            }
+        }
         "ping" => ok(&id, obj(json!({ "now": crate::networking::now_secs() }))),
         _ => fail(&id, "unknown op"),
     }
@@ -887,6 +955,14 @@ pub(super) fn map_event(svc: &PhoneService, name: &str, payload: &Value) -> Opti
                 return None;
             }
             json!({ "ev": "ring", "conversation_id": payload["conversation_id"], "peer_name": payload["peer_name"] })
+        }
+        "lanx://call" => {
+            // Every step of a call (incoming with the offer, outgoing,
+            // answered, accepted with the answer, media, ended). A call in a
+            // hidden chat rings without a name, as on the PC.
+            let mut e = obj(payload.clone());
+            e.insert("ev".to_string(), json!("call"));
+            Value::Object(e)
         }
         "lanx://admin-notice" => {
             // Sent as plain text or as { text }.

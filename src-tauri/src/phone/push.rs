@@ -379,6 +379,22 @@ pub(crate) fn notice_for(svc: &PhoneService, name: &str, payload: &Value) -> Opt
             };
             Some(Notice { title, body, conversation_id: Some(m.conversation_id.clone()) })
         }
+        "lanx://call" => {
+            // LANX 3.2.0: a call rings a phone whose page is closed; tapping the
+            // alert opens the page, which picks the ringing call up (call_get).
+            if payload["action"].as_str() != Some("incoming") {
+                return None;
+            }
+            let call = &payload["call"];
+            let private = call["private"].as_bool().unwrap_or(false) || svc.network.privacy.is_locked();
+            let video = call["video"].as_bool().unwrap_or(false);
+            let who = call["peer_name"].as_str().filter(|n| !n.trim().is_empty() && !private).unwrap_or("Someone");
+            Some(Notice {
+                title: if video { "📹 Incoming video call".to_string() } else { "📞 Incoming call".to_string() },
+                body: format!("{} is calling you — tap to answer", who),
+                conversation_id: call["conversation_id"].as_str().map(|s| s.to_string()),
+            })
+        }
         "lanx://alert" => {
             // Only an alert raised by a colleague, still open and not yet answered.
             if payload["mine"].as_bool().unwrap_or(false) || !payload["cleared_at"].is_null() || !payload["my_ack"].is_null() {

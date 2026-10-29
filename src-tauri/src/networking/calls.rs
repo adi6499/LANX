@@ -36,9 +36,19 @@ pub struct CallInfo {
     /// LANX 1.8.0 remote help: "view" = the caller sees the other screen,
     /// "show" = the caller shows theirs.
     pub help: Option<String>,
+    /// LANX 3.2.0: the phone (its device id) that carries this call's sound
+    /// and picture; none = this PC's own window. The PC still does the
+    /// signalling either way.
+    pub on_phone: Option<String>,
+    /// LANX 3.2.0: the caller's offer while an incoming call rings, so a phone
+    /// that opens its page a little later can still answer.
+    #[serde(skip)]
+    pub offer: Option<String>,
 }
 
-/// `lanx://call` — incoming | accepted | media | ended
+/// `lanx://call` — incoming | accepted | media | ended; LANX 3.2.0 also
+/// outgoing (this PC or one of its phones started a call) and answered (this
+/// PC or one of its phones answered), so the other device stops ringing.
 #[derive(Debug, Clone, Serialize)]
 pub struct CallEvent {
     pub action: String,
@@ -177,7 +187,16 @@ impl NetworkService {
 
     /// Starts a call: `sdp` is this window's WebRTC offer.
     pub async fn start_call(&self, conversation_id: &str, video: bool, sdp: String, help: Option<String>) -> Result<CallInfo, String> {
+        self.start_call_ex(conversation_id, video, sdp, help, None).await
+    }
+
+    /// LANX 3.2.0: starts a call whose sound and picture run on `on_phone`
+    /// (a phone's device id), or on this PC's window when none.
+    pub async fn start_call_ex(&self, conversation_id: &str, video: bool, sdp: String, help: Option<String>, on_phone: Option<String>) -> Result<CallInfo, String> {
         let help = help.filter(|h| h == "view" || h == "show");
+        if on_phone.is_some() && help.is_some() {
+            return Err("Remote help works from the PC.".to_string());
+        }
         let conv = self
             .db
             .get_conversation(conversation_id)
@@ -213,6 +232,8 @@ impl NetworkService {
             answered_at: None,
             private: false,
             help: help.clone(),
+            on_phone,
+            offer: None,
         };
         {
             let mut cur = self.call.lock();
@@ -235,20 +256,36 @@ impl NetworkService {
             return Err(e);
         }
         if self.current_call().is_some_and(|c| c.call_id == call.call_id && c.phase == "ringing") {
-            self.start_ringtone("ringback", 60);
+            // (A phone plays its own ringback; this PC stays quiet then.)
+            if call.on_phone.is_none() {
+                self.start_ringtone("ringback", 60);
+            }
         }
         self.spawn_ring_timeout(call.call_id.clone());
+        // The other device (PC window or phone) shows "a call is on".
+        self.emit_call("outgoing", &call, |_| {});
         Ok(call)
     }
 
     /// Answers the ringing call: `sdp` is this window's WebRTC answer.
     pub async fn answer_call(&self, call_id: &str, sdp: String, video: bool) -> Result<CallInfo, String> {
+        self.answer_call_ex(call_id, sdp, video, None).await
+    }
+
+    /// LANX 3.2.0: answers on `on_phone` (a phone's device id) or on this PC's
+    /// window. The first device to answer takes the call; the other stops ringing.
+    pub async fn answer_call_ex(&self, call_id: &str, sdp: String, video: bool, on_phone: Option<String>) -> Result<CallInfo, String> {
         let call = {
             let mut cur = self.call.lock();
             match cur.as_mut() {
                 Some(c) if c.call_id == call_id && !c.outgoing && c.phase == "ringing" => {
+                    if on_phone.is_some() && c.help.is_some() {
+                        return Err("Remote help works on the PC — answer it there.".to_string());
+                    }
                     c.phase = "active".to_string();
                     c.answered_at = Some(now_secs());
+                    c.on_phone = on_phone.clone();
+                    c.offer = None;
                     c.clone()
                 }
                 _ => return Err("This call has ended.".to_string()),
@@ -270,6 +307,8 @@ impl NetworkService {
             }
             return Err(e);
         }
+        // The other device stops ringing ("answered on your phone / PC").
+        self.emit_call("answered", &call, |ev| ev.video = Some(video));
         Ok(call)
     }
 
@@ -280,6 +319,8 @@ impl NetworkService {
         };
         crate::sound::stop_loop();
         self.record_call(&call, "declined");
+        // LANX 3.2.0: the PC window or phone that did not decline stops ringing.
+        self.emit_call("ended", &call, |e| e.reason = Some("declined_here".to_string()));
         if let Ok(Some(peer)) = self.db.get_peer(&call.peer_id) {
             let _ = self.send_call(&peer, payload(call_id, "decline")).await;
         }
@@ -298,6 +339,9 @@ impl NetworkService {
             _ => ("hangup", "answered"),
         };
         self.record_call(&call, outcome);
+        // LANX 3.2.0: hung up on the PC while the phone carries it (or the
+        // other way round): the other device ends its side too.
+        self.emit_call("ended", &call, |e| e.reason = Some("hangup_here".to_string()));
         if let Ok(Some(peer)) = self.db.get_peer(&call.peer_id) {
             let _ = self.send_call(&peer, payload(call_id, action)).await;
         }
@@ -370,6 +414,8 @@ impl NetworkService {
                     answered_at: None,
                     private,
                     help: c.help.clone().filter(|h| h == "view" || h == "show"),
+                    on_phone: None,
+                    offer: c.sdp.clone(),
                 };
                 {
                     let mut cur = self.call.lock();

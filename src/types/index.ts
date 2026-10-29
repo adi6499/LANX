@@ -519,6 +519,8 @@ export interface CallInfo {
   private: boolean;
   /** LANX 1.8.0 remote help: "view" = the caller sees the other screen, "show" = the caller shows theirs. */
   help?: "view" | "show" | null;
+  /** LANX 3.2.0: the phone (device id) that carries the call; none = this PC. */
+  on_phone?: string | null;
 }
 
 /** LANX 2.0: remote control on this PC (a colleague controls it). */
@@ -623,7 +625,8 @@ export interface IntercomEvent {
 }
 
 export interface CallEvent {
-  action: "incoming" | "accepted" | "media" | "ended";
+  /** LANX 3.2.0 adds outgoing / answered (the other device stops ringing). */
+  action: "incoming" | "accepted" | "media" | "ended" | "outgoing" | "answered";
   call: CallInfo;
   sdp: string | null;
   video: boolean | null;

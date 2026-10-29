@@ -1,6 +1,6 @@
 /** LANX 3.0: how the phone page talks to the PC — pairing over HTTP, then one
  *  WebSocket carrying JSON lines (see src-tauri/src/phone/api.rs). */
-import type { Conversation, ForwardResult, GroupInfo, Message, Peer, Profile, ScheduledMessage } from "../types";
+import type { CallInfo, Conversation, ForwardResult, GroupInfo, Message, Peer, Profile, ScheduledMessage } from "../types";
 
 export interface PhoneTransfer {
   id: string;
@@ -46,6 +46,8 @@ export interface Hello {
   now: number;
   /** What the PC calls this phone ("Safari on iPhone"). */
   device: string;
+  /** 3.2: this phone's own id (which "answered" was ours). */
+  device_id?: string;
   ip: string;
   quick_replies?: string[];
   stickers?: StickerInfo[];
@@ -83,6 +85,7 @@ export type Push =
   | { ev: "intercom"; transfer_id: string; conversation_id: string; peer_id: string; name: string; quiet: boolean }
   | { ev: "ring"; conversation_id: string; peer_name: string }
   | { ev: "notice"; text: string }
+  | { ev: "call"; action: "incoming" | "accepted" | "media" | "ended" | "outgoing" | "answered"; call: CallInfo; sdp: string | null; video: boolean | null; muted: boolean | null; screen: boolean | null; reason: string | null; recording?: boolean | null }
   | { ev: "reload" }
   | { ev: "lock"; locked: boolean };
 

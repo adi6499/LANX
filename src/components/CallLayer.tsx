@@ -55,7 +55,9 @@ interface CallLayerProps {
   profiles?: Record<string, Profile>;
 }
 
-type Status = "starting" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
+/** LANX 3.2.0: "phone" = one of this PC's phones carries the call; this
+ *  window only shows it (no microphone, camera or connection here). */
+type Status = "starting" | "outgoing" | "incoming" | "connecting" | "active" | "ended" | "phone";
 
 interface CallState {
   info: CallInfo;
@@ -132,6 +134,8 @@ function endReasonText(reason: string | null, info: CallInfo): string {
       return info.outgoing ? "No answer" : "Missed call";
     case "failed":
       return "The call could not connect";
+    case "declined_here":
+      return "Call declined";
     default:
       return "Call ended";
   }
@@ -365,8 +369,45 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   }, [hangup]);
 
   // ------------------------------------------------------------- events
+  /** LANX 3.2.0: the call runs on one of this PC's phones. */
+  const showOnPhone = useCallback(
+    (info: CallInfo) => {
+      releaseMedia();
+      callIdRef.current = info.call_id;
+      remoteOfferRef.current = null;
+      window.clearTimeout(timersRef.current.close);
+      setCall({
+        info,
+        status: "phone",
+        muted: false,
+        camera: false,
+        screen: false,
+        remoteVideo: false,
+        remoteMuted: false,
+        remoteScreen: false,
+        connectedAt: info.phase === "active" ? Date.now() : null,
+        endText: null,
+        expanded: false,
+        remote: REMOTE_OFF,
+      });
+    },
+    [releaseMedia]
+  );
+
   const handleEvent = useCallback(
     async (ev: CallEvent) => {
+      // LANX 3.2.0: a phone started or answered this call — show it, nothing more.
+      if (ev.call.on_phone && (ev.action === "outgoing" || ev.action === "answered")) {
+        if (startingRef.current || (callIdRef.current && callIdRef.current !== ev.call.call_id)) return;
+        showOnPhone(ev.call);
+        return;
+      }
+      if (callStateRef.current?.status === "phone") {
+        if (ev.call.call_id !== callIdRef.current) return;
+        if (ev.action === "accepted") setCall((c) => (c ? { ...c, info: { ...c.info, phase: "active" }, connectedAt: c.connectedAt ?? Date.now() } : c));
+        else if (ev.action === "ended") finish(endReasonText(ev.reason, ev.call));
+        return;
+      }
       if (ev.action === "incoming") {
         if (callIdRef.current || startingRef.current) return; // LANX already answered "busy"
         callIdRef.current = ev.call.call_id;
@@ -422,7 +463,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         finish(endReasonText(ev.reason, ev.call));
       }
     },
-    [armConnectTimeout, finish, hangup, patch, patchRemote]
+    [armConnectTimeout, finish, hangup, patch, patchRemote, showOnPhone]
   );
 
   const handleEventRef = useRef(handleEvent);
@@ -436,9 +477,17 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       .then((u) => (disposed ? u() : (unlisten = u)))
       .catch(console.error);
     // A reload in the middle of a call leaves no media behind: end it cleanly.
+    // (LANX 3.2.0: a call on the phone carries on; this window shows it again.)
     api
       .getCall()
-      .then((c) => c && api.callHangup(c.call_id))
+      .then((c) => {
+        if (!c) return;
+        if (c.on_phone) {
+          void handleEventRef.current({ action: c.outgoing && c.phase === "ringing" ? "outgoing" : "answered", call: c, sdp: null, video: null, muted: null, screen: null, reason: null });
+          return;
+        }
+        void api.callHangup(c.call_id);
+      })
       .catch(() => {});
     return () => {
       disposed = true;
@@ -446,8 +495,8 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     };
   }, []);
 
-  // Call timer.
-  const active = call?.status === "active";
+  // Call timer (also for a call on the phone, once it is connected).
+  const active = call?.status === "active" || (call?.status === "phone" && !!call.connectedAt);
   useEffect(() => {
     if (!active) return;
     const t = window.setInterval(() => setTick((n) => n + 1), 1000);
@@ -851,12 +900,12 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const islandKey = call && call.status !== "ended" ? `${call.info.call_id}|${call.status}|${call.connectedAt ?? ""}` : "";
   useEffect(() => {
     if (!onIslandChange) return;
-    if (!call || call.status === "ended") {
+    if (!call || call.status === "ended" || call.status === "phone") {
       onIslandChange(null);
       return;
     }
     onIslandChange({
-      status: call.status,
+      status: call.status as IslandCall["status"],
       peerId: call.info.peer_id,
       name: call.info.peer_name,
       color: call.info.avatar_color,
@@ -893,10 +942,12 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       await pc.setLocalDescription(await pc.createAnswer());
       await iceGathered(pc);
       if (callIdRef.current !== id) return; // they hung up meanwhile
+      if (callStateRef.current?.status === "phone") return; // a phone answered first
       await api.callAnswer(id, pc.localDescription?.sdp ?? "", !!cam);
       patch({ camera: !!cam });
       armConnectTimeout();
     } catch (err) {
+      if (callStateRef.current?.status === "phone") return; // a phone answered first
       onErrorRef.current(errorText(err));
       finish(null);
     }
@@ -1155,6 +1206,43 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       {caption && <span className="text-[11px] text-white/80">{caption}</span>}
     </div>
   );
+
+  // LANX 3.2.0: the call is on one of this PC's phones — a small pill here.
+  if (status === "phone") {
+    return (
+      <>
+        {audioEl}
+        <div
+          data-call-status="phone"
+          className="fixed bottom-5 right-5 z-[70] flex items-center gap-3 rounded-full bg-emerald-600 py-1.5 pl-1.5 pr-1.5 text-white shadow-xl lanx-rise"
+        >
+          {info.private ? (
+            <span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: info.avatar_color }}>
+              <Phone className="h-4 w-4" />
+            </span>
+          ) : (
+            <Avatar name={name} color={info.avatar_color} profile={profiles[info.peer_id]} size={36} />
+          )}
+          <div className="min-w-0 pr-1">
+            <div className="max-w-[200px] truncate text-[12.5px] font-semibold">{info.private ? "Call" : name}</div>
+            <div className="text-[11px] text-white/85" data-call-phone-line>
+              📱 On your phone · {call.connectedAt ? clock(Date.now() - call.connectedAt) : info.outgoing ? "calling…" : "connecting…"}
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Hang up"
+            title="Hang up (the call is on your phone)"
+            data-call-phone-hangup
+            onClick={() => void hangup()}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 hover:bg-red-600 active:scale-90"
+          >
+            <PhoneOff className="h-4 w-4" />
+          </button>
+        </div>
+      </>
+    );
+  }
 
   // Ringing, connecting and ended: a calm full-window screen.
   if (status !== "active") {

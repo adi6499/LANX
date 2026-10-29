@@ -42,6 +42,18 @@ more and the PC asks *Allow?* again.
   bridge: see, answer, create), Notes, Calendar, Games (the PC's games panel,
   flat boards), Send kudos, End-of-day report, Emergency (answer / raise),
   My status + out of office, My profile, a person's details (Who's in → ⓘ).
+- (3.2) Voice and video calls: 📞 / 🎥 in a one-to-one chat call from the
+  phone; an incoming call rings the PC and the phone together, and the first
+  to answer takes it (`on_phone` in the engine's `CallInfo`; the other device
+  gets `answered` and stops ringing). The PC keeps doing the signalling
+  (`call_start` / `call_answer` / `call_decline` / `call_hangup` /
+  `call_media` / `call_get`; the invite carries the phone's offer, the accept
+  the answer, no trickled ICE) and the phone carries the sound and picture
+  straight to the colleague's PC (`src/phone/call.ts`, `CallScreen.tsx`).
+  The PC's call window shows a "📱 On your phone" pill (hang up works there
+  too) and opens no microphone, camera or connection of its own. A ringing
+  call's offer is kept by the PC, so a phone opened from the "Incoming call"
+  alert can still answer. Needs the secure connection (microphone/camera).
 - (3.2) Secure connection: the PC also listens over HTTPS (port 52931 by
   default, same fallback as the others) with a certificate it made itself
   (`<data dir>\phone-tls\`, CA + a server certificate for every local IP,
@@ -64,8 +76,8 @@ more and the PC asks *Allow?* again.
 - The phone shows new messages while the page is open. Closed or in the
   background it gets no alerts: browsers only allow that for secure (HTTPS)
   sites, which a LAN address cannot be.
-- No calls or meetings on the phone (the PC's own call window and the phone
-  would fight over one call; a later release), no remote control or PDF tools.
+- No group meetings, remote help or call recording on the phone, no remote
+  control or PDF tools.
 - On the plain (HTTP) page the messages travel between phone and PC
   protected only by the Wi-Fi's own encryption; the secure page (3.2) encrypts
   them with the PC's certificate. Between PCs LANX stays end-to-end encrypted

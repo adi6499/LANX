@@ -1044,3 +1044,124 @@ async fn a_phone_sets_status_raises_alerts_and_plays_games() {
     assert_eq!(pushed["data"]["cell"], 4);
     assert!(pushed["at"].is_i64());
 }
+
+/// Waits for an engine event (name + test) on a tap; the payload, or None.
+async fn tap_wait<F: Fn(&Value) -> bool>(tap: &mut tokio::sync::broadcast::Receiver<Arc<crate::events::TapEvent>>, name: &str, pred: F, secs: u64) -> Option<Value> {
+    tokio::time::timeout(Duration::from_secs(secs), async {
+        loop {
+            match tap.recv().await {
+                Ok(ev) if ev.0 == name && pred(&ev.1) => break Some(ev.1.clone()),
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(_) => break None,
+            }
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// LANX 3.2: voice and video calls on the phone. The PC does the signalling;
+/// the phone makes the offer or the answer and carries the call. Whichever
+/// device answers first takes it, and the other stops ringing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_makes_and_takes_calls_through_the_pc() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let conv_a = link(&a, &b).await;
+    let (_phone, mut ws, _cancel) = paired_phone(&a).await;
+    let hello = ask(&mut ws, 1, json!({ "op": "hello" })).await;
+    let me = hello["device_id"].as_str().unwrap_or("").to_string();
+    assert!(!me.is_empty(), "hello names this phone: {}", hello);
+    let b_conv = b.svc.db.get_or_create_conversation(&a.svc.identity.device_id).unwrap().id;
+    let mut bt = b.svc.events.subscribe().expect("Bharat's events");
+
+    // 1. The phone calls Bharat: his PC rings with the phone's offer.
+    let r = ask_and_push(&mut ws, 2, json!({ "op": "call_start", "conv": conv_a, "video": false, "sdp": "v=0 offer-from-the-phone" }), |v| v["ev"] == "call" && v["action"] == "outgoing").await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["call"]["on_phone"], me.as_str());
+    assert_eq!(r["call"]["outgoing"], true);
+    let call_id = r["call"]["call_id"].as_str().unwrap().to_string();
+    let incoming = tap_wait(&mut bt, "lanx://call", |p| p["action"] == "incoming", 10).await.expect("Bharat's PC rings");
+    assert_eq!(incoming["sdp"], "v=0 offer-from-the-phone");
+    assert_eq!(a.svc.current_call().unwrap().on_phone.as_deref(), Some(me.as_str()));
+    // A second call while one is on is refused.
+    let r = ask(&mut ws, 3, json!({ "op": "call_start", "conv": conv_a, "video": false, "sdp": "v=0 x" })).await;
+    assert_eq!(r["ok"], false);
+    // Bharat answers: the phone gets his answer.
+    b.svc.answer_call(&call_id, "v=0 answer-from-bharat".to_string(), false).await.unwrap();
+    let accepted = ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "accepted", 10).await.expect("the phone hears the answer");
+    assert_eq!(accepted["sdp"], "v=0 answer-from-bharat");
+    assert_eq!(a.svc.current_call().unwrap().phase, "active");
+    // Mute on the phone reaches Bharat.
+    let r = ask(&mut ws, 4, json!({ "op": "call_media", "call_id": call_id, "muted": true })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let media = tap_wait(&mut bt, "lanx://call", |p| p["action"] == "media", 10).await.expect("Bharat sees the mute");
+    assert_eq!(media["muted"], true);
+    // The phone hangs up: both ends close, and the chat shows the call.
+    let r = ask(&mut ws, 5, json!({ "op": "call_hangup", "call_id": call_id })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert!(a.svc.current_call().is_none());
+    let ended = tap_wait(&mut bt, "lanx://call", |p| p["action"] == "ended", 10).await.expect("Bharat's call ends");
+    assert_eq!(ended["reason"], "hangup");
+    assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
+    let calls: Vec<_> = a.svc.db.get_messages(&conv_a).unwrap().into_iter().filter(|m| m.message_type == "call").collect();
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].content.contains("\"outcome\":\"answered\""), "{}", calls[0].content);
+
+    // 2. Bharat video-calls Asha: the phone rings with his offer and takes it.
+    let call = b.svc.start_call(&b_conv, true, "v=0 offer-from-bharat".to_string(), None).await.unwrap();
+    let ring = ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "incoming", 10).await.expect("the phone rings");
+    assert_eq!(ring["sdp"], "v=0 offer-from-bharat");
+    assert_eq!(ring["call"]["video"], true);
+    // A page that opens now can still answer: the PC keeps the offer.
+    let got = ask(&mut ws, 6, json!({ "op": "call_get" })).await;
+    assert_eq!(got["call"]["call_id"], call.call_id.as_str());
+    assert_eq!(got["offer"], "v=0 offer-from-bharat");
+    let r = ask_and_push(&mut ws, 7, json!({ "op": "call_answer", "call_id": call.call_id, "sdp": "v=0 answer-from-the-phone", "video": true }), |v| v["ev"] == "call" && v["action"] == "answered").await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(a.svc.current_call().unwrap().on_phone.as_deref(), Some(me.as_str()));
+    let accepted = tap_wait(&mut bt, "lanx://call", |p| p["action"] == "accepted", 10).await.expect("Bharat gets the phone's answer");
+    assert_eq!(accepted["sdp"], "v=0 answer-from-the-phone");
+    // Hanging up on the PC (its "on your phone" pill) ends the phone's call too.
+    a.svc.hangup_call(&call.call_id).await.unwrap();
+    let ended = ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "ended", 10).await.expect("the phone's call ends");
+    assert_eq!(ended["reason"], "hangup_here");
+    assert!(tap_wait(&mut bt, "lanx://call", |p| p["action"] == "ended", 10).await.is_some());
+
+    // 3. The phone declines: Bharat hears "declined", the PC stops ringing.
+    let call = b.svc.start_call(&b_conv, false, "v=0 offer-2".to_string(), None).await.unwrap();
+    ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "incoming", 10).await.expect("rings again");
+    let r = ask(&mut ws, 8, json!({ "op": "call_decline", "call_id": call.call_id })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert!(a.svc.current_call().is_none());
+    let ended = tap_wait(&mut bt, "lanx://call", |p| p["action"] == "ended", 10).await.expect("Bharat hears the decline");
+    assert_eq!(ended["reason"], "declined");
+
+    // 4. The PC answers first: the phone is told, and its own answer is refused.
+    let call = b.svc.start_call(&b_conv, false, "v=0 offer-3".to_string(), None).await.unwrap();
+    ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "incoming", 10).await.expect("rings a third time");
+    a.svc.answer_call(&call.call_id, "v=0 answer-from-the-pc".to_string(), false).await.unwrap();
+    let answered = ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "answered", 10).await.expect("the phone hears the PC answered");
+    assert_eq!(answered["call"]["on_phone"], Value::Null);
+    let r = ask(&mut ws, 9, json!({ "op": "call_answer", "call_id": call.call_id, "sdp": "v=0 late", "video": false })).await;
+    assert_eq!(r["ok"], false);
+    assert_eq!(r["error"], "This call has ended.");
+    b.svc.hangup_call(&call.call_id).await.unwrap();
+    let ended = ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "ended", 10).await.expect("the phone sees it end");
+    assert_eq!(ended["reason"], "hangup");
+
+    // 5. Remote help stays on the PC.
+    let call = b.svc.start_call(&b_conv, false, "v=0 offer-help".to_string(), Some("view".to_string())).await.unwrap();
+    ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "incoming", 10).await.expect("help rings");
+    let r = ask(&mut ws, 10, json!({ "op": "call_answer", "call_id": call.call_id, "sdp": "v=0 nope", "video": false })).await;
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap_or("").contains("Remote help"), "{}", r);
+    b.svc.hangup_call(&call.call_id).await.unwrap();
+    assert!(wait_for(|| a.svc.current_call().is_none(), 5).await);
+
+    // 6. A locked PC: no calls from the phone.
+    a.svc.privacy.lock();
+    let r = ask(&mut ws, 11, json!({ "op": "call_start", "conv": conv_a, "video": false, "sdp": "v=0 locked" })).await;
+    assert_eq!(r["error"], "LOCKED");
+}

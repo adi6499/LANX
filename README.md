@@ -68,8 +68,12 @@ others) and talks to the Windows copies on the same network.
   the phone (More → Secure connection; about five taps) and the phone can then record **voice notes** and
   **intercom** messages, and get **alerts when the page is closed** (iPhone: after "Add to Home Screen"; the PC
   needs internet for Apple's alert service).
-- Still PC-only: voice/video calls and meetings, remote control, PDF tools, the screenshot hotkey, Explorer
-  "Send to", backups, admin and updates.
+- **Voice and video calls on the phone:** call a colleague from a chat (📞 / 🎥), or answer on the phone — when
+  someone calls, your PC and your phone both ring and whichever you answer takes the call (the PC then shows a small
+  "📱 On your phone" pill with a hang-up button). Mute, camera on/off, front/back camera, hang up. Calls need the
+  secure connection; sound and picture go straight across the office Wi-Fi to your colleague's PC.
+- Still PC-only: group meetings, remote control and remote help, call recording, PDF tools, the screenshot hotkey,
+  Explorer "Send to", backups, admin and updates.
 
 ### New in 3.1.0: the phone does what the PC does — chats, groups, files
 - **Chat extras on the phone:** hold a message for reactions, Reply, Forward, Copy, Star, Pin, Remind me, Edit and
