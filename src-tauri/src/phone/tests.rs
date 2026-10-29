@@ -1165,3 +1165,133 @@ async fn a_phone_makes_and_takes_calls_through_the_pc() {
     let r = ask(&mut ws, 11, json!({ "op": "call_start", "conv": conv_a, "video": false, "sdp": "v=0 locked" })).await;
     assert_eq!(r["error"], "LOCKED");
 }
+
+/// LANX 3.3: the PIN from the phone (unlock, hidden chats, lock), secret
+/// messages, ring, broadcast, memes kept and sent by the PC, and what an IT
+/// ticket says about this PC.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_unlocks_hides_and_sends_secret_broadcast_and_memes() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let conv_a = link(&a, &b).await;
+    let (_phone, mut ws, _cancel) = paired_phone(&a).await;
+    let port = _phone.port();
+    let token = {
+        // A second pairing gives a token this test can use over plain HTTP too.
+        let info = _phone.start_pairing();
+        let request = _phone.claim(&info.code, "Chrome on Android phone", "127.0.0.1").unwrap();
+        _phone.answer(&request, true).unwrap();
+        _phone.poll(&request).token.unwrap()
+    };
+    let cookie = format!("lanx_phone={}", token);
+
+    // No PIN yet: "lock" is refused, hiding a chat too.
+    let r = ask(&mut ws, 1, json!({ "op": "lock" })).await;
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains("PIN"), "{}", r);
+    let hello = ask(&mut ws, 2, json!({ "op": "hello" })).await;
+    assert_eq!(hello["lock"]["pin_set"], false);
+    assert_eq!(hello["lock"]["locked"], false);
+
+    // A PIN set on the PC; the phone locks the PC, and unlocks it with the PIN.
+    crate::privacy::set_pin(&a.svc.db, None, Some("4321")).unwrap();
+    let r = ask(&mut ws, 3, json!({ "op": "lock" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["status"]["locked"], true);
+    assert!(a.svc.privacy.is_locked());
+    let r = ask(&mut ws, 4, json!({ "op": "hello" })).await;
+    assert_eq!(r["error"], "LOCKED");
+    let r = ask(&mut ws, 5, json!({ "op": "lock_status" })).await;
+    assert_eq!(r["status"]["locked"], true);
+    assert_eq!(r["status"]["pin_set"], true);
+    let r = ask(&mut ws, 6, json!({ "op": "unlock", "pin": "0000" })).await;
+    assert_eq!(r["ok"], false);
+    assert_eq!(r["error"], "Wrong PIN.");
+    assert!(a.svc.privacy.is_locked());
+    let r = ask(&mut ws, 7, json!({ "op": "unlock", "pin": "4321" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["status"]["locked"], false);
+    assert!(!a.svc.privacy.is_locked());
+
+    // Hide the chat with Bharat; it vanishes until the PIN shows hidden chats.
+    let r = ask(&mut ws, 8, json!({ "op": "chat_hide", "conv": conv_a, "hidden": true })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert!(r["conversations"].as_array().unwrap().iter().all(|c| c["id"] != conv_a.as_str()));
+    let r = ask(&mut ws, 9, json!({ "op": "messages", "conv": conv_a })).await;
+    assert_eq!(r["error"], "HIDDEN");
+    let r = ask(&mut ws, 10, json!({ "op": "unlock_hidden", "pin": "1111" })).await;
+    assert_eq!(r["ok"], false);
+    let r = ask(&mut ws, 11, json!({ "op": "unlock_hidden", "pin": "4321" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["status"]["hidden_unlocked"], true);
+    assert!(r["conversations"].as_array().unwrap().iter().any(|c| c["id"] == conv_a.as_str() && c["is_hidden"] == true));
+    let r = ask(&mut ws, 12, json!({ "op": "chat_hide", "conv": conv_a, "hidden": false })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let r = ask(&mut ws, 13, json!({ "op": "hide_hidden" })).await;
+    assert_eq!(r["status"]["hidden_unlocked"], false);
+    assert!(r["conversations"].as_array().unwrap().iter().any(|c| c["id"] == conv_a.as_str()), "unhidden chats stay listed");
+
+    // Secret messages: 5 minutes, then off; bad timers are refused.
+    let r = ask(&mut ws, 14, json!({ "op": "secret", "conv": conv_a, "ttl": 300 })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["message_type"], "secret_setting");
+    assert_eq!(r["conversation"]["secret_ttl"], 300);
+    let r = ask(&mut ws, 15, json!({ "op": "send", "conv": conv_a, "text": "this disappears" })).await;
+    assert_eq!(r["message"]["ttl_secs"], 300);
+    let r = ask(&mut ws, 16, json!({ "op": "secret", "conv": conv_a, "ttl": 7 })).await;
+    assert_eq!(r["ok"], false);
+    let r = ask(&mut ws, 17, json!({ "op": "secret", "conv": conv_a, "ttl": 0 })).await;
+    assert_eq!(r["conversation"]["secret_ttl"], 0);
+    let b_db = b.svc.db.clone();
+    assert!(wait_for(|| b_db.get_conversations(true).unwrap().first().is_some_and(|c| c.secret_ttl == 0), 10).await);
+
+    // Ring Bharat.
+    let r = ask(&mut ws, 18, json!({ "op": "ring", "conv": conv_a })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+
+    // Broadcast to Bharat.
+    let bharat = b.svc.identity.device_id.clone();
+    let r = ask(&mut ws, 19, json!({ "op": "broadcast", "peer_ids": [bharat], "text": "Office closes at 5 today" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["sent_to"], 1);
+    assert!(
+        wait_for(|| b_db.get_conversations(true).unwrap().first().is_some_and(|c| b_db.get_messages(&c.id).unwrap().iter().any(|m| m.content == "Office closes at 5 today")), 10).await,
+        "Bharat got the broadcast"
+    );
+    let r = ask(&mut ws, 20, json!({ "op": "broadcast", "peer_ids": [], "text": "nobody" })).await;
+    assert_eq!(r["ok"], false);
+
+    // A meme made on the phone is kept on the PC and sent from there; any
+    // other file on the PC is refused.
+    let png: Vec<u8> = std::iter::once(0x89u8).chain(b"PNG\r\n\x1a\n".iter().copied()).chain((0..2000u32).map(|i| (i % 251) as u8)).collect();
+    let saved = http(port, "POST", "/api/meme?ext=png&name=when%20the%20client", &[("Cookie", &cookie)], &png).await;
+    assert_eq!(saved.status, 200, "{}", String::from_utf8_lossy(&saved.body));
+    let file = saved.json()["file"].as_str().unwrap().to_string();
+    assert!(file.contains("when-the-client"), "{}", file);
+    let r = ask(&mut ws, 21, json!({ "op": "meme_send", "conv": conv_a, "file": file })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["message_type"], "file");
+    let elsewhere = a._dir.path().join("secret.txt");
+    std::fs::write(&elsewhere, b"not a meme").unwrap();
+    let r = ask(&mut ws, 22, json!({ "op": "meme_send", "conv": conv_a, "file": elsewhere.to_string_lossy() })).await;
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains("not one of LANX's memes"), "{}", r);
+    let r = ask(&mut ws, 23, json!({ "op": "meme_download", "url": "https://example.com/x.png", "ext": "png", "name": "x" })).await;
+    assert_eq!(r["ok"], false, "only the meme services LANX knows");
+    assert_eq!(http(port, "POST", "/api/meme?ext=png", &[], &png).await.status, 401);
+
+    // What an IT ticket says about this PC; the saved IT helpers.
+    let r = ask(&mut ws, 24, json!({ "op": "system_info" })).await;
+    assert_eq!(r["info"]["device_id"], a.svc.identity.device_id.as_str());
+    assert!(r["info"]["app_version"].as_str().is_some());
+    a.svc.db.set_setting("it_helpers", &serde_json::to_string(&vec![bharat.clone()]).unwrap()).unwrap();
+    let r = ask(&mut ws, 25, json!({ "op": "it_helpers" })).await;
+    assert_eq!(r["ids"], json!([bharat]));
+
+    // The phone sees the lock change pushed when the PC locks.
+    a.svc.privacy.lock();
+    a.svc.events.emit_json("lanx://lock-changed", a.svc.privacy.status(&a.svc.db));
+    let pushed = ws_wait(&mut ws, |v| v["ev"] == "lock", 10).await.expect("lock push");
+    assert_eq!(pushed["locked"], true);
+    assert_eq!(pushed["pin_set"], true);
+}

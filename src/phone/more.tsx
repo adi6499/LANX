@@ -2,7 +2,7 @@
  *  profile, kudos, end-of-day reports, emergency alerts, the secure
  *  connection and alerts, a person's details. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BellRing, CalendarDays, ClipboardList, Gamepad2, Info, Mail, Phone, Plus, Shield, Smile, StickyNote, Trash2, Trophy, UserCircle, X } from "lucide-react";
+import { ArrowLeft, BellRing, Cake, CalendarDays, ClipboardList, Gamepad2, Info, Laugh, LifeBuoy, Mail, Music2, Phone, Plus, Shield, Smile, StickyNote, Trash2, Trophy, UserCircle, X } from "lucide-react";
 import type { AlertInfo, CalendarEvent, Note, Occurrence, Peer, Profile } from "../types";
 import { Avatar } from "../components/Avatar";
 import { CardView } from "../components/org/CardView";
@@ -26,7 +26,7 @@ const plain = "rounded-full lanx-group px-4 py-2 text-[13px] font-semibold text-
 
 // --------------------------------------------------------------------- more
 
-export type MoreKey = "cards" | "notes" | "calendar" | "games" | "kudos" | "report" | "emergency" | "status" | "profile" | "secure" | "about";
+export type MoreKey = "cards" | "notes" | "calendar" | "games" | "music" | "memes" | "kudos" | "report" | "helpdesk" | "office" | "emergency" | "status" | "profile" | "secure" | "about";
 
 export function MoreScreen({ forMe, alertsLive, secure, onOpen }: { forMe: number; alertsLive: number; secure: boolean; onOpen: (key: MoreKey) => void }) {
   const items: { key: MoreKey; icon: React.ReactNode; label: string; hint?: string; badge?: number; tint: string }[] = [
@@ -34,8 +34,12 @@ export function MoreScreen({ forMe, alertsLive, secure, onOpen }: { forMe: numbe
     { key: "notes", icon: <StickyNote className="h-5 w-5" />, label: "Notes", tint: "#f59e0b" },
     { key: "calendar", icon: <CalendarDays className="h-5 w-5" />, label: "Calendar", tint: "#0ea5e9" },
     { key: "games", icon: <Gamepad2 className="h-5 w-5" />, label: "Games", hint: "Play with colleagues", tint: "#4f46e5" },
+    { key: "music", icon: <Music2 className="h-5 w-5" />, label: "Music", hint: "Plays on this phone (needs internet)", tint: "#db2777" },
+    { key: "memes", icon: <Laugh className="h-5 w-5" />, label: "Memes & GIFs", hint: "Make one, send it to a chat", tint: "#f97316" },
     { key: "kudos", icon: <Trophy className="h-5 w-5" />, label: "Send kudos", tint: "#eab308" },
     { key: "report", icon: <ClipboardList className="h-5 w-5" />, label: "End-of-day report", tint: "#14b8a6" },
+    { key: "helpdesk", icon: <LifeBuoy className="h-5 w-5" />, label: "IT help desk", hint: "Ask for help with your PC", tint: "#0891b2" },
+    { key: "office", icon: <Cake className="h-5 w-5" />, label: "Reception & birthdays", hint: "Visitors, birthdays, wishes", tint: "#e11d48" },
     { key: "emergency", icon: <BellRing className="h-5 w-5" />, label: "Emergency", hint: alertsLive ? `${alertsLive} alert${alertsLive > 1 ? "s" : ""} going on` : undefined, badge: alertsLive, tint: "#ef4444" },
     { key: "status", icon: <Smile className="h-5 w-5" />, label: "My status", hint: "Available, busy, out of office…", tint: "#22c55e" },
     { key: "profile", icon: <UserCircle className="h-5 w-5" />, label: "My profile", tint: "#64748b" },

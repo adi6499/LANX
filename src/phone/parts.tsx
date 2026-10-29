@@ -1,7 +1,7 @@
 /** LANX 3.x phone page: the pieces screens share — bubbles, file cards,
  *  reaction chips, the bottom sheet, and small helpers. */
 import { useRef, type ReactNode } from "react";
-import { AlarmClock, Check, CheckCheck, Clock, Download, FileText, Pin, Star, X } from "lucide-react";
+import { AlarmClock, Check, CheckCheck, Clock, Download, FileText, Pin, Star, Timer, X } from "lucide-react";
 import type { Profile } from "../types";
 import { MessageText, isForwarded, withoutForwardMark } from "../components/chat/chatUtils";
 import { CardView } from "../components/org/CardView";
@@ -360,6 +360,7 @@ export function Bubble({
   if (m.remind_at) marks.push(<AlarmClock key="r" className="h-3 w-3" />);
   if (m.pinned_at) marks.push(<Pin key="p" className="h-3 w-3" />);
   if (m.starred) marks.push(<Star key="s" className="h-3 w-3" />);
+  if (m.ttl_secs) marks.push(<Timer key="t" className="h-3 w-3" />);
   return (
     <div data-ph-msg={m.id} data-ph-out={isOut ? "1" : "0"} className={`flex flex-col ${isOut ? "items-end" : "items-start"}`}>
       {group && !isOut && <span className="mb-0.5 ml-3 text-[11px] font-semibold text-slate-500 dark:text-slate-400">{senderName}</span>}

@@ -2,7 +2,7 @@
  *  message actions: reply, react, forward, star, pin, remind, edit, delete,
  *  stickers, quick replies, @mentions and "send later". */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, ArrowLeft, ArrowUp, ClipboardList, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Phone, Pin, Plus, Radio, Smile, Star, Trash2, Video, X, Zap } from "lucide-react";
+import { AlarmClock, ArrowLeft, ArrowUp, ClipboardList, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Laugh, Mic, MoreVertical, Music2, Paperclip, Pencil, Phone, Pin, Plus, Radio, Smile, Star, Timer, Trash2, Video, X, Zap } from "lucide-react";
 import type { Conversation, GroupInfo, Peer, Profile, ScheduledMessage } from "../types";
 import { Avatar } from "../components/Avatar";
 import { QUICK_REACTIONS, localInputValue, whenChoices, whenText } from "../components/chat/chatUtils";
@@ -11,6 +11,7 @@ import type { Me, PhoneClient, PhoneMessage, Progress, StickerInfo } from "./cli
 import { type Recording, canRecord } from "./media";
 import { Bubble, Sheet, SheetRow, coarsePointer, copyText, dayLabel, fileName } from "./parts";
 import { RecordSheet } from "./RecordSheet";
+import { secretShort } from "./extras";
 
 export interface Upload {
   id: number;
@@ -55,6 +56,9 @@ export function ChatView({
   onAccept,
   onCreateCard,
   onCall,
+  onMenu,
+  onMemes,
+  onMusic,
   secure,
   onVoice,
   onIntercom,
@@ -91,6 +95,11 @@ export function ChatView({
   onCreateCard: () => void;
   /** 3.2: a voice or video call from the phone (one-to-one chats). */
   onCall: (video: boolean) => void;
+  /** 3.3: ring, secret messages, hide this chat. */
+  onMenu: () => void;
+  /** 3.3: the meme picker / music player, sending into this chat. */
+  onMemes: () => void;
+  onMusic: () => void;
   /** 3.2: the page is served securely (microphone allowed). */
   secure: boolean;
   onVoice: (rec: Recording) => Promise<void>;
@@ -348,7 +357,16 @@ export function ChatView({
             </button>
           </>
         )}
+        <button type="button" data-ph-chat-menu onClick={onMenu} className="lanx-tool p-2 text-slate-500" aria-label="More">
+          <MoreVertical className="h-5 w-5" />
+        </button>
       </header>
+      {conv.secret_ttl > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-b lanx-line bg-violet-500/10 px-4 py-1.5 text-[12px] text-violet-700 dark:text-violet-200" data-ph-secret-bar={conv.secret_ttl}>
+          <Timer className="h-3.5 w-3.5 shrink-0" />
+          Secret messages: they disappear {secretShort(conv.secret_ttl)} after reading.
+        </div>
+      )}
 
       {pinned && (
         <button
@@ -646,6 +664,25 @@ export function ChatView({
               setPlus(false);
               setCustomAt(localInputValue(Math.floor(Date.now() / 1000) + 3600));
               setLaterOpen(true);
+            }}
+          />
+          <SheetRow
+            icon={<Laugh className="h-4 w-4" />}
+            label="Meme / GIF"
+            hook="memes"
+            onClick={() => {
+              setPlus(false);
+              onMemes();
+            }}
+          />
+          <SheetRow
+            icon={<Music2 className="h-4 w-4" />}
+            label="Song"
+            hint="send a song card"
+            hook="music"
+            onClick={() => {
+              setPlus(false);
+              onMusic();
             }}
           />
           <SheetRow

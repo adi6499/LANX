@@ -1,12 +1,12 @@
 /** LANX 3.x phone page: the screens around a chat — the chat list, Who's in,
  *  Files, groups, search results, the forward picker and the About sheet. */
 import { useState } from "react";
-import { ArrowLeft, Check, Download, FileText, Info, LogOut, Pencil, Search, Star, UserPlus, Users, X } from "lucide-react";
+import { ArrowLeft, Check, Download, Eye, EyeOff, FileText, Info, Lock, LogOut, Megaphone, Pencil, Search, Star, Timer, UserPlus, Users, X } from "lucide-react";
 import type { Conversation, GroupInfo, Peer, Profile } from "../types";
 import { Avatar } from "../components/Avatar";
 import { formatSize } from "../lib/format";
 import { statusLine } from "../lib/profile";
-import type { Hit, Me, PhoneClient, PhoneTransfer, Progress } from "./client";
+import type { Hit, LockInfo, Me, PhoneClient, PhoneTransfer, Progress } from "./client";
 import { Sheet, fileName, transferState, whenShort, whereabouts } from "./parts";
 
 // -------------------------------------------------------------------- chats
@@ -22,6 +22,9 @@ export function ChatsScreen({
   onNewGroup,
   onSearchMessages,
   onStarred,
+  lock,
+  onBroadcast,
+  onHiddenChats,
 }: {
   me: Me | null;
   conversations: Conversation[];
@@ -33,6 +36,10 @@ export function ChatsScreen({
   onNewGroup: () => void;
   onSearchMessages: (q: string) => void;
   onStarred: () => void;
+  /** 3.3: the PIN lock (hidden chats shown?) */
+  lock: LockInfo | null;
+  onBroadcast: () => void;
+  onHiddenChats: () => void;
 }) {
   const q = query.trim().toLowerCase();
   const list = conversations.filter((c) => !c.archived && (!q || c.peer_name.toLowerCase().includes(q)));
@@ -47,6 +54,14 @@ export function ChatsScreen({
             <div className="text-[18px] font-bold tracking-[-0.02em] text-slate-900 dark:text-white">Chats</div>
             <div className="truncate text-[11px] text-slate-500 dark:text-slate-400">{me ? `${me.name} · through your PC` : "…"}</div>
           </div>
+          {lock?.pin_set && (
+            <button type="button" data-ph-hidden-chats={lock.hidden_unlocked ? "shown" : "hidden"} onClick={onHiddenChats} className={`lanx-tool p-2 ${lock.hidden_unlocked ? "text-violet-500" : "text-slate-400"}`} aria-label={lock.hidden_unlocked ? "Hide hidden chats" : "Show hidden chats"}>
+              {lock.hidden_unlocked ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+            </button>
+          )}
+          <button type="button" data-ph-broadcast onClick={onBroadcast} className="lanx-tool p-2 text-sky-600 dark:text-sky-400" aria-label="Message everyone">
+            <Megaphone className="h-5 w-5" />
+          </button>
           <button type="button" data-ph-starred onClick={onStarred} className="lanx-tool p-2 text-amber-500" aria-label="Starred messages">
             <Star className="h-5 w-5" />
           </button>
@@ -91,7 +106,11 @@ export function ChatsScreen({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-[14.5px] font-semibold text-slate-900 dark:text-white">{c.peer_name}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-[14.5px] font-semibold text-slate-900 dark:text-white">{c.peer_name}</span>
+                    {c.is_hidden && <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 text-[9.5px] font-bold uppercase text-violet-600 dark:text-violet-300" data-ph-chat-hidden>Hidden</span>}
+                    {c.secret_ttl > 0 && <Timer className="h-3.5 w-3.5 shrink-0 text-violet-500" />}
+                  </span>
                   <span className="shrink-0 text-[10.5px] text-slate-400">{whenShort(c.last_message_time)}</span>
                 </span>
                 <span className="flex items-center justify-between gap-2">
@@ -576,7 +595,7 @@ export function ForwardPicker({
 
 // -------------------------------------------------------------------- about
 
-export function AboutSheet({ me, device, version, onClose, onForget }: { me: Me; device: string; version: string; onClose: () => void; onForget: () => void }) {
+export function AboutSheet({ me, device, version, lock, onLockPc, onClose, onForget }: { me: Me; device: string; version: string; lock?: LockInfo | null; onLockPc?: () => void; onClose: () => void; onForget: () => void }) {
   return (
     <Sheet title="This phone" onClose={onClose} hook="about">
       <div className="space-y-2 rounded-xl lanx-group p-3 text-[12.5px] text-slate-700 dark:text-slate-200" data-ph-about-sheet>
@@ -591,6 +610,11 @@ export function AboutSheet({ me, device, version, onClose, onForget }: { me: Me;
         <b>Tip:</b> add this page to your Home Screen (Share → Add to Home Screen) to open it like an app. A Home Screen copy asks for the code once more; the PC asks “Allow?” again.
       </p>
       <p className="mt-2 text-[11.5px] leading-relaxed text-slate-500 dark:text-slate-400">New messages show while this page is open. When your PC is off, or you leave the office Wi-Fi, the page waits.</p>
+      {lock?.pin_set && onLockPc && (
+        <button type="button" data-ph-lock-pc onClick={onLockPc} className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-full lanx-btn py-2.5 text-[12.5px] font-semibold text-slate-700 dark:text-slate-200">
+          <Lock className="h-4 w-4" /> Lock LANX on my PC
+        </button>
+      )}
       <button type="button" data-ph-forget onClick={onForget} className="mt-4 w-full rounded-full lanx-btn py-2.5 text-[12.5px] font-semibold text-rose-600 dark:text-rose-400">
         Disconnect this phone
       </button>

@@ -31,6 +31,14 @@ export interface Me {
   profile: Profile | null;
 }
 
+/** The PC's PIN lock (LANX 3.3: unlock it from the phone). */
+export interface LockInfo {
+  pin_set: boolean;
+  locked: boolean;
+  hidden_unlocked: boolean;
+  retry_after_secs: number;
+}
+
 export interface StickerInfo {
   id: string;
   emoji: string;
@@ -53,6 +61,8 @@ export interface Hello {
   stickers?: StickerInfo[];
   /** 3.2: the PC's settings the phone may read (see bridge.ts PhoneSettings). */
   settings?: Record<string, unknown>;
+  /** 3.3: the PIN lock and hidden chats. */
+  lock?: LockInfo;
 }
 
 export interface Hit {
@@ -87,7 +97,7 @@ export type Push =
   | { ev: "notice"; text: string }
   | { ev: "call"; action: "incoming" | "accepted" | "media" | "ended" | "outgoing" | "answered"; call: CallInfo; sdp: string | null; video: boolean | null; muted: boolean | null; screen: boolean | null; reason: string | null; recording?: boolean | null }
   | { ev: "reload" }
-  | { ev: "lock"; locked: boolean };
+  | { ev: "lock"; locked: boolean; pin_set?: boolean; hidden_unlocked?: boolean; retry_after_secs?: number };
 
 export type ConnState = "idle" | "connecting" | "open" | "closed" | "unauthorized";
 
@@ -378,6 +388,62 @@ export class PhoneClient {
 
   fileUrl(transferId: string) {
     return `/api/file/${encodeURIComponent(transferId)}`;
+  }
+
+  // ---- 3.3 privacy: the PIN from the phone
+  lockStatus() {
+    return this.request<{ status: LockInfo }>("lock_status");
+  }
+  unlock(pin: string) {
+    return this.request<{ status: LockInfo }>("unlock", { pin });
+  }
+  lockPc() {
+    return this.request<{ status: LockInfo }>("lock");
+  }
+  unlockHidden(pin: string) {
+    return this.request<{ status: LockInfo; conversations: Conversation[] }>("unlock_hidden", { pin });
+  }
+  hideHidden() {
+    return this.request<{ status: LockInfo; conversations: Conversation[] }>("hide_hidden");
+  }
+  chatHide(conv: string, hidden: boolean) {
+    return this.request<{ conversations: Conversation[] }>("chat_hide", { conv, hidden });
+  }
+
+  // ---- 3.3 secret messages, ring, broadcast
+  secret(conv: string, ttl: number) {
+    return this.request<{ message: PhoneMessage; conversation: Conversation | null }>("secret", { conv, ttl });
+  }
+  ring(conv: string) {
+    return this.request<{ rang: number }>("ring", { conv });
+  }
+  broadcast(peerIds: string[], text: string) {
+    return this.request<{ sent_to: number; problems: string[] }>("broadcast", { peer_ids: peerIds, text });
+  }
+
+  // ---- 3.3 memes (kept on the PC) and the help desk
+  memeDownload(url: string, ext: string, name: string) {
+    return this.request<{ file: string; bytes: number }>("meme_download", { url, ext, name });
+  }
+  memeSend(conv: string, file: string) {
+    return this.request<{ message: PhoneMessage }>("meme_send", { conv, file });
+  }
+  async saveMeme(bytes: Uint8Array, ext: string, name: string): Promise<{ file: string; bytes: number }> {
+    const r = await fetch(`/api/meme?ext=${encodeURIComponent(ext)}&name=${encodeURIComponent(name)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" },
+      body: bytes as BodyInit,
+      credentials: "same-origin",
+    });
+    const j = (await r.json().catch(() => ({}))) as { file?: string; bytes?: number; error?: string };
+    if (!r.ok || !j.file) throw new Error(j.error ?? `failed (${r.status})`);
+    return { file: j.file, bytes: j.bytes ?? 0 };
+  }
+  systemInfo() {
+    return this.request<{ info: { device_id: string; hostname: string; os: string; app_version: string; local_ips: string[]; fingerprint: string } }>("system_info");
+  }
+  itHelpers() {
+    return this.request<{ ids: string[] }>("it_helpers");
   }
 
   /** The PC's secure address and certificate (no token needed). */

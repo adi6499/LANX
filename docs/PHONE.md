@@ -54,6 +54,22 @@ more and the PC asks *Allow?* again.
   too) and opens no microphone, camera or connection of its own. A ringing
   call's offer is kept by the PC, so a phone opened from the "Incoming call"
   alert can still answer. Needs the secure connection (microphone/camera).
+- (3.3) The PIN: a locked PC shows a PIN screen on the phone (`unlock` and
+  `lock_status` are the only ops that work while locked; the same wrong-try
+  waits as the PC); More → This phone → "Lock LANX on my PC" (`lock`).
+  Hidden chats: 👁 in Chats (`unlock_hidden` / `hide_hidden`), ⋯ in a chat
+  hides or unhides it (`chat_hide`).
+- (3.3) A chat's ⋯: ring (`ring`), secret messages (`secret`, 30 s – 1 week).
+  📣 in Chats: message everyone (`broadcast`, text).
+- (3.3) Music and memes: the PC's own music player and meme picker run full
+  screen on the phone. Songs and meme lists load from the internet on the
+  phone (the page's CSP allows exactly the PC's music and meme services);
+  songs play on the phone. A meme the phone sends is fetched (`meme_download`)
+  or uploaded (`POST /api/meme`) into the PC's meme folder and sent from there
+  (`meme_send` only sends files in that folder). Copy / WhatsApp for pictures
+  stay on the PC; a song's WhatsApp share opens WhatsApp on the phone.
+- (3.3) IT help desk and Reception & birthdays: the PC's help-desk window and
+  Office panel on the phone (`system_info`, `it_helpers` for the ticket).
 - (3.2) Secure connection: the PC also listens over HTTPS (port 52931 by
   default, same fallback as the others) with a certificate it made itself
   (`<data dir>\phone-tls\`, CA + a server certificate for every local IP,

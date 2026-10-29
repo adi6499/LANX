@@ -9,6 +9,10 @@ use tauri::State;
 use super::{err, AppState};
 
 pub fn memes_dir() -> PathBuf {
+    // Unit tests never write into the real LANX folder.
+    if cfg!(test) {
+        return std::env::temp_dir().join("lanx-test-memes");
+    }
     crate::storage::data_dir(crate::testmode::profile().as_deref()).join("memes")
 }
 
@@ -41,6 +45,25 @@ pub fn save_meme_file(state: State<AppState>, request: tauri::ipc::Request<'_>) 
         tauri::ipc::InvokeBody::Raw(b) => b,
         _ => return Err("Expected picture data".to_string()),
     };
+    save_meme_bytes(bytes, &ext, &hint)
+}
+
+/// LANX 3.3: a word or two for a meme's file name, made safe.
+pub fn meme_hint(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == ' ' || *c == '-')
+        .take(40)
+        .collect::<String>()
+        .trim()
+        .replace(' ', "-")
+        .to_ascii_lowercase()
+}
+
+/// Keeps a picture or GIF the picker made in LANX's meme folder (also used
+/// by the phone page, which sends what it made over the office network).
+pub fn save_meme_bytes(bytes: &[u8], ext: &str, hint: &str) -> Result<SavedMeme, String> {
+    let ext = ext.to_ascii_lowercase();
+    let ext = if ["png", "jpg", "jpeg", "gif", "webp", "mp4", "m4a"].contains(&ext.as_str()) { ext } else { "png".to_string() };
     if bytes.is_empty() {
         return Err("The picture is empty".to_string());
     }
@@ -57,6 +80,14 @@ pub fn save_meme_file(state: State<AppState>, request: tauri::ipc::Request<'_>) 
     Ok(SavedMeme { file: path.to_string_lossy().to_string(), bytes: bytes.len() as u64 })
 }
 
+/// LANX 3.3: `path` is a file in LANX's meme folder (the phone may only send
+/// memes from there, never any other file on this PC).
+pub fn is_meme_file(path: &str) -> bool {
+    let Ok(dir) = std::fs::canonicalize(memes_dir()) else { return false };
+    let Ok(file) = std::fs::canonicalize(path) else { return false };
+    file.starts_with(&dir) && file.is_file()
+}
+
 /// Picture hosts the picker may download from (nothing else, ever).
 const DOWNLOAD_HOSTS: [&str; 6] = ["i.redd.it", "preview.redd.it", "i.imgflip.com", "api.memegen.link", "media.tenor.com", "c.tenor.com"];
 
@@ -65,6 +96,11 @@ const DOWNLOAD_HOSTS: [&str; 6] = ["i.redd.it", "preview.redd.it", "i.imgflip.co
 #[tauri::command]
 pub async fn download_meme(state: State<'_, AppState>, url: String, ext: String, name: String) -> Result<SavedMeme, String> {
     state.network.privacy.guard()?;
+    download_meme_file(&url, &ext, &name).await
+}
+
+/// The download itself (LANX 3.3: the phone asks the PC to fetch too).
+pub async fn download_meme_file(url: &str, ext: &str, name: &str) -> Result<SavedMeme, String> {
     let u = url.trim().to_string();
     let host = u.strip_prefix("https://").and_then(|r| r.split('/').next()).unwrap_or("");
     if host.is_empty() || !DOWNLOAD_HOSTS.contains(&host) || u.len() > 600 || u.contains('\'') || u.contains('"') {
@@ -74,7 +110,7 @@ pub async fn download_meme(state: State<'_, AppState>, url: String, ext: String,
     if !["png", "jpg", "jpeg", "gif", "webp"].contains(&ext.as_str()) {
         return Err("Not a picture.".to_string());
     }
-    let hint: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == ' ' || *c == '-').take(40).collect::<String>().trim().replace(' ', "-").to_ascii_lowercase();
+    let hint = meme_hint(name);
     let dir = memes_dir();
     std::fs::create_dir_all(&dir).map_err(err)?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");

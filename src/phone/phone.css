@@ -111,6 +111,84 @@ body {
 .ph-hold {
   touch-action: none;
 }
+/* LANX 3.3: the PC's office, help-desk, meme and music screens, full screen. */
+.ph-root [data-office],
+.ph-root [data-meme-panel] {
+  width: 100vw !important;
+  max-width: none !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  padding-top: env(safe-area-inset-top) !important;
+}
+.ph-root [data-office] {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.ph-root [data-meme-panel] {
+  padding: 10px !important;
+  padding-top: calc(10px + env(safe-area-inset-top)) !important;
+}
+/* The caption maker: picture above, the captions below (side by side on a PC). */
+.ph-root [data-meme-panel] .grid {
+  grid-template-columns: 1fr !important;
+  overflow-y: auto;
+}
+.ph-root [data-helpdesk] {
+  width: 100vw !important;
+  max-width: none !important;
+  max-height: 100dvh !important;
+  height: 100dvh;
+  border-radius: 0 !important;
+  padding-top: env(safe-area-inset-top);
+}
+/* Copying to the PC's clipboard and sharing a picture on WhatsApp are PC things. */
+.ph-root [data-meme-make="copy"],
+.ph-root [data-meme-make="wa"],
+.ph-root [data-meme-action="copy"],
+.ph-root [data-meme-action="wa"] {
+  display: none !important;
+}
+.ph-root [data-music-panel] {
+  inset: 0 !important;
+  border-radius: 0 !important;
+  padding-top: env(safe-area-inset-top);
+}
+/* Music: the library on top, the songs below. */
+.ph-root [data-music-panel] > div:first-of-type {
+  flex-direction: column;
+}
+.ph-root [data-music-panel] aside {
+  width: 100% !important;
+  max-height: 34dvh;
+  border-right: 0 !important;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+.ph-root [data-music-panel] main {
+  padding: 12px !important;
+}
+/* A phone has no mouse to hover with: the buttons the PC shows on hover are
+   always there (send, queue, share on a song; send and favourite on a meme). */
+.ph-root [data-music-item] .opacity-0,
+.ph-root [data-meme-item] .opacity-0 {
+  opacity: 1 !important;
+}
+/* A song: number, cover, title on the first line; its buttons on a second. */
+.ph-root [data-music-item] {
+  grid-template-columns: 28px 44px 1fr !important;
+  row-gap: 2px !important;
+}
+.ph-root [data-music-item] > div:last-child {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+/* The song playing: a bar above the tabs. */
+.ph-root [data-music-player] {
+  left: 8px !important;
+  right: 8px !important;
+  width: auto !important;
+  max-width: none !important;
+  bottom: calc(62px + env(safe-area-inset-bottom)) !important;
+}
 .ph-tab {
   color: var(--text-muted);
 }

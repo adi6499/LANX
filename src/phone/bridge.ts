@@ -3,7 +3,7 @@
  *  editor) work on the phone unchanged. `api` and `events` are plain objects
  *  in src/lib/api.ts; outside Tauri their methods are the browser-preview
  *  mocks, and we replace the ones the reused pieces call. */
-import type { Conversation, Message, Peer, Profile, SearchHit, UserSettings } from "../types";
+import type { Conversation, Message, Peer, Profile, SearchHit, SystemInfo, UserSettings } from "../types";
 import { api, events } from "../lib/api";
 import type { GameEvent } from "../lib/games";
 import { type Hit, type PhoneClient, type PhoneMessage, storage } from "./client";
@@ -41,6 +41,25 @@ export function installBridge(client: PhoneClient, store: BridgeStore) {
       return settings();
     },
     playSound: async () => {},
+    // ---- 3.3: memes, music sharing, the help desk and birthday wishes.
+    saveMemeFile: (bytes, ext, name) => client.saveMeme(bytes, ext, name),
+    downloadMeme: (url, ext, name) => client.memeDownload(url, ext, name),
+    copyFileToClipboard: () => Promise.reject(new Error("On the phone, send it to a chat instead.")),
+    shareWhatsApp: async (req) => {
+      if (!req.text) throw new Error("On the phone, send it to a chat; sharing pictures on WhatsApp works from the PC.");
+      // WhatsApp on the phone opens with the text ready to send.
+      window.open(`https://wa.me/?text=${encodeURIComponent(req.text)}`, "_blank", "noopener");
+      return "opened";
+    },
+    sendSticker: (conversationId, id) => client.sticker(conversationId, id).then((r) => r.message as Message),
+    getSystemInfo: async () => {
+      const { info } = await client.systemInfo();
+      const out: SystemInfo = { ...info, database_path: "", database_size_bytes: 0, tcp_listening: true, udp_listening: true, tcp_port: 0 } as SystemInfo;
+      return out;
+    },
+    getItHelpers: () => client.itHelpers().then((r) => r.ids),
+    captureScreen: () => Promise.reject(new Error("No screenshot from the phone.")),
+    sendPastedImage: () => Promise.reject(new Error("No screenshot from the phone.")),
     pickFolder: notOnPhone,
     subscribeFolder: notOnPhone,
     openSyncFolder: notOnPhone,

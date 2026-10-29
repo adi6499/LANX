@@ -248,6 +248,13 @@ fn announce(svc: &PhoneService, client: &Client, m: &Message) -> Value {
     enriched
 }
 
+/// LANX 3.3: tells the desktop window and every phone the new lock state.
+fn emit_lock(svc: &PhoneService) -> crate::privacy::LockStatus {
+    let status = svc.network.privacy.status(&svc.network.db);
+    svc.network.events.emit_json("lanx://lock-changed", status.clone());
+    status
+}
+
 /// One request from the phone → one reply line.
 pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -> String {
     let v: Value = match serde_json::from_str(text) {
@@ -256,6 +263,22 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
     };
     let id = v.get("id").cloned().unwrap_or(Value::Null);
     let op = v["op"].as_str().unwrap_or("");
+    // LANX 3.3: a locked PC can be unlocked from the phone with the PIN;
+    // everything else waits until it is unlocked.
+    match op {
+        "lock_status" => return ok(&id, obj(json!({ "status": svc.network.privacy.status(&svc.network.db) }))),
+        "unlock" => {
+            let pin = v["pin"].as_str().unwrap_or("");
+            return match crate::privacy::check_pin(&svc.network.db, pin) {
+                crate::privacy::PinCheck::Ok | crate::privacy::PinCheck::NoPin => {
+                    svc.network.privacy.unlock();
+                    ok(&id, obj(json!({ "status": emit_lock(svc) })))
+                }
+                other => fail(&id, &crate::privacy::pin_error_text(&other)),
+            };
+        }
+        _ => {}
+    }
     if let Err(e) = svc.network.privacy.guard() {
         return fail(&id, &e);
     }
@@ -284,6 +307,7 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                     "quick_replies": quick_replies,
                     "stickers": stickers(),
                     "settings": s.as_ref().map(settings_json).unwrap_or(Value::Null),
+                    "lock": svc.network.privacy.status(db),
                 })),
             )
         }
@@ -833,6 +857,134 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                 Err(e) => fail(&id, &e),
             }
         }
+        // ---- LANX 3.3: privacy from the phone (the same rules as the PC).
+        "lock" => {
+            // "Lock my PC": only with a PIN (there is nothing to unlock with otherwise).
+            if !crate::privacy::pin_is_set(db) {
+                return fail(&id, "Set a PIN on the PC first (Settings → Privacy).");
+            }
+            svc.network.privacy.lock();
+            ok(&id, obj(json!({ "status": emit_lock(svc) })))
+        }
+        "unlock_hidden" => {
+            let pin = v["pin"].as_str().unwrap_or("");
+            match crate::privacy::check_pin(db, pin) {
+                crate::privacy::PinCheck::Ok => {
+                    svc.network.privacy.set_hidden_unlocked(true);
+                    svc.network.events.state_changed();
+                    ok(&id, obj(json!({ "status": emit_lock(svc), "conversations": conversations(svc) })))
+                }
+                other => fail(&id, &crate::privacy::pin_error_text(&other)),
+            }
+        }
+        "hide_hidden" => {
+            svc.network.privacy.set_hidden_unlocked(false);
+            svc.network.events.state_changed();
+            ok(&id, obj(json!({ "status": emit_lock(svc), "conversations": conversations(svc) })))
+        }
+        "chat_hide" => {
+            let conv = v["conv"].as_str().unwrap_or("");
+            let hidden = v["hidden"].as_bool().unwrap_or(true);
+            if !crate::privacy::pin_is_set(db) {
+                return fail(&id, "Set a PIN on the PC first (Settings → Privacy) so hidden chats stay protected.");
+            }
+            if !hidden && !svc.network.privacy.hidden_unlocked() {
+                return fail(&id, "HIDDEN");
+            }
+            if db.get_conversation(conv).ok().flatten().is_none() {
+                return fail(&id, "Chat not found");
+            }
+            if let Err(e) = db.set_conversation_hidden(conv, hidden) {
+                return fail(&id, &e.to_string());
+            }
+            svc.network.events.update_tray(db);
+            svc.network.events.state_changed();
+            ok(&id, obj(json!({ "conversations": conversations(svc) })))
+        }
+        // ---- LANX 3.3: secret messages, ring, broadcast.
+        "secret" => {
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            let ttl = v["ttl"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32;
+            match svc.network.set_secret_mode(conv, ttl) {
+                Ok(m) => {
+                    let message = announce(svc, client, &m);
+                    ok(&id, obj(json!({ "message": message, "conversation": db.get_conversation(conv).ok().flatten() })))
+                }
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "ring" => {
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            match svc.network.ring(conv).await {
+                Ok(n) => ok(&id, obj(json!({ "rang": n }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "broadcast" => {
+            let ids: Vec<String> = v["peer_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+            let text = v["text"].as_str().map(|s| s.to_string());
+            match svc.network.broadcast(&ids, text, vec![]).await {
+                Ok(r) => ok(&id, obj(json!({ "sent_to": r.sent_to, "problems": r.problems }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        // ---- LANX 3.3: memes from the phone (the PC fetches and keeps them).
+        "meme_download" => {
+            let url = v["url"].as_str().unwrap_or("");
+            let ext = v["ext"].as_str().unwrap_or("");
+            let name = v["name"].as_str().unwrap_or("");
+            match crate::commands::memes::download_meme_file(url, ext, name).await {
+                Ok(m) => ok(&id, obj(json!({ "file": m.file, "bytes": m.bytes }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "meme_send" => {
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            let file = v["file"].as_str().unwrap_or("");
+            if !crate::commands::memes::is_meme_file(file) {
+                return fail(&id, "That picture is not one of LANX's memes.");
+            }
+            match svc.network.send_files(conv, vec![file.to_string()]).await {
+                Ok(sent) => match sent.into_iter().next() {
+                    Some(s) => {
+                        let message = announce(svc, client, &s.message);
+                        ok(&id, obj(json!({ "message": message })))
+                    }
+                    None => fail(&id, "nothing sent"),
+                },
+                Err(e) => fail(&id, &e),
+            }
+        }
+        // ---- LANX 3.3: what an IT help-desk ticket says about this PC.
+        "system_info" => {
+            let s = db.get_settings().ok();
+            ok(
+                &id,
+                obj(json!({
+                    "info": {
+                        "device_id": svc.network.identity.device_id,
+                        "hostname": s.as_ref().map(|s| s.hostname.clone()).unwrap_or_default(),
+                        "os": "Windows",
+                        "app_version": svc.app_version,
+                        "local_ips": crate::discovery::local_ipv4_addresses(),
+                        "fingerprint": svc.network.identity.fingerprint(),
+                    }
+                })),
+            )
+        }
+        "it_helpers" => {
+            let ids: Vec<String> = db.get_setting("it_helpers").and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default();
+            ok(&id, obj(json!({ "ids": ids })))
+        }
         "ping" => ok(&id, obj(json!({ "now": crate::networking::now_secs() }))),
         _ => fail(&id, "unknown op"),
     }
@@ -930,7 +1082,13 @@ pub(super) fn map_event(svc: &PhoneService, name: &str, payload: &Value) -> Opti
             json!({ "ev": "typing", "conversation_id": payload["conversation_id"], "display_name": payload["display_name"] })
         }
         "lanx://state-changed" | "lanx://admin-changed" => json!({ "ev": "reload" }),
-        "lanx://lock-changed" => json!({ "ev": "lock", "locked": payload["locked"].as_bool().unwrap_or(false) }),
+        "lanx://lock-changed" => json!({
+            "ev": "lock",
+            "locked": payload["locked"].as_bool().unwrap_or(false),
+            "pin_set": payload["pin_set"],
+            "hidden_unlocked": payload["hidden_unlocked"],
+            "retry_after_secs": payload["retry_after_secs"],
+        }),
         "lanx://game" => {
             // A step of a game from a colleague, as the window gets it
             // (from_id, from_name, match_id, game, action, seq, data, at).

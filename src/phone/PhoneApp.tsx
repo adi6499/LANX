@@ -2,18 +2,22 @@
  *  one chat, Who's in, Files and More (cards, notes, calendar, games, status…),
  *  all through that PC (src/phone/client.ts, src/phone/bridge.ts). */
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, LayoutGrid, Lock, MessageCircle, Smartphone, Users } from "lucide-react";
-import type { AlertInfo, Conversation, GroupInfo, Peer, Profile } from "../types";
+import { FolderOpen, LayoutGrid, MessageCircle, Smartphone, Users } from "lucide-react";
+import type { AlertInfo, Conversation, GroupInfo, Peer, Profile, UserSettings } from "../types";
 import { CreateCardModal } from "../components/org/CreateCardModal";
 import { needsMe } from "../components/org/cardModel";
 import * as games from "../lib/games";
 import { api } from "../lib/api";
 import { needsAnswer } from "../lib/office";
-import { type ConnState, type Hit, type Me, PhoneClient, type PhoneMessage, type PhoneTransfer, type Progress, type Push, type StickerInfo, TOKEN_KEY, pair, pollPair, session, storage } from "./client";
+import { type ConnState, type Hit, type LockInfo, type Me, PhoneClient, type PhoneMessage, type PhoneTransfer, type Progress, type Push, type StickerInfo, TOKEN_KEY, pair, pollPair, session, storage } from "./client";
 import { ChatView, type Upload } from "./ChatView";
 import { AboutSheet, ChatsScreen, FilesScreen, ForwardPicker, GroupCreateScreen, GroupInfoScreen, HitsScreen, PeopleScreen } from "./screens";
 import { AlertBanner, CalendarScreen, CardsScreen, EmergencyScreen, KudosSheet, MoreScreen, type MoreKey, NotesScreen, PersonSheet, ProfileSheet, type PushState, ReportSheet, SecureSheet, StatusSheet } from "./more";
 import { GamesScreen } from "./GamesScreen";
+import { BroadcastSheet, ChatMenuSheet, LockedScreen, MemesScreen, MusicScreen, PinSheet } from "./extras";
+import { MusicPlayer } from "../components/music/MusicPlayer";
+import { HelpDeskModal } from "../components/HelpDeskModal";
+import { OfficePanel } from "../components/office/OfficePanel";
 import { type PhoneSettings, installBridge } from "./bridge";
 import { type Recording, enablePush, pushState as readPushState, secure as isSecure } from "./media";
 import { PhoneCall, canCall, unlockAudio } from "./call";
@@ -221,14 +225,14 @@ function Connect({ onDone }: { onDone: (token: string) => void }) {
  *  history so the phone's back button works. */
 interface View {
   chat?: string;
-  page?: "group-new" | "group-info" | "search" | "starred" | "cards" | "notes" | "calendar" | "emergency" | "games";
+  page?: "group-new" | "group-info" | "search" | "starred" | "cards" | "notes" | "calendar" | "emergency" | "games" | "music" | "memes";
   q?: string;
   gid?: string;
   jump?: string;
 }
 
 type Tab = "chats" | "people" | "files" | "more";
-type SheetKind = "about" | "status" | "profile" | "kudos" | "report" | "secure" | null;
+type SheetKind = "about" | "status" | "profile" | "kudos" | "report" | "secure" | "broadcast" | "hidden" | "chat-menu" | "helpdesk" | "office" | null;
 
 interface PingInfo {
   https_urls: string[];
@@ -266,6 +270,10 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
   const [tab, setTab] = useState<Tab>("chats");
   const [query, setQuery] = useState("");
   const [locked, setLocked] = useState(false);
+  // 3.3: the PC's PIN lock and hidden chats.
+  const [lockInfo, setLockInfo] = useState<LockInfo | null>(null);
+  // 3.3: where a meme or song picked outside a chat should go (chosen after).
+  const [pendingSend, setPendingSend] = useState<{ kind: "meme"; file: string } | { kind: "song"; card: Record<string, unknown> } | null>(null);
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [person, setPerson] = useState<Peer | null>(null);
   const [forwardFrom, setForwardFrom] = useState<PhoneMessage | null>(null);
@@ -319,6 +327,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       setQuickReplies(h.quick_replies ?? []);
       setStickers(h.stickers ?? []);
       if (h.settings) setSettings(h.settings as PhoneSettings);
+      if (h.lock) setLockInfo(h.lock);
       setLocked(false);
       calls.myDeviceId = h.device_id ?? "";
       void calls.resume();
@@ -575,6 +584,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
           break;
         case "lock":
           setLocked(p.locked);
+          setLockInfo((cur) => ({ pin_set: p.pin_set ?? cur?.pin_set ?? true, locked: p.locked, hidden_unlocked: p.hidden_unlocked ?? false, retry_after_secs: p.retry_after_secs ?? 0 }));
           if (!p.locked) void load();
           break;
       }
@@ -771,6 +781,15 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
     [upsertConv, changed]
   );
 
+  /** 3.3: a card (a song…) into a chat by its id. */
+  const sendCardHere = useCallback(
+    async (convId: string, card: Record<string, unknown>) => {
+      const m = (await api.sendCard(convId, card)) as PhoneMessage;
+      changed(m);
+    },
+    [changed]
+  );
+
   const answerAlert = useCallback(
     async (id: string, status: "safe" | "help") => {
       try {
@@ -888,6 +907,37 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         }}
       />
     );
+  } else if (view.page === "music") {
+    const target = view.chat ? conversations.find((c) => c.id === view.chat) ?? null : null;
+    screen = (
+      <MusicScreen
+        chatName={target?.peer_name ?? null}
+        onBack={back}
+        onError={(t) => setNotice(t)}
+        onSendCard={async (card) => {
+          if (target) {
+            await sendCardHere(target.id, card);
+            setNotice(`Song sent to ${target.peer_name}.`);
+          } else setPendingSend({ kind: "song", card });
+        }}
+      />
+    );
+  } else if (view.page === "memes") {
+    const target = view.chat ? conversations.find((c) => c.id === view.chat) ?? null : null;
+    screen = (
+      <MemesScreen
+        chatName={target?.peer_name ?? null}
+        onBack={back}
+        onError={(t) => setProblem(t)}
+        onSend={async (file) => {
+          if (target) {
+            const r = await client.memeSend(target.id, file);
+            changed(r.message);
+            setNotice(`Sent to ${target.peer_name}.`);
+          } else setPendingSend({ kind: "meme", file });
+        }}
+      />
+    );
   } else if (view.page === "games" && me) {
     screen = <GamesScreen me={me} peers={peers} openMatchId={view.gid ?? null} onBack={back} onError={(t) => setProblem(t)} />;
   } else if (active && activeConv) {
@@ -930,6 +980,9 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         onProblem={fail}
         onAccept={(id) => transferAction("accept", id)}
         onCreateCard={() => setCreateCardFor(active)}
+        onMenu={() => setSheet("chat-menu")}
+        onMemes={() => go({ chat: active, page: "memes" })}
+        onMusic={() => go({ chat: active, page: "music" })}
         onCall={(video) => {
           if (!canCall()) {
             setNotice("Calls on the phone need the secure connection — More → Secure connection & alerts.");
@@ -953,7 +1006,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         alertsLive={alertsLive}
         secure={secure}
         onOpen={(key: MoreKey) => {
-          if (key === "cards" || key === "notes" || key === "calendar" || key === "emergency" || key === "games") go({ page: key });
+          if (key === "cards" || key === "notes" || key === "calendar" || key === "emergency" || key === "games" || key === "music" || key === "memes") go({ page: key });
           else setSheet(key);
         }}
       />
@@ -971,6 +1024,19 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         onNewGroup={() => go({ page: "group-new" })}
         onSearchMessages={(q) => runHits("search", q)}
         onStarred={() => runHits("starred")}
+        lock={lockInfo}
+        onBroadcast={() => setSheet("broadcast")}
+        onHiddenChats={() => {
+          if (lockInfo?.hidden_unlocked)
+            client
+              .hideHidden()
+              .then((r) => {
+                setLockInfo(r.status);
+                setConversations(sortConvs(r.conversations));
+              })
+              .catch(fail);
+          else setSheet("hidden");
+        }}
       />
     );
   }
@@ -1019,6 +1085,8 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       )}
       {alertBanner && <AlertBanner alert={alertBanner} onAnswer={answerAlert} onOpen={() => go({ page: "emergency" })} />}
       <CallScreen manager={calls} profiles={profiles} />
+      {/* 3.3: the song playing stays here while you move around. */}
+      {view.page !== "music" && <MusicPlayer onOpenMusic={() => go({ page: "music" })} />}
       {forwardFrom && (
         <ForwardPicker
           conversations={conversations}
@@ -1170,6 +1238,17 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
           me={me}
           device={device}
           version={version}
+          lock={lockInfo}
+          onLockPc={() => {
+            setSheet(null);
+            client
+              .lockPc()
+              .then((r) => {
+                setLockInfo(r.status);
+                setLocked(true);
+              })
+              .catch(fail);
+          }}
           onClose={() => setSheet(null)}
           onForget={() => {
             client.close();
@@ -1189,14 +1268,165 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
           }}
         />
       )}
+      {sheet === "hidden" && (
+        <PinSheet
+          title="Hidden chats"
+          onClose={() => setSheet(null)}
+          onPin={async (pin) => {
+            try {
+              const r = await client.unlockHidden(pin);
+              setLockInfo(r.status);
+              setConversations(sortConvs(r.conversations));
+              return null;
+            } catch (e) {
+              return e instanceof Error ? e.message : String(e);
+            }
+          }}
+        />
+      )}
+      {sheet === "chat-menu" && activeConv && (
+        <ChatMenuSheet
+          conv={activeConv}
+          lock={lockInfo}
+          onClose={() => setSheet(null)}
+          onRing={() => {
+            setSheet(null);
+            client
+              .ring(activeConv.id)
+              .then(() => setNotice(`🔔 Ringing ${activeConv.peer_name}…`))
+              .catch(fail);
+          }}
+          onSecret={(ttl) => {
+            setSheet(null);
+            client
+              .secret(activeConv.id, ttl)
+              .then((r) => {
+                if (r.conversation) upsertConv(r.conversation);
+                changed(r.message);
+              })
+              .catch(fail);
+          }}
+          onHide={(hidden) => {
+            setSheet(null);
+            client
+              .chatHide(activeConv.id, hidden)
+              .then((r) => {
+                setConversations(sortConvs(r.conversations));
+                if (hidden) {
+                  setNotice("The chat is hidden. Show hidden chats with your PIN (👁 in Chats).");
+                  back();
+                }
+              })
+              .catch(fail);
+          }}
+        />
+      )}
+      {sheet === "broadcast" && (
+        <BroadcastSheet
+          peers={peers}
+          profiles={profiles}
+          onClose={() => setSheet(null)}
+          onSend={async (ids, text) => {
+            try {
+              const r = await client.broadcast(ids, text);
+              setNotice(r.problems.length ? r.problems.join(" ") : `Sent to ${r.sent_to} ${r.sent_to === 1 ? "person" : "people"}.`);
+              void load();
+            } catch (e) {
+              fail(e);
+            }
+          }}
+        />
+      )}
+      {pendingSend && (
+        <ForwardPicker
+          conversations={conversations}
+          profiles={profiles}
+          title={pendingSend.kind === "meme" ? "Send the meme to…" : "Send the song to…"}
+          single
+          onClose={() => setPendingSend(null)}
+          onPick={(ids) => {
+            const p = pendingSend;
+            setPendingSend(null);
+            const conv = ids[0];
+            if (!conv) return;
+            const name = conversations.find((c) => c.id === conv)?.peer_name ?? "the chat";
+            (p.kind === "meme" ? client.memeSend(conv, p.file).then((r) => changed(r.message)) : sendCardHere(conv, p.card))
+              .then(() => setNotice(`Sent to ${name}.`))
+              .catch(fail);
+          }}
+        />
+      )}
+      {sheet === "helpdesk" && me && (
+        <HelpDeskModal
+          conversations={conversations}
+          peers={peers}
+          myId={me.id}
+          onClose={() => setSheet(null)}
+          onSent={(ids) => {
+            setSheet(null);
+            setNotice(`Ticket sent to ${ids.length} ${ids.length === 1 ? "helper" : "helpers"}.`);
+          }}
+          onError={(t) => setProblem(t)}
+        />
+      )}
+      {sheet === "office" && me && settings && (
+        <OfficePanel
+          settings={settings as UserSettings}
+          myId={me.id}
+          peers={peers}
+          profiles={profiles}
+          conversations={conversations}
+          alerts={alerts}
+          initialTab="reception"
+          onClose={() => setSheet(null)}
+          onSaveSettings={async (s) => {
+            await api.saveSettings(s);
+            loadSettings();
+          }}
+          onRaiseAlert={async (kind, text) => {
+            try {
+              const r = await client.request<{ alert: AlertInfo }>("alert_raise", { kind, text });
+              setAlerts((list) => [r.alert, ...list.filter((a) => a.id !== r.alert.id)]);
+              setSheet(null);
+              setNotice("Alert sent to everyone online.");
+            } catch (e) {
+              fail(e);
+            }
+          }}
+          onOpenChat={(conv, messageId) => {
+            setSheet(null);
+            openChat(conv, messageId);
+          }}
+          onSendWishes={(peerId) => {
+            setSheet(null);
+            client
+              .openChat(peerId)
+              .then(async (r) => {
+                upsertConv(r.conversation);
+                await client.sticker(r.conversation.id, "birthday");
+                openChat(r.conversation.id);
+              })
+              .catch(fail);
+          }}
+          onError={(t) => setProblem(t)}
+          onNotice={(t) => setNotice(t)}
+          onCardSent={() => void load()}
+        />
+      )}
       {locked && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm" data-ph-locked>
-          <div className="w-full max-w-xs rounded-[22px] lanx-sheet p-5 text-center">
-            <Lock className="mx-auto h-7 w-7 text-slate-500" />
-            <div className="mt-2 text-[15px] font-bold text-slate-900 dark:text-white">LANX is locked on your PC</div>
-            <p className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">Unlock it there (your PIN) and this page carries on.</p>
-          </div>
-        </div>
+        <LockedScreen
+          onUnlock={async (pin) => {
+            try {
+              const r = await client.unlock(pin);
+              setLockInfo(r.status);
+              setLocked(false);
+              void load();
+              return null;
+            } catch (e) {
+              return e instanceof Error ? e.message : String(e);
+            }
+          }}
+        />
       )}
       {(problem || notice) && (
         <div

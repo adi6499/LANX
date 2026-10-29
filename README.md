@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.2.0)
+# LANX — Local Network Messenger (v3.3.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,17 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.3.0: more of LANX on the phone
+- **Your PIN on the phone:** when LANX is locked on your PC, the phone asks for the PIN and unlocks it (the same PIN
+  and the same waits after wrong tries). "Lock LANX on my PC" in More → This phone. Hidden chats: 👁 in Chats shows
+  them with the PIN; ⋯ in a chat hides or unhides it.
+- **A chat's ⋯ menu:** ring them (their PC rings), secret messages (disappear 30 s – 1 week after reading).
+- **Message everyone** (📣 in Chats): one message to many colleagues, each in their own chat.
+- **Music** (plays on the phone, needs internet) and **memes & GIFs** (the PC fetches and sends the picture) — from
+  More, or from a chat's **+** (Meme / GIF, Song).
+- **IT help desk** and **Reception & birthdays** in More: raise a ticket, tell someone their visitor is here, send
+  birthday wishes.
 
 ### New in 3.2.0: everything else on the phone
 - **More tab on the phone:** Cards (notices, polls, tasks, approvals, checklists, events, kudos, visitor, tickets,

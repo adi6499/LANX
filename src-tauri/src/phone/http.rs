@@ -31,7 +31,9 @@ const CHUNK: usize = 256 * 1024;
 // page when it has not been built yet).
 include!(concat!(env!("OUT_DIR"), "/phone_assets.rs"));
 
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+// LANX 3.3: the music player and the meme picker load from the same services
+// as on the PC (the phone needs internet for those two only).
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https://*.saavncdn.com; font-src 'self' data:; connect-src 'self' ws: wss: https://spoton-sigma.vercel.app https://*.saavncdn.com https://lrclib.net https://api.imgflip.com https://i.imgflip.com https://api.memegen.link https://meme-api.com https://i.redd.it https://preview.redd.it https://tenor.googleapis.com https://media.tenor.com https://c.tenor.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 pub(super) struct Request {
     pub method: String,
@@ -528,6 +530,31 @@ async fn route<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &m
                 return Response::error(401, "unauthorized");
             }
             serve_file(svc, req, &p["/api/file/".len()..]).await
+        }
+        // LANX 3.3: a meme the phone made (a captioned template) is kept in
+        // LANX's meme folder; the reply names it for `meme_send`.
+        ("POST", "/api/meme") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            if let Err(e) = svc.network.privacy.guard() {
+                return Response::error(423, &e);
+            }
+            if req.body_len == 0 {
+                return Response::error(400, "empty picture");
+            }
+            if req.body_len > 30 * 1024 * 1024 {
+                return Response::error(413, "too large");
+            }
+            let ext = req.query_param("ext").unwrap_or_default();
+            let hint = crate::commands::memes::meme_hint(&req.query_param("name").unwrap_or_default());
+            let Ok(bytes) = body.read_all().await else {
+                return Response::error(400, "upload cut short");
+            };
+            match crate::commands::memes::save_meme_bytes(&bytes, &ext, &hint) {
+                Ok(m) => Response::json(200, json!({ "file": m.file, "bytes": m.bytes })),
+                Err(e) => Response::error(400, &e),
+            }
         }
         ("POST", "/api/voice") | ("POST", "/api/intercom") => {
             if authenticated(svc, req).is_none() {
