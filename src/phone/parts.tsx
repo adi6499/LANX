@@ -4,6 +4,7 @@ import { useRef, type ReactNode } from "react";
 import { AlarmClock, Check, CheckCheck, Clock, Download, FileText, Pin, Star, X } from "lucide-react";
 import type { Profile } from "../types";
 import { MessageText, isForwarded, withoutForwardMark } from "../components/chat/chatUtils";
+import { CardView } from "../components/org/CardView";
 import { formatSize } from "../lib/format";
 import { effective, statusPreset } from "../lib/profile";
 import type { PhoneClient, PhoneMessage, PhoneTransfer, StickerInfo } from "./client";
@@ -177,7 +178,12 @@ export function FileBody({ m, isOut, client, progress, onAccept }: { m: PhoneMes
     );
   }
   if (t?.ready && t.kind === "voice") {
-    return <audio controls preload="none" src={client.fileUrl(t.id)} className="max-w-[230px]" />;
+    return (
+      <div data-ph-voice>
+        <audio controls preload="none" src={client.fileUrl(t.id)} className="max-w-[230px]" />
+        <div className={`mt-1 text-[11px] ${isOut ? "text-white/75" : "text-slate-500 dark:text-slate-400"}`}>{name}</div>
+      </div>
+    );
   }
   if (t?.ready && isVideoName(t.file_name)) {
     return <video controls playsInline preload="metadata" src={client.fileUrl(t.id)} className="ph-bubble-img rounded-xl bg-black" />;
@@ -283,8 +289,10 @@ function useLongPress(onLongPress: () => void) {
 export function Bubble({
   m,
   group,
+  myId,
   myName,
   names,
+  nameOf,
   senderName,
   client,
   stickers,
@@ -292,11 +300,15 @@ export function Bubble({
   onActions,
   onReact,
   onAccept,
+  onCardChanged,
+  onError,
 }: {
   m: PhoneMessage;
   group: boolean;
+  myId: string;
   myName: string;
   names: string[];
+  nameOf: (id: string) => string;
   senderName: string;
   client: PhoneClient;
   stickers: StickerInfo[];
@@ -304,6 +316,8 @@ export function Bubble({
   onActions: (m: PhoneMessage) => void;
   onReact: (m: PhoneMessage, emoji: string) => void;
   onAccept: (transferId: string) => void;
+  onCardChanged: (m: PhoneMessage) => void;
+  onError: (text: string) => void;
 }) {
   const isOut = m.is_outgoing;
   const press = useLongPress(() => onActions(m));
@@ -311,6 +325,22 @@ export function Bubble({
     return (
       <div className="flex justify-center py-1" data-ph-msg={m.id}>
         <span className="max-w-[90%] rounded-full lanx-chip px-2.5 py-0.5 text-center text-[10.5px] font-semibold">{m.content}</span>
+      </div>
+    );
+  }
+  if (m.message_type === "card" && !m.deleted) {
+    // The PC's own card (poll, task, kudos…), acting through the PC.
+    return (
+      <div data-ph-msg={m.id} data-ph-out={isOut ? "1" : "0"} data-ph-card={m.id} className={`flex flex-col ${isOut ? "items-end" : "items-start"}`}>
+        {group && !isOut && <span className="mb-0.5 ml-3 text-[11px] font-semibold text-slate-500 dark:text-slate-400">{senderName}</span>}
+        <div {...press} className="w-[92%] select-none">
+          <CardView msg={m} myId={myId} nameOf={nameOf} onChanged={(x) => onCardChanged({ ...(x as PhoneMessage), transfer: m.transfer })} onError={onError} canAct />
+        </div>
+        <div className="mt-0.5 flex items-center gap-1 px-2 text-[10px] text-slate-400">
+          <span>{timeOf(m.timestamp)}</span>
+          {isOut && <StatusIcon m={m} />}
+        </div>
+        <ReactionChips m={m} isOut={isOut} onReact={(e) => onReact(m, e)} />
       </div>
     );
   }

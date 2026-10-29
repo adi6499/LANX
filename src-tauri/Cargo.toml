@@ -1,6 +1,6 @@
 [package]
 name = "lanx"
-version = "3.1.0"
+version = "3.2.0"
 description = "LANX Desktop - Local Network Messenger"
 authors = ["LANX Team"]
 edition = "2024"
@@ -50,6 +50,21 @@ sha1 = "0.10"
 qrcode = { version = "0.14", default-features = false }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 zstd = { version = "0.13", default-features = false }
+# LANX 3.2: the phone page over HTTPS. The PC makes its own certificate authority and server
+# certificate (rcgen) and serves TLS with rustls; `ring` is the crypto that builds on this PC
+# without extra tools (it ships precompiled Windows objects, aws-lc needs NASM/CMake).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rustls-pki-types = { version = "1.10", features = ["std"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
+time = "0.3"
+# LANX 3.2: alerts pushed to a phone whose LANX page is closed (web push, see phone/push.rs).
+# The message is encrypted for the phone (P-256 ECDH + HKDF + AES-128-GCM, RFC 8291) and the
+# request signed (VAPID, ES256) — all pure Rust; the `web-push` crate needs OpenSSL and does
+# not build here. The push service's certificate is checked against the public roots.
+p256 = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh", "std"] }
+aes-gcm = "0.10"
+webpki-roots = "1"
 
 [target.'cfg(windows)'.dependencies]
 # LANX 1.2.7: move the desktop island to the virtual desktop in use (COM).

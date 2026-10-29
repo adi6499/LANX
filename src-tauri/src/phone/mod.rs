@@ -8,13 +8,20 @@
 //! and only while LANX is running here.
 //!
 //! Pieces: `http.rs` (the web server), `ws.rs` (the live connection),
-//! `api.rs` (what the phone can ask for and what it is told about).
+//! `api.rs` (what the phone can ask for and what it is told about),
+//! `tls.rs` (LANX 3.2: the same page over HTTPS, with a certificate made on
+//! this PC) and `push.rs` (LANX 3.2: an alert on the phone while its page is
+//! closed).
 
 pub mod api;
 pub mod http;
+pub mod push;
+pub mod tls;
 pub mod ws;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_tls;
 
 use crate::networking::{NetworkService, now_secs, port_candidates};
 use parking_lot::Mutex;
@@ -24,15 +31,20 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU16, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
 /// The web server's port (moves to a free one when Windows reserves it, like
 /// the messaging port does; the QR code always carries the port in use).
 pub const DEFAULT_PHONE_PORT: u16 = 52930;
+/// LANX 3.2: the secure (HTTPS) copy of the page, next door.
+pub const DEFAULT_PHONE_HTTPS_PORT: u16 = DEFAULT_PHONE_PORT + 1;
+/// A phone's TLS handshake that fails is logged this often at most (seconds).
+const TLS_LOG_GAP: i64 = 60;
 /// A pairing code is good for this long.
 const CODE_SECS: i64 = 10 * 60;
 /// Wrong tries before the code is thrown away.
@@ -44,6 +56,8 @@ const MAX_REQUESTS: usize = 8;
 const SETTING_ENABLED: &str = "phone_enabled";
 const SETTING_PORT: &str = "phone_port";
 const SETTING_BOUND: &str = "phone_port_bound";
+const SETTING_HTTPS_PORT: &str = "phone_https_port";
+const SETTING_HTTPS_BOUND: &str = "phone_https_port_bound";
 const SETTING_DEVICES: &str = "phone_devices";
 
 /// A phone that was allowed in (kept in settings as JSON). The phone holds the
@@ -90,10 +104,18 @@ pub struct PhoneStatus {
     pub port: u16,
     /// Where a phone on the office network reaches this PC (one per adapter).
     pub urls: Vec<String>,
+    /// LANX 3.2: the secure page's port (0 while it is not listening) and
+    /// addresses (`https://ip:port`, the same adapters as `urls`).
+    pub https_port: u16,
+    pub https_urls: Vec<String>,
+    /// LANX 3.2: SHA-256 of this PC's certificate authority (`AB:CD:…`).
+    pub cert_fingerprint: String,
     pub pairing: Option<PairingInfo>,
     pub requests: Vec<PairRequestInfo>,
     pub devices: Vec<PhoneDeviceInfo>,
     pub connected: usize,
+    /// LANX 3.2: how many phones get a push while their page is closed.
+    pub push_devices: usize,
 }
 
 struct Pairing {
@@ -137,12 +159,22 @@ pub struct PhoneInner {
     pub network: NetworkService,
     pub app_version: String,
     listening: AtomicU16,
+    /// LANX 3.2: the HTTPS listener's port (0 = not listening).
+    listening_tls: AtomicU16,
     serve_cancel: Mutex<Option<CancellationToken>>,
     pairing: Mutex<Option<Pairing>>,
     requests: Mutex<Vec<PairRequest>>,
     devices: Mutex<Vec<PhoneDevice>>,
     pub(crate) clients: Mutex<HashMap<u64, ClientHandle>>,
     next_client: AtomicU64,
+    /// LANX 3.2: the certificates (made on first use).
+    pub(crate) tls: Mutex<Option<Arc<tls::Tls>>>,
+    last_tls_log: AtomicI64,
+    /// LANX 3.2: this PC's push signing key (made on first use).
+    pub(crate) vapid: Mutex<Option<Arc<push::Vapid>>>,
+    /// LANX 3.2: push subscriptions by phone (device id).
+    pub(crate) push: Mutex<HashMap<String, push::Subscription>>,
+    pub(crate) push_state: Mutex<push::Throttle>,
 }
 
 #[derive(Clone)]
@@ -206,17 +238,24 @@ impl PhoneService {
             .get_setting(SETTING_DEVICES)
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        let push = Self::load_push(&network.db);
         Self {
             inner: Arc::new(PhoneInner {
                 network,
                 app_version,
                 listening: AtomicU16::new(0),
+                listening_tls: AtomicU16::new(0),
                 serve_cancel: Mutex::new(None),
                 pairing: Mutex::new(None),
                 requests: Mutex::new(Vec::new()),
                 devices: Mutex::new(devices),
                 clients: Mutex::new(HashMap::new()),
                 next_client: AtomicU64::new(1),
+                tls: Mutex::new(None),
+                last_tls_log: AtomicI64::new(0),
+                vapid: Mutex::new(None),
+                push: Mutex::new(push),
+                push_state: Mutex::new(push::Throttle::default()),
             }),
         }
     }
@@ -233,6 +272,21 @@ impl PhoneService {
             .get_setting(SETTING_PORT)
             .and_then(|p| p.trim().parse().ok())
             .unwrap_or(DEFAULT_PHONE_PORT)
+    }
+
+    /// The secure page's port: `LANX_PHONE_HTTPS_PORT` for a side-by-side
+    /// test copy, else the setting, else the default.
+    fn configured_https_port(&self) -> u16 {
+        if crate::testmode::profile().is_some() {
+            if let Some(p) = std::env::var("LANX_PHONE_HTTPS_PORT").ok().and_then(|v| v.trim().parse().ok()).filter(|p| *p != 0) {
+                return p;
+            }
+        }
+        self.network
+            .db
+            .get_setting(SETTING_HTTPS_PORT)
+            .and_then(|p| p.trim().parse().ok())
+            .unwrap_or(DEFAULT_PHONE_HTTPS_PORT)
     }
 
     /// Turns the phone server on or off (remembered across restarts).
@@ -253,11 +307,13 @@ impl PhoneService {
 
     // ----------------------------------------------------------- listening
 
-    /// At start-up: listens if the setting is on.
+    /// At start-up: listens if the setting is on, and watches for messages
+    /// to push to phones whose page is closed.
     pub fn start(&self) {
         if self.enabled() {
             self.listen();
         }
+        self.start_push_sender();
     }
 
     /// Stops everything (quit).
@@ -273,9 +329,14 @@ impl PhoneService {
         self.port() != 0
     }
 
+    /// LANX 3.2: the secure page's port in use (0 = not listening).
+    pub fn https_port(&self) -> u16 {
+        self.listening_tls.load(Ordering::SeqCst)
+    }
+
     /// Binds the web server's port (the last one used first, then the
     /// configured port, then — like the messaging port — nearby free ones)
-    /// and serves until stopped.
+    /// and serves until stopped; the same again for the secure page.
     fn listen(&self) {
         let mut guard = self.serve_cancel.lock();
         if guard.is_some() {
@@ -284,13 +345,23 @@ impl PhoneService {
         let cancel = CancellationToken::new();
         *guard = Some(cancel.clone());
         drop(guard);
+        self.spawn_bind_loop(cancel.clone(), false);
+        self.spawn_bind_loop(cancel, true);
+    }
+
+    /// One listener (plain or secure): finds a port and serves until `cancel`.
+    fn spawn_bind_loop(&self, cancel: CancellationToken, secure: bool) {
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
-            let port = this.configured_port();
+            let (port, bound_setting, what) = if secure {
+                (this.configured_https_port(), SETTING_HTTPS_BOUND, "secure page")
+            } else {
+                (this.configured_port(), SETTING_BOUND, "page")
+            };
             let last: Option<u16> = this
                 .network
                 .db
-                .get_setting(SETTING_BOUND)
+                .get_setting(bound_setting)
                 .and_then(|p| p.trim().parse().ok())
                 .filter(|p| *p != 0);
             let mut tries = 0u32;
@@ -302,15 +373,19 @@ impl PhoneService {
                     match TcpListener::bind((crate::testmode::bind_addr(), candidate)).await {
                         Ok(listener) => {
                             if candidate != port {
-                                eprintln!("[Phone] port {} is not available on this PC; using {} instead", port, candidate);
+                                eprintln!("[Phone] {} port {} is not available on this PC; using {} instead", what, port, candidate);
                             }
-                            let _ = this.network.db.set_setting(SETTING_BOUND, &candidate.to_string());
-                            this.serve(listener, cancel.clone()).await;
+                            let _ = this.network.db.set_setting(bound_setting, &candidate.to_string());
+                            if secure {
+                                this.serve_tls(listener, cancel.clone()).await;
+                            } else {
+                                this.serve(listener, cancel.clone()).await;
+                            }
                             break 'bind;
                         }
                         Err(e) => {
                             if tries == 0 && candidate == port {
-                                eprintln!("[Phone] cannot listen on port {} ({}); trying again", port, e);
+                                eprintln!("[Phone] cannot listen for the {} on port {} ({}); trying again", what, port, e);
                             }
                         }
                     }
@@ -321,7 +396,11 @@ impl PhoneService {
                     _ = tokio::time::sleep(Duration::from_secs(2)) => {}
                 }
             }
-            this.listening.store(0, Ordering::SeqCst);
+            if secure {
+                this.listening_tls.store(0, Ordering::SeqCst);
+            } else {
+                this.listening.store(0, Ordering::SeqCst);
+            }
             this.emit_changed();
         });
     }
@@ -337,8 +416,9 @@ impl PhoneService {
                 _ = cancel.cancelled() => break,
                 accepted = listener.accept() => match accepted {
                     Ok((stream, addr)) => {
+                        let _ = stream.set_nodelay(true);
                         let this = self.clone();
-                        tokio::spawn(async move { http::handle(this, stream, addr).await });
+                        tokio::spawn(async move { http::handle(this, stream, addr, false).await });
                     }
                     Err(e) => {
                         eprintln!("[Phone] accept error: {}", e);
@@ -350,6 +430,60 @@ impl PhoneService {
         self.listening.store(0, Ordering::SeqCst);
     }
 
+    /// LANX 3.2: serves the same page over HTTPS on one listener until
+    /// `cancel` fires. Each connection first agrees the encryption with the
+    /// phone (the certificate from tls.rs); a phone that does not trust this
+    /// PC's authority fails there and is simply dropped.
+    pub async fn serve_tls(&self, listener: TcpListener, cancel: CancellationToken) {
+        if self.refresh_tls().is_none() {
+            // Logged by refresh_tls; the plain page still works.
+            return;
+        }
+        if let Ok(addr) = listener.local_addr() {
+            self.listening_tls.store(addr.port(), Ordering::SeqCst);
+        }
+        self.emit_changed();
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                accepted = listener.accept() => match accepted {
+                    Ok((stream, addr)) => {
+                        if !http::is_local(addr.ip()) {
+                            continue;
+                        }
+                        let Some(tls) = self.tls() else { continue };
+                        let _ = stream.set_nodelay(true);
+                        let this = self.clone();
+                        let acceptor = TlsAcceptor::from(tls.server_config());
+                        tokio::spawn(async move {
+                            match tokio::time::timeout(Duration::from_secs(10), acceptor.accept(stream)).await {
+                                Ok(Ok(secure)) => http::handle(this, secure, addr, true).await,
+                                Ok(Err(e)) => this.log_tls_error(addr.ip().to_string(), &e.to_string()),
+                                Err(_) => {}
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("[Phone] secure accept error: {}", e);
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        }
+        self.listening_tls.store(0, Ordering::SeqCst);
+    }
+
+    /// A failed handshake (a phone that has not installed the certificate,
+    /// a port scanner): worth one line a minute at most.
+    fn log_tls_error(&self, ip: String, why: &str) {
+        let now = now_secs();
+        let last = self.last_tls_log.load(Ordering::SeqCst);
+        if now - last >= TLS_LOG_GAP {
+            self.last_tls_log.store(now, Ordering::SeqCst);
+            eprintln!("[Phone] secure page: {} could not connect ({})", ip, why);
+        }
+    }
+
     fn stop_listening(&self) {
         if let Some(c) = self.serve_cancel.lock().take() {
             c.cancel();
@@ -358,18 +492,27 @@ impl PhoneService {
             c.cancel.cancel();
         }
         self.listening.store(0, Ordering::SeqCst);
+        self.listening_tls.store(0, Ordering::SeqCst);
     }
 
     /// `http://<ip>:<port>` for every office-network adapter (or loopback for
     /// a test copy bound there).
     pub fn urls(&self) -> Vec<String> {
-        let port = self.port();
+        self.urls_for("http", self.port())
+    }
+
+    /// LANX 3.2: `https://<ip>:<port>` for the same adapters.
+    pub fn https_urls(&self) -> Vec<String> {
+        self.urls_for("https", self.https_port())
+    }
+
+    fn urls_for(&self, scheme: &str, port: u16) -> Vec<String> {
         if port == 0 {
             return Vec::new();
         }
         let bind = crate::testmode::bind_addr();
         if bind.is_loopback() {
-            return vec![format!("http://127.0.0.1:{}", port)];
+            return vec![format!("{}://127.0.0.1:{}", scheme, port)];
         }
         let mut ips: Vec<String> = crate::discovery::lan_adapters()
             .into_iter()
@@ -381,17 +524,28 @@ impl PhoneService {
         if ips.is_empty() {
             ips.push("127.0.0.1".to_string());
         }
-        ips.into_iter().map(|ip| format!("http://{}:{}", ip, port)).collect()
+        ips.into_iter().map(|ip| format!("{}://{}:{}", scheme, ip, port)).collect()
     }
 
     pub fn status(&self) -> PhoneStatus {
         self.forget_old_requests();
         let connected: Vec<String> = self.clients.lock().values().map(|c| c.device_id.clone()).collect();
+        // The certificates are made when the server runs; before that,
+        // Settings shows nothing rather than creating files for a feature
+        // that is off.
+        let cert_fingerprint = if self.enabled() {
+            self.cert_fingerprint()
+        } else {
+            self.tls.lock().as_ref().map(|t| t.ca_fingerprint().to_string()).unwrap_or_default()
+        };
         PhoneStatus {
             enabled: self.enabled(),
             listening: self.is_listening(),
             port: self.port(),
             urls: self.urls(),
+            https_port: self.https_port(),
+            https_urls: self.https_urls(),
+            cert_fingerprint,
             pairing: self.pairing_info(),
             requests: self
                 .requests
@@ -413,6 +567,7 @@ impl PhoneService {
                 })
                 .collect(),
             connected: connected.len(),
+            push_devices: self.push_count(),
         }
     }
 
@@ -586,6 +741,8 @@ impl PhoneService {
                 c.cancel.cancel();
             }
         }
+        // Its pushes stop too.
+        self.push_unsubscribe(device_id);
         self.emit_changed();
         Ok(())
     }

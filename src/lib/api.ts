@@ -427,7 +427,7 @@ let mockNotes: Note[] = [];
 let mockEvents: CalendarEvent[] = [];
 const mockPrefs: Record<string, string> = {};
 
-let mockPhone: PhoneStatus = { enabled: false, listening: false, port: 0, urls: [], pairing: null, requests: [], devices: [], connected: 0 };
+let mockPhone: PhoneStatus = { enabled: false, listening: false, port: 0, urls: [], pairing: null, requests: [], devices: [], connected: 0, https_port: 0, https_urls: [], cert_fingerprint: "", push_devices: 0 };
 
 export const api = {
   /** LANX 1.3.0: say hello to every computer on the local network; returns

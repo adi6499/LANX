@@ -162,6 +162,33 @@ export function PhonePanel() {
         </div>
       )}
 
+      {on && status && (
+        <div className="rounded-xl lanx-group p-3" data-phone-secure={status.https_port ? "on" : "off"}>
+          <div className="text-[13px] font-semibold text-slate-900 dark:text-white">Secure connection (voice notes, intercom, alerts)</div>
+          <div className="mt-1 text-[11.5px] text-slate-500 dark:text-slate-400 leading-snug">
+            Phones only allow the microphone and alerts on a secure page, so this PC also serves the page securely with its own certificate. On the phone: <b>More → Secure connection &amp; alerts</b>
+            walks through installing the certificate once (about five taps) and opening the secure page.
+          </div>
+          {status.https_port ? (
+            <div className="mt-1.5 text-[11.5px] text-slate-600 dark:text-slate-300">
+              <div>
+                Secure address: <span className="font-mono select-text" data-phone-https-url>{status.https_urls?.[0] ?? `port ${status.https_port}`}</span>
+              </div>
+              {status.cert_fingerprint && (
+                <div className="truncate">
+                  Certificate fingerprint: <span className="font-mono select-text" data-phone-cert-fingerprint>{status.cert_fingerprint}</span>
+                </div>
+              )}
+              <div>
+                Phones with alerts on: <b data-phone-push-devices>{status.push_devices ?? 0}</b> · alerts reach a closed phone only while this PC has internet.
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1.5 text-[11.5px] text-slate-500 dark:text-slate-400">Starting the secure listener…</div>
+          )}
+        </div>
+      )}
+
       {status && status.requests.length > 0 && (
         <div className="rounded-xl lanx-group p-3 space-y-2" data-phone-requests>
           <div className="text-[13px] font-semibold text-slate-900 dark:text-white">Waiting for your answer</div>

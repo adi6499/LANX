@@ -1,11 +1,21 @@
 /** LANX 3.x: the phone page — connect with the code from the PC, then chats,
- *  one chat, Who's in and Files, all through that PC (src/phone/client.ts). */
+ *  one chat, Who's in, Files and More (cards, notes, calendar, games, status…),
+ *  all through that PC (src/phone/client.ts, src/phone/bridge.ts). */
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FolderOpen, Lock, MessageCircle, Smartphone, Users } from "lucide-react";
-import type { Conversation, GroupInfo, Peer, Profile } from "../types";
+import { FolderOpen, LayoutGrid, Lock, MessageCircle, Smartphone, Users } from "lucide-react";
+import type { AlertInfo, Conversation, GroupInfo, Peer, Profile } from "../types";
+import { CreateCardModal } from "../components/org/CreateCardModal";
+import { needsMe } from "../components/org/cardModel";
+import * as games from "../lib/games";
+import { api } from "../lib/api";
+import { needsAnswer } from "../lib/office";
 import { type ConnState, type Hit, type Me, PhoneClient, type PhoneMessage, type PhoneTransfer, type Progress, type Push, type StickerInfo, TOKEN_KEY, pair, pollPair, session, storage } from "./client";
 import { ChatView, type Upload } from "./ChatView";
 import { AboutSheet, ChatsScreen, FilesScreen, ForwardPicker, GroupCreateScreen, GroupInfoScreen, HitsScreen, PeopleScreen } from "./screens";
+import { AlertBanner, CalendarScreen, CardsScreen, EmergencyScreen, KudosSheet, MoreScreen, type MoreKey, NotesScreen, PersonSheet, ProfileSheet, type PushState, ReportSheet, SecureSheet, StatusSheet } from "./more";
+import { GamesScreen } from "./GamesScreen";
+import { type PhoneSettings, installBridge } from "./bridge";
+import { type Recording, enablePush, pushState as readPushState, secure as isSecure } from "./media";
 
 const sortConvs = (list: Conversation[]) => [...list].sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || b.last_message_time - a.last_message_time);
 
@@ -22,10 +32,24 @@ function upsertMessage(list: PhoneMessage[], m: PhoneMessage): PhoneMessage[] {
   return next;
 }
 
+/** `#token=…` (moving to the secure page) and `#chat=…` (an alert tapped). */
+function readHash(): { token?: string; chat?: string } {
+  const h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  return { token: h.get("token") ?? undefined, chat: h.get("chat") ?? undefined };
+}
+
 // --------------------------------------------------------------------- root
 
 export default function PhoneApp() {
-  const [token, setToken] = useState<string | null>(() => storage.get(TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => {
+    const { token: fromHash } = readHash();
+    if (fromHash) {
+      storage.set(TOKEN_KEY, fromHash);
+      history.replaceState(null, "", location.pathname);
+      return fromHash;
+    }
+    return storage.get(TOKEN_KEY);
+  });
   const forget = useCallback(() => {
     storage.remove(TOKEN_KEY);
     setToken(null);
@@ -79,7 +103,6 @@ function Connect({ onDone }: { onDone: (token: string) => void }) {
     }
   }, []);
 
-  // Scanned: the code is in the link, so connect straight away.
   useEffect(() => {
     if (auto.current) {
       auto.current = false;
@@ -196,13 +219,19 @@ function Connect({ onDone }: { onDone: (token: string) => void }) {
  *  history so the phone's back button works. */
 interface View {
   chat?: string;
-  page?: "group-new" | "group-info" | "search" | "starred";
+  page?: "group-new" | "group-info" | "search" | "starred" | "cards" | "notes" | "calendar" | "emergency" | "games";
   q?: string;
   gid?: string;
   jump?: string;
 }
 
-type Tab = "chats" | "people" | "files";
+type Tab = "chats" | "people" | "files" | "more";
+type SheetKind = "about" | "status" | "profile" | "kudos" | "report" | "secure" | null;
+
+interface PingInfo {
+  https_urls: string[];
+  cert_fingerprint: string;
+}
 
 function Main({ token, onForget }: { token: string; onForget: () => void }) {
   const client = useMemo(() => new PhoneClient(token), [token]);
@@ -210,6 +239,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
   const [me, setMe] = useState<Me | null>(null);
   const [device, setDevice] = useState("");
   const [version, setVersion] = useState("");
+  const [settings, setSettings] = useState<PhoneSettings | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
@@ -223,12 +253,22 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
   const [progress, setProgress] = useState<Record<string, Progress>>({});
   const [hits, setHits] = useState<Hit[]>([]);
   const [hitsLoading, setHitsLoading] = useState(false);
+  const [cards, setCards] = useState<Hit[]>([]);
+  const [cardsLoading, setCardsLoading] = useState(false);
+  const [alerts, setAlerts] = useState<AlertInfo[]>([]);
+  const [alertBanner, setAlertBanner] = useState<AlertInfo | null>(null);
+  const [calendarVersion, setCalendarVersion] = useState(0);
+  const [ping, setPing] = useState<PingInfo>({ https_urls: [], cert_fingerprint: "" });
+  const [push, setPush] = useState<PushState>("unsupported");
   const [view, setView] = useState<View>({});
   const [tab, setTab] = useState<Tab>("chats");
   const [query, setQuery] = useState("");
   const [locked, setLocked] = useState(false);
-  const [about, setAbout] = useState(false);
+  const [sheet, setSheet] = useState<SheetKind>(null);
+  const [person, setPerson] = useState<Peer | null>(null);
   const [forwardFrom, setForwardFrom] = useState<PhoneMessage | null>(null);
+  const [createCardFor, setCreateCardFor] = useState<string | null>(null);
+  const [pickCardChat, setPickCardChat] = useState(false);
   const [problem, setProblem] = useState("");
   const [notice, setNotice] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -236,9 +276,16 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
   const activeRef = useRef<string | null>(null);
   const active = view.chat ?? null;
   activeRef.current = active;
-  // The latest list, for callbacks made before a chat was added (a new group).
   const conversationsRef = useRef<Conversation[]>([]);
   conversationsRef.current = conversations;
+  const peersRef = useRef<Peer[]>([]);
+  peersRef.current = peers;
+  const profilesRef = useRef<Record<string, Profile>>({});
+  profilesRef.current = profiles;
+  const secure = isSecure();
+
+  // The PC's own code (games, cards) calls `api`; route it through the PC.
+  useMemo(() => installBridge(client, { peers: () => peersRef.current, profiles: () => profilesRef.current }), [client]);
 
   const upsertConv = useCallback((c: Conversation) => {
     setConversations((list) => sortConvs(list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [...list, c]));
@@ -252,6 +299,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
 
   const changed = useCallback((m: PhoneMessage) => {
     setMessages((all) => (all[m.conversation_id] ? { ...all, [m.conversation_id]: upsertMessage(all[m.conversation_id], m) } : all));
+    setCards((list) => (list.some((h) => h.message.id === m.id) ? list.map((h) => (h.message.id === m.id ? { ...h, message: m } : h)) : list));
   }, []);
 
   const load = useCallback(async () => {
@@ -265,16 +313,40 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       setProfiles(h.profiles);
       setQuickReplies(h.quick_replies ?? []);
       setStickers(h.stickers ?? []);
+      if (h.settings) setSettings(h.settings as PhoneSettings);
       setLocked(false);
     } catch (e) {
       fail(e);
     }
   }, [client, fail]);
 
+  const loadSettings = useCallback(() => {
+    client
+      .request<{ settings: PhoneSettings }>("settings")
+      .then((r) => setSettings(r.settings))
+      .catch(fail);
+  }, [client, fail]);
+
   const loadTransfers = useCallback(() => {
     client
       .transfers()
       .then((r) => setTransfers(r.transfers))
+      .catch(fail);
+  }, [client, fail]);
+
+  const loadCards = useCallback(() => {
+    setCardsLoading(true);
+    client
+      .request<{ hits: Hit[] }>("cards")
+      .then((r) => setCards(r.hits))
+      .catch(fail)
+      .finally(() => setCardsLoading(false));
+  }, [client, fail]);
+
+  const loadAlerts = useCallback(() => {
+    client
+      .request<{ alerts: AlertInfo[] }>("alerts")
+      .then((r) => setAlerts(r.alerts))
       .catch(fail);
   }, [client, fail]);
 
@@ -329,8 +401,9 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
   useEffect(() => {
     const onPop = () => {
       setView((history.state?.ph as View | undefined) ?? {});
-      setAbout(false);
+      setSheet(null);
       setForwardFrom(null);
+      setPerson(null);
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -347,6 +420,21 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
     },
     [go, loadMessages, markRead, loadGroup]
   );
+
+  // A game card's "Play" (the PC's own card code) opens the board here.
+  useEffect(() => {
+    const open = (e: Event) => {
+      const d = ((e as CustomEvent).detail ?? {}) as { matchId?: string; card?: games.GameCardData; message?: Parameters<typeof games.openFromCard>[1] };
+      if (d.card && d.message) {
+        games
+          .openFromCard(d.card, d.message, peersRef.current)
+          .then((m) => go({ page: "games", gid: m.id }))
+          .catch(fail);
+      } else go({ page: "games", gid: d.matchId ?? undefined });
+    };
+    window.addEventListener("lanx:game-open", open);
+    return () => window.removeEventListener("lanx:game-open", open);
+  }, [go, fail]);
 
   // The connection, and what the PC tells us.
   useEffect(() => {
@@ -367,6 +455,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         case "message": {
           const m = p.message;
           setMessages((all) => (all[m.conversation_id] ? { ...all, [m.conversation_id]: upsertMessage(all[m.conversation_id], m) } : all));
+          if (m.message_type === "card") setCards((list) => (list.some((h) => h.message.id === m.id) ? list.map((h) => (h.message.id === m.id ? { ...h, message: m } : h)) : list));
           if (p.conversation) upsertConv(p.conversation);
           if (!m.is_outgoing) {
             setTyping((t) => {
@@ -407,6 +496,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
             for (const [k, list] of Object.entries(all)) next[k] = list.filter((m) => !gone.has(m.id));
             return next;
           });
+          setCards((list) => list.filter((h) => !gone.has(h.message.id)));
           break;
         }
         case "peer":
@@ -434,6 +524,42 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
           setNotice(`⏰ ${p.title}: ${p.text}`.slice(0, 160));
           changed(p.message);
           break;
+        case "game":
+          games.receive(p as unknown as games.GameEvent);
+          break;
+        case "alert": {
+          const a = p.alert as AlertInfo;
+          setAlerts((list) => (list.some((x) => x.id === a.id) ? list.map((x) => (x.id === a.id ? a : x)) : [a, ...list]));
+          if (needsAnswer(a)) setAlertBanner(a);
+          else setAlertBanner((cur) => (cur && cur.id === a.id ? null : cur));
+          break;
+        }
+        case "calendar": {
+          const a = p.alert as { title?: string; text?: string };
+          setNotice(`📅 ${a.title ?? "Event"}${a.text ? ` · ${a.text}` : ""}`.slice(0, 160));
+          setCalendarVersion((v) => v + 1);
+          break;
+        }
+        case "intercom": {
+          const i = p as unknown as { transfer_id: string; name?: string; quiet?: boolean };
+          setNotice(`📻 ${i.name ?? "Intercom"}`);
+          if (!i.quiet && i.transfer_id) {
+            const a = new Audio(client.fileUrl(i.transfer_id));
+            a.play().catch(() => {});
+          }
+          break;
+        }
+        case "ring": {
+          const r = p as unknown as { peer_name?: string };
+          setNotice(`🔔 ${r.peer_name ?? "Someone"} is ringing you`);
+          if ("vibrate" in navigator) navigator.vibrate?.([200, 100, 200]);
+          break;
+        }
+        case "notice": {
+          const n = p as unknown as { text?: string };
+          if (n.text) setNotice(n.text.slice(0, 160));
+          break;
+        }
         case "reload":
           void load();
           break;
@@ -450,6 +576,32 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       client.close();
     };
   }, [client, load, loadMessages, markRead, upsertConv, onForget, changed]);
+
+  // The PC's secure address, and whether alerts are on.
+  useEffect(() => {
+    PhoneClient.ping()
+      .then((p) => setPing({ https_urls: p.https_urls, cert_fingerprint: p.cert_fingerprint }))
+      .catch(() => {});
+    void readPushState().then(setPush);
+  }, []);
+
+  // An alert tapped on the phone opens that chat.
+  useEffect(() => {
+    const { chat } = readHash();
+    if (chat) {
+      history.replaceState(null, "", location.pathname);
+      window.setTimeout(() => openChat(chat), 300);
+    }
+    const onHash = () => {
+      const h = readHash();
+      if (h.chat) {
+        history.replaceState(null, "", location.pathname);
+        openChat(h.chat);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [openChat]);
 
   // Back on screen: reconnect and catch up.
   useEffect(() => {
@@ -494,15 +646,18 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  // The Files tab loads on first sight (and when it is shown again).
+  // Pages load what they show when they open.
   useEffect(() => {
-    if (tab === "files" && !active && conn === "open") loadTransfers();
-  }, [tab, active, conn, loadTransfers]);
-
-  // A group page needs its members.
-  useEffect(() => {
+    if (conn !== "open") return;
+    if (tab === "files" && !active && !view.page) loadTransfers();
+    if (view.page === "cards") loadCards();
+    if (view.page === "emergency") loadAlerts();
     if (view.page === "group-info" && view.gid) loadGroup(view.gid);
-  }, [view.page, view.gid, loadGroup]);
+    if (tab === "more" && !active && !view.page) {
+      loadCards();
+      loadAlerts();
+    }
+  }, [tab, active, conn, view.page, view.gid, loadTransfers, loadCards, loadAlerts, loadGroup]);
 
   const unread = conversations.reduce((n, c) => n + (c.id === active ? 0 : c.unread_count), 0);
   useEffect(() => {
@@ -534,6 +689,15 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       }
     },
     [client, fail]
+  );
+
+  const sendRecording = useCallback(
+    async (conv: string, rec: Recording, intercom: boolean) => {
+      const m = await (intercom ? client.intercom(conv, rec.blob, rec.ms, rec.ext) : client.voice(conv, rec.blob, rec.ms, rec.ext));
+      setMessages((all) => ({ ...all, [conv]: upsertMessage(all[conv] ?? [], m) }));
+      if (intercom) setNotice("Sent — it plays on their PC now.");
+    },
+    [client]
   );
 
   const openPeer = useCallback(
@@ -575,6 +739,34 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
     },
     [client, fail]
   );
+
+  const sendCardTo = useCallback(
+    async (peerId: string, card: Record<string, unknown>) => {
+      const c = await api.getOrCreateConversation(peerId);
+      upsertConv(c);
+      const m = (await api.sendCard(c.id, card)) as PhoneMessage;
+      changed(m);
+    },
+    [upsertConv, changed]
+  );
+
+  const answerAlert = useCallback(
+    async (id: string, status: "safe" | "help") => {
+      try {
+        const r = await client.request<{ alert: AlertInfo }>("alert_answer", { alert_id: id, status });
+        setAlerts((list) => list.map((a) => (a.id === id ? r.alert : a)));
+        setAlertBanner((cur) => (cur && cur.id === id ? null : cur));
+      } catch (e) {
+        fail(e);
+      }
+    },
+    [client, fail]
+  );
+
+  const nameOf = useCallback((id: string) => (id === me?.id ? "You" : (peers.find((p) => p.id === id)?.display_name ?? "Someone")), [me, peers]);
+  const chatName = useCallback((id: string) => conversations.find((c) => c.id === id)?.peer_name ?? "a chat", [conversations]);
+  const forMe = me ? cards.filter((h) => needsMe(h.message, me.id)).length : 0;
+  const alertsLive = alerts.filter((a) => !a.cleared_at && Date.now() / 1000 - a.at < 6 * 3600).length;
 
   const activeConv = active ? conversations.find((c) => c.id === active) ?? null : null;
 
@@ -644,6 +836,39 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
     );
   } else if (view.page === "search" || view.page === "starred") {
     screen = <HitsScreen title={view.page === "starred" ? "Starred messages" : `Results for “${view.q ?? ""}”`} hits={hits} loading={hitsLoading} onBack={back} onOpen={(conv, id) => openChat(conv, id)} />;
+  } else if (view.page === "cards" && me) {
+    screen = <CardsScreen me={me} hits={cards} loading={cardsLoading} nameOf={nameOf} chatName={chatName} onBack={back} onChanged={changed} onError={(t) => setProblem(t)} onNew={() => setPickCardChat(true)} />;
+  } else if (view.page === "notes") {
+    screen = <NotesScreen client={client} onBack={back} onError={(t) => setProblem(t)} />;
+  } else if (view.page === "calendar") {
+    screen = <CalendarScreen client={client} onBack={back} onError={(t) => setProblem(t)} version={calendarVersion} />;
+  } else if (view.page === "emergency") {
+    screen = (
+      <EmergencyScreen
+        alerts={alerts}
+        onBack={back}
+        onRaise={async (kind, text) => {
+          try {
+            const r = await client.request<{ alert: AlertInfo }>("alert_raise", { kind, text });
+            setAlerts((list) => [r.alert, ...list.filter((a) => a.id !== r.alert.id)]);
+            setNotice("Alert sent to everyone online.");
+          } catch (e) {
+            fail(e);
+          }
+        }}
+        onAnswer={answerAlert}
+        onClear={async (id) => {
+          try {
+            const r = await client.request<{ alert: AlertInfo }>("alert_clear", { alert_id: id });
+            setAlerts((list) => list.map((a) => (a.id === id ? r.alert : a)));
+          } catch (e) {
+            fail(e);
+          }
+        }}
+      />
+    );
+  } else if (view.page === "games" && me) {
+    screen = <GamesScreen me={me} peers={peers} openMatchId={view.gid ?? null} onBack={back} onError={(t) => setProblem(t)} />;
   } else if (active && activeConv) {
     screen = (
       <ChatView
@@ -672,6 +897,10 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         onTyping={() => client.typing(active)}
         onInfo={() => {
           if (activeConv.kind === "group") go({ chat: active, page: "group-info", gid: active });
+          else {
+            const p = peers.find((x) => x.id === activeConv.peer_id);
+            if (p) setPerson(p);
+          }
         }}
         onForward={(m) => setForwardFrom(m)}
         onChanged={changed}
@@ -679,12 +908,28 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         onNotice={setNotice}
         onProblem={fail}
         onAccept={(id) => transferAction("accept", id)}
+        onCreateCard={() => setCreateCardFor(active)}
+        secure={secure}
+        onVoice={(rec) => sendRecording(active, rec, false)}
+        onIntercom={(rec) => sendRecording(active, rec, true)}
       />
     );
   } else if (tab === "people") {
-    screen = <PeopleScreen me={me} peers={peers} profiles={profiles} onOpen={openPeer} />;
+    screen = <PeopleScreen me={me} peers={peers} profiles={profiles} onOpen={openPeer} onInfo={(id) => setPerson(peers.find((p) => p.id === id) ?? null)} />;
   } else if (tab === "files") {
     screen = <FilesScreen transfers={transfers} progress={progress} conversations={conversations} client={client} onAccept={(id) => transferAction("accept", id)} onCancel={(id) => transferAction("cancel", id)} onRetry={(id) => transferAction("retry", id)} />;
+  } else if (tab === "more") {
+    screen = (
+      <MoreScreen
+        forMe={forMe}
+        alertsLive={alertsLive}
+        secure={secure}
+        onOpen={(key: MoreKey) => {
+          if (key === "cards" || key === "notes" || key === "calendar" || key === "emergency" || key === "games") go({ page: key });
+          else setSheet(key);
+        }}
+      />
+    );
   } else {
     screen = (
       <ChatsScreen
@@ -694,7 +939,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         query={query}
         onQuery={setQuery}
         onOpen={(id) => openChat(id)}
-        onAbout={() => setAbout(true)}
+        onAbout={() => setSheet("status")}
         onNewGroup={() => go({ page: "group-new" })}
         onSearchMessages={(q) => runHits("search", q)}
         onStarred={() => runHits("starred")}
@@ -702,10 +947,17 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
     );
   }
 
+  const cardConv = createCardFor ? conversations.find((c) => c.id === createCardFor) ?? null : null;
+  const cardPeople = cardConv
+    ? cardConv.kind === "group"
+      ? (groups[cardConv.id]?.members ?? []).filter((m) => !m.is_me).map((m) => ({ id: m.device_id, name: m.display_name, color: peers.find((p) => p.id === m.device_id)?.avatar_color ?? "#64748b" }))
+      : [{ id: cardConv.peer_id, name: cardConv.peer_name, color: cardConv.peer_avatar_color }]
+    : [];
+
   const showTabs = !active && !view.page;
   const screenName = view.page ?? (active ? "chat" : tab);
   return (
-    <div className="ph-root lanx-window" data-ph-screen={screenName} data-ph-conn={conn}>
+    <div className="ph-root lanx-window" data-ph-screen={screenName} data-ph-conn={conn} data-ph-secure={secure ? "1" : "0"}>
       {conn !== "open" && (
         <div className="shrink-0 bg-amber-500/15 px-4 py-1.5 text-center text-[11.5px] font-medium text-amber-700 dark:text-amber-200" data-ph-conn-bar>
           {conn === "connecting" || conn === "idle" ? "Connecting to your PC…" : "Can't reach your PC — trying again…"}
@@ -720,6 +972,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
                 ["chats", "Chats", MessageCircle],
                 ["people", "Who's in", Users],
                 ["files", "Files", FolderOpen],
+                ["more", "More", LayoutGrid],
               ] as const
             ).map(([key, label, Icon]) => (
               <button key={key} type="button" role="tab" aria-selected={tab === key} data-ph-tab={key} onClick={() => setTab(key)} className="ph-tab relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10.5px] font-semibold">
@@ -730,11 +983,13 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
                     {unread}
                   </span>
                 )}
+                {key === "more" && alertsLive > 0 && <span className="absolute left-1/2 top-1 ml-2 h-2.5 w-2.5 rounded-full bg-rose-500" />}
               </button>
             ))}
           </div>
         </nav>
       )}
+      {alertBanner && <AlertBanner alert={alertBanner} onAnswer={answerAlert} onOpen={() => go({ page: "emergency" })} />}
       {forwardFrom && (
         <ForwardPicker
           conversations={conversations}
@@ -750,6 +1005,161 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
           }}
         />
       )}
+      {pickCardChat && (
+        <ForwardPicker
+          conversations={conversations}
+          profiles={profiles}
+          title="A card in which chat?"
+          single
+          onClose={() => setPickCardChat(false)}
+          onPick={(ids) => {
+            setPickCardChat(false);
+            if (ids[0]) {
+              const c = conversations.find((x) => x.id === ids[0]);
+              if (c?.kind === "group") loadGroup(c.id);
+              setCreateCardFor(ids[0]);
+            }
+          }}
+        />
+      )}
+      {cardConv && (
+        <CreateCardModal
+          initialKind="notice"
+          people={cardPeople}
+          profiles={profiles}
+          chatName={cardConv.peer_name}
+          onClose={() => setCreateCardFor(null)}
+          onCreate={async (card) => {
+            try {
+              const m = (await api.sendCard(cardConv.id, card)) as PhoneMessage;
+              changed(m);
+              setCreateCardFor(null);
+              if (view.page === "cards") loadCards();
+              return true;
+            } catch (e) {
+              fail(e);
+              return false;
+            }
+          }}
+        />
+      )}
+      {sheet === "status" && settings && (
+        <StatusSheet
+          settings={settings}
+          onClose={() => setSheet(null)}
+          onSaveStatus={async (status, text, until) => {
+            try {
+              await client.request("status_set", { status, status_text: text, status_until: until });
+              loadSettings();
+              setNotice("Status saved.");
+            } catch (e) {
+              fail(e);
+            }
+          }}
+          onSaveOoo={async (enabled, until, message) => {
+            try {
+              await client.request("ooo_set", { enabled, until, message });
+              loadSettings();
+              setNotice(enabled ? "Out of office is on." : "Out of office is off.");
+            } catch (e) {
+              fail(e);
+            }
+          }}
+        />
+      )}
+      {sheet === "profile" && settings && me && (
+        <ProfileSheet
+          me={me}
+          settings={settings}
+          onClose={() => setSheet(null)}
+          onSave={async (p) => {
+            try {
+              await client.request("profile_save", { profile: p });
+              loadSettings();
+              void load();
+              setNotice("Profile saved.");
+            } catch (e) {
+              fail(e);
+            }
+          }}
+        />
+      )}
+      {sheet === "kudos" && (
+        <KudosSheet
+          peers={peers}
+          profiles={profiles}
+          onClose={() => setSheet(null)}
+          onSend={async (peer, badge, note) => {
+            try {
+              await sendCardTo(peer.id, { kind: "kudos", to: peer.id, to_name: peer.display_name, badge, note });
+              setNotice(`Kudos sent to ${peer.display_name}.`);
+            } catch (e) {
+              fail(e);
+            }
+          }}
+        />
+      )}
+      {sheet === "report" && (
+        <ReportSheet
+          peers={peers}
+          profiles={profiles}
+          onClose={() => setSheet(null)}
+          onSend={async (to, done, pending, blockers) => {
+            try {
+              const day = new Date();
+              day.setHours(0, 0, 0, 0);
+              const card = { kind: "report", to: to.map((p) => p.id), done, pending, blockers, day: Math.floor(day.getTime() / 1000) };
+              for (const p of to) await sendCardTo(p.id, card);
+              setNotice(`Report sent to ${to.map((p) => p.display_name).join(", ")}.`);
+            } catch (e) {
+              fail(e);
+            }
+          }}
+        />
+      )}
+      {sheet === "secure" && (
+        <SecureSheet
+          secure={secure}
+          httpsUrls={ping.https_urls}
+          fingerprint={ping.cert_fingerprint}
+          token={token}
+          push={push}
+          onClose={() => setSheet(null)}
+          onEnablePush={() => {
+            setPush("busy");
+            enablePush(token)
+              .then(setPush)
+              .catch((e) => {
+                setPush("off");
+                fail(e);
+              });
+          }}
+        />
+      )}
+      {sheet === "about" && me && (
+        <AboutSheet
+          me={me}
+          device={device}
+          version={version}
+          onClose={() => setSheet(null)}
+          onForget={() => {
+            client.close();
+            onForget();
+          }}
+        />
+      )}
+      {person && (
+        <PersonSheet
+          peer={person}
+          profile={profiles[person.id] ?? null}
+          onClose={() => setPerson(null)}
+          onChat={() => {
+            const id = person.id;
+            setPerson(null);
+            openPeer(id);
+          }}
+        />
+      )}
       {locked && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm" data-ph-locked>
           <div className="w-full max-w-xs rounded-[22px] lanx-sheet p-5 text-center">
@@ -758,18 +1168,6 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
             <p className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">Unlock it there (your PIN) and this page carries on.</p>
           </div>
         </div>
-      )}
-      {about && me && (
-        <AboutSheet
-          me={me}
-          device={device}
-          version={version}
-          onClose={() => setAbout(false)}
-          onForget={() => {
-            client.close();
-            onForget();
-          }}
-        />
       )}
       {(problem || notice) && (
         <div

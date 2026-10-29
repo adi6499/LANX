@@ -1,7 +1,7 @@
 /** LANX 3.x phone page: the screens around a chat — the chat list, Who's in,
  *  Files, groups, search results, the forward picker and the About sheet. */
 import { useState } from "react";
-import { ArrowLeft, Check, Download, FileText, LogOut, Pencil, Search, Star, UserPlus, Users, X } from "lucide-react";
+import { ArrowLeft, Check, Download, FileText, Info, LogOut, Pencil, Search, Star, UserPlus, Users, X } from "lucide-react";
 import type { Conversation, GroupInfo, Peer, Profile } from "../types";
 import { Avatar } from "../components/Avatar";
 import { formatSize } from "../lib/format";
@@ -113,7 +113,7 @@ export function ChatsScreen({
 
 // ------------------------------------------------------------------- people
 
-export function PeopleScreen({ me, peers, profiles, onOpen }: { me: Me | null; peers: Peer[]; profiles: Record<string, Profile>; onOpen: (peerId: string) => void }) {
+export function PeopleScreen({ me, peers, profiles, onOpen, onInfo }: { me: Me | null; peers: Peer[]; profiles: Record<string, Profile>; onOpen: (peerId: string) => void; onInfo?: (peerId: string) => void }) {
   const rows = [
     ...(me ? [{ id: me.id, name: `${me.name} (you)`, color: me.color, online: true, profile: me.profile, mine: true }] : []),
     ...peers.filter((p) => p.trust_state !== "blocked").map((p) => ({ id: p.id, name: p.display_name, color: p.avatar_color, online: p.status === "online", profile: profiles[p.id] ?? null, mine: false })),
@@ -144,15 +144,22 @@ export function PeopleScreen({ me, peers, profiles, onOpen }: { me: Me | null; p
                 {g.of.map((r) => {
                   const line = statusLine(r.profile, { until: true });
                   return (
-                    <button key={r.id} type="button" data-ph-person={r.name} disabled={r.mine} onClick={() => onOpen(r.id)} className="flex w-full items-center gap-3 rounded-[14px] px-2 py-2 text-left active:bg-[var(--lanx-fill)]">
-                      <Avatar name={r.name} color={r.color} profile={r.profile} size={40} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[14px] font-semibold text-slate-900 dark:text-white">{r.name}</span>
-                        <span className="block truncate text-[11.5px]" style={{ color: r.w.color }}>
-                          {r.w.emoji} {line ? line.text : r.w.label}
+                    <div key={r.id} className="flex items-center gap-1">
+                      <button type="button" data-ph-person={r.name} disabled={r.mine} onClick={() => onOpen(r.id)} className="flex min-w-0 flex-1 items-center gap-3 rounded-[14px] px-2 py-2 text-left active:bg-[var(--lanx-fill)]">
+                        <Avatar name={r.name} color={r.color} profile={r.profile} size={40} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14px] font-semibold text-slate-900 dark:text-white">{r.name}</span>
+                          <span className="block truncate text-[11.5px]" style={{ color: r.w.color }}>
+                            {r.w.emoji} {line ? line.text : r.w.label}
+                          </span>
                         </span>
-                      </span>
-                    </button>
+                      </button>
+                      {!r.mine && onInfo && (
+                        <button type="button" data-ph-person-info={r.name} onClick={() => onInfo(r.id)} className="lanx-tool p-2 text-slate-400" aria-label="Details">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -510,10 +517,25 @@ export function HitsScreen({ title, hits, loading, onBack, onOpen }: { title: st
 
 // ------------------------------------------------------------------ forward
 
-export function ForwardPicker({ conversations, profiles, onClose, onPick }: { conversations: Conversation[]; profiles: Record<string, Profile>; onClose: () => void; onPick: (ids: string[]) => void }) {
+export function ForwardPicker({
+  conversations,
+  profiles,
+  title = "Forward to…",
+  single = false,
+  onClose,
+  onPick,
+}: {
+  conversations: Conversation[];
+  profiles: Record<string, Profile>;
+  title?: string;
+  /** One chat only (picking one finishes). */
+  single?: boolean;
+  onClose: () => void;
+  onPick: (ids: string[]) => void;
+}) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   return (
-    <Sheet title="Forward to…" onClose={onClose} hook="forward">
+    <Sheet title={title} onClose={onClose} hook="forward">
       <div className="max-h-[50dvh] space-y-0.5 overflow-y-auto">
         {conversations
           .filter((c) => !c.archived && (c.kind !== "group" || c.membership === "member"))
@@ -523,14 +545,18 @@ export function ForwardPicker({ conversations, profiles, onClose, onPick }: { co
               type="button"
               data-ph-forward-to={c.id}
               aria-pressed={picked.has(c.id)}
-              onClick={() =>
+              onClick={() => {
+                if (single) {
+                  onPick([c.id]);
+                  return;
+                }
                 setPicked((s) => {
                   const n = new Set(s);
                   if (n.has(c.id)) n.delete(c.id);
                   else n.add(c.id);
                   return n;
-                })
-              }
+                });
+              }}
               className="flex w-full items-center gap-3 rounded-[14px] px-2 py-1.5 text-left active:bg-[var(--lanx-fill)]"
             >
               <Avatar name={c.peer_name} color={c.peer_avatar_color} profile={c.kind === "group" ? null : profiles[c.peer_id]} size={36} square={c.kind === "group"} />
@@ -539,9 +565,11 @@ export function ForwardPicker({ conversations, profiles, onClose, onPick }: { co
             </button>
           ))}
       </div>
-      <button type="button" data-ph-forward-go disabled={picked.size === 0} onClick={() => onPick([...picked])} className="mt-3 w-full rounded-full bg-sky-500 py-2.5 text-[13px] font-semibold text-white disabled:opacity-40">
-        Forward to {picked.size || ""} chat{picked.size === 1 ? "" : "s"}
-      </button>
+      {!single && (
+        <button type="button" data-ph-forward-go disabled={picked.size === 0} onClick={() => onPick([...picked])} className="mt-3 w-full rounded-full bg-sky-500 py-2.5 text-[13px] font-semibold text-white disabled:opacity-40">
+          Forward to {picked.size || ""} chat{picked.size === 1 ? "" : "s"}
+        </button>
+      )}
     </Sheet>
   );
 }

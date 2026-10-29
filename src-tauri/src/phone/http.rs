@@ -1,24 +1,28 @@
 //! The small web server behind "LANX on your phone": plain HTTP/1.1 on the
 //! office network, written on tokio directly (no web framework, so LANX stays
-//! one small program). It serves the phone page, pairs phones, takes uploads,
-//! hands out files, and upgrades `/ws` to a WebSocket (see ws.rs).
+//! one small program). It serves the phone page, pairs phones, takes uploads
+//! and recordings, hands out files, and upgrades `/ws` to a WebSocket (see
+//! ws.rs). LANX 3.2: the same code answers over HTTPS too — the connection
+//! handed in is either the bare socket or one wrapped in TLS (tls.rs).
 //!
 //! Only phones on the office network can use it: requests from outside private
-//! address ranges are dropped, and everything but the page and pairing needs
-//! the token a phone received when it was allowed in.
+//! address ranges are dropped, and everything but the page, pairing and the
+//! certificate needs the token a phone received when it was allowed in.
 
 use super::{PhoneDevice, PhoneService, device_name_from_ua};
+use crate::networking::transfer::SentFile;
 use serde_json::{Value, json};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_JSON_BODY: u64 = 1024 * 1024;
 /// A photo or video from the phone may be this big.
 const MAX_UPLOAD: u64 = 1024 * 1024 * 1024;
+/// A voice note or intercom recording from the phone may be this big.
+const MAX_VOICE: u64 = 10 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(30);
 const CHUNK: usize = 256 * 1024;
 
@@ -36,6 +40,9 @@ pub(super) struct Request {
     pub headers: Vec<(String, String)>,
     pub body_len: u64,
     pub http10: bool,
+    /// It came over HTTPS (the cookie may then be marked Secure).
+    pub tls: bool,
+    pub peer: IpAddr,
 }
 
 impl Request {
@@ -251,17 +258,17 @@ fn parse_head(head: &[u8]) -> Option<Request> {
         .find(|(n, _)| n == "content-length")
         .and_then(|(_, v)| v.parse::<u64>().ok())
         .unwrap_or(0);
-    Some(Request { method, path: percent_decode(&path), query, headers: out, body_len, http10 })
+    Some(Request { method, path: percent_decode(&path), query, headers: out, body_len, http10, tls: false, peer: IpAddr::V4(Ipv4Addr::UNSPECIFIED) })
 }
 
 /// Reads the request body (what the head left in `buf` first).
-struct BodyReader<'a> {
-    stream: &'a mut TcpStream,
+struct BodyReader<'a, S> {
+    stream: &'a mut S,
     buf: &'a mut Vec<u8>,
     remaining: u64,
 }
 
-impl BodyReader<'_> {
+impl<S: AsyncRead + Unpin> BodyReader<'_, S> {
     async fn next_chunk(&mut self, out: &mut Vec<u8>) -> std::io::Result<usize> {
         if self.remaining == 0 {
             return Ok(0);
@@ -316,7 +323,7 @@ impl BodyReader<'_> {
     }
 }
 
-async fn write_response(stream: &mut TcpStream, resp: Response, close: bool, head_only: bool) -> std::io::Result<()> {
+async fn write_response<S: AsyncWrite + Unpin>(stream: &mut S, resp: Response, close: bool, head_only: bool) -> std::io::Result<()> {
     let len = match &resp.body {
         Body::Bytes(b) => b.len() as u64,
         Body::File { len, .. } => *len,
@@ -353,13 +360,12 @@ async fn write_response(stream: &mut TcpStream, resp: Response, close: bool, hea
     stream.flush().await
 }
 
-/// One TCP connection: requests until the browser closes it (or a WebSocket
-/// upgrade hands it to ws.rs).
-pub(super) async fn handle(svc: PhoneService, mut stream: TcpStream, peer: SocketAddr) {
+/// One connection (plain, or TLS when `is_tls`): requests until the browser
+/// closes it (or a WebSocket upgrade hands it to ws.rs).
+pub(super) async fn handle<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(svc: PhoneService, mut stream: S, peer: SocketAddr, is_tls: bool) {
     if !is_local(peer.ip()) {
         return;
     }
-    let _ = stream.set_nodelay(true);
     let mut buf: Vec<u8> = Vec::with_capacity(4096);
     loop {
         let head_end = loop {
@@ -377,10 +383,12 @@ pub(super) async fn handle(svc: PhoneService, mut stream: TcpStream, peer: Socke
             };
             buf.extend_from_slice(&tmp[..n]);
         };
-        let Some(req) = parse_head(&buf[..head_end]) else {
+        let Some(mut req) = parse_head(&buf[..head_end]) else {
             let _ = write_response(&mut stream, Response::error(400, "bad request"), true, false).await;
             return;
         };
+        req.tls = is_tls;
+        req.peer = peer.ip();
         buf.drain(..head_end);
 
         if req.path == "/ws" && req.header("upgrade").is_some_and(|u| u.eq_ignore_ascii_case("websocket")) {
@@ -415,12 +423,15 @@ pub(super) async fn handle(svc: PhoneService, mut stream: TcpStream, peer: Socke
                     }
                 }
             }
-            return;
+            break;
         }
         if close {
-            return;
+            break;
         }
     }
+    // A proper goodbye (over TLS, the "close" notice) so the browser knows
+    // the answer was complete.
+    let _ = stream.shutdown().await;
 }
 
 /// A file of the page: (bytes, content type, long-lived cache).
@@ -438,7 +449,7 @@ fn static_file(path: &str) -> Option<(&'static [u8], &'static str, bool)> {
         .map(|(name, bytes)| (*bytes, content_type_for(name), name.starts_with("assets/")))
 }
 
-async fn route(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_>) -> Response {
+async fn route<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_, S>) -> Response {
     let method = req.method.as_str();
     let path = req.path.as_str();
 
@@ -474,7 +485,7 @@ async fn route(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_>) -> 
                 .filter(|s| !s.is_empty())
                 .map(|s| s.chars().take(60).collect::<String>())
                 .unwrap_or_else(|| device_name_from_ua(ua));
-            let ip = body.stream.peer_addr().map(|a| a.ip().to_string()).unwrap_or_default();
+            let ip = req.peer.to_string();
             match svc.claim(code, &name, &ip) {
                 Ok(id) => Response::json(202, json!({ "request": id })),
                 Err("wrong") => {
@@ -491,7 +502,7 @@ async fn route(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_>) -> 
             let r = svc.poll(id);
             let mut resp = Response::json(200, serde_json::to_value(&r).unwrap_or(Value::Null));
             if let Some(t) = &r.token {
-                resp = resp.header("Set-Cookie", &cookie_for(t));
+                resp = resp.header("Set-Cookie", &cookie_for(t, req.tls));
             }
             resp
         }
@@ -504,7 +515,7 @@ async fn route(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_>) -> 
             };
             let token = v["token"].as_str().unwrap_or("").to_string();
             match svc.device_for_token(&token) {
-                Some(d) => Response::json(200, json!({ "ok": true, "device": d.name })).header("Set-Cookie", &cookie_for(&token)),
+                Some(d) => Response::json(200, json!({ "ok": true, "device": d.name })).header("Set-Cookie", &cookie_for(&token, req.tls)),
                 None => Response::error(401, "unauthorized"),
             }
         }
@@ -518,13 +529,76 @@ async fn route(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_>) -> 
             }
             serve_file(svc, req, &p["/api/file/".len()..]).await
         }
-        ("GET", "/api/ping") => Response::json(200, json!({ "ok": true, "version": svc.app_version })),
+        ("POST", "/api/voice") | ("POST", "/api/intercom") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            voice(svc, req, body, path == "/api/intercom").await
+        }
+        // LANX 3.2: this PC's certificate authority, for the phone to install
+        // (anyone on the office network may: it only lets them trust this PC's
+        // secure page). The Apple profile is the same thing for an iPhone.
+        ("GET", "/lanx-ca.crt") | ("HEAD", "/lanx-ca.crt") => match svc.tls() {
+            Some(t) => Response::new(200, "application/x-x509-ca-cert", t.ca_der().to_vec())
+                .header("Content-Disposition", &format!("attachment; filename=\"{}.crt\"", super::tls::file_name_for(&svc.pc_name())))
+                .header("Cache-Control", "no-cache"),
+            None => Response::error(500, "no certificate"),
+        },
+        ("GET", "/lanx-ca.mobileconfig") | ("HEAD", "/lanx-ca.mobileconfig") => match svc.tls() {
+            Some(t) => {
+                let name = svc.pc_name();
+                Response::new(200, "application/x-apple-aspen-config", t.mobileconfig(&name).into_bytes())
+                    .header("Content-Disposition", &format!("attachment; filename=\"{}.mobileconfig\"", super::tls::file_name_for(&name)))
+                    .header("Cache-Control", "no-cache")
+            }
+            None => Response::error(500, "no certificate"),
+        },
+        // LANX 3.2: web push — the key the page subscribes with, and the
+        // subscription it got, kept per phone.
+        ("GET", "/api/push/key") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            Response::json(200, json!({ "key": svc.vapid().public_key_b64() }))
+        }
+        ("POST", "/api/push/subscribe") => {
+            let Some(device) = authenticated(svc, req) else { return Response::error(401, "unauthorized") };
+            let v = match body.read_json().await {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            match super::push::Subscription::parse(&v) {
+                Ok(sub) => {
+                    svc.push_subscribe(&device.id, sub);
+                    Response::json(200, json!({ "ok": true }))
+                }
+                Err(e) => Response::error(400, e),
+            }
+        }
+        ("POST", "/api/push/unsubscribe") => {
+            let Some(device) = authenticated(svc, req) else { return Response::error(401, "unauthorized") };
+            svc.push_unsubscribe(&device.id);
+            Response::json(200, json!({ "ok": true }))
+        }
+        ("GET", "/api/ping") => Response::json(
+            200,
+            json!({
+                "ok": true,
+                "version": svc.app_version,
+                // LANX 3.2: so the plain page can offer "Open the secure page".
+                "https_port": svc.https_port(),
+                "https_urls": svc.https_urls(),
+                "cert_fingerprint": svc.cert_fingerprint(),
+            }),
+        ),
         _ => Response::error(404, "not found"),
     }
 }
 
-fn cookie_for(token: &str) -> String {
-    format!("lanx_phone={}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax", token)
+/// The token cookie; marked Secure when it was set over HTTPS (a browser
+/// then sends it to the secure page only).
+fn cookie_for(token: &str, secure: bool) -> String {
+    format!("lanx_phone={}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax{}", token, if secure { "; Secure" } else { "" })
 }
 
 fn authenticated(svc: &PhoneService, req: &Request) -> Option<PhoneDevice> {
@@ -536,7 +610,7 @@ pub(super) fn upload_dir(svc: &PhoneService) -> PathBuf {
     svc.network.app_data_dir().join("Phone uploads")
 }
 
-async fn upload(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_>, _device: &PhoneDevice) -> Response {
+async fn upload<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_, S>, _device: &PhoneDevice) -> Response {
     if let Err(e) = svc.network.privacy.guard() {
         return Response::error(423, &e);
     }
@@ -575,21 +649,64 @@ async fn upload(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_>, _d
         return Response::error(500, &format!("cannot save: {}", e));
     }
     match svc.network.send_files(&conv, vec![path.to_string_lossy().to_string()]).await {
-        Ok(sent) => {
-            let Some(first) = sent.into_iter().next() else {
-                return Response::error(500, "nothing sent");
-            };
-            let conversation = svc.network.db.get_conversation(&conv).ok().flatten();
-            // The desktop window and every phone see the new file message.
-            svc.network.events.message_received(&first.message, conversation.as_ref());
-            let enriched = super::api::enrich(svc, &first.message);
-            svc.broadcast(&json!({ "ev": "message", "message": enriched, "conversation": conversation }).to_string());
-            Response::json(200, json!({ "message": super::api::enrich(svc, &first.message) }))
-        }
+        Ok(sent) => announce(svc, sent),
         Err(e) => {
             let _ = std::fs::remove_file(&path);
             Response::error(400, &e)
         }
+    }
+}
+
+/// The message a file or recording from the phone became: the desktop
+/// window and every phone see it, and the phone that sent it gets it back.
+fn announce(svc: &PhoneService, sent: Vec<SentFile>) -> Response {
+    let Some(first) = sent.into_iter().next() else {
+        return Response::error(500, "nothing sent");
+    };
+    let conversation = svc.network.db.get_conversation(&first.message.conversation_id).ok().flatten();
+    svc.network.events.message_received(&first.message, conversation.as_ref());
+    let enriched = super::api::enrich(svc, &first.message);
+    svc.broadcast(&json!({ "ev": "message", "message": enriched, "conversation": conversation }).to_string());
+    Response::json(200, json!({ "message": super::api::enrich(svc, &first.message) }))
+}
+
+/// LANX 3.2: a voice note (or, `intercom`, an intercom message) recorded on
+/// the phone. The recording is the body; `conv`, `ms` (how long it is) and
+/// `ext` (ogg, webm, m4a or mp4) come in the query. It goes out exactly like
+/// one recorded on the desktop, so the engine's own limits apply.
+async fn voice<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_, S>, intercom: bool) -> Response {
+    if let Err(e) = svc.network.privacy.guard() {
+        return Response::error(423, &e);
+    }
+    let Some(conv) = req.query_param("conv").filter(|c| !c.is_empty()) else {
+        return Response::error(400, "conv missing");
+    };
+    if svc.network.db.is_conversation_hidden(&conv) && !svc.network.privacy.hidden_unlocked() {
+        return Response::error(403, "HIDDEN");
+    }
+    if req.body_len == 0 {
+        return Response::error(400, "empty recording");
+    }
+    if req.body_len > MAX_VOICE {
+        return Response::error(413, "too large");
+    }
+    let ms: u64 = req.query_param("ms").and_then(|m| m.trim().parse().ok()).unwrap_or(0);
+    let ext = req
+        .query_param("ext")
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| "webm".to_string());
+    let Ok(bytes) = body.read_all().await else {
+        return Response::error(400, "upload cut short");
+    };
+    let sent = if intercom {
+        svc.network.send_intercom(&conv, &bytes, ms, &ext).await
+    } else {
+        svc.network.send_voice_note(&conv, &bytes, ms, &ext).await
+    };
+    match sent {
+        Ok(sent) => announce(svc, sent),
+        Err(e) => Response::error(400, &e),
     }
 }
 

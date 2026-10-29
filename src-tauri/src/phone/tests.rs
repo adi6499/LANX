@@ -6,6 +6,7 @@ use super::ws::{OP_CLOSE, OP_PING, OP_PONG, OP_TEXT, accept_key, encode_frame, r
 use super::{PhoneService, device_name_from_ua};
 use crate::events::Events;
 use crate::networking::NetworkService;
+use crate::networking::protocol::GamePayload;
 use crate::security::DeviceIdentity;
 use crate::storage::Database;
 use serde_json::{Value, json};
@@ -684,4 +685,362 @@ async fn a_phone_does_everything_the_desktop_does() {
     let r = ask(&mut ws, 38, json!({ "op": "react", "message_id": mine_id, "emoji": "👍" })).await;
     assert_eq!(r["ok"], false);
     assert_eq!(r["error"], "LOCKED");
+}
+
+/// A paired, connected phone on Asha's PC (the steps every 3.2 test starts
+/// with). The server runs until the returned token is dropped.
+async fn paired_phone(a: &Node) -> (PhoneService, TcpStream, CancellationToken) {
+    let (phone, port, cancel) = phone_server(&a.svc).await;
+    let info = phone.start_pairing();
+    let request = phone.claim(&info.code, "Safari on iPhone", "127.0.0.1").unwrap();
+    phone.answer(&request, true).unwrap();
+    let token = phone.poll(&request).token.unwrap();
+    let ws = ws_connect(port, &token).await;
+    (phone, ws, cancel)
+}
+
+/// LANX 3.2: the office tools from the phone — cards (a poll, a notice), the
+/// Organiser's list, personal notes and the calendar — each kept by the PC
+/// like the desktop's own, with cards reaching Bharat and his tick coming back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_posts_cards_and_keeps_notes_and_the_calendar() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let conv_a = link(&a, &b).await;
+    let (_phone, mut ws, _cancel) = paired_phone(&a).await;
+    let asha = a.svc.identity.device_id.clone();
+    let bharat = b.svc.identity.device_id.clone();
+    let b_db = b.svc.db.clone();
+    let now = crate::networking::now_secs();
+
+    // A poll from the phone: posted as a card, echoed to every phone, and
+    // delivered to Bharat as a card (checked and tidied by the engine).
+    let r = ask_and_push(
+        &mut ws,
+        1,
+        json!({ "op": "card_send", "conv": conv_a, "card": { "kind": "poll", "question": "Tea?", "options": ["Yes", "No"], "multi": false } }),
+        |v| v["ev"] == "message" && v["message"]["message_type"] == "card",
+    )
+    .await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["message_type"], "card");
+    assert_eq!(r["message"]["is_outgoing"], true);
+    assert_eq!(r["message"]["transfer"], Value::Null);
+    let poll_id = r["message"]["id"].as_str().unwrap().to_string();
+    let card: Value = serde_json::from_str(r["message"]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(card, json!({ "kind": "poll", "question": "Tea?", "options": ["Yes", "No"], "multi": false }));
+    let r = ask(&mut ws, 2, json!({ "op": "card_send", "conv": conv_a, "card": { "kind": "poll", "question": "Tea?", "options": ["Yes"] } })).await;
+    assert_eq!(r["error"], "A poll needs at least two answers.");
+    assert_eq!(ask(&mut ws, 3, json!({ "op": "card_send", "conv": conv_a, "card": "nope" })).await["error"], "Card not given");
+    let conv_b = {
+        let b_db = b_db.clone();
+        assert!(wait_for(|| !b_db.get_conversations(true).unwrap().is_empty(), 10).await);
+        b_db.get_conversations(true).unwrap()[0].id.clone()
+    };
+    {
+        let (b_db, conv_b, poll_id) = (b_db.clone(), conv_b.clone(), poll_id.clone());
+        assert!(
+            wait_for(|| b_db.get_messages(&conv_b).unwrap().iter().any(|m| m.message_type == "card" && m.id == poll_id), 10).await,
+            "Bharat got the poll"
+        );
+    }
+
+    // The Organiser's list: the poll, with the chat's name.
+    let r = ask(&mut ws, 4, json!({ "op": "cards" })).await;
+    let hits = r["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{}", r);
+    assert_eq!(hits[0]["message"]["id"], poll_id.as_str());
+    assert_eq!(hits[0]["message"]["transfer"], Value::Null);
+    assert_eq!(hits[0]["peer_name"], "Bharat (Stores)");
+    assert!(hits[0]["peer_avatar_color"].is_string());
+
+    // A vote from the phone (my own key only); Bharat sees it on his copy.
+    let my_vote = format!("vote:{}", asha);
+    let r = ask(&mut ws, 5, json!({ "op": "card_action", "message_id": poll_id, "key": my_vote, "value": [0] })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let state = r["message"]["card_state"].as_array().unwrap();
+    assert_eq!(state.len(), 1, "{}", r);
+    assert_eq!(state[0]["key"], my_vote.as_str());
+    assert_eq!(state[0]["value"], json!([0]));
+    assert_eq!(state[0]["peer_id"], asha.as_str());
+    let r = ask(&mut ws, 6, json!({ "op": "card_action", "message_id": poll_id, "key": format!("vote:{}", bharat), "value": [1] })).await;
+    assert_eq!(r["error"], "That can't be changed on this card.", "no voting for others");
+    assert_eq!(ask(&mut ws, 7, json!({ "op": "card_action", "message_id": poll_id, "key": my_vote, "value": [0, 1] })).await["error"], "Pick one answer.");
+    assert_eq!(ask(&mut ws, 8, json!({ "op": "card_action", "message_id": "nothing", "key": "closed", "value": true })).await["error"], "Message not found");
+    {
+        let (b_db, poll_id, key) = (b_db.clone(), poll_id.clone(), my_vote.clone());
+        assert!(
+            wait_for(|| b_db.get_message_full(&poll_id).unwrap().is_some_and(|m| m.card_state.iter().any(|e| e.key == key && e.value == json!([0]))), 10).await,
+            "Bharat sees the vote"
+        );
+    }
+
+    // A notice that asks to be acknowledged; Bharat ticks it on his PC and
+    // the phone is told (the card with its new state).
+    let r = ask(&mut ws, 9, json!({ "op": "card_send", "conv": conv_a, "card": { "kind": "notice", "title": "Fire drill", "body": "4 pm, assembly point B", "ack": true } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let notice_id = r["message"]["id"].as_str().unwrap().to_string();
+    let notice: Value = serde_json::from_str(r["message"]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(notice["kind"], "notice");
+    assert_eq!(notice["title"], "Fire drill");
+    assert_eq!(notice["ack"], true);
+    assert_eq!(notice["important"], false);
+    {
+        let (b_db, conv_b, notice_id) = (b_db.clone(), conv_b.clone(), notice_id.clone());
+        assert!(wait_for(|| b_db.get_messages(&conv_b).unwrap().iter().any(|m| m.id == notice_id), 10).await, "Bharat got the notice");
+    }
+    let his_ack = format!("ack:{}", bharat);
+    b.svc.card_action(&notice_id, &his_ack, &json!(true)).unwrap();
+    let pushed = ws_wait(
+        &mut ws,
+        |v| v["ev"] == "message" && v["message"]["id"] == notice_id.as_str() && v["message"]["card_state"].as_array().is_some_and(|s| s.iter().any(|e| e["key"] == his_ack.as_str())),
+        10,
+    )
+    .await
+    .expect("Bharat's tick reached the phone");
+    assert_eq!(pushed["message"]["card_state"][0]["value"], true);
+    assert_eq!(pushed["message"]["card_state"][0]["peer_id"], bharat.as_str());
+    assert_eq!(ask(&mut ws, 10, json!({ "op": "cards" })).await["hits"].as_array().unwrap().len(), 2);
+
+    // Notes: saved (tidied, given an id), listed, changed, binned, listed in
+    // the bin, restored, then removed for good.
+    let r = ask(&mut ws, 11, json!({ "op": "note_save", "note": { "title": " Dolvi visit ", "body": "Call Marcus\r\nCheck PO 88", "color": "blue" } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let note_id = r["note"]["id"].as_str().unwrap().to_string();
+    assert!(uuid::Uuid::parse_str(&note_id).is_ok(), "{}", r);
+    assert_eq!(r["note"]["title"], "Dolvi visit");
+    assert_eq!(r["note"]["body"], "Call Marcus\nCheck PO 88");
+    assert_eq!(r["note"]["kind"], "note");
+    assert_eq!(r["note"]["color"], "blue");
+    assert!(r["note"]["created_at"].as_i64().unwrap() >= now);
+    assert_eq!(r["note"]["deleted_at"], Value::Null);
+    let r = ask(&mut ws, 12, json!({ "op": "notes" })).await;
+    assert_eq!(r["notes"].as_array().unwrap().len(), 1, "{}", r);
+    assert_eq!(r["notes"][0]["id"], note_id.as_str());
+    let r = ask(&mut ws, 13, json!({ "op": "note_save", "note": { "id": note_id, "title": "Dolvi visit (done)", "body": "Called Marcus", "color": "neon", "pinned": true } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["note"]["id"], note_id.as_str());
+    assert_eq!(r["note"]["title"], "Dolvi visit (done)");
+    assert_eq!(r["note"]["color"], "yellow", "an unknown colour falls back");
+    assert_eq!(r["note"]["pinned"], true);
+    let r = ask(&mut ws, 14, json!({ "op": "notes" })).await;
+    assert_eq!(r["notes"].as_array().unwrap().len(), 1, "{}", r);
+    assert_eq!(r["notes"][0]["title"], "Dolvi visit (done)");
+    assert_eq!(ask(&mut ws, 15, json!({ "op": "note_save" })).await["ok"], false, "no note given");
+    let r = ask(&mut ws, 16, json!({ "op": "note_delete", "note_id": note_id })).await;
+    assert_eq!(r["removed"], true, "{}", r);
+    assert!(ask(&mut ws, 17, json!({ "op": "notes" })).await["notes"].as_array().unwrap().is_empty());
+    let r = ask(&mut ws, 18, json!({ "op": "notes", "deleted": true })).await;
+    assert_eq!(r["notes"].as_array().unwrap().len(), 1, "{}", r);
+    assert_eq!(r["notes"][0]["id"], note_id.as_str());
+    assert!(r["notes"][0]["deleted_at"].is_i64());
+    assert_eq!(ask(&mut ws, 19, json!({ "op": "note_delete", "note_id": note_id })).await["removed"], false, "already in the bin");
+    let r = ask(&mut ws, 20, json!({ "op": "note_restore", "note_id": note_id })).await;
+    assert_eq!(r["restored"], true, "{}", r);
+    assert_eq!(ask(&mut ws, 21, json!({ "op": "notes" })).await["notes"].as_array().unwrap().len(), 1);
+    assert!(ask(&mut ws, 22, json!({ "op": "notes", "deleted": true })).await["notes"].as_array().unwrap().is_empty());
+    assert_eq!(ask(&mut ws, 23, json!({ "op": "note_restore", "note_id": "nothing" })).await["restored"], false);
+    assert_eq!(ask(&mut ws, 24, json!({ "op": "note_delete", "note_id": note_id, "for_good": true })).await["removed"], true);
+    assert!(ask(&mut ws, 25, json!({ "op": "notes" })).await["notes"].as_array().unwrap().is_empty());
+    assert!(ask(&mut ws, 26, json!({ "op": "notes", "deleted": true })).await["notes"].as_array().unwrap().is_empty());
+
+    // Calendar: an event today, found in the day's window, then deleted.
+    let start = now + 3600;
+    let r = ask(&mut ws, 27, json!({ "op": "event_save", "event": { "title": " Site review ", "start": start, "end": start + 1800, "color": "green", "location": "Gate 2" } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let event_id = r["event"]["id"].as_str().unwrap().to_string();
+    assert!(uuid::Uuid::parse_str(&event_id).is_ok(), "{}", r);
+    assert_eq!(r["event"]["title"], "Site review");
+    assert_eq!(r["event"]["start"], start);
+    assert_eq!(r["event"]["end"], start + 1800);
+    assert_eq!(r["event"]["repeat"], "none");
+    assert_eq!(r["event"]["all_day"], false);
+    let r = ask(&mut ws, 28, json!({ "op": "events", "from": now - 86_400, "to": now + 86_400 })).await;
+    let occ = r["occurrences"].as_array().unwrap();
+    assert_eq!(occ.len(), 1, "{}", r);
+    assert_eq!(occ[0]["event"]["id"], event_id.as_str());
+    assert_eq!(occ[0]["event"]["location"], "Gate 2");
+    assert_eq!(occ[0]["start"], start);
+    assert_eq!(occ[0]["end"], start + 1800);
+    assert!(ask(&mut ws, 29, json!({ "op": "events", "from": now + 7200, "to": now + 86_400 })).await["occurrences"].as_array().unwrap().is_empty());
+    assert_eq!(ask(&mut ws, 30, json!({ "op": "events", "from": now, "to": now - 5 })).await["error"], "Pick a shorter period.");
+    let r = ask(&mut ws, 31, json!({ "op": "events_all" })).await;
+    assert_eq!(r["events"].as_array().unwrap().len(), 1, "{}", r);
+    assert_eq!(r["events"][0]["id"], event_id.as_str());
+    assert_eq!(ask(&mut ws, 32, json!({ "op": "event_save", "event": { "title": "No time" } })).await["ok"], false, "start and end are needed");
+    let r = ask(&mut ws, 33, json!({ "op": "event_delete", "event_id": event_id })).await;
+    assert_eq!(r["removed"], true, "{}", r);
+    assert!(ask(&mut ws, 34, json!({ "op": "events", "from": now - 86_400, "to": now + 86_400 })).await["occurrences"].as_array().unwrap().is_empty());
+    assert!(ask(&mut ws, 35, json!({ "op": "events_all" })).await["events"].as_array().unwrap().is_empty());
+    assert_eq!(ask(&mut ws, 36, json!({ "op": "event_delete", "event_id": event_id })).await["removed"], false, "already gone");
+}
+
+/// LANX 3.2: the person behind the phone — settings, status, profile, out of
+/// office — plus an emergency alert and a game step, each going through the
+/// PC the way the desktop's own do, with Bharat hearing about it and his
+/// answers coming back to the phone as pushes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_sets_status_raises_alerts_and_plays_games() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let _conv_a = link(&a, &b).await;
+    let (_phone, mut ws, _cancel) = paired_phone(&a).await;
+    let asha = a.svc.identity.device_id.clone();
+    let bharat = b.svc.identity.device_id.clone();
+    let a_db = a.svc.db.clone();
+    let b_db = b.svc.db.clone();
+    let now = crate::networking::now_secs();
+
+    // Settings: the person, never the PC's ports, paths or PIN; hello
+    // carries the same.
+    let r = ask(&mut ws, 1, json!({ "op": "settings" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let s = &r["settings"];
+    assert_eq!(s["display_name"], "Asha (Accounts)");
+    assert_eq!(s["device_id"], asha.as_str());
+    assert!(s["hostname"].is_string() && s["avatar_color"].is_string() && s["theme"].is_string(), "{}", s);
+    for secret in ["tcp_messaging_port", "udp_discovery_port", "default_download_dir", "pin_enabled", "auto_lock_minutes", "custom_sound_path", "apps"] {
+        assert!(s.get(secret).is_none(), "{} is the PC's business", secret);
+    }
+    assert_eq!(s["quick_replies"].as_array().unwrap().len(), 6);
+    assert_eq!(s["read_receipts"], true);
+    assert_eq!(s["reception_desk"], false);
+    assert_eq!(s["profile"]["status"], "");
+    assert_eq!(s["out_of_office"]["enabled"], false);
+    assert_eq!(s["quiet_hours"]["enabled"], false);
+    let hello = ask(&mut ws, 2, json!({ "op": "hello" })).await;
+    assert_eq!(hello["settings"]["display_name"], "Asha (Accounts)", "{}", hello);
+    assert!(hello["settings"].get("tcp_messaging_port").is_none());
+
+    // Status: busy with a note; what colleagues get (and what the discovery
+    // beacon fingerprints) follows at once.
+    let rev = a.svc.local_profile_rev();
+    let until = now + 3600;
+    let r = ask(&mut ws, 3, json!({ "op": "status_set", "status": "busy", "status_text": " Month end ", "status_until": until })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["profile"]["status"], "busy");
+    assert_eq!(r["profile"]["status_text"], "Month end");
+    assert_eq!(r["profile"]["status_until"], until);
+    let s = ask(&mut ws, 4, json!({ "op": "settings" })).await["settings"].clone();
+    assert_eq!(s["profile"]["status"], "busy", "{}", s);
+    assert_eq!(s["profile"]["status_text"], "Month end");
+    assert_eq!(a.svc.local_profile_full().status, "busy");
+    assert_ne!(a.svc.local_profile_rev(), rev, "colleagues' beacon fingerprint changes");
+    let r = ask(&mut ws, 5, json!({ "op": "status_set", "status": "flying", "status_text": "", "status_until": 0 })).await;
+    assert_eq!(r["ok"], false);
+    assert_eq!(r["error"], "Unknown status");
+    assert_eq!(a.svc.local_profile_full().status, "busy", "a bad status changes nothing");
+
+    // The whole profile (what is sent replaces what was there), tidied.
+    let r = ask(&mut ws, 6, json!({ "op": "profile_save", "profile": { "title": " Accountant ", "department": "Accounts", "status": "meeting", "avatar": "emoji:🐼", "bio": "Numbers person" } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["profile"]["title"], "Accountant");
+    assert_eq!(r["profile"]["department"], "Accounts");
+    assert_eq!(r["profile"]["status"], "meeting");
+    assert_eq!(r["profile"]["status_text"], "");
+    assert_eq!(r["profile"]["avatar"], "emoji:🐼");
+    let saved = a_db.get_settings().unwrap().profile;
+    assert_eq!((saved.title.as_str(), saved.status.as_str(), saved.bio.as_str()), ("Accountant", "meeting", "Numbers person"));
+    assert_eq!(a.svc.local_profile_full().title, "Accountant");
+    assert_eq!(ask(&mut ws, 7, json!({ "op": "profile_save", "profile": "nope" })).await["ok"], false);
+    // The status cleared from the phone keeps the rest of the profile.
+    let r = ask(&mut ws, 8, json!({ "op": "status_set", "status": "", "status_text": "", "status_until": 0 })).await;
+    assert_eq!(r["profile"]["status"], "", "{}", r);
+    assert_eq!(r["profile"]["title"], "Accountant");
+
+    // Out of office: on with a message, then off.
+    let r = ask(&mut ws, 9, json!({ "op": "ooo_set", "enabled": true, "until": 0, "message": " Back Monday " })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["out_of_office"], json!({ "enabled": true, "until": 0, "message": "Back Monday" }));
+    let s = ask(&mut ws, 10, json!({ "op": "settings" })).await["settings"].clone();
+    assert_eq!(s["out_of_office"]["enabled"], true, "{}", s);
+    assert_eq!(s["out_of_office"]["message"], "Back Monday");
+    assert!(a_db.get_settings().unwrap().out_of_office.active(now));
+    let r = ask(&mut ws, 11, json!({ "op": "ooo_set", "enabled": false, "until": 0, "message": "Back Monday" })).await;
+    assert_eq!(r["out_of_office"]["enabled"], false, "{}", r);
+    assert!(!a_db.get_settings().unwrap().out_of_office.active(now));
+
+    // An emergency alert raised from the phone: the phone hears it as a push
+    // like the window does, Bharat's PC gets it, his "I'm safe" comes back
+    // to the phone, and the all-clear goes out from the phone.
+    let r = ask_and_push(&mut ws, 12, json!({ "op": "alert_raise", "kind": "medical", "text": " First aid at the gate " }), |v| {
+        v["ev"] == "alert" && v["alert"]["kind"] == "medical"
+    })
+    .await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["alert"]["mine"], true);
+    assert_eq!(r["alert"]["text"], "First aid at the gate");
+    assert_eq!(r["alert"]["from_name"], "Asha (Accounts)");
+    assert_eq!(r["alert"]["sent_to"], json!(["Bharat (Stores)"]));
+    assert_eq!(r["alert"]["cleared_at"], Value::Null);
+    let alert_id = r["alert"]["id"].as_str().unwrap().to_string();
+    {
+        let (b_db, alert_id) = (b_db.clone(), alert_id.clone());
+        assert!(wait_for(|| b_db.alert(&alert_id).unwrap().is_some(), 10).await, "Bharat got the alert");
+    }
+    let got = b_db.alert(&alert_id).unwrap().unwrap();
+    assert!(!got.mine && got.kind == "medical" && got.from_name == "Asha (Accounts)" && got.text == "First aid at the gate");
+    let r = ask(&mut ws, 13, json!({ "op": "alerts" })).await;
+    assert_eq!(r["alerts"].as_array().unwrap().len(), 1, "{}", r);
+    assert_eq!(r["alerts"][0]["id"], alert_id.as_str());
+    assert_eq!(ask(&mut ws, 14, json!({ "op": "alert_raise", "kind": "fire", "text": "" })).await["error"], "An alert was just sent.");
+    assert_eq!(ask(&mut ws, 15, json!({ "op": "alert_answer", "alert_id": alert_id, "status": "safe" })).await["error"], "That's your own alert.");
+    b.svc.answer_alert(&alert_id, "safe").await.unwrap();
+    let pushed = ws_wait(
+        &mut ws,
+        |v| v["ev"] == "alert" && v["alert"]["id"] == alert_id.as_str() && v["alert"]["acks"].as_array().is_some_and(|x| !x.is_empty()),
+        10,
+    )
+    .await
+    .expect("Bharat's answer reached the phone");
+    assert_eq!(pushed["alert"]["acks"][0]["name"], "Bharat (Stores)");
+    assert_eq!(pushed["alert"]["acks"][0]["status"], "safe");
+    let r = ask(&mut ws, 16, json!({ "op": "alert_clear", "alert_id": alert_id })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert!(r["alert"]["cleared_at"].is_i64());
+    {
+        let (b_db, alert_id) = (b_db.clone(), alert_id.clone());
+        assert!(wait_for(|| b_db.alert(&alert_id).unwrap().unwrap().cleared_at.is_some(), 10).await, "Bharat got the all-clear");
+    }
+    assert_eq!(ask(&mut ws, 17, json!({ "op": "alert_clear", "alert_id": "nothing" })).await["error"], "Alert not found");
+
+    // A game step to Bharat: his LANX takes it and hands it to his window.
+    let mut tap = b.svc.events.subscribe().expect("Bharat's events");
+    let r = ask(&mut ws, 18, json!({ "op": "game_send", "peer_id": bharat, "step": { "match_id": "m1", "game": "tictactoe", "action": "accept", "seq": 0, "data": null } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["sent"], true);
+    let step = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let ev = tap.recv().await.expect("Bharat's event tap");
+            if ev.0 == "lanx://game" {
+                break ev.1.clone();
+            }
+        }
+    })
+    .await
+    .expect("Bharat's LANX got the step");
+    assert_eq!(step["from_id"], asha.as_str());
+    assert_eq!(step["from_name"], "Asha (Accounts)");
+    assert_eq!(step["match_id"], "m1");
+    assert_eq!(step["game"], "tictactoe");
+    assert_eq!(step["action"], "accept");
+    assert_eq!(step["seq"], 0);
+    assert_eq!(step["data"], Value::Null);
+    assert!(step["at"].as_i64().unwrap() >= now);
+    let r = ask(&mut ws, 19, json!({ "op": "game_send", "peer_id": "nobody", "step": { "match_id": "m1", "game": "tictactoe", "action": "accept" } })).await;
+    assert_eq!(r["error"], "Colleague not found", "{}", r);
+    assert_eq!(ask(&mut ws, 20, json!({ "op": "game_send", "peer_id": bharat, "step": { "match_id": "m1", "game": "tictactoe", "action": "cheat" } })).await["error"], "Unknown step.");
+    assert_eq!(ask(&mut ws, 21, json!({ "op": "game_send", "peer_id": bharat, "step": { "match_id": "m1", "game": "chaupar", "action": "move" } })).await["error"], "Unknown game.");
+    assert_eq!(ask(&mut ws, 22, json!({ "op": "game_send", "peer_id": bharat })).await["ok"], false, "no step");
+    // Bharat's move comes to the phone as a push, the way the window gets it.
+    let mv = GamePayload { match_id: "m1".to_string(), game: "tictactoe".to_string(), action: "move".to_string(), seq: 1, data: json!({ "cell": 4 }), at: 0 };
+    assert!(b.svc.send_game(&asha, mv).await.unwrap());
+    let pushed = ws_wait(&mut ws, |v| v["ev"] == "game" && v["match_id"] == "m1", 10).await.expect("the move reached the phone");
+    assert_eq!(pushed["from_id"], bharat.as_str());
+    assert_eq!(pushed["from_name"], "Bharat (Stores)");
+    assert_eq!(pushed["game"], "tictactoe");
+    assert_eq!(pushed["action"], "move");
+    assert_eq!(pushed["seq"], 1);
+    assert_eq!(pushed["data"]["cell"], 4);
+    assert!(pushed["at"].is_i64());
 }

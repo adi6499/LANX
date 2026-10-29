@@ -19,7 +19,13 @@ export default defineConfig({
   build: {
     outDir: "src-tauri/phone-dist",
     emptyOutDir: true,
-    rollupOptions: { input: "phone.html" },
+    rollupOptions: {
+      // The page, and the service worker as its own file at the root (/sw.js).
+      input: { phone: "phone.html", sw: "src/phone/sw.js" },
+      output: {
+        entryFileNames: (chunk) => (chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js"),
+      },
+    },
     // Fonts and pictures stay files (the server embeds every file in the folder).
     assetsInlineLimit: 0,
     sourcemap: false,

@@ -12,8 +12,7 @@ use sha1::{Digest, Sha1};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::mpsc;
 
 const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -175,7 +174,8 @@ async fn next_text<R: AsyncRead + Unpin>(r: &mut R, ctl: &mpsc::UnboundedSender<
 }
 
 /// Finishes the handshake and runs the connection until the phone leaves.
-pub(super) async fn serve(svc: PhoneService, mut stream: TcpStream, leftover: Vec<u8>, key: &str, ip: String) {
+/// The connection is the bare socket or (LANX 3.2) one wrapped in TLS.
+pub(super) async fn serve<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(svc: PhoneService, mut stream: S, leftover: Vec<u8>, key: &str, ip: String) {
     let head = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
         accept_key(key)
@@ -183,7 +183,7 @@ pub(super) async fn serve(svc: PhoneService, mut stream: TcpStream, leftover: Ve
     if stream.write_all(head.as_bytes()).await.is_err() {
         return;
     }
-    let (rd, mut wr) = stream.into_split();
+    let (rd, mut wr) = tokio::io::split(stream);
     let mut reader = Prefixed::new(leftover, rd);
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();

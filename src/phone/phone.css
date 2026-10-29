@@ -50,6 +50,39 @@ body {
   object-fit: contain;
   display: block;
 }
+/* The PC's games panel and card maker, reused on the phone: full screen. */
+.ph-root [data-games-panel] {
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  padding: 8px !important;
+  padding-top: calc(8px + env(safe-area-inset-top)) !important;
+}
+/* The panel is two columns on a PC (game list | table); a phone stacks them
+   and shows only the table while a game is on. */
+.ph-root [data-games-panel] > div:nth-child(2) {
+  flex-direction: column;
+}
+.ph-root [data-games-panel] [data-games-list] {
+  width: 100% !important;
+  max-height: 42dvh;
+  padding-right: 0 !important;
+}
+.ph-root [data-games-panel][data-games-view="match"] [data-games-list],
+.ph-root [data-games-panel][data-games-view="solo"] [data-games-list] {
+  display: none;
+}
+.ph-root [data-games-panel] [data-games-3d-toggle] {
+  display: none;
+}
+.ph-root [data-create-card] {
+  max-height: 92dvh !important;
+}
+.ph-hold {
+  touch-action: none;
+}
 .ph-tab {
   color: var(--text-muted);
 }

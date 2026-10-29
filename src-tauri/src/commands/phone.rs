@@ -50,6 +50,13 @@ pub fn phone_forget(state: State<AppState>, device_id: String) -> Result<PhoneSt
     Ok(state.phone.status())
 }
 
+/// LANX 3.2: where this PC's certificate authority (`ca.pem`) is, for
+/// "Reveal" in Settings.
+#[tauri::command]
+pub fn phone_cert_path(state: State<AppState>) -> String {
+    state.phone.cert_path()
+}
+
 /// A QR code as a square of dark/light modules ("1"/"0", row by row).
 #[derive(Serialize)]
 pub struct QrData {

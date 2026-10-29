@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.1.0)
+# LANX — Local Network Messenger (v3.2.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,20 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.2.0: everything else on the phone
+- **More tab on the phone:** Cards (notices, polls, tasks, approvals, checklists, events, kudos, visitor, tickets,
+  end-of-day reports — see them, answer them, make them), Notes, Calendar (agenda, add/edit, reminders), Games
+  (all of LANX's games, on the flat boards, challenges to colleagues), Send kudos, End-of-day report, Emergency
+  (see alerts, answer "I'm safe / I need help", raise one with press-and-hold), My status (presets, text, clear-after,
+  out of office), My profile (picture, character, title, department, phone, email, about me), a person's details from
+  Who's in (call / email links).
+- **Secure connection:** the PC also serves the phone page over HTTPS with its own certificate. Install it once on
+  the phone (More → Secure connection; about five taps) and the phone can then record **voice notes** and
+  **intercom** messages, and get **alerts when the page is closed** (iPhone: after "Add to Home Screen"; the PC
+  needs internet for Apple's alert service).
+- Still PC-only: voice/video calls and meetings, remote control, PDF tools, the screenshot hotkey, Explorer
+  "Send to", backups, admin and updates.
 
 ### New in 3.1.0: the phone does what the PC does — chats, groups, files
 - **Chat extras on the phone:** hold a message for reactions, Reply, Forward, Copy, Star, Pin, Remind me, Edit and

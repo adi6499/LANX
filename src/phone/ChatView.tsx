@@ -2,13 +2,15 @@
  *  message actions: reply, react, forward, star, pin, remind, edit, delete,
  *  stickers, quick replies, @mentions and "send later". */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, ArrowLeft, ArrowUp, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Paperclip, Pencil, Pin, Plus, Smile, Star, Trash2, X, Zap } from "lucide-react";
+import { AlarmClock, ArrowLeft, ArrowUp, ClipboardList, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Mic, Paperclip, Pencil, Pin, Plus, Radio, Smile, Star, Trash2, X, Zap } from "lucide-react";
 import type { Conversation, GroupInfo, Peer, Profile, ScheduledMessage } from "../types";
 import { Avatar } from "../components/Avatar";
 import { QUICK_REACTIONS, localInputValue, whenChoices, whenText } from "../components/chat/chatUtils";
 import { statusLine } from "../lib/profile";
 import type { Me, PhoneClient, PhoneMessage, Progress, StickerInfo } from "./client";
+import { type Recording, canRecord } from "./media";
 import { Bubble, Sheet, SheetRow, coarsePointer, copyText, dayLabel, fileName } from "./parts";
+import { RecordSheet } from "./RecordSheet";
 
 export interface Upload {
   id: number;
@@ -51,6 +53,10 @@ export function ChatView({
   onNotice,
   onProblem,
   onAccept,
+  onCreateCard,
+  secure,
+  onVoice,
+  onIntercom,
 }: {
   conv: Conversation;
   me: Me | null;
@@ -80,8 +86,15 @@ export function ChatView({
   onNotice: (text: string) => void;
   onProblem: (e: unknown) => void;
   onAccept: (transferId: string) => void;
+  /** 3.2: a card (poll, task…) into this chat. */
+  onCreateCard: () => void;
+  /** 3.2: the page is served securely (microphone allowed). */
+  secure: boolean;
+  onVoice: (rec: Recording) => Promise<void>;
+  onIntercom: (rec: Recording) => Promise<void>;
 }) {
   const [text, setText] = useState("");
+  const [recordMode, setRecordMode] = useState<"voice" | "intercom" | null>(null);
   const [reply, setReply] = useState<PhoneMessage | null>(null);
   const [editing, setEditing] = useState<PhoneMessage | null>(null);
   const [mentions, setMentions] = useState<Mention[]>([]);
@@ -408,8 +421,10 @@ export function ChatView({
               <Bubble
                 m={m}
                 group={isGroup}
+                myId={me?.id ?? ""}
                 myName={me?.name ?? ""}
                 names={names}
+                nameOf={(id) => (id === me?.id ? "You" : nameOf(id))}
                 senderName={nameOf(m.sender_id)}
                 client={client}
                 stickers={stickers}
@@ -417,6 +432,8 @@ export function ChatView({
                 onActions={(x) => setActions(x)}
                 onReact={react}
                 onAccept={onAccept}
+                onCardChanged={onChanged}
+                onError={(t) => onProblem(new Error(t))}
               />
             </div>
           );
@@ -619,7 +636,57 @@ export function ChatView({
               setLaterOpen(true);
             }}
           />
+          <SheetRow
+            icon={<ClipboardList className="h-4 w-4" />}
+            label="Card…"
+            hint="poll, task, notice…"
+            hook="card"
+            onClick={() => {
+              setPlus(false);
+              onCreateCard();
+            }}
+          />
+          <SheetRow
+            icon={<Mic className="h-4 w-4" />}
+            label="Voice note"
+            hint={secure && canRecord() ? undefined : "needs the secure connection"}
+            hook="voice"
+            onClick={() => {
+              setPlus(false);
+              if (secure && canRecord()) setRecordMode("voice");
+              else onNotice("Voice notes need the secure connection — More → Secure connection.");
+            }}
+          />
+          {!isGroup && (
+            <SheetRow
+              icon={<Radio className="h-4 w-4" />}
+              label="Intercom"
+              hint={secure && canRecord() ? "plays out loud on their PC" : "needs the secure connection"}
+              hook="intercom"
+              onClick={() => {
+                setPlus(false);
+                if (secure && canRecord()) setRecordMode("intercom");
+                else onNotice("The intercom needs the secure connection — More → Secure connection.");
+              }}
+            />
+          )}
         </Sheet>
+      )}
+
+      {recordMode && (
+        <RecordSheet
+          mode={recordMode}
+          onClose={() => setRecordMode(null)}
+          onDone={async (rec) => {
+            setRecordMode(null);
+            try {
+              await (recordMode === "voice" ? onVoice(rec) : onIntercom(rec));
+            } catch (e) {
+              onProblem(e);
+            }
+          }}
+          onProblem={onProblem}
+        />
       )}
 
       {stickersOpen && (

@@ -7,8 +7,9 @@
 //! a message from the phone is simply a message from this PC.
 
 use super::PhoneService;
+use crate::networking::protocol::GamePayload;
 use crate::networking::tools::STICKERS;
-use crate::storage::models::{Message, SearchHit, TransferRecord};
+use crate::storage::models::{CalendarEvent, Message, Note, OutOfOffice, Profile, STATUS_PRESETS, SearchHit, TransferRecord, UserSettings};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -133,6 +134,53 @@ fn me(svc: &PhoneService) -> Value {
     })
 }
 
+/// What the phone may see of the settings: the person (name, colour,
+/// profile with an expired status cleared, out of office, quiet hours) and
+/// the chat preferences — never ports, folders, the PIN or anything else the
+/// PC alone decides.
+fn settings_json(s: &UserSettings) -> Value {
+    json!({
+        "device_id": s.device_id,
+        "display_name": s.display_name,
+        "hostname": s.hostname,
+        "avatar_color": s.avatar_color,
+        "theme": s.theme,
+        "read_receipts": s.read_receipts,
+        "quick_replies": s.quick_replies,
+        "reception_desk": s.reception_desk,
+        "profile": s.profile.effective(crate::networking::now_secs()),
+        "out_of_office": s.out_of_office,
+        "quiet_hours": s.quiet_hours,
+    })
+}
+
+fn phone_settings(svc: &PhoneService) -> Value {
+    svc.network.db.get_settings().map(|s| settings_json(&s)).unwrap_or(Value::Null)
+}
+
+/// Changes the settings the way the desktop's Settings does: loaded,
+/// changed, saved (the database tidies the profile, out-of-office and quiet
+/// hours on the way in). Colleagues learn of a new profile by themselves —
+/// the discovery beacon carries a fingerprint read from the settings each
+/// time it goes out — so nothing more is sent; the window and the other
+/// phones are told to reload. Returns the settings as saved.
+fn change_settings(svc: &PhoneService, change: impl FnOnce(&mut UserSettings)) -> Result<UserSettings, String> {
+    let db = &svc.network.db;
+    let mut s = db.get_settings().map_err(|e| e.to_string())?;
+    change(&mut s);
+    db.save_settings(&s).map_err(|e| e.to_string())?;
+    svc.network.events.state_changed();
+    db.get_settings().map_err(|e| e.to_string())
+}
+
+/// The reply for a change to the profile: the profile as colleagues see it.
+fn profile_reply(id: &Value, r: Result<UserSettings, String>) -> String {
+    match r {
+        Ok(s) => ok(id, obj(json!({ "profile": s.profile.effective(crate::networking::now_secs()) }))),
+        Err(e) => fail(id, &e),
+    }
+}
+
 fn hidden_ok(svc: &PhoneService) -> bool {
     svc.network.privacy.hidden_unlocked()
 }
@@ -219,7 +267,8 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
         }
         "hello" => {
             let (peers, profiles) = peers(svc);
-            let quick_replies = db.get_settings().map(|s| s.quick_replies).unwrap_or_default();
+            let s = db.get_settings().ok();
+            let quick_replies = s.as_ref().map(|s| s.quick_replies.clone()).unwrap_or_default();
             ok(
                 &id,
                 obj(json!({
@@ -233,8 +282,50 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                     "ip": client.ip,
                     "quick_replies": quick_replies,
                     "stickers": stickers(),
+                    "settings": s.as_ref().map(settings_json).unwrap_or(Value::Null),
                 })),
             )
+        }
+        "settings" => ok(&id, obj(json!({ "settings": phone_settings(svc) }))),
+        "profile_save" => {
+            // The whole profile, as the desktop's Settings saves it (what is
+            // sent replaces what was there).
+            let profile: Profile = match serde_json::from_value(v["profile"].clone()) {
+                Ok(p) => p,
+                Err(e) => return fail(&id, &format!("Bad profile: {}", e)),
+            };
+            profile_reply(&id, change_settings(svc, |s| s.profile = profile.cleaned()))
+        }
+        "status_set" => {
+            // Only the status part of the profile; a preset LANX knows, or
+            // none ("" with a note is "custom" on the desktop too).
+            let status = v["status"].as_str().unwrap_or("");
+            if !status.is_empty() && !STATUS_PRESETS.contains(&status) {
+                return fail(&id, "Unknown status");
+            }
+            let status_text = v["status_text"].as_str().unwrap_or("").to_string();
+            let status_until = v["status_until"].as_i64().unwrap_or(0);
+            profile_reply(
+                &id,
+                change_settings(svc, |s| {
+                    s.profile.status = status.to_string();
+                    s.profile.status_text = status_text;
+                    s.profile.status_until = status_until;
+                    s.profile = s.profile.cleaned();
+                }),
+            )
+        }
+        "ooo_set" => {
+            let ooo = OutOfOffice {
+                enabled: v["enabled"].as_bool().unwrap_or(false),
+                until: v["until"].as_i64().unwrap_or(0),
+                message: v["message"].as_str().unwrap_or("").to_string(),
+            }
+            .cleaned();
+            match change_settings(svc, |s| s.out_of_office = ooo) {
+                Ok(s) => ok(&id, obj(json!({ "out_of_office": s.out_of_office }))),
+                Err(e) => fail(&id, &e),
+            }
         }
         "conversations" => ok(&id, obj(json!({ "conversations": conversations(svc) }))),
         "peers" => {
@@ -288,6 +379,39 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                 Err(e) => fail(&id, &e),
             }
         }
+        "card_send" => {
+            // A notice, poll, task… posted into a chat (the engine checks
+            // and tidies the card; older colleagues get it as text).
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            let card = &v["card"];
+            if !card.is_object() {
+                return fail(&id, "Card not given");
+            }
+            match svc.network.send_card(conv, card).await {
+                Ok(m) => {
+                    let message = announce(svc, client, &m);
+                    ok(&id, obj(json!({ "message": message })))
+                }
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "card_action" => {
+            // A vote, tick, decision, RSVP…: `key` names what changes
+            // ("vote:<my id>", "status"…), the engine says who may.
+            let mid = v["message_id"].as_str().unwrap_or("");
+            if let Err(e) = message_for(svc, mid) {
+                return fail(&id, &e);
+            }
+            let key = v["key"].as_str().unwrap_or("");
+            message_reply(svc, &id, svc.network.card_action(mid, key, &v["value"]))
+        }
+        "cards" => match db.list_cards(hidden_ok(svc)) {
+            Ok(hits) => ok(&id, obj(json!({ "hits": hits_json(svc, &hits) }))),
+            Err(e) => fail(&id, &e.to_string()),
+        },
         "react" => {
             let mid = v["message_id"].as_str().unwrap_or("");
             if let Err(e) = message_for(svc, mid) {
@@ -529,6 +653,118 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                 Err(e) => fail(&id, &e.to_string()),
             }
         }
+        // ---- notes (personal, on this PC)
+        "notes" => {
+            // Thirty days in the bin, then gone (as the desktop's list does).
+            let _ = db.purge_old_deleted_notes();
+            match db.list_notes(v["deleted"].as_bool().unwrap_or(false)) {
+                Ok(notes) => ok(&id, obj(json!({ "notes": notes }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        "note_save" => {
+            // New (no id) or changed; the database tidies it and gives it back.
+            let note: Note = match serde_json::from_value(v["note"].clone()) {
+                Ok(n) => n,
+                Err(e) => return fail(&id, &format!("Bad note: {}", e)),
+            };
+            match db.save_note(note) {
+                Ok(n) => ok(&id, obj(json!({ "note": n }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        "note_delete" => {
+            // ("id" is the request's own id, so the note's id has its own key.)
+            let nid = v["note_id"].as_str().unwrap_or("");
+            match db.delete_note(nid, v["for_good"].as_bool().unwrap_or(false)) {
+                Ok(removed) => ok(&id, obj(json!({ "removed": removed }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        "note_restore" => {
+            let nid = v["note_id"].as_str().unwrap_or("");
+            match db.restore_note(nid) {
+                Ok(restored) => ok(&id, obj(json!({ "restored": restored }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        // ---- calendar (personal, on this PC)
+        "events" => {
+            let from = v["from"].as_i64().unwrap_or(0);
+            let to = v["to"].as_i64().unwrap_or(0);
+            // The desktop's rule: a window of time, never the whole calendar
+            // expanded at once.
+            if to <= from || to - from > 400 * 86_400 {
+                return fail(&id, "Pick a shorter period.");
+            }
+            match db.list_events(from, to) {
+                Ok(occurrences) => ok(&id, obj(json!({ "occurrences": occurrences }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        "events_all" => match db.list_all_events() {
+            Ok(events) => ok(&id, obj(json!({ "events": events }))),
+            Err(e) => fail(&id, &e.to_string()),
+        },
+        "event_save" => {
+            let event: CalendarEvent = match serde_json::from_value(v["event"].clone()) {
+                Ok(e) => e,
+                Err(e) => return fail(&id, &format!("Bad event: {}", e)),
+            };
+            match db.save_event(event) {
+                Ok(e) => ok(&id, obj(json!({ "event": e }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        "event_delete" => {
+            let eid = v["event_id"].as_str().unwrap_or("");
+            match db.delete_event(eid) {
+                Ok(removed) => ok(&id, obj(json!({ "removed": removed }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        // ---- emergency alerts
+        "alerts" => ok(&id, obj(json!({ "alerts": svc.network.recent_alerts() }))),
+        "alert_raise" => {
+            // Everyone online gets it full-screen with the alarm (older
+            // copies as a message); the engine refuses a double click.
+            let kind = v["kind"].as_str().unwrap_or("");
+            let text = v["text"].as_str().unwrap_or("");
+            match svc.network.raise_alert(kind, text).await {
+                Ok(a) => ok(&id, obj(json!({ "alert": a }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "alert_answer" => {
+            // "I'm safe" / "I need help" on a colleague's alert.
+            let aid = v["alert_id"].as_str().unwrap_or("");
+            let status = v["status"].as_str().unwrap_or("");
+            match svc.network.answer_alert(aid, status).await {
+                Ok(a) => ok(&id, obj(json!({ "alert": a }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "alert_clear" => {
+            let aid = v["alert_id"].as_str().unwrap_or("");
+            match svc.network.clear_alert(aid).await {
+                Ok(a) => ok(&id, obj(json!({ "alert": a }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        // ---- games
+        "game_send" => {
+            // One step of a game (accept, a move, resign…) straight to the
+            // colleague's LANX; `sent` is true when theirs took it.
+            let peer = v["peer_id"].as_str().unwrap_or("");
+            let step: GamePayload = match serde_json::from_value(v["step"].clone()) {
+                Ok(s) => s,
+                Err(e) => return fail(&id, &format!("Bad step: {}", e)),
+            };
+            match svc.network.send_game(peer, step).await {
+                Ok(sent) => ok(&id, obj(json!({ "sent": sent }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
         "ping" => ok(&id, obj(json!({ "now": crate::networking::now_secs() }))),
         _ => fail(&id, "unknown op"),
     }
@@ -627,6 +863,36 @@ pub(super) fn map_event(svc: &PhoneService, name: &str, payload: &Value) -> Opti
         }
         "lanx://state-changed" | "lanx://admin-changed" => json!({ "ev": "reload" }),
         "lanx://lock-changed" => json!({ "ev": "lock", "locked": payload["locked"].as_bool().unwrap_or(false) }),
+        "lanx://game" => {
+            // A step of a game from a colleague, as the window gets it
+            // (from_id, from_name, match_id, game, action, seq, data, at).
+            let mut e = obj(payload.clone());
+            e.insert("ev".to_string(), json!("game"));
+            Value::Object(e)
+        }
+        "lanx://alert" => json!({ "ev": "alert", "alert": payload }),
+        "lanx://calendar-alert" => json!({ "ev": "calendar", "alert": payload }),
+        "lanx://intercom" => {
+            // An intercom message arrived (transfer_id, conversation_id,
+            // peer_id, name, quiet — quiet: show it, don't play it).
+            if hidden_blocked(payload["conversation_id"].as_str()) {
+                return None;
+            }
+            let mut e = obj(payload.clone());
+            e.insert("ev".to_string(), json!("intercom"));
+            Value::Object(e)
+        }
+        "lanx://ring" => {
+            if hidden_blocked(payload["conversation_id"].as_str()) {
+                return None;
+            }
+            json!({ "ev": "ring", "conversation_id": payload["conversation_id"], "peer_name": payload["peer_name"] })
+        }
+        "lanx://admin-notice" => {
+            // Sent as plain text or as { text }.
+            let text = payload.as_str().map(|s| s.to_string()).unwrap_or_else(|| payload["text"].as_str().unwrap_or("").to_string());
+            json!({ "ev": "notice", "text": text })
+        }
         _ => return None,
     };
     Some(line.to_string())

@@ -818,6 +818,12 @@ export interface PhoneStatus {
   requests: PairRequestInfo[];
   devices: PhoneDeviceInfo[];
   connected: number;
+  /** 3.2: the secure (HTTPS) listener and the certificate phones install. */
+  https_port?: number;
+  https_urls?: string[];
+  cert_fingerprint?: string;
+  /** 3.2: phones that get alerts while their page is closed. */
+  push_devices?: number;
 }
 
 /** A QR code as dark/light modules ("1"/"0"), row by row. */

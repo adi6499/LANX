@@ -38,6 +38,22 @@ more and the PC asks *Allow?* again.
   rename, add or remove people (the one who made it), leave.
 - (3.1) Files tab: everything the PC sent or received, with progress; Accept,
   Decline, Cancel, Try again; download finished files to the phone.
+- (3.2) More tab: Cards (the PC's own card code runs on the phone through the
+  bridge: see, answer, create), Notes, Calendar, Games (the PC's games panel,
+  flat boards), Send kudos, End-of-day report, Emergency (answer / raise),
+  My status + out of office, My profile, a person's details (Who's in → ⓘ).
+- (3.2) Secure connection: the PC also listens over HTTPS (port 52931 by
+  default, same fallback as the others) with a certificate it made itself
+  (`<data dir>\phone-tls\`, CA + a server certificate for every local IP,
+  renewed when IPs change). `GET /lanx-ca.crt` / `/lanx-ca.mobileconfig`
+  hand the CA to the phone; More → Secure connection walks the user through
+  installing it (iOS: Settings → Profile Downloaded → Install, then General
+  → About → Certificate Trust Settings) and opening `https://…/#token=…`.
+  Only on the secure page: voice notes and intercom (`POST /api/voice`,
+  `/api/intercom`, the phone's MediaRecorder), and alerts when the page is
+  closed (web push: `/api/push/key`, `/api/push/subscribe`, `sw.js`; the PC
+  sends through the phone's push service when that phone has no open
+  connection — needs internet; iPhone needs the Home Screen copy).
 - Light and dark follow the phone.
 - Removing a phone in Settings disconnects it at once; its token is dead.
 
@@ -48,11 +64,13 @@ more and the PC asks *Allow?* again.
 - The phone shows new messages while the page is open. Closed or in the
   background it gets no alerts: browsers only allow that for secure (HTTPS)
   sites, which a LAN address cannot be.
-- No calls, remote control, games, stickers, cards or PDF tools on the phone.
-- The page and the messages travel between phone and PC over plain HTTP: the
-  Wi-Fi's own encryption (WPA2/3) protects them in the air, like printing does.
-  Between PCs LANX stays end-to-end encrypted as before. Never open the phone
-  port on a router: the server only answers private (office) addresses anyway.
+- No calls or meetings on the phone (the PC's own call window and the phone
+  would fight over one call; a later release), no remote control or PDF tools.
+- On the plain (HTTP) page the messages travel between phone and PC
+  protected only by the Wi-Fi's own encryption; the secure page (3.2) encrypts
+  them with the PC's certificate. Between PCs LANX stays end-to-end encrypted
+  as before. Never open the phone ports on a router: the server only answers
+  private (office) addresses anyway.
 - One identity: the phone is a window into the PC's LANX, not a second peer, so
   nothing needs merging and colleagues see one "you".
 

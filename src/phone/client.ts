@@ -49,6 +49,8 @@ export interface Hello {
   ip: string;
   quick_replies?: string[];
   stickers?: StickerInfo[];
+  /** 3.2: the PC's settings the phone may read (see bridge.ts PhoneSettings). */
+  settings?: Record<string, unknown>;
 }
 
 export interface Hit {
@@ -75,6 +77,12 @@ export type Push =
   | { ev: "read"; conversation_id: string; conversation: Conversation | null }
   | { ev: "scheduled"; conversation_id: string; problem: string | null }
   | { ev: "reminder"; message: PhoneMessage; conversation_id: string; title: string; text: string }
+  | { ev: "game"; from_id: string; from_name: string; match_id: string; game: string; action: string; seq: number; data: unknown; at: number }
+  | { ev: "alert"; alert: unknown }
+  | { ev: "calendar"; alert: unknown }
+  | { ev: "intercom"; transfer_id: string; conversation_id: string; peer_id: string; name: string; quiet: boolean }
+  | { ev: "ring"; conversation_id: string; peer_name: string }
+  | { ev: "notice"; text: string }
   | { ev: "reload" }
   | { ev: "lock"; locked: boolean };
 
@@ -367,6 +375,30 @@ export class PhoneClient {
 
   fileUrl(transferId: string) {
     return `/api/file/${encodeURIComponent(transferId)}`;
+  }
+
+  /** The PC's secure address and certificate (no token needed). */
+  static async ping(): Promise<{ version: string; https_port: number; https_urls: string[]; cert_fingerprint: string }> {
+    const r = await fetch("/api/ping", { credentials: "same-origin" });
+    const j = (await r.json()) as Partial<{ version: string; https_port: number; https_urls: string[]; cert_fingerprint: string }>;
+    return { version: j.version ?? "", https_port: j.https_port ?? 0, https_urls: j.https_urls ?? [], cert_fingerprint: j.cert_fingerprint ?? "" };
+  }
+
+  /** A recorded voice note (3.2; the page must be secure to record). */
+  voice(conv: string, blob: Blob, ms: number, ext: string): Promise<PhoneMessage> {
+    return this.post(`/api/voice?conv=${encodeURIComponent(conv)}&ms=${Math.round(ms)}&ext=${encodeURIComponent(ext)}`, blob);
+  }
+
+  /** An intercom message: plays out loud on the colleague's PC. */
+  intercom(conv: string, blob: Blob, ms: number, ext: string): Promise<PhoneMessage> {
+    return this.post(`/api/intercom?conv=${encodeURIComponent(conv)}&ms=${Math.round(ms)}&ext=${encodeURIComponent(ext)}`, blob);
+  }
+
+  private async post(path: string, body: Blob): Promise<PhoneMessage> {
+    const r = await fetch(path, { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" }, body, credentials: "same-origin" });
+    const j = (await r.json().catch(() => ({}))) as { message?: PhoneMessage; error?: string };
+    if (!r.ok || !j.message) throw new Error(j.error ?? `failed (${r.status})`);
+    return j.message;
   }
 
   /** Sends a photo or file into a chat (with progress 0–100). */
