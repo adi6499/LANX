@@ -194,8 +194,10 @@ impl NetworkService {
     /// (a phone's device id), or on this PC's window when none.
     pub async fn start_call_ex(&self, conversation_id: &str, video: bool, sdp: String, help: Option<String>, on_phone: Option<String>) -> Result<CallInfo, String> {
         let help = help.filter(|h| h == "view" || h == "show");
-        if on_phone.is_some() && help.is_some() {
-            return Err("Remote help works from the PC.".to_string());
+        // LANX 3.4: a phone can watch a colleague's screen ("view"); showing
+        // a screen stays on the PC.
+        if on_phone.is_some() && help.as_deref() == Some("show") {
+            return Err("Showing your screen works from the PC.".to_string());
         }
         let conv = self
             .db
@@ -279,8 +281,10 @@ impl NetworkService {
             let mut cur = self.call.lock();
             match cur.as_mut() {
                 Some(c) if c.call_id == call_id && !c.outgoing && c.phase == "ringing" => {
-                    if on_phone.is_some() && c.help.is_some() {
-                        return Err("Remote help works on the PC — answer it there.".to_string());
+                    // A colleague who wants to show their screen can be watched
+                    // on the phone; one who wants to see yours needs the PC.
+                    if on_phone.is_some() && c.help.as_deref() == Some("view") {
+                        return Err("They want to see your screen — answer it on your PC.".to_string());
                     }
                     c.phase = "active".to_string();
                     c.answered_at = Some(now_secs());

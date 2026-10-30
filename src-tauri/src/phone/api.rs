@@ -151,7 +151,117 @@ fn settings_json(s: &UserSettings) -> Value {
         "profile": s.profile.effective(crate::networking::now_secs()),
         "out_of_office": s.out_of_office,
         "quiet_hours": s.quiet_hours,
+        // 3.4: Appearance and the rest of Settings the phone shows.
+        "chat_background": s.chat_background,
+        "accent_color": s.accent_color,
+        "glass_level": s.glass_level,
+        "frost_level": s.frost_level,
+        "reduce_motion": s.reduce_motion,
+        "cat_alerts": s.cat_alerts,
+        "auto_download_images": s.auto_download_images,
+        "auto_lock_minutes": s.auto_lock_minutes,
+        "pin_enabled": s.pin_enabled,
+        "notifications_enabled": s.notifications_enabled,
+        "sound_enabled": s.sound_enabled,
+        "sound_choice": s.sound_choice,
+        "sound_volume": s.sound_volume,
+        "chat_folders": s.chat_folders,
+        "apps": s.apps,
+        "retention_days": s.retention_days,
+        // 3.4: the PC's own switches, and its ports (shown, not changed).
+        "launch_at_startup": s.launch_at_startup,
+        "close_to_tray": s.close_to_tray,
+        "send_to_menu": s.send_to_menu,
+        "screenshot_hotkey": s.screenshot_hotkey,
+        "tcp_messaging_port": s.tcp_messaging_port,
+        "udp_discovery_port": s.udp_discovery_port,
     })
+}
+
+/// The PC's wallpaper choice (the "wallpaper" preference), or none.
+fn wallpaper_json(svc: &PhoneService) -> Value {
+    svc.network
+        .db
+        .get_setting("pref_wallpaper")
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .unwrap_or_else(|| json!({ "kind": "none", "dim": 20, "blur": 0 }))
+}
+
+/// "default", a preset's id or "#rrggbb" (lib/background.ts knows the presets).
+fn colour_choice(v: &str) -> bool {
+    v == "default"
+        || (v.len() == 7 && v.starts_with('#') && v[1..].chars().all(|c| c.is_ascii_hexdigit()))
+        || (!v.is_empty() && v.len() <= 32 && v.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+}
+
+/// LANX 3.4: the settings the phone may change — Appearance, chat
+/// preferences, sounds, quick replies, chat folders, quiet hours, apps and
+/// auto-lock — each checked the way the desktop's Settings keeps it. Never
+/// ports, folders, the PIN itself, start-up or anything about the network.
+fn apply_patch(s: &mut UserSettings, p: &Value) -> Result<(), String> {
+    let Some(map) = p.as_object() else { return Err("Nothing to change".to_string()) };
+    for (key, v) in map {
+        let flag = || v.as_bool().ok_or_else(|| format!("{key}: on or off"));
+        let level = || v.as_u64().filter(|n| *n <= 100).map(|n| n as u32).ok_or_else(|| format!("{key}: 0 to 100"));
+        match key.as_str() {
+            "theme" => match v.as_str() {
+                Some(t @ ("system" | "light" | "dark")) => s.theme = t.to_string(),
+                _ => return Err("theme: system, light or dark".to_string()),
+            },
+            "chat_background" | "accent_color" => {
+                let c = v.as_str().filter(|c| colour_choice(c)).ok_or_else(|| format!("{key}: not a colour"))?.to_string();
+                if key == "chat_background" {
+                    s.chat_background = c;
+                } else {
+                    s.accent_color = c;
+                }
+            }
+            "glass_level" => s.glass_level = level()?,
+            "frost_level" => s.frost_level = level()?,
+            "sound_volume" => s.sound_volume = level()?,
+            "reduce_motion" => s.reduce_motion = flag()?,
+            "cat_alerts" => s.cat_alerts = flag()?,
+            "read_receipts" => s.read_receipts = flag()?,
+            "auto_download_images" => s.auto_download_images = flag()?,
+            "notifications_enabled" => s.notifications_enabled = flag()?,
+            "sound_enabled" => s.sound_enabled = flag()?,
+            "launch_at_startup" => s.launch_at_startup = flag()?,
+            "close_to_tray" => s.close_to_tray = flag()?,
+            "send_to_menu" => s.send_to_menu = flag()?,
+            "screenshot_hotkey" => s.screenshot_hotkey = flag()?,
+            "sound_choice" => {
+                let c = v.as_str().unwrap_or("");
+                if !(crate::sound::BUILTIN.contains(&c) || (c == "custom" && !s.custom_sound_path.is_empty())) {
+                    return Err("Unknown sound".to_string());
+                }
+                s.sound_choice = c.to_string();
+            }
+            "quick_replies" => {
+                let list: Vec<String> = strings(v).into_iter().map(|q| q.trim().chars().take(500).collect::<String>()).filter(|q| !q.is_empty()).take(50).collect();
+                s.quick_replies = list;
+            }
+            "chat_folders" => {
+                let list: Vec<crate::storage::models::ChatFolder> = serde_json::from_value(v.clone()).map_err(|_| "Bad chat folders".to_string())?;
+                s.chat_folders = crate::storage::models::clean_chat_folders(&list);
+            }
+            "quiet_hours" => {
+                s.quiet_hours = serde_json::from_value(v.clone()).map_err(|_| "Bad quiet hours".to_string())?;
+            }
+            "apps" => {
+                let list: Vec<crate::storage::models::AppLink> = serde_json::from_value(v.clone()).map_err(|_| "Bad app links".to_string())?;
+                s.apps = crate::storage::models::clean_apps(&list);
+            }
+            "auto_lock_minutes" => {
+                let m = v.as_u64().filter(|m| *m <= 24 * 60).ok_or_else(|| "auto-lock: 0 to 1440 minutes".to_string())? as u32;
+                if m > 0 && !s.pin_enabled {
+                    return Err("Set a PIN on the PC first (Settings → Privacy).".to_string());
+                }
+                s.auto_lock_minutes = m;
+            }
+            _ => return Err(format!("{key} can only be changed on the PC")),
+        }
+    }
+    Ok(())
 }
 
 fn phone_settings(svc: &PhoneService) -> Value {
@@ -308,10 +418,264 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                     "stickers": stickers(),
                     "settings": s.as_ref().map(settings_json).unwrap_or(Value::Null),
                     "lock": svc.network.privacy.status(db),
+                    "wallpaper": wallpaper_json(svc),
                 })),
             )
         }
-        "settings" => ok(&id, obj(json!({ "settings": phone_settings(svc) }))),
+        "settings" => ok(&id, obj(json!({ "settings": phone_settings(svc), "wallpaper": wallpaper_json(svc) }))),
+        // ---- LANX 3.4
+        "settings_save" => {
+            let mut problem = None;
+            let saved = change_settings(svc, |s| {
+                if let Err(e) = apply_patch(s, &v["patch"]) {
+                    problem = Some(e);
+                }
+            });
+            if let Some(e) = problem {
+                return fail(&id, &e);
+            }
+            match saved {
+                Ok(s) => {
+                    // The PC switches take effect as from the PC's Settings
+                    // (never in side-by-side test copies).
+                    let p = &v["patch"];
+                    if p.get("launch_at_startup").is_some() {
+                        if let Some(app) = svc.network.events.app() {
+                            crate::commands::apply_autostart(app, s.launch_at_startup);
+                        }
+                    }
+                    if crate::testmode::profile().is_none() && !cfg!(test) {
+                        if p.get("screenshot_hotkey").is_some() {
+                            crate::shell::set_hotkey(s.screenshot_hotkey);
+                        }
+                        if p.get("send_to_menu").is_some() {
+                            crate::shell::apply_send_to(s.send_to_menu);
+                        }
+                    }
+                    ok(&id, obj(json!({ "settings": settings_json(&s) })))
+                }
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "wallpaper_set" => {
+            let choice = match crate::commands::wallpaper::clean_choice(&v["wallpaper"]) {
+                Ok(c) => c,
+                Err(e) => return fail(&id, &e),
+            };
+            if choice["kind"] != "file" {
+                let _ = crate::commands::wallpaper::clear_wallpaper_file();
+            }
+            if let Err(e) = db.set_setting("pref_wallpaper", &choice.to_string()) {
+                return fail(&id, &e.to_string());
+            }
+            svc.network.events.emit_json("lanx://wallpaper-changed", json!({ "from": "phone" }));
+            ok(&id, obj(json!({ "wallpaper": choice })))
+        }
+        "chat_pin" | "chat_mute" | "chat_archive" | "chat_unread" | "chat_folders" => {
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            if !matches!(db.get_conversation(conv), Ok(Some(_))) {
+                return fail(&id, "Chat not found");
+            }
+            let done = match op {
+                "chat_pin" => db.set_conversation_pinned(conv, v["pinned"].as_bool().unwrap_or(true)).map_err(|e| e.to_string()),
+                "chat_archive" => db.set_conversation_archived(conv, v["archived"].as_bool().unwrap_or(true)).map_err(|e| e.to_string()),
+                "chat_unread" => db.mark_unread(conv).map_err(|e| e.to_string()),
+                "chat_mute" => {
+                    // minutes: -1 = until turned back on, 0 = sounds back on.
+                    let until = match v["minutes"].as_i64().unwrap_or(-1) {
+                        m if m < 0 => -1,
+                        0 => 0,
+                        m => crate::networking::now_secs() + m.min(60 * 24 * 366) * 60,
+                    };
+                    db.set_conversation_muted(conv, until).map_err(|e| e.to_string())
+                }
+                _ => {
+                    let known: Vec<String> = db.get_settings().map(|s| s.chat_folders.into_iter().map(|f| f.id).collect()).unwrap_or_default();
+                    let mut list: Vec<String> = strings(&v["folders"]).into_iter().filter(|f| known.contains(f)).collect();
+                    list.dedup();
+                    db.set_conversation_folders(conv, &list).map_err(|e| e.to_string())
+                }
+            };
+            if let Err(e) = done {
+                return fail(&id, &e);
+            }
+            svc.network.events.update_tray(db);
+            svc.network.events.state_changed();
+            match db.get_conversation(conv) {
+                Ok(Some(c)) => ok(&id, obj(json!({ "conversation": c }))),
+                _ => fail(&id, "Chat not found"),
+            }
+        }
+        "chat_delete" => {
+            // The whole history of this chat on this PC (as "Delete chat
+            // history" on the desktop); colleagues keep theirs.
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            if let Err(e) = db.delete_conversation(conv) {
+                return fail(&id, &e.to_string());
+            }
+            svc.network.events.update_tray(db);
+            svc.network.events.state_changed();
+            ok(&id, obj(json!({ "conversations": conversations(svc) })))
+        }
+        "peer_trust" => {
+            let peer_id = v["peer_id"].as_str().unwrap_or("");
+            let trust = v["trust"].as_str().unwrap_or("");
+            if !["unverified", "trusted", "blocked"].contains(&trust) {
+                return fail(&id, "Invalid trust state");
+            }
+            if let Err(e) = db.update_peer_trust(peer_id, trust) {
+                return fail(&id, &e.to_string());
+            }
+            svc.network.events.state_changed();
+            let (peers, profiles) = peers(svc);
+            ok(&id, obj(json!({ "peers": peers, "profiles": profiles })))
+        }
+        "peer_add" => {
+            let ip = v["ip"].as_str().unwrap_or("").trim().to_string();
+            if ip.parse::<std::net::IpAddr>().is_err() {
+                return fail(&id, &format!("\"{}\" is not a valid IP address (example: 192.168.1.25)", ip));
+            }
+            let port = v["port"].as_u64().filter(|p| *p > 0 && *p <= 65535).unwrap_or(52926) as u16;
+            let name = v["name"].as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            match svc.network.connect_manual_peer(&ip, port, name).await {
+                Ok(p) => {
+                    svc.network.events.state_changed();
+                    ok(&id, obj(json!({ "peer": p })))
+                }
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "report_to" => {
+            let ids: Vec<String> = db.get_setting("report_to").and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default();
+            ok(&id, obj(json!({ "ids": ids })))
+        }
+        "report_to_set" => {
+            let ids: Vec<String> = strings(&v["ids"]).into_iter().filter(|p| !p.is_empty() && p.len() <= 64).take(20).collect();
+            match db.set_setting("report_to", &Value::from(ids.clone()).to_string()) {
+                Ok(_) => ok(&id, obj(json!({ "ids": ids }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
+        "backups" => ok(&id, obj(json!({ "overview": crate::backup::overview(db) }))),
+        "backup_now" => {
+            let dbc = svc.network.db.clone();
+            let ver = svc.app_version.clone();
+            let made = tokio::task::spawn_blocking(move || {
+                let info = crate::backup::create_backup(&dbc, "manual", &ver)?;
+                let _ = crate::backup::copy_to_network(&dbc, std::path::Path::new(&info.path));
+                Ok::<_, String>(info)
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+            match made {
+                Ok(info) => ok(&id, obj(json!({ "backup": info, "overview": crate::backup::overview(db) }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "sync_list" => {
+            let shares: Vec<Value> = db
+                .sync_shares()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|s| s.active)
+                .map(|s| {
+                    let waiting = db.sync_pending_count(&s.id).unwrap_or(0);
+                    let mut j = serde_json::to_value(&s).unwrap_or(Value::Null);
+                    j["waiting"] = json!(waiting);
+                    j
+                })
+                .collect();
+            ok(&id, obj(json!({ "shares": shares, "subscriptions": db.sync_subscriptions().unwrap_or_default() })))
+        }
+        "sync_resync" | "sync_stop" | "sync_unsubscribe" => {
+            let share = v["share_id"].as_str().unwrap_or("");
+            let done = match op {
+                "sync_resync" => svc.network.resync_folder(share),
+                "sync_stop" => svc.network.stop_sharing_folder(share).await,
+                _ => svc.network.unsubscribe_folder(share).await,
+            };
+            match done {
+                Ok(()) => ok(&id, obj(json!({}))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        // 3.4: a meeting or call recorded on the phone is kept on the PC, in
+        // the same Recordings folder as the PC's own (pieces: POST /api/recording/<id>).
+        "recording_begin" => {
+            let title = v["title"].as_str().unwrap_or("Recording");
+            let ext = v["ext"].as_str().unwrap_or("");
+            match crate::recordings::begin(title, ext) {
+                // ("id" is the request's own: the recording's is "rec_id".)
+                Ok((rid, name)) => ok(&id, obj(json!({ "rec_id": rid, "name": name }))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "recording_end" => {
+            let rid = v["rec_id"].as_str().unwrap_or("");
+            let conv = v["conv"].as_str().unwrap_or("");
+            if !conv.is_empty() {
+                if let Err(e) = conversation_allowed(svc, conv) {
+                    crate::recordings::cancel(rid);
+                    return fail(&id, e);
+                }
+            }
+            match crate::recordings::finish(rid) {
+                Ok((path, size)) => {
+                    let path_text = path.to_string_lossy().to_string();
+                    if !conv.is_empty() {
+                        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        let content = json!({
+                            "path": path_text,
+                            "name": name,
+                            "size": size,
+                            "secs": v["secs"].as_i64().unwrap_or(0).max(0),
+                            "kind": if v["kind"] == "call" { "call" } else { "meeting" },
+                            "title": v["title"].as_str().unwrap_or("").chars().take(80).collect::<String>(),
+                        })
+                        .to_string();
+                        svc.network.add_recording_line(conv, &content);
+                    }
+                    ok(&id, obj(json!({ "name": path.file_name().map(|n| n.to_string_lossy().to_string()), "size": size })))
+                }
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "recording_cancel" => {
+            crate::recordings::cancel(v["rec_id"].as_str().unwrap_or(""));
+            ok(&id, obj(json!({})))
+        }
+        // 3.4: LANX updates from the phone (the PC installs them).
+        "update_status" => ok(&id, obj(json!({ "update": svc.network.update_status() }))),
+        "update_install" => match svc.network.install_update().await {
+            Ok(state) => ok(&id, obj(json!({ "state": state }))),
+            Err(e) => fail(&id, &e),
+        },
+        "update_snooze" => match svc.network.snooze_update() {
+            Ok(until) => ok(&id, obj(json!({ "until": until }))),
+            Err(e) => fail(&id, &e),
+        },
+        "update_send" => match svc.network.send_update_to(&strings(&v["peer_ids"])) {
+            Ok(n) => ok(&id, obj(json!({ "sent": n }))),
+            Err(e) => fail(&id, &e),
+        },
+        // 3.4: Settings → Network → "Test a connection" to a colleague.
+        "check_connection" => match svc.network.check_connection(v["peer_id"].as_str().unwrap_or("")).await {
+            Ok(c) => ok(&id, obj(json!({ "check": c }))),
+            Err(e) => fail(&id, &e),
+        },
+        "apps" => {
+            // The office's links (from the admin) and your own; on the phone
+            // only web addresses open.
+            let apps: Vec<Value> = db.effective_apps().into_iter().map(|(a, office)| json!({ "name": a.name, "target": a.target, "emoji": a.emoji, "office": office })).collect();
+            ok(&id, obj(json!({ "apps": apps })))
+        }
         "profile_save" => {
             // The whole profile, as the desktop's Settings saves it (what is
             // sent replaces what was there).
@@ -505,6 +869,24 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             Ok(hits) => ok(&id, obj(json!({ "hits": hits_json(svc, &hits) }))),
             Err(e) => fail(&id, &e.to_string()),
         },
+        "search" if v["filter"].is_object() => {
+            // 3.4: with the desktop's filters (a chat, who sent it, files /
+            // links / cards, since when).
+            let query = v["query"].as_str().unwrap_or("");
+            let filter: crate::storage::tools::SearchFilter = match serde_json::from_value(v["filter"].clone()) {
+                Ok(f) => f,
+                Err(_) => return fail(&id, "Bad filter"),
+            };
+            if let Some(conv) = filter.conversation_id.as_deref() {
+                if let Err(e) = conversation_allowed(svc, conv) {
+                    return fail(&id, e);
+                }
+            }
+            match db.search_messages_ex(query, &filter, SEARCH_LIMIT, hidden_ok(svc)) {
+                Ok(hits) => ok(&id, obj(json!({ "hits": hits_json(svc, &hits) }))),
+                Err(e) => fail(&id, &e.to_string()),
+            }
+        }
         "search" => {
             let query = v["query"].as_str().unwrap_or("");
             match db.search_messages(query, SEARCH_LIMIT, hidden_ok(svc)) {
@@ -799,6 +1181,107 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             let offer = call.as_ref().filter(|c| !c.outgoing && c.phase == "ringing").and_then(|c| c.offer.clone());
             ok(&id, obj(json!({ "call": call, "offer": offer })))
         }
+        // ---- LANX 3.4: group meetings on the phone. The PC keeps who is in
+        // the meeting and passes each pair's offer / answer (as for its own
+        // window); the phone makes the WebRTC connections. The meeting is
+        // marked as on this phone first, so the PC's window stays out of it.
+        "meeting_get" => ok(&id, obj(json!({ "meeting": svc.network.current_meeting() }))),
+        "meeting_start" => {
+            let conv = v["conv"].as_str().unwrap_or("");
+            if let Err(e) = conversation_allowed(svc, conv) {
+                return fail(&id, e);
+            }
+            let video = v["video"].as_bool().unwrap_or(true);
+            let title = v["title"].as_str().map(|s| s.to_string());
+            match svc.network.start_meeting(conv, video, title).await {
+                Ok(m) => {
+                    let m = svc.network.set_meeting_phone(&m.meeting_id, Some(client.device.id.clone())).unwrap_or(m);
+                    ok(&id, obj(json!({ "meeting": m })))
+                }
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "meeting_join" => {
+            let mid = v["meeting_id"].as_str().unwrap_or("");
+            let Some(m) = svc.network.current_meeting().filter(|m| m.meeting_id == mid && m.phase == "invited") else {
+                return fail(&id, "This meeting has ended.");
+            };
+            if let Err(e) = conversation_allowed(svc, &m.conversation_id) {
+                return fail(&id, e);
+            }
+            svc.network.set_meeting_phone(mid, Some(client.device.id.clone()));
+            match svc.network.join_meeting(mid).await {
+                Ok(m) => ok(&id, obj(json!({ "meeting": m }))),
+                Err(e) => {
+                    svc.network.set_meeting_phone(mid, None);
+                    fail(&id, &e)
+                }
+            }
+        }
+        "meeting_rejoin" => {
+            let mid = v["message_id"].as_str().unwrap_or("");
+            if let Err(e) = message_for(svc, mid) {
+                return fail(&id, &e);
+            }
+            if svc.network.current_meeting().is_some_and(|m| m.phase == "joined" && m.on_phone.is_none()) {
+                return fail(&id, "You're in this meeting on your PC.");
+            }
+            match svc.network.rejoin_meeting(mid).await {
+                Ok(m) => {
+                    let m = svc.network.set_meeting_phone(&m.meeting_id, Some(client.device.id.clone())).unwrap_or(m);
+                    ok(&id, obj(json!({ "meeting": m })))
+                }
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "meeting_decline" | "meeting_leave" => {
+            let mid = v["meeting_id"].as_str().unwrap_or("");
+            let done = if op == "meeting_decline" { svc.network.decline_meeting(mid).await } else { svc.network.leave_meeting(mid).await };
+            match done {
+                Ok(()) => ok(&id, obj(json!({}))),
+                Err(e) => fail(&id, &e),
+            }
+        }
+        "meeting_signal" | "meeting_media" | "meeting_chat" | "meeting_invite" | "meeting_drop" => {
+            let mid = v["meeting_id"].as_str().unwrap_or("");
+            let Some(m) = svc.network.current_meeting().filter(|m| m.meeting_id == mid) else {
+                return fail(&id, "This meeting has ended.");
+            };
+            if m.on_phone.as_deref() != Some(client.device.id.as_str()) {
+                return fail(&id, "This meeting is on your PC.");
+            }
+            match op {
+                "meeting_signal" => {
+                    let to = v["to"].as_str().unwrap_or("");
+                    let kind = v["kind"].as_str().unwrap_or("");
+                    let sdp = v["sdp"].as_str().unwrap_or("").to_string();
+                    match svc.network.meeting_signal(mid, to, kind, sdp).await {
+                        Ok(()) => ok(&id, obj(json!({}))),
+                        Err(e) => fail(&id, &e),
+                    }
+                }
+                "meeting_media" => {
+                    // No screen sharing from a phone browser; recording is fine.
+                    let b = |k: &str| v[k].as_bool();
+                    match svc.network.meeting_media(mid, b("muted"), b("camera"), None, b("hand"), b("recording")).await {
+                        Ok(()) => ok(&id, obj(json!({ "meeting": svc.network.current_meeting() }))),
+                        Err(e) => fail(&id, &e),
+                    }
+                }
+                "meeting_chat" => match svc.network.meeting_chat(mid, v["text"].as_str().unwrap_or("")).await {
+                    Ok(line) => ok(&id, obj(json!({ "line": line }))),
+                    Err(e) => fail(&id, &e),
+                },
+                "meeting_drop" => {
+                    svc.network.meeting_drop(mid, v["peer_id"].as_str().unwrap_or(""));
+                    ok(&id, obj(json!({})))
+                }
+                _ => match svc.network.invite_to_meeting(mid, &strings(&v["peer_ids"])).await {
+                    Ok(problems) => ok(&id, obj(json!({ "problems": problems }))),
+                    Err(e) => fail(&id, &e),
+                },
+            }
+        }
         "call_start" => {
             let conv = v["conv"].as_str().unwrap_or("");
             if let Err(e) = conversation_allowed(svc, conv) {
@@ -809,7 +1292,9 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                 return fail(&id, "No offer");
             }
             let video = v["video"].as_bool().unwrap_or(false);
-            match svc.network.start_call_ex(conv, video, sdp, None, Some(client.device.id.clone())).await {
+            // 3.4: "view" = remote help, watching their screen.
+            let help = v["help"].as_str().filter(|h| *h == "view").map(|h| h.to_string());
+            match svc.network.start_call_ex(conv, video, sdp, help, Some(client.device.id.clone())).await {
                 Ok(call) => ok(&id, obj(json!({ "call": call }))),
                 Err(e) => fail(&id, &e),
             }
@@ -847,12 +1332,13 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             }
         }
         "call_media" => {
-            // Mute, camera and screen from the phone (recording stays on the PC).
+            // Mute, camera, screen and (3.4) recording from the phone.
             let call_id = v["call_id"].as_str().unwrap_or("");
             let video = v["video"].as_bool();
             let muted = v["muted"].as_bool();
             let screen = v["screen"].as_bool();
-            match svc.network.call_media(call_id, video, muted, screen, None).await {
+            let recording = v["recording"].as_bool();
+            match svc.network.call_media(call_id, video, muted, screen, recording).await {
                 Ok(()) => ok(&id, serde_json::Map::new()),
                 Err(e) => fail(&id, &e),
             }
@@ -1082,6 +1568,8 @@ pub(super) fn map_event(svc: &PhoneService, name: &str, payload: &Value) -> Opti
             json!({ "ev": "typing", "conversation_id": payload["conversation_id"], "display_name": payload["display_name"] })
         }
         "lanx://state-changed" | "lanx://admin-changed" => json!({ "ev": "reload" }),
+        "lanx://wallpaper-changed" => json!({ "ev": "wallpaper" }),
+        "lanx://update-changed" => json!({ "ev": "update" }),
         "lanx://lock-changed" => json!({
             "ev": "lock",
             "locked": payload["locked"].as_bool().unwrap_or(false),
@@ -1113,6 +1601,13 @@ pub(super) fn map_event(svc: &PhoneService, name: &str, payload: &Value) -> Opti
                 return None;
             }
             json!({ "ev": "ring", "conversation_id": payload["conversation_id"], "peer_name": payload["peer_name"] })
+        }
+        // 3.4: every step of a meeting (the invitation, who joins and leaves,
+        // the offers and answers meant for the phone carrying it, chat, the end).
+        "lanx://meeting" => {
+            let mut e = obj(payload.clone());
+            e.insert("ev".to_string(), json!("meeting"));
+            Value::Object(e)
         }
         "lanx://call" => {
             // Every step of a call (incoming with the offer, outgoing,

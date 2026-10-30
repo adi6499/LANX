@@ -340,6 +340,15 @@ export default function App() {
     loadUpdateStatus();
     const [p, c, t] = await Promise.all([api.listPeers(), api.getConversations(), api.listTransfers()]);
     api.getPeerProfiles().then(setProfiles).catch(() => {});
+    // LANX 3.4: a phone may have changed the settings (Appearance, quick
+    // replies…): the window shows them, and never saves old ones back.
+    api
+      .getSettings()
+      .then((s) => {
+        setSettings(s);
+        applyTheme(s.theme);
+      })
+      .catch(() => {});
     refreshOrganiserCount();
     setPeers(p);
     setConversations(c);
@@ -351,7 +360,7 @@ export default function App() {
       api.getMessages(active).then(setMessages).catch(() => {});
     }
     return c;
-  }, [loadUpdateStatus]);
+  }, [loadUpdateStatus, applyTheme]);
 
   const takeSendRequest = useCallback(() => {
     api

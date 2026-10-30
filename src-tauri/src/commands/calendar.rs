@@ -61,5 +61,10 @@ pub fn set_pref(state: State<AppState>, key: String, value: String) -> Result<()
     if value.len() > MAX_PREF_BYTES {
         return Err("That is too big to keep as a preference.".to_string());
     }
-    state.db.set_setting(&format!("pref_{key}"), &value).map_err(err)
+    state.db.set_setting(&format!("pref_{key}"), &value).map_err(err)?;
+    // LANX 3.4: phones show the PC's wallpaper too.
+    if key == "wallpaper" {
+        state.network.events.emit_json("lanx://wallpaper-changed", serde_json::json!({ "from": "pc" }));
+    }
+    Ok(())
 }

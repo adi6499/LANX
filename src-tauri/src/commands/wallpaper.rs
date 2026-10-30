@@ -13,6 +13,11 @@ const VIDEO: [&str; 4] = ["mp4", "webm", "mov", "m4v"];
 const MAX_BYTES: u64 = 150 * 1024 * 1024;
 
 pub fn wallpaper_dir() -> PathBuf {
+    // Unit tests never touch the real LANX folder (switching the wallpaper
+    // off removes the kept copy).
+    if cfg!(test) {
+        return std::env::temp_dir().join("lanx-test-wallpaper");
+    }
     crate::storage::data_dir(crate::testmode::profile().as_deref()).join("wallpaper")
 }
 
@@ -79,4 +84,91 @@ pub fn clear_wallpaper_file() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+// ------------------------------------------------- the phone (LANX 3.4)
+
+/// The built-in wallpapers (src/lib/wallpaper.ts draws them).
+pub const BUILTIN_IDS: [&str; 6] = ["aurora", "ocean", "night", "bokeh", "rain", "meadow"];
+/// Biggest wallpaper file accepted (also from the phone).
+pub const MAX_WALLPAPER_BYTES: u64 = MAX_BYTES;
+
+/// "image" / "video" by the file's name, or None for anything else.
+pub fn kind_of(name: &str) -> Option<&'static str> {
+    let ext = std::path::Path::new(name).extension()?.to_string_lossy().to_ascii_lowercase();
+    if IMAGE.contains(&ext.as_str()) {
+        Some("image")
+    } else if VIDEO.contains(&ext.as_str()) {
+        Some("video")
+    } else {
+        None
+    }
+}
+
+/// True when `path` is a file inside LANX's wallpaper folder.
+fn in_wallpaper_dir(path: &str) -> Option<PathBuf> {
+    let p = std::fs::canonicalize(path).ok()?;
+    let dir = std::fs::canonicalize(wallpaper_dir()).ok()?;
+    (p.starts_with(&dir) && p.is_file()).then_some(p)
+}
+
+/// The wallpaper file in use (the phone shows it too) and its original name:
+/// only the copy in LANX's wallpaper folder that the "wallpaper" preference
+/// names, never a file anywhere else.
+pub fn current_file(db: &crate::storage::Database) -> Option<(PathBuf, String)> {
+    let v: serde_json::Value = serde_json::from_str(&db.get_setting("pref_wallpaper")?).ok()?;
+    if v["kind"] != "file" {
+        return None;
+    }
+    let path = in_wallpaper_dir(v["path"].as_str()?)?;
+    let name = v["name"].as_str().map(str::to_string).unwrap_or_else(|| path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+    Some((path, name))
+}
+
+/// Where a picture or video sent from the phone goes (`wallpaper.<ext>`)
+/// and its kind; anything but a picture or video is refused. The upload is
+/// written next to it first and only then takes its place (`take_upload`),
+/// so a cut-short upload leaves the wallpaper as it was.
+pub fn new_file_for(name: &str) -> Result<(PathBuf, PathBuf, &'static str), String> {
+    let kind = kind_of(name).ok_or_else(|| "Pick a picture (png, jpg, webp, gif) or a video (mp4, webm, mov).".to_string())?;
+    let ext = std::path::Path::new(name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let dir = wallpaper_dir();
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    Ok((dir.join("upload.lanxpart"), dir.join(format!("wallpaper.{ext}")), kind))
+}
+
+/// The finished upload becomes the one wallpaper file (old copies go).
+pub fn take_upload(part: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    if let Ok(rd) = std::fs::read_dir(wallpaper_dir()) {
+        for e in rd.flatten() {
+            if e.path() != part {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    std::fs::rename(part, dest).map_err(err)
+}
+
+/// A wallpaper choice from the phone, checked and tidied (the same shape
+/// src/lib/wallpaper.ts keeps): a built-in LANX knows, a file in the
+/// wallpaper folder, or none; darken 0–80, blur 0–20.
+pub fn clean_choice(v: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let dim = v["dim"].as_i64().unwrap_or(20).clamp(0, 80);
+    let blur = v["blur"].as_i64().unwrap_or(0).clamp(0, 20);
+    match v["kind"].as_str().unwrap_or("none") {
+        "none" => Ok(serde_json::json!({ "kind": "none", "dim": dim, "blur": blur })),
+        "builtin" => {
+            let id = v["id"].as_str().unwrap_or("");
+            if !BUILTIN_IDS.contains(&id) {
+                return Err("Unknown wallpaper".to_string());
+            }
+            Ok(serde_json::json!({ "kind": "builtin", "id": id, "dim": dim, "blur": blur }))
+        }
+        "file" => {
+            let path = in_wallpaper_dir(v["path"].as_str().unwrap_or("")).ok_or_else(|| "That wallpaper file is gone. Pick it again.".to_string())?;
+            let name: String = v["name"].as_str().unwrap_or("").chars().filter(|c| !c.is_control()).take(120).collect();
+            Ok(serde_json::json!({ "kind": "file", "path": path.to_string_lossy(), "name": name, "dim": dim, "blur": blur }))
+        }
+        _ => Err("Unknown wallpaper".to_string()),
+    }
 }

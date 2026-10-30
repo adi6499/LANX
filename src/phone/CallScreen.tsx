@@ -1,7 +1,8 @@
 /** LANX 3.2 phone page: the call screen — ringing, calling, connecting, and
  *  the live call with the other person's picture, mute, camera and hang up. */
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Mic, MicOff, Phone, PhoneOff, RefreshCw, Video, VideoOff } from "lucide-react";
+import { Circle, Mic, MicOff, Phone, PhoneOff, RefreshCw, Square, Video, VideoOff } from "lucide-react";
+import { recordingSupported } from "../lib/recorder";
 import type { Profile } from "../types";
 import { Avatar } from "../components/Avatar";
 import { type PhoneCall, canCall } from "./call";
@@ -71,7 +72,11 @@ export function CallScreen({ manager, profiles }: { manager: PhoneCall; profiles
   const name = info.private ? "Incoming call" : info.peer_name || "Someone";
   const kind = info.video ? "video" : "voice";
   const remoteVideoTrack = manager.remoteStream.getVideoTracks().find((t) => t.readyState === "live" && !t.muted);
-  const showRemoteVideo = status === "active" && call.remoteVideo && !!remoteVideoTrack;
+  const showRemoteVideo = status === "active" && (call.remoteVideo || call.remoteScreen) && !!remoteVideoTrack;
+  // 3.4: a shared screen (remote help) is shown whole, not cropped.
+  const screen = call.remoteScreen || info.help === "view";
+  // Remote help a phone can take: a colleague who wants to show their screen.
+  const canAnswerHelp = !info.help || info.help === "show";
   const line =
     status === "starting"
       ? "Starting the call…"
@@ -89,7 +94,7 @@ export function CallScreen({ manager, profiles }: { manager: PhoneCall; profiles
     <div className="fixed inset-0 z-[90] flex flex-col bg-slate-900 text-white" data-ph-call-status={status} data-ph-call={info.call_id || "starting"}>
       <audio ref={remoteAudio} autoPlay playsInline data-ph-call-audio />
       {/* The other person's picture fills the screen when it is on. */}
-      <video ref={remoteVideo} autoPlay playsInline muted data-ph-call-remote-video className={`absolute inset-0 h-full w-full object-cover ${showRemoteVideo ? "" : "hidden"}`} />
+      <video ref={remoteVideo} autoPlay playsInline muted data-ph-call-remote-video data-ph-call-screen={screen ? "1" : "0"} className={`absolute inset-0 h-full w-full ${screen ? "object-contain bg-black" : "object-cover"} ${showRemoteVideo ? "" : "hidden"}`} />
       {!showRemoteVideo && <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 50% 30%, ${info.avatar_color}55, #0f172a 70%)` }} />}
 
       <div className="relative z-10 flex flex-1 flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+48px)]">
@@ -112,9 +117,12 @@ export function CallScreen({ manager, profiles }: { manager: PhoneCall; profiles
         <div className={`mt-1 text-center text-[14px] ${status === "ended" ? "text-amber-200" : "text-white/80"} ${showRemoteVideo ? "rounded-full bg-black/40 px-3 py-1" : ""}`} data-ph-call-line>
           {line}
           {status === "active" && call.remoteMuted && " · they muted"}
-          {call.remoteRecording && " · 🔴 recording"}
+          {(call.remoteRecording || call.recording) && " · 🔴 recording"}
+          {status === "active" && info.help === "view" && ` · 🛟 ${info.private ? "their" : `${name.split(" ")[0]}'s`} screen`}
         </div>
-        {status === "incoming" && info.help && <div className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-center text-[13px]">Remote help — answer it on your PC.</div>}
+        {status === "incoming" && info.help === "view" && <div className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-center text-[13px]">Remote help: they want to see your screen — answer it on your PC.</div>}
+        {status === "incoming" && info.help === "show" && <div className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-center text-[13px]">🛟 Remote help: they want to show you their screen.</div>}
+        {(status === "outgoing" || status === "starting") && info.help === "view" && <div className="mt-3 rounded-xl bg-white/10 px-3 py-2 text-center text-[13px]">🛟 Asking to see their screen…</div>}
         {status === "incoming" && !canCall() && (
           <div className="mt-3 max-w-xs rounded-xl bg-white/10 px-3 py-2 text-center text-[12.5px] text-white/90" data-ph-call-insecure>
             Answering on the phone needs the secure connection (More → Secure connection). Answer on your PC, or decline here.
@@ -138,14 +146,14 @@ export function CallScreen({ manager, profiles }: { manager: PhoneCall; profiles
             <Round label="Decline" hook="decline" tone="red" onClick={() => void manager.decline()} caption="Decline">
               <PhoneOff className="h-7 w-7" />
             </Round>
-            {!info.help && canCall() && (
+            {canAnswerHelp && canCall() && (
               <>
-                {info.video && (
+                {info.video && !info.help && (
                   <Round label="Answer with video" hook="answer-video" tone="green" onClick={() => void manager.answer(true)} caption="Video">
                     <Video className="h-7 w-7" />
                   </Round>
                 )}
-                <Round label="Answer" hook="answer" tone="green" onClick={() => void manager.answer(false)} caption={info.video ? "Voice only" : "Answer"}>
+                <Round label="Answer" hook="answer" tone="green" onClick={() => void manager.answer(false)} caption={info.help ? "Watch" : info.video ? "Voice only" : "Answer"}>
                   <Phone className="h-7 w-7" />
                 </Round>
               </>
@@ -164,6 +172,11 @@ export function CallScreen({ manager, profiles }: { manager: PhoneCall; profiles
                 {camera && (
                   <Round label="Switch camera" hook="flip" tone="dark" onClick={() => void manager.flipCamera()} caption="Flip">
                     <RefreshCw className="h-6 w-6" />
+                  </Round>
+                )}
+                {status === "active" && recordingSupported() && (
+                  <Round label={call.recording ? "Stop recording" : "Record"} hook="record" tone={call.recording ? "red" : "dark"} onClick={() => void (call.recording ? manager.stopRecording() : manager.startRecording())} caption={call.recording ? "Stop" : "Record"}>
+                    {call.recording ? <Square className="h-5 w-5" /> : <Circle className="h-6 w-6" />}
                   </Round>
                 )}
               </>

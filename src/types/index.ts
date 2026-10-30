@@ -705,10 +705,12 @@ export interface MeetingInfo {
   /** Hidden chat or LANX locked: the invitation shows no names. */
   private: boolean;
   my_id: string;
+  /** LANX 3.4: the phone (device id) carrying the meeting; none = this PC. */
+  on_phone?: string | null;
 }
 
 export interface MeetingEvent {
-  action: "invited" | "joined" | "person-joined" | "person-left" | "signal" | "media" | "chat" | "declined" | "notice" | "ended";
+  action: "invited" | "joined" | "person-joined" | "person-left" | "signal" | "media" | "chat" | "declined" | "notice" | "ended" | "phone";
   meeting: MeetingInfo | null;
   from: string | null;
   person: MeetingPerson | null;

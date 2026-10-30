@@ -395,6 +395,20 @@ pub(crate) fn notice_for(svc: &PhoneService, name: &str, payload: &Value) -> Opt
                 conversation_id: call["conversation_id"].as_str().map(|s| s.to_string()),
             })
         }
+        "lanx://meeting" => {
+            // LANX 3.4: a meeting invitation rings a phone whose page is closed.
+            if payload["action"].as_str() != Some("invited") {
+                return None;
+            }
+            let m = &payload["meeting"];
+            let private = m["private"].as_bool().unwrap_or(false) || svc.network.privacy.is_locked();
+            let who = m["inviter_name"].as_str().filter(|n| !n.trim().is_empty() && !private).unwrap_or("Someone");
+            Some(Notice {
+                title: "👥 Meeting invitation".to_string(),
+                body: format!("{} invites you to a meeting — tap to join", who),
+                conversation_id: m["conversation_id"].as_str().map(|s| s.to_string()),
+            })
+        }
         "lanx://alert" => {
             // Only an alert raised by a colleague, still open and not yet answered.
             if payload["mine"].as_bool().unwrap_or(false) || !payload["cleared_at"].is_null() || !payload["my_ack"].is_null() {

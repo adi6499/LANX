@@ -54,6 +54,43 @@ more and the PC asks *Allow?* again.
   too) and opens no microphone, camera or connection of its own. A ringing
   call's offer is kept by the PC, so a phone opened from the "Incoming call"
   alert can still answer. Needs the secure connection (microphone/camera).
+- (3.4) Appearance: `hello` and `settings` carry the PC's look (theme, accent,
+  background, glass, frost, animations) and its wallpaper choice; the phone
+  applies them with lib/background.ts. `settings_save {patch}` changes only
+  what the phone may (Appearance, sounds, read receipts, pictures, quick
+  replies, chat folders, quiet hours, apps, auto-lock with a PIN set);
+  `wallpaper_set` takes a built-in, none, or a file in the wallpaper folder.
+  `GET /api/wallpaper` serves that file, `POST /api/wallpaper?name=` makes a
+  phone picture / video the wallpaper file. `lanx://wallpaper-changed` keeps
+  the PC window and the phones in step.
+- (3.4) Recording from the phone: `recording_begin`, pieces over
+  `POST /api/recording/<id>`, `recording_end` (a recording line in the chat)
+  / `recording_cancel`; `GET /api/recording/<message id>` plays one back
+  (only LANX's own recordings folder). The PC's lib/recorder.ts runs on the
+  phone (`light`: 720p) through bridge.ts.
+- (3.4) Remote help: `call_start` with `help: "view"` (the phone watches their
+  screen); a phone can answer "show" (a colleague shows theirs) but not "view".
+- (3.4) Updates: `update_status/install/snooze/send`; `lanx://update-changed`
+  → `{ev:"update"}`. `check_connection {peer_id}`. The PC switches
+  (launch_at_startup, close_to_tray, send_to_menu, screenshot_hotkey) in
+  `settings_save`, applied like the PC's Settings.
+- (3.4) A whole folder (Android): `POST /api/folder-file?batch&path` per file
+  into a staging folder (every path part sanitised), then
+  `POST /api/folder-send?conv&batch&name` sends it as one zipped folder.
+- (3.4) Group meetings: `meeting_get/start/join/rejoin/decline/leave` and,
+  for the phone carrying it, `meeting_signal/media/chat/invite/drop`. The
+  meeting is marked `on_phone` first (event action "phone"), so the PC's
+  meeting window stays out of the WebRTC and shows "On your phone". The phone
+  connects to everyone like the PC's MeetingLayer (smaller id offers).
+- (3.4) Chats: `chat_pin`, `chat_mute {minutes}`, `chat_archive`,
+  `chat_unread`, `chat_folders`, `chat_delete`; `search` with a `filter`
+  (chat, kind, sender, since); `peer_trust`, `peer_add` (connect by IP);
+  `report_to(_set)`; `backups`, `backup_now`; `sync_list`, `sync_resync`,
+  `sync_stop`, `sync_unsubscribe`; `apps`.
+- (3.4) The PC's calculator, PDF tools, directory and WhatsApp invite run on
+  the phone (bridge.ts): files the PDF tools open are picked on the phone or
+  read from the PC (`/api/file/<id>`); what they save downloads to the phone
+  and can be sent to a chat.
 - (3.3) The PIN: a locked PC shows a PIN screen on the phone (`unlock` and
   `lock_status` are the only ops that work while locked; the same wrong-try
   waits as the PC); More → This phone → "Lock LANX on my PC" (`lock`).

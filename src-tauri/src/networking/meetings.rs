@@ -87,6 +87,9 @@ pub struct MeetingInfo {
     /// The chat is hidden (or LANX is locked): the invitation shows no names.
     pub private: bool,
     pub my_id: String,
+    /// LANX 3.4: the phone (device id) that carries the meeting's sound and
+    /// picture; none = this PC's window.
+    pub on_phone: Option<String>,
     /// Who the invitation said was in the meeting (asked when joining).
     #[serde(skip)]
     contacts: Vec<MeetingPersonPayload>,
@@ -153,7 +156,7 @@ impl MeetingInfo {
 }
 
 /// `lanx://meeting` — invited | joined | person-joined | person-left | signal |
-/// media | chat | declined | notice | ended
+/// media | chat | declined | notice | ended | phone (3.4: it moved to a phone)
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MeetingEvent {
     pub action: String,
@@ -196,6 +199,18 @@ fn now_ms() -> u64 {
 impl NetworkService {
     pub fn current_meeting(&self) -> Option<MeetingInfo> {
         self.meeting.lock().clone()
+    }
+
+    /// LANX 3.4: the meeting's sound and picture move to a phone (`Some`
+    /// device id) — the PC's window then leaves the WebRTC to it and shows
+    /// "on your phone" — or back (`None`). The window and phones are told.
+    pub fn set_meeting_phone(&self, meeting_id: &str, phone: Option<String>) -> Option<MeetingInfo> {
+        let m = self.with_meeting(meeting_id, |m| {
+            m.on_phone = phone;
+            m.clone()
+        })?;
+        self.emit_meeting("phone", |_| {});
+        Some(m)
     }
 
     fn emit_meeting(&self, action: &str, f: impl FnOnce(&mut MeetingEvent)) {
@@ -435,6 +450,7 @@ impl NetworkService {
             my_id: me.device_id.clone(),
             contacts: Vec::new(),
             attendees: vec![(me.device_id.clone(), me.name.clone())],
+            on_phone: None,
         };
         {
             let mut cur = self.meeting.lock();
@@ -669,6 +685,7 @@ impl NetworkService {
             my_id: self.identity.device_id.clone(),
             contacts,
             attendees: Vec::new(),
+            on_phone: None,
         };
         {
             let mut cur = self.meeting.lock();
@@ -694,6 +711,17 @@ impl NetworkService {
         crate::sound::stop_loop();
         self.record_meeting(&m, "declined");
         self.send_to_all(vec![m.inviter_id.clone()], Self::bare(meeting_id, "decline"));
+        // LANX 3.4: the PC's window and the phones stop showing the invitation
+        // (it may have been declined on the other one).
+        self.events.emit_json(
+            "lanx://meeting",
+            MeetingEvent {
+                action: "ended".to_string(),
+                meeting: Some(m),
+                reason: Some("declined".to_string()),
+                ..Default::default()
+            },
+        );
         Ok(())
     }
 
@@ -1189,6 +1217,7 @@ impl NetworkService {
             my_id: self.identity.device_id.clone(),
             contacts,
             attendees: Vec::new(),
+            on_phone: None,
         };
         {
             let mut cur = self.meeting.lock();

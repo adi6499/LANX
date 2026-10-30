@@ -21,6 +21,8 @@ interface AppearancePanelProps {
   onTheme: (theme: "system" | "dark" | "light", origin: Origin) => void;
   /** Saves at once; the whole app follows. */
   onChange: (patch: Patch) => void;
+  /** LANX 3.4 (the phone): a wallpaper that could not be used. */
+  onError?: (text: string) => void;
 }
 
 const Section: React.FC<{ title: string; hint?: string; children: React.ReactNode }> = ({ title, hint, children }) => (
@@ -83,7 +85,7 @@ const ThemeThumb: React.FC<{ mode: "light" | "dark" }> = ({ mode }) => {
   );
 };
 
-export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme, onChange }) => {
+export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme, onChange, onError }) => {
   const [glass, setGlass] = useState(form.glass_level);
   const [frost, setFrost] = useState(form.frost_level);
   const [lensOn, setLensOn] = useState(glassLensOn());
@@ -336,7 +338,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
       </Section>
 
       <Section title="Live wallpaper" hint="Behind everything, through the glass">
-        <WallpaperSection onError={() => {}} />
+        <WallpaperSection onError={onError ?? (() => {})} />
       </Section>
 
       <Section title="Motion">

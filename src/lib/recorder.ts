@@ -59,6 +59,7 @@ export class Recorder {
   private fallback: number | null = null;
   private saving: Promise<void> = Promise.resolve();
   private failed: string | null = null;
+  private scale = SCALE;
   private id = "";
   name = "";
   startedAt = 0;
@@ -71,10 +72,13 @@ export class Recorder {
       tiles: () => RecTile[];
       /** Saving failed (disk full…): the recording stops itself. */
       onFailed: (text: string) => void;
+      /** LANX 3.4 (the phone): 720p and a smaller file, easier on a phone. */
+      light?: boolean;
     }
   ) {
-    this.canvas.width = W * SCALE;
-    this.canvas.height = H * SCALE;
+    this.scale = opts.light ? 1 : SCALE;
+    this.canvas.width = W * this.scale;
+    this.canvas.height = H * this.scale;
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("Recording isn't available on this computer.");
     this.ctx = ctx;
@@ -105,8 +109,8 @@ export class Recorder {
       const stream = new MediaStream([...picture.getVideoTracks(), ...this.mix.stream.getAudioTracks()]);
       this.rec = new MediaRecorder(stream, {
         mimeType: type || undefined,
-        videoBitsPerSecond: 8_000_000,
-        audioBitsPerSecond: 192_000,
+        videoBitsPerSecond: this.opts.light ? 2_500_000 : 8_000_000,
+        audioBitsPerSecond: this.opts.light ? 128_000 : 192_000,
       });
       this.rec.ondataavailable = (e) => {
         if (e.data.size) this.saving = this.saving.then(() => this.save(e.data));
@@ -116,6 +120,12 @@ export class Recorder {
       try {
         this.ticker = new Worker("/lanx-ticker.js");
         this.ticker.onmessage = () => this.tick();
+        // No timer file (it failed to load): an ordinary timer instead.
+        this.ticker.onerror = () => {
+          this.ticker?.terminate();
+          this.ticker = null;
+          if (!this.fallback && this.rec) this.fallback = window.setInterval(() => this.tick(), Math.round(1000 / FPS));
+        };
         this.ticker.postMessage(Math.round(1000 / FPS));
       } catch {
         this.fallback = window.setInterval(() => this.tick(), Math.round(1000 / FPS));
@@ -218,7 +228,7 @@ export class Recorder {
 
   private draw(tiles: RecTile[]) {
     const ctx = this.ctx;
-    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+    ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     ctx.imageSmoothingQuality = "high";
     ctx.fillStyle = "#0b1020";
     ctx.fillRect(0, 0, W, H);

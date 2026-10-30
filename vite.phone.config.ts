@@ -20,10 +20,11 @@ export default defineConfig({
     outDir: "src-tauri/phone-dist",
     emptyOutDir: true,
     rollupOptions: {
-      // The page, and the service worker as its own file at the root (/sw.js).
-      input: { phone: "phone.html", sw: "src/phone/sw.js" },
+      // The page, the service worker as its own file at the root (/sw.js), and
+      // (3.4) the recorder's timer worker (/lanx-ticker.js, as on the PC).
+      input: { phone: "phone.html", sw: "src/phone/sw.js", "lanx-ticker": "public/lanx-ticker.js" },
       output: {
-        entryFileNames: (chunk) => (chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js"),
+        entryFileNames: (chunk) => (chunk.name === "sw" ? "sw.js" : chunk.name === "lanx-ticker" ? "lanx-ticker.js" : "assets/[name]-[hash].js"),
       },
     },
     // Fonts and pictures stay files (the server embeds every file in the folder).

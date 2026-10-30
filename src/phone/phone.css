@@ -195,3 +195,75 @@ body {
 .ph-tab[aria-selected="true"] {
   color: var(--accent);
 }
+/* LANX 3.4: the wallpaper sits behind everything on the page. */
+.ph-root {
+  position: relative;
+  isolation: isolate;
+}
+/* Phone browsers can't bend the view (the glass lens): no switch for it. */
+.ph-root [data-glass-lens] {
+  display: none !important;
+}
+/* The PC's calculator, PDF tools and directory, full screen on the phone. */
+.ph-root div:has(> [data-calc-panel]),
+.ph-root div:has(> [data-pdf-studio]) {
+  padding: 0 !important;
+}
+.ph-root [data-calc-panel],
+.ph-root [data-pdf-studio] {
+  /* Solid on the phone: nothing of the screen behind shows through. */
+  background: var(--lanx-surface) !important;
+  width: 100vw !important;
+  max-width: none !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.ph-root [data-calc-panel] > div:last-child {
+  overflow-y: auto;
+}
+/* PDF tools: the buttons wrap, the pages run along the top. */
+.ph-root [data-pdf-studio] > div:first-child {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.ph-root [data-pdf-studio] > div:first-child > div.ml-3 {
+  margin-left: 0 !important;
+}
+.ph-root [data-pdf-studio] > .flex-1.min-h-0.flex {
+  flex-direction: column;
+}
+.ph-root [data-pdf-studio] .w-\[168px\] {
+  width: 100% !important;
+  height: 112px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden !important;
+  border-right: 0 !important;
+  border-bottom: 1px solid var(--lanx-line);
+}
+.ph-root [data-pdf-studio] .w-\[168px\] > * {
+  flex: 0 0 66px;
+  margin-top: 0 !important;
+}
+.ph-root [data-pdf-studio] [data-pdf-print] {
+  display: none;
+}
+.ph-root [data-directory] > div:first-child {
+  height: auto !important;
+  flex-wrap: wrap;
+  padding: 8px 12px !important;
+  padding-top: calc(8px + env(safe-area-inset-top)) !important;
+}
+.ph-root [data-directory] > div:first-child > div.relative {
+  width: 100% !important;
+}
+.ph-root [data-directory] > div.flex-1 {
+  padding: 12px !important;
+}
+.ph-root [data-directory] .grid {
+  grid-template-columns: 1fr !important;
+}

@@ -2,7 +2,7 @@
  *  menu (ring, secret messages, hide), broadcast, and the PC's music player
  *  and meme picker full screen. */
 import { useEffect, useRef, useState } from "react";
-import { Bell, EyeOff, Lock, Megaphone, Timer } from "lucide-react";
+import { Archive, Bell, BellOff, MonitorSmartphone, EyeOff, FileText, FolderPlus, Link2, Lock, Mail, Megaphone, MessageCircle, Pin, Search, Timer, Trash2, Video } from "lucide-react";
 import type { Conversation, Peer, Profile } from "../types";
 import { Avatar } from "../components/Avatar";
 import { MusicApp } from "../components/music/MusicApp";
@@ -125,6 +125,26 @@ export const SECRET_CHOICES: { ttl: number; label: string; short: string }[] = [
 
 export const secretShort = (ttl: number) => SECRET_CHOICES.find((c) => c.ttl === ttl)?.short ?? `${ttl}s`;
 
+/** 3.4: the rest of the chat's menu (the PC's chat menu and chat details). */
+export interface ChatMenuMore {
+  muted: boolean;
+  onPin: () => void;
+  onMute: () => void;
+  onUnmute: () => void;
+  onUnread: () => void;
+  onFolders: () => void;
+  onArchive: () => void;
+  onSearchIn: () => void;
+  onShared: (kind: "files" | "links") => void;
+  onDelete: () => void;
+  /** Groups: a video meeting with everyone online. */
+  onMeeting?: () => void;
+  /** A colleague whose profile has a mobile number. */
+  onWhatsApp?: () => void;
+  /** 3.4: remote help — see their screen (one-to-one chats). */
+  onSeeScreen?: () => void;
+}
+
 export function ChatMenuSheet({
   conv,
   lock,
@@ -132,6 +152,7 @@ export function ChatMenuSheet({
   onRing,
   onSecret,
   onHide,
+  more,
 }: {
   conv: Conversation;
   lock: LockInfo | null;
@@ -139,6 +160,7 @@ export function ChatMenuSheet({
   onRing: () => void;
   onSecret: (ttl: number) => void;
   onHide: (hidden: boolean) => void;
+  more?: ChatMenuMore;
 }) {
   const [secret, setSecret] = useState(false);
   const direct = conv.kind === "direct";
@@ -155,8 +177,27 @@ export function ChatMenuSheet({
     <Sheet title={conv.peer_name} onClose={onClose} hook="chat-menu">
       {direct && <SheetRow icon={<Bell className="h-4 w-4" />} label={`Ring ${conv.peer_name.split(" ")[0]}`} hint="their PC rings" hook="ring" onClick={onRing} />}
       {direct && <SheetRow icon={<Timer className="h-4 w-4" />} label="Secret messages" hint={conv.secret_ttl ? secretShort(conv.secret_ttl) : "Off"} hook="secret" onClick={() => setSecret(true)} />}
+      {more?.onSeeScreen && <SheetRow icon={<MonitorSmartphone className="h-4 w-4" />} label="See their screen" hint="remote help" hook="see-screen" onClick={more.onSeeScreen} />}
+      {more?.onMeeting && <SheetRow icon={<Video className="h-4 w-4" />} label="Start a video meeting" hint="everyone online" hook="meeting" onClick={more.onMeeting} />}
       {lock?.pin_set && (conv.is_hidden ? <SheetRow icon={<EyeOff className="h-4 w-4" />} label="Unhide this chat" hook="unhide" onClick={() => onHide(false)} /> : <SheetRow icon={<EyeOff className="h-4 w-4" />} label="Hide this chat" hint="behind your PIN" hook="hide" onClick={() => onHide(true)} />)}
-      {!direct && !lock?.pin_set && <div className="px-3 py-2 text-[12.5px] text-slate-400">Nothing more for groups here.</div>}
+      {more && (
+        <>
+          <SheetRow icon={<Search className="h-4 w-4" />} label="Search in this chat" hook="search-in" onClick={more.onSearchIn} />
+          <SheetRow icon={<FileText className="h-4 w-4" />} label="Shared files" hook="shared-files" onClick={() => more.onShared("files")} />
+          <SheetRow icon={<Link2 className="h-4 w-4" />} label="Shared links" hook="shared-links" onClick={() => more.onShared("links")} />
+          {more.onWhatsApp && <SheetRow icon={<MessageCircle className="h-4 w-4" />} label="Message on WhatsApp" hook="whatsapp" onClick={more.onWhatsApp} />}
+          <SheetRow icon={<Pin className="h-4 w-4" />} label={conv.is_pinned ? "Unpin from the top" : "Pin to the top"} hook={conv.is_pinned ? "unpin-chat" : "pin-chat"} onClick={more.onPin} />
+          {more.muted ? (
+            <SheetRow icon={<Bell className="h-4 w-4" />} label="Turn sounds back on" hook="unmute" onClick={more.onUnmute} />
+          ) : (
+            <SheetRow icon={<BellOff className="h-4 w-4" />} label="Mute…" hook="mute" onClick={more.onMute} />
+          )}
+          <SheetRow icon={<Mail className="h-4 w-4" />} label="Mark as unread" hook="unread" onClick={more.onUnread} />
+          <SheetRow icon={<FolderPlus className="h-4 w-4" />} label="Chat folders…" hint={conv.folders?.length ? `${conv.folders.length}` : undefined} hook="folders" onClick={more.onFolders} />
+          <SheetRow icon={<Archive className="h-4 w-4" />} label={conv.archived ? "Move back to Chats" : "Archive"} hook={conv.archived ? "unarchive" : "archive"} onClick={more.onArchive} />
+          <SheetRow icon={<Trash2 className="h-4 w-4" />} label="Delete chat history…" hook="delete-chat" onClick={more.onDelete} danger />
+        </>
+      )}
     </Sheet>
   );
 }

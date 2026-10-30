@@ -71,7 +71,8 @@ interface MeetingLayerProps {
   peers: Peer[];
 }
 
-type Status = "invited" | "joining" | "active";
+/** "phone" (3.4): the meeting is on your phone; this window only shows that. */
+type Status = "invited" | "joining" | "active" | "phone";
 
 interface Conn {
   pc: RTCPeerConnection;
@@ -467,6 +468,23 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     // ------------------------------------------------------------- events
     const handleEvent = (e: MeetingEvent) => {
       const cur = meetingRef.current;
+      // 3.4: the meeting is on the phone — this window keeps out of the
+      // WebRTC and shows "on your phone" until it ends there.
+      if (statusRef.current === "phone") {
+        if (!cur || !e.meeting || e.meeting.meeting_id !== cur.meeting_id) return;
+        if (e.action === "ended" || !e.meeting.on_phone) cleanup();
+        else setMeeting(e.meeting);
+        return;
+      }
+      if (e.meeting?.on_phone && e.action !== "ended" && e.action !== "invited") {
+        if (cur && e.meeting.meeting_id !== cur.meeting_id) return;
+        if (statusRef.current === "active" || statusRef.current === "joining") return;
+        for (const id of [...connsRef.current.keys()]) closeConn(id);
+        releaseMedia();
+        setMeeting(e.meeting);
+        setStatus("phone");
+        return;
+      }
       if (e.action === "invited") {
         if (statusRef.current || !e.meeting) return;
         setMeeting(e.meeting);
@@ -607,7 +625,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     const anyRecording = !!recording || !!meeting?.people.some((p) => p.recording && !p.is_me);
     useEffect(() => {
       if (!onIslandChange) return;
-      if (!status || !meeting) {
+      if (!status || !meeting || status === "phone") {
         onIslandChange(null);
         return;
       }
@@ -854,6 +872,33 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         );
       }
       return null;
+    }
+
+    if (status === "phone") {
+      return (
+        <div data-meeting-status="phone" className="fixed bottom-5 right-5 z-[70] flex items-center gap-3 rounded-full bg-emerald-600 py-1.5 pl-3.5 pr-1.5 text-white shadow-xl lanx-rise">
+          <Users className="h-4 w-4 shrink-0" />
+          <div className="min-w-0 pr-1">
+            <div className="max-w-[200px] truncate text-[12.5px] font-semibold">{meeting.private ? "Meeting" : meeting.title}</div>
+            <div className="text-[11px] text-white/85" data-meeting-phone-line>
+              📱 On your phone · {meeting.people.length} in the meeting
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Leave the meeting"
+            title="Leave (the meeting is on your phone)"
+            data-meeting-phone-leave
+            onClick={() => {
+              cleanup();
+              void api.meetingLeave(meeting.meeting_id).catch(() => {});
+            }}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 hover:bg-red-600 active:scale-90"
+          >
+            <PhoneOff className="h-4 w-4" />
+          </button>
+        </div>
+      );
     }
 
     if (status === "invited" || status === "joining") {

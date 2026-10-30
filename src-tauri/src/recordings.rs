@@ -30,6 +30,10 @@ fn open() -> &'static Mutex<HashMap<String, Open>> {
 
 /// `Documents\LANX Recordings` (test copies keep theirs in their own folder).
 pub fn folder() -> PathBuf {
+    // Unit tests never write into the real Documents folder.
+    if cfg!(test) {
+        return std::env::temp_dir().join("lanx-test-recordings");
+    }
     if let Some(p) = crate::testmode::profile() {
         return crate::storage::data_dir(Some(&p)).join("Recordings");
     }

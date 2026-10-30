@@ -5,6 +5,7 @@
  *  allows the microphone and camera on a secure page. */
 import type { CallInfo, Conversation } from "../types";
 import { iceGathered, preferCodecs, tuneSdp } from "../lib/webrtc";
+import { Recorder, recordingSupported } from "../lib/recorder";
 import type { PhoneClient } from "./client";
 
 export type CallStatus = "starting" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
@@ -18,6 +19,10 @@ export interface PhoneCallState {
   remoteVideo: boolean;
   remoteMuted: boolean;
   remoteRecording: boolean;
+  /** 3.4: they share their screen (remote help, or during a call). */
+  remoteScreen: boolean;
+  /** 3.4: this phone records the call (saved on the PC). */
+  recording: boolean;
   connectedAt: number | null;
   endText: string | null;
   /** Bumped when a track arrives or changes (the screen re-attaches). */
@@ -140,7 +145,8 @@ export class PhoneCall {
 
   constructor(
     private client: PhoneClient,
-    private onProblem: (text: string) => void
+    private onProblem: (text: string) => void,
+    private onNotice: (text: string) => void = onProblem
   ) {}
 
   subscribe = (fn: () => void) => {
@@ -162,7 +168,7 @@ export class PhoneCall {
   }
 
   private blank(info: CallInfo, status: CallStatus): PhoneCallState {
-    return { info, status, muted: false, camera: false, facing: "user", remoteVideo: info.video, remoteMuted: false, remoteRecording: false, connectedAt: null, endText: null, tracks: 0 };
+    return { info, status, muted: false, camera: false, facing: "user", remoteVideo: info.video, remoteMuted: false, remoteRecording: false, remoteScreen: false, recording: false, connectedAt: null, endText: null, tracks: 0 };
   }
 
   // ------------------------------------------------------------- media
@@ -213,6 +219,7 @@ export class PhoneCall {
   }
 
   private finish(text: string | null) {
+    void this.stopRecording();
     this.release();
     this.callId = null;
     this.starting = false;
@@ -369,6 +376,7 @@ export class PhoneCall {
         if (this.state)
           this.patch({
             remoteVideo: ev.video ?? (ev.screen ? true : this.state.remoteVideo),
+            remoteScreen: ev.screen ?? this.state.remoteScreen,
             remoteMuted: ev.muted ?? this.state.remoteMuted,
             remoteRecording: ev.recording ?? this.state.remoteRecording,
           });
@@ -398,7 +406,8 @@ export class PhoneCall {
 
   // ----------------------------------------------------------- actions
 
-  async start(conv: Conversation, video: boolean) {
+  /** `help` "view" (3.4): remote help — ask to see their screen. */
+  async start(conv: Conversation, video: boolean, help?: "view") {
     if (this.callId || this.starting) {
       this.onProblem("You're already in a call.");
       return;
@@ -423,6 +432,7 @@ export class PhoneCall {
       answered_at: null,
       private: false,
       on_phone: this.myDeviceId,
+      help: help ?? null,
     };
     this.set(this.blank(placeholder, "starting"));
     try {
@@ -440,7 +450,7 @@ export class PhoneCall {
       await pc.setLocalDescription(await pc.createOffer());
       await iceGathered(pc);
       if (!this.starting) return; // cancelled meanwhile
-      const r = await this.client.request<{ call: CallInfo }>("call_start", { conv: conv.id, video: !!cam, sdp: pc.localDescription?.sdp ?? "" });
+      const r = await this.client.request<{ call: CallInfo }>("call_start", { conv: conv.id, video: !!cam, sdp: pc.localDescription?.sdp ?? "", help: help ?? null });
       this.callId = r.call.call_id;
       this.starting = false;
       this.set({ ...(this.state ?? this.blank(r.call, "outgoing")), info: r.call, status: "outgoing", camera: !!cam, remoteVideo: false });
@@ -507,6 +517,58 @@ export class PhoneCall {
     this.finish("Call ended");
     if (starting) return;
     if (id) await this.client.request("call_hangup", { call_id: id }).catch(() => {});
+  }
+
+  // ------------------------------------------------------------ recording
+
+  private recorder: Recorder | null = null;
+
+  /** 3.4: records the call (both pictures and voices) into the PC's
+   *  Recordings folder; both sides are told, as on the PC. */
+  async startRecording() {
+    const st = this.state;
+    if (!st || st.status !== "active" || this.recorder || !this.callId) return;
+    if (!recordingSupported()) {
+      this.onProblem("This phone can't record calls.");
+      return;
+    }
+    const remote = () => this.remoteStream;
+    const rec = new Recorder({
+      title: `Call with ${st.info.private ? "a colleague" : st.info.peer_name}`,
+      kind: "call",
+      conversationId: st.info.private ? null : st.info.conversation_id,
+      light: true,
+      tiles: () => [
+        { id: "me", name: "You", color: "#64748b", video: this.cam, audio: this.mic, muted: this.state?.muted },
+        { id: st.info.peer_id, name: st.info.peer_name, color: st.info.avatar_color, video: remote().getVideoTracks()[0] ?? null, audio: remote().getAudioTracks()[0] ?? null, screen: this.state?.remoteScreen },
+      ],
+      onFailed: (t) => {
+        this.onProblem(`The recording stopped: ${t}`);
+        void this.stopRecording();
+      },
+    });
+    try {
+      await rec.start();
+      this.recorder = rec;
+      this.patch({ recording: true });
+      this.client.request("call_media", { call_id: this.callId, recording: true }).catch(() => {});
+    } catch (e) {
+      this.onProblem(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async stopRecording() {
+    const rec = this.recorder;
+    if (!rec) return;
+    this.recorder = null;
+    this.patch({ recording: false });
+    if (this.callId) this.client.request("call_media", { call_id: this.callId, recording: false }).catch(() => {});
+    try {
+      const r = await rec.stop();
+      this.onNotice(`Recording saved on your PC (and in the chat): ${r.name}`);
+    } catch (e) {
+      this.onProblem(e instanceof Error ? e.message : String(e));
+    }
   }
 
   toggleMute() {

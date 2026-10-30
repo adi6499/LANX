@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.3.0)
+# LANX — Local Network Messenger (v3.4.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,25 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.4.0: the rest of LANX on the phone
+- **Appearance:** the phone shows the PC's look — light / dark, accent colour, background, live wallpaper (your
+  own picture or video too), glass and animations — and More → Appearance changes it for both.
+- **Group video meetings** on the phone (📹 in a group): everyone's picture, mute, camera, raise hand, meeting chat,
+  invite more; the PC shows "On your phone". Meeting invitations ring the phone; "Join again" on a meeting card.
+- **Chats:** pin to the top, mute, mark as unread, chat folders (tabs in Chats), archive, delete chat history,
+  search in a chat, shared files and links. Messages: make a task, save to notes, share on WhatsApp.
+- **Who's in:** connect by IP, invite on WhatsApp, the directory, trust and block (and unblock).
+- **Files:** find a file by name, kind, sent/received; open a PDF in the PDF tools; show it in its chat.
+- **Tools:** calculator, PDF tools (read, sign, merge, split, compress… saved to the phone or sent to a chat),
+  shared folders, the Apps links.
+- **Settings:** notifications and sounds on the PC, read receipts, pictures, quick replies, quiet hours, auto-lock,
+  back up now, help; the PC's own switches (start with Windows, tray, Send-to, screenshot shortcut), its network
+  details and "Test a connection"; LANX updates (install now, remind me tomorrow, send to colleagues behind).
+- **Remote help on the phone:** ⋯ → "See their screen" (watching only), or watch a colleague who shows you theirs.
+- **Recording** meetings and calls from the phone (saved in the PC's Recordings folder, with a card in the chat to
+  watch or save the recording on the phone).
+- **A whole folder** from an Android phone (+ → A whole folder; iPhones can't pick folders).
 
 ### New in 3.3.0: more of LANX on the phone
 - **Your PIN on the phone:** when LANX is locked on your PC, the phone asks for the PIN and unlocks it (the same PIN

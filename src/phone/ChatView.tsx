@@ -2,15 +2,18 @@
  *  message actions: reply, react, forward, star, pin, remind, edit, delete,
  *  stickers, quick replies, @mentions and "send later". */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, ArrowLeft, ArrowUp, ClipboardList, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Laugh, Mic, MoreVertical, Music2, Paperclip, Pencil, Phone, Pin, Plus, Radio, Smile, Star, Timer, Trash2, Video, X, Zap } from "lucide-react";
+import { AlarmClock, ArrowLeft, ArrowUp, ClipboardCheck, ClipboardList, FolderUp, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Laugh, MessageCircle, Mic, MoreVertical, Music2, Paperclip, Pencil, Phone, Pin, Plus, Radio, Smile, Star, StickyNote, Timer, Trash2, Video, X, Zap } from "lucide-react";
 import type { Conversation, GroupInfo, Peer, Profile, ScheduledMessage } from "../types";
 import { Avatar } from "../components/Avatar";
-import { QUICK_REACTIONS, localInputValue, whenChoices, whenText } from "../components/chat/chatUtils";
+import { QUICK_REACTIONS, localInputValue, whenChoices, whenText, withoutForwardMark } from "../components/chat/chatUtils";
 import { statusLine } from "../lib/profile";
 import type { Me, PhoneClient, PhoneMessage, Progress, StickerInfo } from "./client";
 import { type Recording, canRecord } from "./media";
 import { Bubble, Sheet, SheetRow, coarsePointer, copyText, dayLabel, fileName } from "./parts";
 import { RecordSheet } from "./RecordSheet";
+
+/** Phones that can pick a whole folder in the browser (Android; not iPhone). */
+const canPickFolder = () => !/iPhone|iPad|iPod/i.test(navigator.userAgent) && "webkitdirectory" in document.createElement("input");
 import { secretShort } from "./extras";
 
 export interface Upload {
@@ -56,6 +59,11 @@ export function ChatView({
   onAccept,
   onCreateCard,
   onCall,
+  onMeeting,
+  onMakeTask,
+  onSaveNote,
+  onRejoinMeeting,
+  onFolder,
   onMenu,
   onMemes,
   onMusic,
@@ -95,6 +103,13 @@ export function ChatView({
   onCreateCard: () => void;
   /** 3.2: a voice or video call from the phone (one-to-one chats). */
   onCall: (video: boolean) => void;
+  /** 3.4: a group's video meeting; a task or a note from a message; "Join again" on a meeting card. */
+  onMeeting?: () => void;
+  onMakeTask?: (m: PhoneMessage) => void;
+  onSaveNote?: (m: PhoneMessage) => void;
+  onRejoinMeeting?: (messageId: string) => void;
+  /** 3.4: a whole folder (phones that can pick one: Android). */
+  onFolder?: (files: File[]) => void;
   /** 3.3: ring, secret messages, hide this chat. */
   onMenu: () => void;
   /** 3.3: the meme picker / music player, sending into this chat. */
@@ -248,6 +263,15 @@ export function ChatView({
       case "copy":
         onNotice(copyText(m.message_type === "file" ? fileName(m) : m.content) ? "Copied" : "Couldn't copy on this phone");
         break;
+      case "task":
+        onMakeTask?.(m);
+        break;
+      case "note":
+        onSaveNote?.(m);
+        break;
+      case "whatsapp":
+        window.open(`https://wa.me/?text=${encodeURIComponent(withoutForwardMark(m.content))}`, "_blank", "noopener");
+        break;
       case "star":
         run(async () => onChanged((await client.star(m.id, !m.starred)).message));
         break;
@@ -344,9 +368,16 @@ export function ChatView({
           </span>
         </button>
         {isGroup ? (
-          <button type="button" onClick={onInfo} className="lanx-tool p-2 text-slate-500" aria-label="Group info">
-            <Info className="h-5 w-5" />
-          </button>
+          <>
+            {onMeeting && (
+              <button type="button" data-ph-meeting-start onClick={onMeeting} className="lanx-tool p-2 text-sky-600 dark:text-sky-400" aria-label="Video meeting">
+                <Video className="h-5 w-5" />
+              </button>
+            )}
+            <button type="button" onClick={onInfo} className="lanx-tool p-2 text-slate-500" aria-label="Group info">
+              <Info className="h-5 w-5" />
+            </button>
+          </>
         ) : (
           <>
             <button type="button" data-ph-call-start="voice" onClick={() => onCall(false)} className="lanx-tool p-2 text-sky-600 dark:text-sky-400" aria-label="Voice call">
@@ -464,6 +495,7 @@ export function ChatView({
                 onAccept={onAccept}
                 onCardChanged={onChanged}
                 onError={(t) => onProblem(new Error(t))}
+                onRejoin={onRejoinMeeting}
               />
             </div>
           );
@@ -605,6 +637,13 @@ export function ChatView({
           <SheetRow icon={<CornerUpLeft className="h-4 w-4" />} label="Reply" hook="reply" onClick={() => act("reply", actions)} />
           <SheetRow icon={<Forward className="h-4 w-4" />} label="Forward" hook="forward" onClick={() => act("forward", actions)} />
           {(actions.message_type === "text" || actions.message_type === "file") && <SheetRow icon={<Copy className="h-4 w-4" />} label="Copy" hook="copy" onClick={() => act("copy", actions)} />}
+          {actions.message_type === "text" && !actions.deleted && !conv.secret_ttl && (
+            <>
+              {onMakeTask && <SheetRow icon={<ClipboardCheck className="h-4 w-4" />} label="Make a task…" hook="task" onClick={() => act("task", actions)} />}
+              {onSaveNote && <SheetRow icon={<StickyNote className="h-4 w-4" />} label="Save to notes" hook="note" onClick={() => act("note", actions)} />}
+              <SheetRow icon={<MessageCircle className="h-4 w-4" />} label="Share on WhatsApp" hook="whatsapp" onClick={() => act("whatsapp", actions)} />
+            </>
+          )}
           <SheetRow icon={<Star className="h-4 w-4" />} label={actions.starred ? "Unstar" : "Star"} hook="star" onClick={() => act("star", actions)} />
           <SheetRow icon={<Pin className="h-4 w-4" />} label={actions.pinned_at ? "Unpin" : "Pin in this chat"} hook="pin" onClick={() => act("pin", actions)} />
           {actions.remind_at ? (
@@ -634,6 +673,24 @@ export function ChatView({
               }}
             />
           </label>
+          {onFolder && canPickFolder() && (
+            <label className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-slate-800 active:bg-[var(--lanx-fill)] dark:text-slate-100">
+              <FolderUp className="h-4 w-4 opacity-80" /> A whole folder
+              <input
+                type="file"
+                multiple
+                data-ph-attach-folder
+                className="hidden"
+                ref={(el) => el?.setAttribute("webkitdirectory", "")}
+                onChange={(e) => {
+                  const files = e.target.files ? Array.from(e.target.files) : [];
+                  e.target.value = "";
+                  setPlus(false);
+                  if (files.length) onFolder(files);
+                }}
+              />
+            </label>
+          )}
           <SheetRow
             icon={<Smile className="h-4 w-4" />}
             label="Sticker"

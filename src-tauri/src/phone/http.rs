@@ -23,6 +23,8 @@ const MAX_JSON_BODY: u64 = 1024 * 1024;
 const MAX_UPLOAD: u64 = 1024 * 1024 * 1024;
 /// A voice note or intercom recording from the phone may be this big.
 const MAX_VOICE: u64 = 10 * 1024 * 1024;
+/// LANX 3.4: one piece of a recording from the phone (it sends one a second).
+const MAX_RECORDING_PIECE: u64 = 64 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(30);
 const CHUNK: usize = 256 * 1024;
 
@@ -207,7 +209,10 @@ pub(super) fn content_type_for(name: &str) -> &'static str {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
         "html" => "text/html; charset=utf-8",
-        "js" => "text/javascript; charset=utf-8",
+        // (3.4: "mjs" — the PDF reader's worker; browsers refuse a module
+        // script sent as anything but JavaScript.)
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "wasm" => "application/wasm",
         "css" => "text/css; charset=utf-8",
         "json" => "application/json",
         "woff2" => "font/woff2",
@@ -556,6 +561,83 @@ async fn route<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &m
                 Err(e) => Response::error(400, &e),
             }
         }
+        // LANX 3.4: the PC's wallpaper (Appearance) — shown behind the phone
+        // page too, and a picture or video from the phone can become it.
+        ("GET", "/api/wallpaper") | ("HEAD", "/api/wallpaper") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            if let Err(e) = svc.network.privacy.guard() {
+                return Response::error(423, &e);
+            }
+            match crate::commands::wallpaper::current_file(&svc.network.db) {
+                Some((path, name)) => serve_path(req, &path, &name, "private, no-cache").await,
+                None => Response::error(404, "no wallpaper file"),
+            }
+        }
+        ("POST", "/api/wallpaper") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            wallpaper_upload(svc, req, body).await
+        }
+        // LANX 3.4: a piece of a recording made on the phone; a recording to watch.
+        ("POST", p) if p.starts_with("/api/recording/") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            if let Err(e) = svc.network.privacy.guard() {
+                return Response::error(423, &e);
+            }
+            if req.body_len > MAX_RECORDING_PIECE {
+                return Response::error(413, "too large");
+            }
+            let rid = p["/api/recording/".len()..].to_string();
+            let Ok(bytes) = body.read_all().await else {
+                return Response::error(400, "cut short");
+            };
+            match crate::recordings::append(&rid, &bytes) {
+                Ok(total) => Response::json(200, json!({ "bytes": total })),
+                Err(e) => Response::error(400, &e),
+            }
+        }
+        ("GET", p) | ("HEAD", p) if p.starts_with("/api/recording/") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            if let Err(e) = svc.network.privacy.guard() {
+                return Response::error(423, &e);
+            }
+            let Ok(Some(m)) = svc.network.db.get_message_by_id(&p["/api/recording/".len()..]) else {
+                return Response::error(404, "no such recording");
+            };
+            if m.message_type != "recording" || (svc.network.db.is_conversation_hidden(&m.conversation_id) && !svc.network.privacy.hidden_unlocked()) {
+                return Response::error(404, "no such recording");
+            }
+            let v: Value = serde_json::from_str(&m.content).unwrap_or(Value::Null);
+            match crate::recordings::inside_folder(v["path"].as_str().unwrap_or("")) {
+                Some(path) => {
+                    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    serve_path(req, &path, &name, "private, max-age=3600").await
+                }
+                None => Response::error(404, "This recording was moved or deleted."),
+            }
+        }
+        // LANX 3.4: a whole folder from the phone (Android): its files come one
+        // by one into a staging folder, then go out as one folder (zipped,
+        // like "Send a whole folder" on the PC).
+        ("POST", "/api/folder-file") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            folder_file(svc, req, body).await
+        }
+        ("POST", "/api/folder-send") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            folder_send(svc, req).await
+        }
         ("POST", "/api/voice") | ("POST", "/api/intercom") => {
             if authenticated(svc, req).is_none() {
                 return Response::error(401, "unauthorized");
@@ -684,6 +766,118 @@ async fn upload<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &
     }
 }
 
+/// LANX 3.4: a picture or video from the phone, kept as the wallpaper file
+/// (the phone then names it in the "wallpaper" preference, like the PC does
+/// after its file picker).
+async fn wallpaper_upload<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_, S>) -> Response {
+    use crate::commands::wallpaper as wp;
+    if let Err(e) = svc.network.privacy.guard() {
+        return Response::error(423, &e);
+    }
+    if req.body_len == 0 {
+        return Response::error(400, "empty file");
+    }
+    if req.body_len > wp::MAX_WALLPAPER_BYTES {
+        return Response::error(413, "That file is over 150 MB. A shorter clip works better as a wallpaper.");
+    }
+    let raw: String = req.query_param("name").unwrap_or_default().chars().filter(|c| !c.is_control()).take(120).collect();
+    let (part, dest, kind) = match wp::new_file_for(raw.trim()) {
+        Ok(x) => x,
+        Err(e) => return Response::error(400, &e),
+    };
+    let mut file = match tokio::fs::File::create(&part).await {
+        Ok(f) => f,
+        Err(e) => return Response::error(500, &format!("cannot write: {}", e)),
+    };
+    let copied = body.copy_to_file(&mut file).await;
+    drop(file);
+    if copied.is_err() || copied.as_ref().ok() != Some(&req.body_len) {
+        let _ = std::fs::remove_file(&part);
+        return Response::error(400, "upload cut short");
+    }
+    if let Err(e) = wp::take_upload(&part, &dest) {
+        let _ = std::fs::remove_file(&part);
+        return Response::error(500, &e);
+    }
+    Response::json(200, json!({ "path": dest.to_string_lossy(), "name": raw.trim(), "kind": kind, "bytes": req.body_len }))
+}
+
+/// A batch id from the phone: letters and digits only.
+fn batch_dir(svc: &PhoneService, batch: &str) -> Option<PathBuf> {
+    (batch.len() >= 8 && batch.len() <= 40 && batch.chars().all(|c| c.is_ascii_alphanumeric())).then(|| upload_dir(svc).join("folders").join(batch))
+}
+
+/// One file of a folder from the phone, at its place inside the folder (every
+/// part of the path tidied: no "..", no drive, nothing outside the batch).
+async fn folder_file<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &mut BodyReader<'_, S>) -> Response {
+    if let Err(e) = svc.network.privacy.guard() {
+        return Response::error(423, &e);
+    }
+    let Some(dir) = batch_dir(svc, &req.query_param("batch").unwrap_or_default()) else {
+        return Response::error(400, "bad batch");
+    };
+    if req.body_len > MAX_UPLOAD {
+        return Response::error(413, "too large");
+    }
+    let rel = req.query_param("path").unwrap_or_default();
+    let parts: Vec<String> = rel
+        .split(['/', '\\'])
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty() && *p != "." && *p != "..")
+        .map(crate::networking::transfer::sanitize_file_name)
+        .collect();
+    if parts.len() < 2 || parts.len() > 16 {
+        return Response::error(400, "bad path");
+    }
+    let mut path = dir.clone();
+    for p in &parts {
+        path.push(p);
+    }
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Response::error(500, &format!("cannot create folder: {}", e));
+        }
+    }
+    let mut file = match tokio::fs::File::create(&path).await {
+        Ok(f) => f,
+        Err(e) => return Response::error(500, &format!("cannot write: {}", e)),
+    };
+    let copied = body.copy_to_file(&mut file).await;
+    drop(file);
+    if copied.is_err() || copied.as_ref().ok() != Some(&req.body_len) {
+        let _ = std::fs::remove_file(&path);
+        return Response::error(400, "upload cut short");
+    }
+    Response::json(200, json!({ "ok": true }))
+}
+
+/// The staged folder goes into the chat; the staging copy is removed after.
+async fn folder_send(svc: &PhoneService, req: &Request) -> Response {
+    if let Err(e) = svc.network.privacy.guard() {
+        return Response::error(423, &e);
+    }
+    let Some(conv) = req.query_param("conv").filter(|c| !c.is_empty()) else {
+        return Response::error(400, "conv missing");
+    };
+    if svc.network.db.is_conversation_hidden(&conv) && !svc.network.privacy.hidden_unlocked() {
+        return Response::error(403, "HIDDEN");
+    }
+    let Some(dir) = batch_dir(svc, &req.query_param("batch").unwrap_or_default()) else {
+        return Response::error(400, "bad batch");
+    };
+    let name = crate::networking::transfer::sanitize_file_name(req.query_param("name").unwrap_or_default().trim());
+    let folder = dir.join(&name);
+    if name.is_empty() || !folder.is_dir() {
+        return Response::error(400, "nothing to send");
+    }
+    let sent = svc.network.send_files(&conv, vec![folder.to_string_lossy().to_string()]).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    match sent {
+        Ok(sent) => announce(svc, sent),
+        Err(e) => Response::error(400, &e),
+    }
+}
+
 /// The message a file or recording from the phone became: the desktop
 /// window and every phone see it, and the phone that sent it gets it back.
 fn announce(svc: &PhoneService, sent: Vec<SentFile>) -> Response {
@@ -757,17 +951,21 @@ async fn serve_file(svc: &PhoneService, req: &Request, transfer_id: &str) -> Res
     let Some(path) = t.local_path.clone() else {
         return Response::error(404, "no file on disk");
     };
-    let Ok(file) = tokio::fs::File::open(&path).await else {
+    serve_path(req, std::path::Path::new(&path), &t.file_name, "private, max-age=3600").await
+}
+
+/// A file from this PC's disk, with ranges (videos and voice notes seek).
+async fn serve_path(req: &Request, path: &std::path::Path, file_name: &str, cache: &str) -> Response {
+    let Ok(file) = tokio::fs::File::open(path).await else {
         return Response::error(404, "the file was moved or deleted");
     };
     let total = match file.metadata().await {
         Ok(m) => m.len(),
         Err(_) => return Response::error(404, "unreadable"),
     };
-    let ctype = content_type_for(&t.file_name);
+    let ctype = content_type_for(file_name);
     let inline = ctype.starts_with("image/") || ctype.starts_with("video/") || ctype.starts_with("audio/") || ctype == "application/pdf";
-    let ascii: String = t
-        .file_name
+    let ascii: String = file_name
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || " ._-()".contains(c) { c } else { '_' })
         .collect();
@@ -775,7 +973,7 @@ async fn serve_file(svc: &PhoneService, req: &Request, transfer_id: &str) -> Res
         "{}; filename=\"{}\"; filename*=UTF-8''{}",
         if inline { "inline" } else { "attachment" },
         ascii,
-        percent_encode(&t.file_name)
+        percent_encode(file_name)
     );
     let (status, start, len) = match req.header("range").and_then(|r| parse_range(r, total)) {
         Some(Ok((s, e))) => (206, s, e - s + 1),
@@ -790,7 +988,7 @@ async fn serve_file(svc: &PhoneService, req: &Request, transfer_id: &str) -> Res
             ("Content-Type".to_string(), ctype.to_string()),
             ("Content-Disposition".to_string(), disposition),
             ("Accept-Ranges".to_string(), "bytes".to_string()),
-            ("Cache-Control".to_string(), "private, max-age=3600".to_string()),
+            ("Cache-Control".to_string(), cache.to_string()),
         ],
         body: Body::File { file, start, len },
     };

@@ -50,6 +50,13 @@ fn ranges_are_parsed_like_a_browser_sends_them() {
 }
 
 #[test]
+fn module_scripts_are_served_as_javascript() {
+    // The PDF reader's worker is an .mjs file: anything but JavaScript is refused.
+    assert!(super::http::content_type_for("assets/pdf.worker.min-abc.mjs").starts_with("text/javascript"));
+    assert!(super::http::content_type_for("assets/phone-abc.js").starts_with("text/javascript"));
+}
+
+#[test]
 fn query_strings_are_decoded() {
     assert_eq!(percent_decode("Q3%20report%20(1).pdf"), "Q3 report (1).pdf");
     assert_eq!(percent_decode("a+b%2Bc"), "a b+c");
@@ -899,7 +906,8 @@ async fn a_phone_sets_status_raises_alerts_and_plays_games() {
     assert_eq!(s["display_name"], "Asha (Accounts)");
     assert_eq!(s["device_id"], asha.as_str());
     assert!(s["hostname"].is_string() && s["avatar_color"].is_string() && s["theme"].is_string(), "{}", s);
-    for secret in ["tcp_messaging_port", "udp_discovery_port", "default_download_dir", "pin_enabled", "auto_lock_minutes", "custom_sound_path", "apps"] {
+    // (3.4 shows the ports, the PIN switch, auto-lock and apps in the phone's Settings.)
+    for secret in ["default_download_dir", "custom_sound_path", "discovery_interval_secs", "onboarding_completed"] {
         assert!(s.get(secret).is_none(), "{} is the PC's business", secret);
     }
     assert_eq!(s["quick_replies"].as_array().unwrap().len(), 6);
@@ -910,7 +918,7 @@ async fn a_phone_sets_status_raises_alerts_and_plays_games() {
     assert_eq!(s["quiet_hours"]["enabled"], false);
     let hello = ask(&mut ws, 2, json!({ "op": "hello" })).await;
     assert_eq!(hello["settings"]["display_name"], "Asha (Accounts)", "{}", hello);
-    assert!(hello["settings"].get("tcp_messaging_port").is_none());
+    assert!(hello["settings"].get("default_download_dir").is_none());
 
     // Status: busy with a note; what colleagues get (and what the discovery
     // beacon fingerprints) follows at once.
@@ -1151,12 +1159,12 @@ async fn a_phone_makes_and_takes_calls_through_the_pc() {
     let ended = ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "ended", 10).await.expect("the phone sees it end");
     assert_eq!(ended["reason"], "hangup");
 
-    // 5. Remote help stays on the PC.
+    // 5. Showing your screen for remote help stays on the PC (3.4: watching theirs is fine).
     let call = b.svc.start_call(&b_conv, false, "v=0 offer-help".to_string(), Some("view".to_string())).await.unwrap();
     ws_wait(&mut ws, |v| v["ev"] == "call" && v["action"] == "incoming", 10).await.expect("help rings");
     let r = ask(&mut ws, 10, json!({ "op": "call_answer", "call_id": call.call_id, "sdp": "v=0 nope", "video": false })).await;
     assert_eq!(r["ok"], false);
-    assert!(r["error"].as_str().unwrap_or("").contains("Remote help"), "{}", r);
+    assert!(r["error"].as_str().unwrap_or("").contains("your PC"), "{}", r);
     b.svc.hangup_call(&call.call_id).await.unwrap();
     assert!(wait_for(|| a.svc.current_call().is_none(), 5).await);
 
@@ -1294,4 +1302,243 @@ async fn a_phone_unlocks_hides_and_sends_secret_broadcast_and_memes() {
     let pushed = ws_wait(&mut ws, |v| v["ev"] == "lock", 10).await.expect("lock push");
     assert_eq!(pushed["locked"], true);
     assert_eq!(pushed["pin_set"], true);
+}
+
+/// LANX 3.4: the rest of LANX from the phone — Appearance and the settings it
+/// may change (and those it may not), the wallpaper, a chat's pin / mute /
+/// archive / unread / folders / delete, trust and block, filtered search,
+/// backup, report recipients, apps — and a group meeting carried by the phone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_changes_appearance_chats_and_holds_a_meeting() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let conv_a = link(&a, &b).await;
+    let (phone, mut ws, _cancel) = paired_phone(&a).await;
+    let bharat = a.svc.db.get_conversation(&conv_a).unwrap().unwrap().peer_id;
+    a.svc.send_message_full(&conv_a, "Invoice 77 attached at https://example.com/inv/77", None, vec![]).await.unwrap();
+
+    // Appearance: the phone sees the PC's look and changes it.
+    let hello = ask(&mut ws, 1, json!({ "op": "hello" })).await;
+    assert_eq!(hello["settings"]["accent_color"], "default");
+    assert_eq!(hello["wallpaper"]["kind"], "none");
+    let r = ask(&mut ws, 2, json!({ "op": "settings_save", "patch": { "theme": "dark", "accent_color": "#ff8800", "glass_level": 30, "frost_level": 70, "reduce_motion": true, "quick_replies": ["On my way", "  ", "Thanks!"], "read_receipts": false } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let s = a.svc.db.get_settings().unwrap();
+    assert_eq!((s.theme.as_str(), s.accent_color.as_str(), s.glass_level, s.frost_level, s.reduce_motion), ("dark", "#ff8800", 30, 70, true));
+    assert_eq!(s.quick_replies, vec!["On my way".to_string(), "Thanks!".to_string()]);
+    assert!(!s.read_receipts);
+    // Only what the phone may change, each checked.
+    for (patch, why) in [
+        (json!({ "tcp_messaging_port": 1 }), "PC"),
+        (json!({ "display_name": "Someone else" }), "PC"),
+        (json!({ "theme": "purple" }), "theme"),
+        (json!({ "accent_color": "url(x)" }), "colour"),
+        (json!({ "glass_level": 400 }), "100"),
+        (json!({ "auto_lock_minutes": 5 }), "PIN"),
+        (json!({ "sound_choice": "custom" }), "sound"),
+    ] {
+        let r = ask(&mut ws, 3, json!({ "op": "settings_save", "patch": patch })).await;
+        assert_eq!(r["ok"], false, "{} should be refused", patch);
+        assert!(r["error"].as_str().unwrap().contains(why), "{}: {}", patch, r);
+    }
+    assert_eq!(a.svc.db.get_settings().unwrap().tcp_messaging_port, s.tcp_messaging_port);
+    crate::privacy::set_pin(&a.svc.db, None, Some("4321")).unwrap();
+    let r = ask(&mut ws, 4, json!({ "op": "settings_save", "patch": { "auto_lock_minutes": 15, "chat_folders": [{ "id": "f-work", "name": " Work " }], "quiet_hours": { "enabled": true, "start": 1200, "end": 480, "days": [1, 2, 3] }, "apps": [{ "name": "HR", "target": "https://hr.example.com", "emoji": "" }] } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let s = a.svc.db.get_settings().unwrap();
+    assert_eq!(s.auto_lock_minutes, 15);
+    assert_eq!(s.chat_folders[0].name, "Work");
+    assert!(s.quiet_hours.enabled);
+    let r = ask(&mut ws, 5, json!({ "op": "apps" })).await;
+    assert!(r["apps"].as_array().unwrap().iter().any(|x| x["name"] == "HR" && x["office"] == false), "{}", r);
+
+    // The wallpaper: a built-in, none, or only a file in the wallpaper folder.
+    let r = ask(&mut ws, 6, json!({ "op": "wallpaper_set", "wallpaper": { "kind": "builtin", "id": "ocean", "dim": 300, "blur": 5 } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["wallpaper"]["dim"], 80, "darken is capped");
+    let kept: Value = serde_json::from_str(&a.svc.db.get_setting("pref_wallpaper").unwrap()).unwrap();
+    assert_eq!(kept["id"], "ocean");
+    assert_eq!(ask(&mut ws, 7, json!({ "op": "wallpaper_set", "wallpaper": { "kind": "builtin", "id": "javascript:alert(1)" } })).await["ok"], false);
+    let elsewhere = a._dir.path().join("holiday.png");
+    std::fs::write(&elsewhere, b"png").unwrap();
+    let r = ask(&mut ws, 8, json!({ "op": "wallpaper_set", "wallpaper": { "kind": "file", "path": elsewhere.to_string_lossy(), "name": "holiday.png" } })).await;
+    assert_eq!(r["ok"], false, "a file outside the wallpaper folder is refused: {}", r);
+    // A picture from the phone becomes the wallpaper file, served back to it.
+    let token = {
+        let info = phone.start_pairing();
+        let request = phone.claim(&info.code, "Chrome on Android phone", "127.0.0.1").unwrap();
+        phone.answer(&request, true).unwrap();
+        phone.poll(&request).token.unwrap()
+    };
+    let auth = format!("Bearer {}", token);
+    let up = http(phone.port(), "POST", "/api/wallpaper?name=beach.png", &[("Authorization", auth.as_str())], b"not really a png").await;
+    assert_eq!(up.status, 200, "{}", String::from_utf8_lossy(&up.body));
+    let file = up.json()["path"].as_str().unwrap().to_string();
+    let bad = http(phone.port(), "POST", "/api/wallpaper?name=run.exe", &[("Authorization", auth.as_str())], b"MZ").await;
+    assert_eq!(bad.status, 400, "only pictures and videos");
+    let r = ask(&mut ws, 9, json!({ "op": "wallpaper_set", "wallpaper": { "kind": "file", "path": file, "name": "beach.png", "dim": 20, "blur": 0 } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let got = http(phone.port(), "GET", "/api/wallpaper", &[("Authorization", auth.as_str())], b"").await;
+    assert_eq!(got.status, 200);
+    assert_eq!(got.body, b"not really a png");
+    assert_eq!(http(phone.port(), "GET", "/api/wallpaper", &[], b"").await.status, 401);
+    let r = ask(&mut ws, 10, json!({ "op": "wallpaper_set", "wallpaper": { "kind": "none" } })).await;
+    assert_eq!(r["ok"], true);
+    assert!(!std::path::Path::new(&file).exists(), "switching it off removes the kept copy");
+
+    // A chat's options.
+    let r = ask(&mut ws, 11, json!({ "op": "chat_pin", "conv": conv_a, "pinned": true })).await;
+    assert_eq!(r["conversation"]["is_pinned"], true, "{}", r);
+    let r = ask(&mut ws, 12, json!({ "op": "chat_mute", "conv": conv_a, "minutes": 60 })).await;
+    assert!(r["conversation"]["muted_until"].as_i64().unwrap() > crate::networking::now_secs());
+    let r = ask(&mut ws, 13, json!({ "op": "chat_mute", "conv": conv_a, "minutes": 0 })).await;
+    assert_eq!(r["conversation"]["muted_until"], 0);
+    let r = ask(&mut ws, 14, json!({ "op": "chat_folders", "conv": conv_a, "folders": ["f-work", "f-made-up"] })).await;
+    assert_eq!(r["conversation"]["folders"], json!(["f-work"]), "only folders that exist");
+    let r = ask(&mut ws, 15, json!({ "op": "chat_archive", "conv": conv_a, "archived": true })).await;
+    assert_eq!(r["conversation"]["archived"], true);
+    let r = ask(&mut ws, 16, json!({ "op": "chat_unread", "conv": conv_a })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(ask(&mut ws, 17, json!({ "op": "chat_pin", "conv": "no-such-chat", "pinned": true })).await["ok"], false);
+
+    // Search with the desktop's filters: in this chat, links only.
+    let r = ask(&mut ws, 18, json!({ "op": "search", "query": "", "filter": { "conversation_id": conv_a, "kind": "links" } })).await;
+    assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{}", r);
+    let r = ask(&mut ws, 19, json!({ "op": "search", "query": "", "filter": { "conversation_id": conv_a, "kind": "files" } })).await;
+    assert_eq!(r["hits"].as_array().unwrap().len(), 0);
+
+    // Trust and block.
+    let r = ask(&mut ws, 20, json!({ "op": "peer_trust", "peer_id": bharat, "trust": "blocked" })).await;
+    assert!(r["peers"].as_array().unwrap().iter().any(|p| p["id"] == bharat.as_str() && p["trust_state"] == "blocked"), "{}", r);
+    assert_eq!(ask(&mut ws, 21, json!({ "op": "peer_trust", "peer_id": bharat, "trust": "owner" })).await["ok"], false);
+    ask(&mut ws, 22, json!({ "op": "peer_trust", "peer_id": bharat, "trust": "unverified" })).await;
+    assert_eq!(ask(&mut ws, 23, json!({ "op": "peer_add", "ip": "not an ip" })).await["ok"], false);
+
+    // End-of-day report recipients, backup.
+    ask(&mut ws, 24, json!({ "op": "report_to_set", "ids": [bharat] })).await;
+    assert_eq!(ask(&mut ws, 25, json!({ "op": "report_to" })).await["ids"], json!([bharat]));
+    let r = ask(&mut ws, 26, json!({ "op": "backup_now" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert!(std::path::Path::new(r["backup"]["path"].as_str().unwrap()).exists());
+    assert!(!r["overview"]["backups"].as_array().unwrap().is_empty());
+    assert_eq!(ask(&mut ws, 27, json!({ "op": "sync_list" })).await["shares"], json!([]));
+
+    // A meeting started on the phone: the PC marks it as on the phone, Bharat
+    // is invited and joins, the phone's offer reaches him, chat goes out.
+    ask(&mut ws, 28, json!({ "op": "chat_archive", "conv": conv_a, "archived": false })).await;
+    let mut btap = b.svc.events.subscribe().expect("Bharat's events");
+    let r = ask(&mut ws, 29, json!({ "op": "meeting_start", "conv": conv_a, "video": true })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let mid = r["meeting"]["meeting_id"].as_str().unwrap().to_string();
+    assert_eq!(r["meeting"]["on_phone"], ask(&mut ws, 30, json!({ "op": "hello" })).await["device_id"]);
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|m| m.meeting_id == mid && m.phase == "invited"), 10).await, "Bharat is invited");
+    b.svc.join_meeting(&mid).await.unwrap();
+    let joined = ws_wait(&mut ws, |v| v["ev"] == "meeting" && v["action"] == "person-joined", 10).await.expect("the phone hears Bharat join");
+    assert_eq!(joined["meeting"]["people"].as_array().unwrap().len(), 2);
+    let peer_b = b.svc.identity.device_id.clone();
+    let r = ask(&mut ws, 31, json!({ "op": "meeting_signal", "meeting_id": mid, "to": peer_b, "kind": "offer", "sdp": "v=0 test" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let sig = tap_wait(&mut btap, "lanx://meeting", |v| v["action"] == "signal", 10).await.expect("Bharat gets the phone's offer");
+    assert_eq!(sig["sdp"], "v=0 test");
+    let r = ask(&mut ws, 32, json!({ "op": "meeting_media", "meeting_id": mid, "hand": true, "screen": true })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let a_id = a.svc.identity.device_id.clone();
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|m| m.people.iter().any(|p| p.device_id == a_id && p.hand && !p.screen)), 10).await, "a raised hand reaches Bharat (no screen sharing from a phone)");
+    let r = ask(&mut ws, 33, json!({ "op": "meeting_chat", "meeting_id": mid, "text": "hello from the phone" })).await;
+    assert_eq!(r["line"]["text"], "hello from the phone");
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|m| m.chat.iter().any(|l| l.text == "hello from the phone")), 10).await);
+    let r = ask(&mut ws, 34, json!({ "op": "meeting_leave", "meeting_id": mid })).await;
+    assert_eq!(r["ok"], true);
+    assert!(a.svc.current_meeting().is_none());
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|m| m.people.len() == 1), 10).await, "Bharat sees Asha leave");
+    let r = ask(&mut ws, 35, json!({ "op": "meeting_signal", "meeting_id": mid, "to": peer_b, "kind": "offer", "sdp": "x" })).await;
+    assert_eq!(r["ok"], false, "no meeting, no signals");
+
+    // Delete the chat's history (Bharat keeps his).
+    let r = ask(&mut ws, 36, json!({ "op": "chat_delete", "conv": conv_a })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+}
+
+/// LANX 3.4 (the last of it): a recording made on the phone kept on the PC
+/// with a line in the chat (and watched back), updates and a connection test,
+/// the PC's own switches, a whole folder from the phone, and remote help —
+/// a phone may watch a colleague's screen but not show one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_records_updates_sends_folders_and_watches_a_screen() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let conv_a = link(&a, &b).await;
+    let (phone, mut ws, _cancel) = paired_phone(&a).await;
+    let bharat = a.svc.db.get_conversation(&conv_a).unwrap().unwrap().peer_id;
+    let token = {
+        let info = phone.start_pairing();
+        let request = phone.claim(&info.code, "Chrome on Android phone", "127.0.0.1").unwrap();
+        phone.answer(&request, true).unwrap();
+        phone.poll(&request).token.unwrap()
+    };
+    let auth = format!("Bearer {}", token);
+    let h = [("Authorization", auth.as_str())];
+
+    // A recording: begun, pieces over HTTP, ended with a line in the chat.
+    let r = ask(&mut ws, 1, json!({ "op": "recording_begin", "title": "Stand-up", "ext": "mp4" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let rid = r["rec_id"].as_str().unwrap().to_string();
+    assert_eq!(ask(&mut ws, 2, json!({ "op": "recording_begin", "title": "x", "ext": "exe" })).await["ok"], false);
+    for piece in [&b"first-"[..], &b"second"[..]] {
+        let up = http(phone.port(), "POST", &format!("/api/recording/{}", rid), &h, piece).await;
+        assert_eq!(up.status, 200, "{}", String::from_utf8_lossy(&up.body));
+    }
+    assert_eq!(http(phone.port(), "POST", &format!("/api/recording/{}", rid), &[], b"x").await.status, 401);
+    let r = ask(&mut ws, 3, json!({ "op": "recording_end", "rec_id": rid, "conv": conv_a, "title": "Stand-up", "kind": "meeting", "secs": 42 })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["size"], 12);
+    let line = a.svc.db.get_messages(&conv_a).unwrap().into_iter().find(|m| m.message_type == "recording").expect("a recording line in the chat");
+    let got = http(phone.port(), "GET", &format!("/api/recording/{}", line.id), &h, b"").await;
+    assert_eq!(got.status, 200);
+    assert_eq!(got.body, b"first-second");
+    assert_eq!(http(phone.port(), "GET", &format!("/api/recording/{}", conv_a), &h, b"").await.status, 404, "only recording lines");
+
+    // Updates and a connection test.
+    let r = ask(&mut ws, 4, json!({ "op": "update_status" })).await;
+    assert!(r["update"]["current_version"].is_string(), "{}", r);
+    let r = ask(&mut ws, 5, json!({ "op": "check_connection", "peer_id": bharat })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert!(r["check"]["steps"].is_array());
+
+    // The PC's own switches.
+    let r = ask(&mut ws, 6, json!({ "op": "settings_save", "patch": { "close_to_tray": false, "screenshot_hotkey": true } })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    let s = a.svc.db.get_settings().unwrap();
+    assert!(!s.close_to_tray);
+    assert!(s.screenshot_hotkey);
+    assert_eq!(r["settings"]["close_to_tray"], false);
+    assert_eq!(ask(&mut ws, 7, json!({ "op": "settings_save", "patch": { "tcp_messaging_port": 1 } })).await["ok"], false);
+
+    // A whole folder from the phone: files at their places, then sent as one folder.
+    for (path, body) in [("Site photos/a.txt", &b"one"[..]), ("Site photos/day 2/b.txt", &b"two"[..])] {
+        let q = format!("/api/folder-file?batch=abcdef1234&path={}", path.replace(' ', "%20").replace('/', "%2F"));
+        let up = http(phone.port(), "POST", &q, &h, body).await;
+        assert_eq!(up.status, 200, "{}", String::from_utf8_lossy(&up.body));
+    }
+    let sneaky = http(phone.port(), "POST", "/api/folder-file?batch=abcdef1234&path=..%2F..%2Fevil.txt", &h, b"x").await;
+    assert_eq!(sneaky.status, 400, "no way out of the batch folder");
+    assert_eq!(http(phone.port(), "POST", "/api/folder-file?batch=..&path=a%2Fb.txt", &h, b"x").await.status, 400);
+    let sent = http(phone.port(), "POST", &format!("/api/folder-send?conv={}&batch=abcdef1234&name=Site%20photos", conv_a), &h, b"").await;
+    assert_eq!(sent.status, 200, "{}", String::from_utf8_lossy(&sent.body));
+    assert_eq!(sent.json()["message"]["message_type"], "file");
+    assert!(sent.json()["message"]["content"].as_str().unwrap().contains("Site photos"), "{}", sent.json());
+
+    // Remote help: the phone may ask to see Bharat's screen, not show its own.
+    let r = ask(&mut ws, 8, json!({ "op": "call_start", "conv": conv_a, "video": false, "sdp": "v=0 offer", "help": "view" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["call"]["help"], "view");
+    assert!(wait_for(|| b.svc.current_call().is_some_and(|c| c.help.as_deref() == Some("view")), 10).await, "Bharat is asked to share his screen");
+    let call_id = r["call"]["call_id"].as_str().unwrap().to_string();
+    ask(&mut ws, 9, json!({ "op": "call_hangup", "call_id": call_id })).await;
+    assert!(wait_for(|| a.svc.current_call().is_none(), 10).await);
+    let r = ask(&mut ws, 10, json!({ "op": "call_start", "conv": conv_a, "video": false, "sdp": "v=0 offer", "help": "show" })).await;
+    if r["ok"] == true {
+        assert!(r["call"]["help"].is_null(), "showing a screen is not offered from a phone: {}", r);
+        ask(&mut ws, 11, json!({ "op": "call_hangup", "call_id": r["call"]["call_id"] })).await;
+    }
 }

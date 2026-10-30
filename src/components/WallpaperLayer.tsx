@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../lib/api";
+import { api, events } from "../lib/api";
 import { DEFAULT_WALLPAPER, type WallpaperChoice, fileKind, mimeOf, startBuiltin } from "../lib/wallpaper";
 
 /** LANX 2.5.0: the live wallpaper behind the whole window (a built-in
@@ -15,7 +15,9 @@ export async function loadWallpaperChoice(): Promise<WallpaperChoice> {
   }
 }
 
-export function WallpaperLayer({ reduceMotion }: { reduceMotion: boolean }) {
+/** `fileSrc` (the phone page): where to load a picture / video file from,
+ *  instead of reading its bytes. */
+export function WallpaperLayer({ reduceMotion, fileSrc }: { reduceMotion: boolean; fileSrc?: (c: WallpaperChoice) => string }) {
   const [choice, setChoice] = useState<WallpaperChoice>(DEFAULT_WALLPAPER);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -30,11 +32,24 @@ export function WallpaperLayer({ reduceMotion }: { reduceMotion: boolean }) {
       else void refresh();
     };
     window.addEventListener("lanx-wallpaper", onChange);
+    // 3.4: chosen on the phone — the PC follows.
+    let off: (() => void) | undefined;
+    if (!fileSrc)
+      void events
+        .onWallpaperChanged((p) => {
+          if (p?.from === "phone") void refresh();
+        })
+        .then((u) => {
+          if (alive) off = u;
+          else u();
+        })
+        .catch(() => {});
     return () => {
       alive = false;
+      off?.();
       window.removeEventListener("lanx-wallpaper", onChange);
     };
-  }, []);
+  }, [fileSrc]);
 
   // The window shows the layer through when a wallpaper is on.
   useEffect(() => {
@@ -54,6 +69,10 @@ export function WallpaperLayer({ reduceMotion }: { reduceMotion: boolean }) {
       setFileUrl(null);
       return;
     }
+    if (fileSrc) {
+      setFileUrl(fileSrc(choice));
+      return;
+    }
     let url: string | null = null;
     let alive = true;
     api
@@ -68,7 +87,7 @@ export function WallpaperLayer({ reduceMotion }: { reduceMotion: boolean }) {
       alive = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [choice.kind, choice.path, choice.name]);
+  }, [choice.kind, choice.path, choice.name, fileSrc]);
 
   if (choice.kind === "none") return null;
   const kind = choice.kind === "file" ? fileKind(choice.name ?? choice.path ?? "") : null;

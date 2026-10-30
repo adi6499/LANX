@@ -1,5 +1,7 @@
 /** LANX 3.0: how the phone page talks to the PC — pairing over HTTP, then one
  *  WebSocket carrying JSON lines (see src-tauri/src/phone/api.rs). */
+import type { WallpaperChoice } from "../lib/wallpaper";
+import type { ConnectionCheck, UpdateStatus } from "../types";
 import type { CallInfo, Conversation, ForwardResult, GroupInfo, Message, Peer, Profile, ScheduledMessage } from "../types";
 
 export interface PhoneTransfer {
@@ -63,6 +65,50 @@ export interface Hello {
   settings?: Record<string, unknown>;
   /** 3.3: the PIN lock and hidden chats. */
   lock?: LockInfo;
+  /** 3.4: the PC's wallpaper (Appearance). */
+  wallpaper?: WallpaperChoice;
+}
+
+/** 3.4: a backup on the PC (Settings → Backup). */
+export interface BackupItem {
+  path: string;
+  file_name: string;
+  kind: string;
+  created_at: number;
+  size_bytes: number;
+  messages: number;
+}
+export interface BackupOverviewInfo {
+  auto_enabled: boolean;
+  folder: string;
+  backups: BackupItem[];
+}
+
+/** 3.4: a folder the PC shares, or a colleague's folder it keeps a copy of. */
+export interface SyncShareInfo {
+  id: string;
+  name: string;
+  path: string;
+  subscribers: string[];
+  waiting: number;
+}
+export interface SyncSubscriptionInfo {
+  share_id: string;
+  owner_name: string;
+  name: string;
+  dest_path: string;
+  files: number;
+  bytes: number;
+  last_at: number;
+  status: string;
+}
+
+/** 3.4: a link from the Apps launcher. */
+export interface AppItem {
+  name: string;
+  target: string;
+  emoji: string;
+  office: boolean;
 }
 
 export interface Hit {
@@ -97,6 +143,9 @@ export type Push =
   | { ev: "notice"; text: string }
   | { ev: "call"; action: "incoming" | "accepted" | "media" | "ended" | "outgoing" | "answered"; call: CallInfo; sdp: string | null; video: boolean | null; muted: boolean | null; screen: boolean | null; reason: string | null; recording?: boolean | null }
   | { ev: "reload" }
+  | { ev: "wallpaper" }
+  | { ev: "update" }
+  | { ev: "meeting" }
   | { ev: "lock"; locked: boolean; pin_set?: boolean; hidden_unlocked?: boolean; retry_after_secs?: number };
 
 export type ConnState = "idle" | "connecting" | "open" | "closed" | "unauthorized";
@@ -444,6 +493,143 @@ export class PhoneClient {
   }
   itHelpers() {
     return this.request<{ ids: string[] }>("it_helpers");
+  }
+
+  // ---- 3.4: Appearance, the rest of Settings, chats, colleagues, tools.
+  settingsSave(patch: Record<string, unknown>) {
+    return this.request<{ settings: Record<string, unknown> }>("settings_save", { patch });
+  }
+  wallpaper() {
+    return this.request<{ wallpaper: WallpaperChoice }>("settings").then((r) => r.wallpaper);
+  }
+  wallpaperSet(wallpaper: WallpaperChoice) {
+    return this.request<{ wallpaper: WallpaperChoice }>("wallpaper_set", { wallpaper });
+  }
+  /** A picture or video from the phone, kept on the PC as the wallpaper file. */
+  async uploadWallpaper(file: File): Promise<{ path: string; name: string; kind: "image" | "video"; bytes: number }> {
+    const r = await fetch(`/api/wallpaper?name=${encodeURIComponent(file.name || "wallpaper.jpg")}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" },
+      body: file,
+      credentials: "same-origin",
+    });
+    const j = (await r.json().catch(() => ({}))) as { path?: string; name?: string; kind?: string; bytes?: number; error?: string };
+    if (!r.ok || !j.path) throw new Error(j.error ?? `failed (${r.status})`);
+    return { path: j.path, name: j.name ?? file.name, kind: j.kind === "video" ? "video" : "image", bytes: j.bytes ?? file.size };
+  }
+  chatPin(conv: string, pinned: boolean) {
+    return this.request<{ conversation: Conversation }>("chat_pin", { conv, pinned });
+  }
+  /** minutes: -1 = until turned back on, 0 = sounds back on. */
+  chatMute(conv: string, minutes: number) {
+    return this.request<{ conversation: Conversation }>("chat_mute", { conv, minutes });
+  }
+  chatArchive(conv: string, archived: boolean) {
+    return this.request<{ conversation: Conversation }>("chat_archive", { conv, archived });
+  }
+  chatUnread(conv: string) {
+    return this.request<{ conversation: Conversation }>("chat_unread", { conv });
+  }
+  chatFolders(conv: string, folders: string[]) {
+    return this.request<{ conversation: Conversation }>("chat_folders", { conv, folders });
+  }
+  chatDelete(conv: string) {
+    return this.request<{ conversations: Conversation[] }>("chat_delete", { conv });
+  }
+  peerTrust(peerId: string, trust: "trusted" | "blocked" | "unverified") {
+    return this.request<{ peers: Peer[]; profiles: Record<string, Profile> }>("peer_trust", { peer_id: peerId, trust });
+  }
+  peerAdd(ip: string, port: number, name: string) {
+    return this.request<{ peer: Peer }>("peer_add", { ip, port, name });
+  }
+  searchEx(query: string, filter: { conversation_id?: string; sender?: string; kind?: string; since?: number }) {
+    return this.request<{ hits: Hit[] }>("search", { query, filter });
+  }
+  reportTo() {
+    return this.request<{ ids: string[] }>("report_to");
+  }
+  reportToSet(ids: string[]) {
+    return this.request<{ ids: string[] }>("report_to_set", { ids });
+  }
+  backups() {
+    return this.request<{ overview: BackupOverviewInfo }>("backups");
+  }
+  backupNow() {
+    return this.request<{ backup: BackupItem; overview: BackupOverviewInfo }>("backup_now");
+  }
+  syncList() {
+    return this.request<{ shares: SyncShareInfo[]; subscriptions: SyncSubscriptionInfo[] }>("sync_list");
+  }
+  syncAction(op: "sync_resync" | "sync_stop" | "sync_unsubscribe", shareId: string) {
+    return this.request<Record<string, never>>(op, { share_id: shareId });
+  }
+  apps() {
+    return this.request<{ apps: AppItem[] }>("apps");
+  }
+  /** A recording made on the phone, kept on the PC (pieces: recordingPiece). */
+  recordingBegin(title: string, ext: string) {
+    return this.request<{ rec_id: string; name: string }>("recording_begin", { title, ext }).then((r) => ({ id: r.rec_id, name: r.name }));
+  }
+  async recordingPiece(id: string, data: Uint8Array): Promise<number> {
+    const r = await fetch(`/api/recording/${encodeURIComponent(id)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" },
+      body: data as BodyInit,
+      credentials: "same-origin",
+    });
+    const j = (await r.json().catch(() => ({}))) as { bytes?: number; error?: string };
+    if (!r.ok) throw new Error(j.error ?? `failed (${r.status})`);
+    return j.bytes ?? 0;
+  }
+  recordingEnd(id: string, conv: string | null, title: string, kind: string, secs: number) {
+    return this.request<{ name: string; size: number }>("recording_end", { rec_id: id, conv: conv ?? "", title, kind, secs });
+  }
+  recordingCancel(id: string) {
+    return this.request("recording_cancel", { rec_id: id });
+  }
+  /** A recording in a chat, to watch or save on the phone. */
+  recordingUrl(messageId: string) {
+    return `/api/recording/${encodeURIComponent(messageId)}`;
+  }
+  updateStatus() {
+    return this.request<{ update: UpdateStatus }>("update_status");
+  }
+  updateInstall() {
+    return this.request<{ state: string }>("update_install");
+  }
+  updateSnooze() {
+    return this.request<{ until: number }>("update_snooze");
+  }
+  updateSend(peerIds: string[]) {
+    return this.request<{ sent: number }>("update_send", { peer_ids: peerIds });
+  }
+  checkConnection(peerId: string) {
+    return this.request<{ check: ConnectionCheck }>("check_connection", { peer_id: peerId });
+  }
+  /** A whole folder (Android): each file to the PC, then the folder into the chat. */
+  async sendFolder(conv: string, files: File[], onProgress: (done: number, total: number) => void): Promise<PhoneMessage> {
+    const batch = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+    const root = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath?.split("/")[0] || "Folder";
+    let done = 0;
+    for (const f of files) {
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || `${root}/${f.name}`;
+      const r = await fetch(`/api/folder-file?batch=${batch}&path=${encodeURIComponent(rel)}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" },
+        body: f,
+        credentials: "same-origin",
+      });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `failed (${r.status})`);
+      onProgress(++done, files.length);
+    }
+    const r = await fetch(`/api/folder-send?conv=${encodeURIComponent(conv)}&batch=${batch}&name=${encodeURIComponent(root)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.token}` },
+      credentials: "same-origin",
+    });
+    const j = (await r.json().catch(() => ({}))) as { message?: PhoneMessage; error?: string };
+    if (!r.ok || !j.message) throw new Error(j.error ?? `failed (${r.status})`);
+    return j.message;
   }
 
   /** The PC's secure address and certificate (no token needed). */

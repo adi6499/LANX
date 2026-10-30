@@ -5,6 +5,7 @@ import { AlarmClock, Check, CheckCheck, Clock, Download, FileText, Pin, Star, Ti
 import type { Profile } from "../types";
 import { MessageText, isForwarded, withoutForwardMark } from "../components/chat/chatUtils";
 import { CardView } from "../components/org/CardView";
+import { MeetingCard } from "../components/MeetingCards";
 import { formatSize } from "../lib/format";
 import { effective, statusPreset } from "../lib/profile";
 import type { PhoneClient, PhoneMessage, PhoneTransfer, StickerInfo } from "./client";
@@ -302,6 +303,7 @@ export function Bubble({
   onAccept,
   onCardChanged,
   onError,
+  onRejoin,
 }: {
   m: PhoneMessage;
   group: boolean;
@@ -318,6 +320,8 @@ export function Bubble({
   onAccept: (transferId: string) => void;
   onCardChanged: (m: PhoneMessage) => void;
   onError: (text: string) => void;
+  /** 3.4: "Join again" on a meeting card. */
+  onRejoin?: (messageId: string) => void;
 }) {
   const isOut = m.is_outgoing;
   const press = useLongPress(() => onActions(m));
@@ -341,6 +345,52 @@ export function Bubble({
           {isOut && <StatusIcon m={m} />}
         </div>
         <ReactionChips m={m} isOut={isOut} onReact={(e) => onReact(m, e)} />
+      </div>
+    );
+  }
+  if (m.message_type === "recording" && !m.deleted) {
+    // 3.4: a meeting or call recording kept on the PC — watch or save it here.
+    let r: { name?: string; secs?: number; size?: number; title?: string; kind?: string } = {};
+    try {
+      r = JSON.parse(m.content);
+    } catch {
+      /* an older line */
+    }
+    const mins = Math.floor((r.secs ?? 0) / 60);
+    const url = client.recordingUrl(m.id);
+    return (
+      <div data-ph-msg={m.id} data-ph-out={isOut ? "1" : "0"} data-ph-recording={m.id} className={`flex flex-col ${isOut ? "items-end" : "items-start"}`}>
+        <div {...press} className="w-[86%] select-none rounded-[18px] lanx-card p-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-[20px]">🎥</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13.5px] font-semibold text-slate-900 dark:text-white">{r.title || (r.kind === "call" ? "Call recording" : "Meeting recording")}</div>
+              <div className="text-[11.5px] text-slate-500 dark:text-slate-400">
+                {mins}:{String((r.secs ?? 0) % 60).padStart(2, "0")} · {formatSize(r.size ?? 0)} · on your PC
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 flex gap-2">
+            <a href={url} target="_blank" rel="noopener" data-ph-recording-watch className="rounded-full bg-sky-500 px-3 py-1 text-[12px] font-semibold text-white">
+              Watch
+            </a>
+            <a href={url} download={r.name ?? "recording.mp4"} className="rounded-full lanx-group px-3 py-1 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
+              Save to phone
+            </a>
+          </div>
+        </div>
+        <div className="mt-0.5 px-2 text-[10px] text-slate-400">{timeOf(m.timestamp)}</div>
+      </div>
+    );
+  }
+  if (m.message_type === "meeting" && !m.deleted && onRejoin) {
+    // The PC's meeting card (who came, how long, "Join again").
+    return (
+      <div data-ph-msg={m.id} data-ph-out={isOut ? "1" : "0"} data-ph-meeting-card={m.id} className={`flex flex-col ${isOut ? "items-end" : "items-start"}`}>
+        <div {...press} className="w-[86%] select-none">
+          <MeetingCard msg={m} myId={myId} onRejoin={onRejoin} />
+        </div>
+        <div className="mt-0.5 px-2 text-[10px] text-slate-400">{timeOf(m.timestamp)}</div>
       </div>
     );
   }

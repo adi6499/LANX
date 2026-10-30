@@ -1869,6 +1869,8 @@ export const events = {
   onTransferProgress: (cb: (p: TransferProgressPayload) => void) =>
     on<TransferProgressPayload>("lanx://transfer-progress", cb),
   onStateChanged: (cb: () => void) => on<null>("lanx://state-changed", () => cb()),
+  /** LANX 3.4: the wallpaper was changed (`from` "pc" or "phone"). */
+  onWallpaperChanged: (cb: (p: { from: string }) => void) => on<{ from: string }>("lanx://wallpaper-changed", cb),
   onTyping: (cb: (p: TypingPayload) => void) => on<TypingPayload>("lanx://typing", cb),
   onRing: (cb: (p: RingPayload) => void) => on<RingPayload>("lanx://ring", cb),
   onMessagesDeleted: (cb: (p: MessagesDeletedPayload) => void) =>

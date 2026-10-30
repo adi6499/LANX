@@ -2,7 +2,7 @@
  *  profile, kudos, end-of-day reports, emergency alerts, the secure
  *  connection and alerts, a person's details. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BellRing, Cake, CalendarDays, ClipboardList, Gamepad2, Info, Laugh, LifeBuoy, Mail, Music2, Phone, Plus, Shield, Smile, StickyNote, Trash2, Trophy, UserCircle, X } from "lucide-react";
+import { ArrowLeft, BellRing, Cake, CalendarDays, ClipboardList, Gamepad2, Info, Laugh, LifeBuoy, Mail, MessageCircle, Music2, Palette, Phone, Plus, Settings, Shield, ShieldCheck, ShieldOff, Smile, StickyNote, Trash2, Trophy, UserCircle, Wrench, X } from "lucide-react";
 import type { AlertInfo, CalendarEvent, Note, Occurrence, Peer, Profile } from "../types";
 import { Avatar } from "../components/Avatar";
 import { CardView } from "../components/org/CardView";
@@ -26,7 +26,7 @@ const plain = "rounded-full lanx-group px-4 py-2 text-[13px] font-semibold text-
 
 // --------------------------------------------------------------------- more
 
-export type MoreKey = "cards" | "notes" | "calendar" | "games" | "music" | "memes" | "kudos" | "report" | "helpdesk" | "office" | "emergency" | "status" | "profile" | "secure" | "about";
+export type MoreKey = "cards" | "notes" | "calendar" | "games" | "music" | "memes" | "kudos" | "report" | "helpdesk" | "office" | "emergency" | "status" | "profile" | "appearance" | "tools" | "settings" | "secure" | "about";
 
 export function MoreScreen({ forMe, alertsLive, secure, onOpen }: { forMe: number; alertsLive: number; secure: boolean; onOpen: (key: MoreKey) => void }) {
   const items: { key: MoreKey; icon: React.ReactNode; label: string; hint?: string; badge?: number; tint: string }[] = [
@@ -43,6 +43,9 @@ export function MoreScreen({ forMe, alertsLive, secure, onOpen }: { forMe: numbe
     { key: "emergency", icon: <BellRing className="h-5 w-5" />, label: "Emergency", hint: alertsLive ? `${alertsLive} alert${alertsLive > 1 ? "s" : ""} going on` : undefined, badge: alertsLive, tint: "#ef4444" },
     { key: "status", icon: <Smile className="h-5 w-5" />, label: "My status", hint: "Available, busy, out of office…", tint: "#22c55e" },
     { key: "profile", icon: <UserCircle className="h-5 w-5" />, label: "My profile", tint: "#64748b" },
+    { key: "appearance", icon: <Palette className="h-5 w-5" />, label: "Appearance", hint: "Light / dark, colours, wallpaper, glass", tint: "#a855f7" },
+    { key: "tools", icon: <Wrench className="h-5 w-5" />, label: "Tools", hint: "Calculator, PDF tools, directory, folders, apps", tint: "#475569" },
+    { key: "settings", icon: <Settings className="h-5 w-5" />, label: "Settings", hint: "Sounds, quick replies, quiet hours, backup, help", tint: "#6b7280" },
     { key: "secure", icon: <Shield className="h-5 w-5" />, label: "Secure connection & alerts", hint: secure ? "Secure ✓" : "Voice notes and alerts need this", tint: secure ? "#22c55e" : "#f97316" },
     { key: "about", icon: <Info className="h-5 w-5" />, label: "This phone", tint: "#94a3b8" },
   ];
@@ -619,8 +622,28 @@ export function KudosSheet({ peers, profiles, onClose, onSend }: { peers: Peer[]
   );
 }
 
-export function ReportSheet({ peers, profiles, onClose, onSend }: { peers: Peer[]; profiles: Record<string, Profile>; onClose: () => void; onSend: (to: Peer[], done: string, pending: string, blockers: string) => Promise<void> }) {
+export function ReportSheet({
+  peers,
+  profiles,
+  onClose,
+  onSend,
+  lastTo,
+}: {
+  peers: Peer[];
+  profiles: Record<string, Profile>;
+  onClose: () => void;
+  onSend: (to: Peer[], done: string, pending: string, blockers: string) => Promise<void>;
+  /** 3.4: who it went to last time (the PC remembers). */
+  lastTo?: Promise<string[]>;
+}) {
   const [to, setTo] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    lastTo?.then((ids) => alive && ids.length && setTo((cur) => (cur.size ? cur : new Set(ids)))).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [lastTo]);
   const [done, setDone] = useState("");
   const [pending, setPending] = useState("");
   const [blockers, setBlockers] = useState("");
@@ -915,7 +938,9 @@ export function SecureSheet({
 
 // ------------------------------------------------------------------- person
 
-export function PersonSheet({ peer, profile, onClose, onChat }: { peer: Peer; profile: Profile | null; onClose: () => void; onChat: () => void }) {
+export function PersonSheet({ peer, profile, onClose, onChat, onTrust }: { peer: Peer; profile: Profile | null; onClose: () => void; onChat: () => void; onTrust?: (trust: "trusted" | "blocked" | "unverified") => void }) {
+  const mobile = profile?.phone && /^\+?[\d\s().-]{10,}$/.test(profile.phone) && profile.phone.replace(/\D/g, "").length >= 10 ? profile.phone.replace(/\D/g, "") : "";
+  const blocked = peer.trust_state === "blocked";
   const line = statusLine(profile, { until: true });
   const role = roleLine(profile);
   return (
@@ -937,10 +962,29 @@ export function PersonSheet({ peer, profile, onClose, onChat }: { peer: Peer; pr
       <div className="mt-3 space-y-1">
         {profile?.phone && <SheetRow icon={<Phone className="h-4 w-4" />} label={profile.phone} hint="Call" hook="call" onClick={() => (location.href = `tel:${profile.phone.replace(/\s+/g, "")}`)} />}
         {profile?.email && <SheetRow icon={<Mail className="h-4 w-4" />} label={profile.email} hint="Email" hook="email" onClick={() => (location.href = `mailto:${profile.email}`)} />}
+        {mobile && <SheetRow icon={<MessageCircle className="h-4 w-4" />} label="Message on WhatsApp" hook="whatsapp" onClick={() => window.open(`https://wa.me/${mobile}`, "_blank", "noopener")} />}
       </div>
-      <button type="button" data-ph-person-chat onClick={onChat} className={`${primary} mt-3 w-full`}>
-        Message
-      </button>
+      {!blocked && (
+        <button type="button" data-ph-person-chat onClick={onChat} className={`${primary} mt-3 w-full`}>
+          Message
+        </button>
+      )}
+      {onTrust && (
+        <div className="mt-2 border-t lanx-line pt-2" data-ph-person-trust={peer.trust_state}>
+          {blocked ? (
+            <SheetRow icon={<ShieldOff className="h-4 w-4" />} label="Unblock" hint="their messages come in again" hook="unblock" onClick={() => onTrust("unverified")} />
+          ) : (
+            <>
+              {peer.trust_state === "trusted" ? (
+                <SheetRow icon={<ShieldCheck className="h-4 w-4" />} label="Trusted ✓" hint="tap to remove" hook="untrust" onClick={() => onTrust("unverified")} />
+              ) : (
+                <SheetRow icon={<ShieldCheck className="h-4 w-4" />} label="Mark as trusted" hint="their files can come in by themselves" hook="trust" onClick={() => onTrust("trusted")} />
+              )}
+              <SheetRow icon={<ShieldOff className="h-4 w-4" />} label={`Block ${peer.display_name.split(" ")[0]}`} hint="no messages or files" hook="block" onClick={() => onTrust("blocked")} danger />
+            </>
+          )}
+        </div>
+      )}
     </Sheet>
   );
 }
