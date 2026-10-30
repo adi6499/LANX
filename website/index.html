@@ -37,7 +37,7 @@
     </nav>
     <div class="nav-actions">
       <span class="status"><i></i> ONLINE · NO INTERNET NEEDED</span>
-      <a class="btn btn-sm" href="/files/LANX-Setup-3.4.0.exe" data-v="dlHref" download>Download</a>
+      <a class="btn btn-sm" href="/files/LANX-Setup-3.4.1.exe" data-v="dlHref" download>Download</a>
     </div>
   </header>
 
@@ -53,9 +53,9 @@
           no accounts and no monthly fees</strong>. Computers find each other by themselves.
         </p>
         <div class="cta" id="download">
-          <a class="btn btn-lg" href="/files/LANX-Setup-3.4.0.exe" data-v="dlHref" download id="dlBtn">
+          <a class="btn btn-lg" href="/files/LANX-Setup-3.4.1.exe" data-v="dlHref" download id="dlBtn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-            <span class="lbl">Download LANX <span data-v="version">3.4.0</span> for Windows</span>
+            <span class="lbl">Download LANX <span data-v="version">3.4.1</span> for Windows</span>
           </a>
           <a class="btn btn-ghost" href="#install">How to install</a>
         </div>
@@ -71,11 +71,11 @@
           <summary>Check the file · release signature</summary>
           <div class="verify-body">
             <p><b>SHA-256</b> of the installer (compare it in PowerShell with <code>Get-FileHash</code>):</p>
-            <p class="sha"><code data-v="sha256">949225758d05e0a83a1b69189e6f2621479767eea372e9e152c78348158a8fa9</code>
+            <p class="sha"><code data-v="sha256">df137ad3b7f239897c85b02972dcc7269e86cac74f70cf8518f2db0d0504e794</code>
               <button type="button" class="copy" data-copy="sha256">Copy</button></p>
             <p>
               Going to share this version with your colleagues through LANX itself (Settings → Updates)?
-              Put the <a href="/files/LANX-Setup-3.4.0.exe.sig" data-v="sigHref" download>release signature (.sig)</a>
+              Put the <a href="/files/LANX-Setup-3.4.1.exe.sig" data-v="sigHref" download>release signature (.sig)</a>
               in the same folder as the installer before you run it. Not needed for a normal install.
             </p>
           </div>
@@ -225,7 +225,7 @@
     <section class="section" id="install">
       <p class="kicker">// DEPLOYMENT</p>
       <h2>Installing on Windows</h2>
-      <p class="sub">What you will see, and what to click.</p>
+      <p class="sub">One click: open the file, say Yes, and LANX installs and opens by itself.</p>
       <div class="install">
         <ol class="guide">
           <li><b>Download</b> the installer with the button above and open it from your Downloads folder.</li>
@@ -235,7 +235,7 @@
             <span class="tip">Prefer not to see it at all? Right-click the downloaded file → <b>Properties</b> → tick <b>Unblock</b> → OK, then open it.
             Files copied over a USB drive or a shared folder never show this box.</span>
           </li>
-          <li>Windows asks <b>"Do you want to allow this app to make changes to your device?"</b> → <b>Yes</b>. The installer needs this once to install for all users and to let LANX through the Windows Firewall, so there are no firewall pop-ups later.</li>
+          <li>Windows asks <b>"Do you want to allow this app to make changes to your device?"</b> → <b>Yes</b>. That is the only click: LANX installs with a progress bar (no questions), lets itself through the Windows Firewall so there are no pop-ups later, and opens.</li>
           <li>LANX opens. <b>Type your name</b> → <b>Launch LANX</b>. A short animated guide shows you around (find it again under Settings → Help).</li>
         </ol>
         <aside class="reqs">
@@ -259,13 +259,13 @@
     <section class="section" id="linux" data-linux-only>
       <p class="kicker">// LINUX</p>
       <h2>LANX for Linux</h2>
-      <p class="sub">The same LANX (version <span data-v="linuxVersion">2.4.0</span>), for Ubuntu, Debian, Mint and most other distributions. It talks to the Windows copies on your network.</p>
+      <p class="sub">The same LANX (version <span data-v="linuxVersion">3.4.1</span>), for Ubuntu, Debian, Mint and most other distributions. It talks to the Windows copies on your network.</p>
       <div class="dl-cards">
         <article class="dl-card" data-linux-deb>
           <h3>Ubuntu · Debian · Mint</h3>
-          <p>A <b>.deb</b> package for Ubuntu 22.04 or newer, Debian 12 or newer and Linux Mint 21 or newer. Double-click it, or run <code>sudo apt install ./LANX-x.y.z-linux-amd64.deb</code>. Then start LANX from the applications menu.</p>
-          <a class="btn" href="/files/LANX-2.4.0-linux-amd64.deb" data-v="debHref" download>Download .deb <span class="dim">(<span data-v="debSize">6.6 MB</span>)</span></a>
-          <p class="sha small">SHA-256 <code data-v="debSha">44e94f9176c69fd129d131e70fa7b8842658e33063fe532be678775a9445d997</code></p>
+          <p>For Ubuntu 22.04 or newer, Debian 12 or newer and Linux Mint 21 or newer. <b>Open the downloaded file and press Install</b> (it asks your password once) — LANX installs, opens its firewall ports if a firewall is on, and appears in the applications menu. (Or in a terminal: <code>sudo apt install ./LANX-x.y.z-linux-amd64.deb</code>.)</p>
+          <a class="btn" href="/files/LANX-3.4.1-linux-amd64.deb" data-v="debHref" download>Download .deb <span class="dim">(<span data-v="debSize">15.0 MB</span>)</span></a>
+          <p class="sha small">SHA-256 <code data-v="debSha">f336c27230d5834cf5b58d05ade70fb1ff6ee00ccbea193b5b66b2e69465ffc1</code></p>
         </article>
         <article class="dl-card" data-linux-appimage hidden>
           <h3>Any other distribution</h3>
@@ -275,8 +275,7 @@
         </article>
       </div>
       <p class="note">
-        <b>Firewall:</b> most Linux desktops have none switched on. If yours does (<code>sudo ufw status</code> says active), allow LANX with
-        <code>sudo ufw allow 52925/udp</code> and <code>sudo ufw allow 52926/tcp</code>.
+        <b>Firewall:</b> nothing to do — if the ufw firewall is on, the installer lets LANX through for your local network.
         <b>What's different on Linux:</b> the screenshot key, "Send to LANX" in the file manager and automatic update sharing are Windows-only;
         a Linux PC can see and control a colleague's Windows screen during Remote help but cannot itself be controlled yet. New Linux versions come from this page.
       </p>
@@ -288,6 +287,13 @@
       <h2>Version log</h2>
       <p class="sub">Newer versions keep talking to older ones; new features switch on once both sides update.</p>
       <div class="changelog">
+        <article>
+          <h3><span class="tag">3.4.1</span> One-click install, and Linux again</h3>
+          <ul>
+            <li>Windows: open the installer and click Yes — no pages to click through; LANX opens when it is done.</li>
+            <li>Linux: LANX 3.4 for Ubuntu, Debian and Mint — open the .deb and press Install.</li>
+          </ul>
+        </article>
         <article>
           <h3><span class="tag">3.4.0</span> The rest of LANX on the phone</h3>
           <ul>
@@ -571,7 +577,7 @@
     <section class="section cta-bottom">
       <p class="kicker">// READY WHEN YOU ARE</p>
       <h2>One small download.<br />Install it on two PCs and say hello.</h2>
-      <a class="btn btn-lg" href="/files/LANX-Setup-3.4.0.exe" data-v="dlHref" download><span class="lbl">Download LANX <span data-v="version">3.4.0</span></span></a>
+      <a class="btn btn-lg" href="/files/LANX-Setup-3.4.1.exe" data-v="dlHref" download><span class="lbl">Download LANX <span data-v="version">3.4.1</span></span></a>
       <p class="meta"><span data-v="size">13.1 MB</span> · Windows 10/11 · free</p>
     </section>
   </main>
@@ -582,7 +588,7 @@
     </div>
     <div class="foot-links">
       <a href="https://github.com/adi6499/LANX" rel="noopener">Source code</a>
-      <a href="/files/LANX-Setup-3.4.0.exe.sha256.txt" data-v="shaHref" download>Checksum</a>
+      <a href="/files/LANX-Setup-3.4.1.exe.sha256.txt" data-v="shaHref" download>Checksum</a>
       <a href="/version.json">Version info</a>
     </div>
     <div class="muted">© 2026 LANX · No tracking on this page.</div>

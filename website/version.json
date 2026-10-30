@@ -1,21 +1,21 @@
 {
-  "version": "3.4.0",
-  "file": "/files/LANX-Setup-3.4.0.exe",
-  "sig": "/files/LANX-Setup-3.4.0.exe.sig",
-  "sha256File": "/files/LANX-Setup-3.4.0.exe.sha256.txt",
-  "sha256": "949225758d05e0a83a1b69189e6f2621479767eea372e9e152c78348158a8fa9",
-  "bytes": 13747210,
+  "version": "3.4.1",
+  "file": "/files/LANX-Setup-3.4.1.exe",
+  "sig": "/files/LANX-Setup-3.4.1.exe.sig",
+  "sha256File": "/files/LANX-Setup-3.4.1.exe.sha256.txt",
+  "sha256": "df137ad3b7f239897c85b02972dcc7269e86cac74f70cf8518f2db0d0504e794",
+  "bytes": 13749343,
   "size": "13.1 MB",
   "date": "2026-10-30",
   "dateText": "30 Oct 2026",
   "windows": "Windows 10 / 11, 64-bit",
   "linux": {
     "deb": {
-      "file": "/files/LANX-2.4.0-linux-amd64.deb",
-      "bytes": 6924600,
-      "size": "6.6 MB",
-      "sha256": "44e94f9176c69fd129d131e70fa7b8842658e33063fe532be678775a9445d997",
-      "version": "2.4.0"
+      "file": "/files/LANX-3.4.1-linux-amd64.deb",
+      "bytes": 15744564,
+      "size": "15.0 MB",
+      "sha256": "f336c27230d5834cf5b58d05ade70fb1ff6ee00ccbea193b5b66b2e69465ffc1",
+      "version": "3.4.1"
     }
   }
 }

@@ -50,6 +50,19 @@
       if (lx.deb) { map.debSize = lx.deb.size; map.debSha = lx.deb.sha256; }
       map.linuxVersion = (lx.deb && lx.deb.version) || (lx.appimage && lx.appimage.version) || v.version;
       if (lx.appimage) { map.appSize = lx.appimage.size; map.appSha = lx.appimage.sha256; }
+      // A Linux visitor gets the Linux package as the main button.
+      var onLinux = /Linux|X11/.test(navigator.userAgent) && !/Android|CrOS/.test(navigator.userAgent);
+      if (onLinux && lx.deb) {
+        var btn = document.getElementById("dlBtn");
+        if (btn) {
+          btn.setAttribute("data-v", "debHref");
+          var lbl = btn.querySelector(".lbl");
+          if (lbl) lbl.innerHTML = 'Download LANX <span data-v="linuxVersion"></span> for Linux (.deb)';
+        }
+        var also = document.querySelector(".also-linux");
+        if (also) also.innerHTML = 'On Windows? <a href="#download" onclick="location.href=\'' + v.file + '\'; return false;">Download for Windows</a> · <a href="#linux">More about LANX for Linux</a>';
+        map.size = lx.deb.size;
+      }
       document.querySelectorAll("[data-v]").forEach(function (el) {
         var k = el.getAttribute("data-v");
         if (k === "debHref" && lx.deb) el.href = lx.deb.file;
