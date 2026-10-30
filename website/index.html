@@ -225,7 +225,7 @@
     <section class="section" id="install">
       <p class="kicker">// DEPLOYMENT</p>
       <h2>Installing on Windows</h2>
-      <p class="sub">What you will see, and what to click.</p>
+      <p class="sub">One click: open the file, say Yes, and LANX installs and opens by itself.</p>
       <div class="install">
         <ol class="guide">
           <li><b>Download</b> the installer with the button above and open it from your Downloads folder.</li>
@@ -235,7 +235,7 @@
             <span class="tip">Prefer not to see it at all? Right-click the downloaded file → <b>Properties</b> → tick <b>Unblock</b> → OK, then open it.
             Files copied over a USB drive or a shared folder never show this box.</span>
           </li>
-          <li>Windows asks <b>"Do you want to allow this app to make changes to your device?"</b> → <b>Yes</b>. The installer needs this once to install for all users and to let LANX through the Windows Firewall, so there are no firewall pop-ups later.</li>
+          <li>Windows asks <b>"Do you want to allow this app to make changes to your device?"</b> → <b>Yes</b>. That is the only click: LANX installs with a progress bar (no questions), lets itself through the Windows Firewall so there are no pop-ups later, and opens.</li>
           <li>LANX opens. <b>Type your name</b> → <b>Launch LANX</b>. A short animated guide shows you around (find it again under Settings → Help).</li>
         </ol>
         <aside class="reqs">
@@ -263,7 +263,7 @@
       <div class="dl-cards">
         <article class="dl-card" data-linux-deb>
           <h3>Ubuntu · Debian · Mint</h3>
-          <p>A <b>.deb</b> package for Ubuntu 22.04 or newer, Debian 12 or newer and Linux Mint 21 or newer. Double-click it, or run <code>sudo apt install ./LANX-x.y.z-linux-amd64.deb</code>. Then start LANX from the applications menu.</p>
+          <p>For Ubuntu 22.04 or newer, Debian 12 or newer and Linux Mint 21 or newer. <b>Open the downloaded file and press Install</b> (it asks your password once) — LANX installs, opens its firewall ports if a firewall is on, and appears in the applications menu. (Or in a terminal: <code>sudo apt install ./LANX-x.y.z-linux-amd64.deb</code>.)</p>
           <a class="btn" href="/files/LANX-2.4.0-linux-amd64.deb" data-v="debHref" download>Download .deb <span class="dim">(<span data-v="debSize">6.6 MB</span>)</span></a>
           <p class="sha small">SHA-256 <code data-v="debSha">44e94f9176c69fd129d131e70fa7b8842658e33063fe532be678775a9445d997</code></p>
         </article>
@@ -275,8 +275,7 @@
         </article>
       </div>
       <p class="note">
-        <b>Firewall:</b> most Linux desktops have none switched on. If yours does (<code>sudo ufw status</code> says active), allow LANX with
-        <code>sudo ufw allow 52925/udp</code> and <code>sudo ufw allow 52926/tcp</code>.
+        <b>Firewall:</b> nothing to do — if the ufw firewall is on, the installer lets LANX through for your local network.
         <b>What's different on Linux:</b> the screenshot key, "Send to LANX" in the file manager and automatic update sharing are Windows-only;
         a Linux PC can see and control a colleague's Windows screen during Remote help but cannot itself be controlled yet. New Linux versions come from this page.
       </p>
@@ -288,6 +287,13 @@
       <h2>Version log</h2>
       <p class="sub">Newer versions keep talking to older ones; new features switch on once both sides update.</p>
       <div class="changelog">
+        <article>
+          <h3><span class="tag">3.4.1</span> One-click install, and Linux again</h3>
+          <ul>
+            <li>Windows: open the installer and click Yes — no pages to click through; LANX opens when it is done.</li>
+            <li>Linux: LANX 3.4 for Ubuntu, Debian and Mint — open the .deb and press Install.</li>
+          </ul>
+        </article>
         <article>
           <h3><span class="tag">3.4.0</span> The rest of LANX on the phone</h3>
           <ul>

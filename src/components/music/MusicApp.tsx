@@ -110,6 +110,44 @@ async function fetchLyrics(s: Song): Promise<LyricLine[]> {
 
 const card = "rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] transition cursor-pointer";
 
+// (Outside MusicApp: defined inside, every refresh would rebuild them and reload the covers.)
+function Cover({ src, className = "" }: { src: string; className?: string }) {
+  return (
+    <div className={`overflow-hidden bg-white/10 flex items-center justify-center ${className}`}>{src ? <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Music2 className="h-1/3 w-1/3 text-white/40" />}</div>
+  );
+}
+
+function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <section className="mt-6">
+      <div className="flex items-center justify-between mb-2.5">
+        <h3 className="text-[16px] font-bold text-white">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Hero({ image, kicker, title, subtitle, onPlay, extra }: { image: string; kicker: string; title: string; subtitle?: string; onPlay: () => void; extra?: React.ReactNode }) {
+  return (
+    <div className="relative h-60 rounded-3xl overflow-hidden">
+      {image && <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+      <div className="relative h-full flex flex-col justify-end p-6">
+        <div className="text-[11px] font-semibold uppercase tracking-widest text-white/60">{kicker}</div>
+        <h2 className="mt-1 text-[32px] leading-tight font-extrabold text-white drop-shadow">{title}</h2>
+        {subtitle && <div className="text-[13px] text-white/70">{subtitle}</div>}
+        <div className="mt-3 flex items-center gap-2">
+          <button type="button" data-music-hero-play onClick={onPlay} className="px-6 py-2 rounded-full bg-sky-500 hover:bg-sky-400 text-white text-[13px] font-bold inline-flex items-center gap-1.5"><Play className="h-4 w-4" /> Play</button>
+          {extra}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** LANX 2.7.0: the music app — opened with /music (or the wrench menu). Browse what's
  *  trending, search songs / singers / films / albums / playlists, open an artist or album,
  *  keep favourites, playlists and a queue, and a full-screen "Now playing" with the
@@ -120,12 +158,16 @@ export function MusicApp({
   onClose,
   onError,
   onSendCard,
+  compact = false,
 }: {
   initialQuery?: string;
   chatName?: string | null;
   onClose: () => void;
   onError: (t: string) => void;
   onSendCard: (card: Record<string, unknown>, preview: string) => Promise<void> | void;
+  /** LANX 3.4.1 (the phone page): a phone layout — top bar with search and
+   *  library chips, a slim player bar, a simple Now playing. */
+  compact?: boolean;
 }) {
   const [view, setView] = useState<View>({ kind: "home" });
   const [stack, setStack] = useState<View[]>([]);
@@ -278,11 +320,9 @@ export function MusicApp({
 
   // ---------------------------------------------------------------- pieces
 
-  const Cover = ({ src, className = "" }: { src: string; className?: string }) => (
-    <div className={`overflow-hidden bg-white/10 flex items-center justify-center ${className}`}>{src ? <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" /> : <Music2 className="h-1/3 w-1/3 text-white/40" />}</div>
-  );
 
-  const SongList = ({ songs, numbered = true, showAlbum = true, onRemove }: { songs: Song[]; numbered?: boolean; showAlbum?: boolean; onRemove?: (s: Song) => void }) => (
+  // Called as functions, not <Components>: the rows stay the same elements between refreshes.
+  const songList = ({ songs, numbered = true, showAlbum = true, onRemove }: { songs: Song[]; numbered?: boolean; showAlbum?: boolean; onRemove?: (s: Song) => void }) => (
     <div className="space-y-0.5">
       {songs.map((s, i) => {
         const current = ps.song?.id === s.id;
@@ -327,7 +367,7 @@ export function MusicApp({
     </div>
   );
 
-  const Grid = ({ items, round = false }: { items: Collection[]; round?: boolean }) => (
+  const grid = ({ items, round = false }: { items: Collection[]; round?: boolean }) => (
     <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
       {items.map((c) => (
         <button key={`${c.type}-${c.id}`} type="button" data-music-collection={c.id} data-music-type={c.type} onClick={() => openCollection(c)} className={`${card} p-2.5 text-left`}>
@@ -339,32 +379,7 @@ export function MusicApp({
     </div>
   );
 
-  const Section = ({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) => (
-    <section className="mt-6">
-      <div className="flex items-center justify-between mb-2.5">
-        <h3 className="text-[16px] font-bold text-white">{title}</h3>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
 
-  const Hero = ({ image, kicker, title, subtitle, onPlay, extra }: { image: string; kicker: string; title: string; subtitle?: string; onPlay: () => void; extra?: React.ReactNode }) => (
-    <div className="relative h-60 rounded-3xl overflow-hidden">
-      {image && <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-      <div className="relative h-full flex flex-col justify-end p-6">
-        <div className="text-[11px] font-semibold uppercase tracking-widest text-white/60">{kicker}</div>
-        <h2 className="mt-1 text-[32px] leading-tight font-extrabold text-white drop-shadow">{title}</h2>
-        {subtitle && <div className="text-[13px] text-white/70">{subtitle}</div>}
-        <div className="mt-3 flex items-center gap-2">
-          <button type="button" data-music-hero-play onClick={onPlay} className="px-6 py-2 rounded-full bg-sky-500 hover:bg-sky-400 text-white text-[13px] font-bold inline-flex items-center gap-1.5"><Play className="h-4 w-4" /> Play</button>
-          {extra}
-        </div>
-      </div>
-    </div>
-  );
 
   // ---------------------------------------------------------------- views
 
@@ -384,20 +399,20 @@ export function MusicApp({
           })}
         </div>
         {heroCol && <Hero image={heroCol.image} kicker="Trending now" title={heroCol.title} subtitle={heroCol.subtitle || heroCol.language} onPlay={() => void getCollectionSongs(heroCol).then((r) => player.playAll(r.songs)).catch((e) => onError(errorText(e)))} extra={<button type="button" onClick={() => openCollection(heroCol)} className="px-5 py-2 rounded-full border border-white/40 text-white text-[13px] font-semibold hover:bg-white/10">Open</button>} />}
-        {home && home.trending.length > 1 && <Section title="Trending now"><Grid items={home.trending.slice(1, 13)} /></Section>}
-        {home && home.charts.length > 0 && <Section title="Charts"><Grid items={home.charts.slice(0, 12)} /></Section>}
-        {home && home.newSongs.length > 0 && <Section title="New songs"><SongList songs={home.newSongs.slice(0, 15)} /></Section>}
-        {home && home.newAlbums.length > 0 && <Section title="New albums"><Grid items={home.newAlbums.slice(0, 12)} /></Section>}
+        {home && home.trending.length > 1 && <Section title="Trending now">{grid({ items: home.trending.slice(1, 13) })}</Section>}
+        {home && home.charts.length > 0 && <Section title="Charts">{grid({ items: home.charts.slice(0, 12) })}</Section>}
+        {home && home.newSongs.length > 0 && <Section title="New songs">{songList({ songs: home.newSongs.slice(0, 15) })}</Section>}
+        {home && home.newAlbums.length > 0 && <Section title="New albums">{grid({ items: home.newAlbums.slice(0, 12) })}</Section>}
       </>
     );
   } else if (view.kind === "search") {
     title = `Results for “${query.trim()}”`;
     main = found ? (
       <>
-        {found.songs.length > 0 && <Section title="Songs"><SongList songs={found.songs} /></Section>}
-        {found.artists.length > 0 && <Section title="Artists"><Grid items={found.artists} round /></Section>}
-        {found.albums.length > 0 && <Section title="Albums"><Grid items={found.albums} /></Section>}
-        {found.playlists.length > 0 && <Section title="Playlists"><Grid items={found.playlists} /></Section>}
+        {found.songs.length > 0 && <Section title="Songs">{songList({ songs: found.songs })}</Section>}
+        {found.artists.length > 0 && <Section title="Artists">{grid({ items: found.artists, round: true })}</Section>}
+        {found.albums.length > 0 && <Section title="Albums">{grid({ items: found.albums })}</Section>}
+        {found.playlists.length > 0 && <Section title="Playlists">{grid({ items: found.playlists })}</Section>}
         {!found.songs.length && !found.artists.length && !found.albums.length && !found.playlists.length && <p className="py-10 text-center text-white/50 text-[13px]">Nothing found for that.</p>}
       </>
     ) : null;
@@ -407,8 +422,8 @@ export function MusicApp({
     main = artist ? (
       <>
         <Hero image={artist.image || view.c.image} kicker="Artist" title={artist.name} onPlay={() => void player.playAll(artist.topSongs)} extra={<button type="button" data-music-follow onClick={async () => setFollowed(await toggleFollowed({ ...view.c, title: artist.name, image: artist.image || view.c.image }))} className={`px-5 py-2 rounded-full border text-[13px] font-semibold ${following ? "bg-white text-slate-900 border-white" : "border-white/40 text-white hover:bg-white/10"}`}>{following ? "Following" : "Follow"}</button>} />
-        <Section title="Top songs"><SongList songs={artist.topSongs} showAlbum /></Section>
-        {artist.albums.length > 0 && <Section title="Albums"><Grid items={artist.albums} /></Section>}
+        <Section title="Top songs">{songList({ songs: artist.topSongs, showAlbum: true })}</Section>
+        {artist.albums.length > 0 && <Section title="Albums">{grid({ items: artist.albums })}</Section>}
       </>
     ) : null;
   } else if (view.kind === "collection") {
@@ -430,25 +445,25 @@ export function MusicApp({
             </div>
           </div>
         </div>
-        <div className="mt-5">{colSongs && <SongList songs={colSongs.songs} showAlbum={c.type !== "album"} />}</div>
+        <div className="mt-5">{colSongs && songList({ songs: colSongs.songs, showAlbum: c.type !== "album" })}</div>
       </>
     );
   } else if (view.kind === "favs") {
     title = "Songs";
     main = (
       <>
-        {favs.length ? <Section title="Songs you love"><SongList songs={favs} /></Section> : <p className="text-white/50 text-[13px]">Press the heart on any song and it lands here. Meanwhile, something new:</p>}
-        {home && home.newSongs.length > 0 && <Section title="New songs"><SongList songs={home.newSongs.slice(0, 20)} /></Section>}
-        {home && home.charts.length > 0 && <Section title="Charts"><Grid items={home.charts.slice(0, 12)} /></Section>}
+        {favs.length ? <Section title="Songs you love">{songList({ songs: favs })}</Section> : <p className="text-white/50 text-[13px]">Press the heart on any song and it lands here. Meanwhile, something new:</p>}
+        {home && home.newSongs.length > 0 && <Section title="New songs">{songList({ songs: home.newSongs.slice(0, 20) })}</Section>}
+        {home && home.charts.length > 0 && <Section title="Charts">{grid({ items: home.charts.slice(0, 12) })}</Section>}
       </>
     );
   } else if (view.kind === "artists") {
     title = "Artists";
     main = (
       <>
-        {followed.length > 0 && <Section title="Artists you follow"><Grid items={followed} round /></Section>}
+        {followed.length > 0 && <Section title="Artists you follow">{grid({ items: followed, round: true })}</Section>}
         <Section title={followed.length ? "Popular artists" : "Popular artists — open one and press Follow"}>
-          {popular.length ? <Grid items={popular} round /> : <div className="flex items-center gap-2 text-white/50 text-[13px]"><Loader2 className="h-4 w-4 animate-spin" /> Looking up the well-known singers for your languages…</div>}
+          {popular.length ? grid({ items: popular, round: true }) : <div className="flex items-center gap-2 text-white/50 text-[13px]"><Loader2 className="h-4 w-4 animate-spin" /> Looking up the well-known singers for your languages…</div>}
         </Section>
       </>
     );
@@ -456,9 +471,9 @@ export function MusicApp({
     title = "Albums";
     main = (
       <>
-        {savedAlbums.length > 0 && <Section title="Your albums"><Grid items={savedAlbums} /></Section>}
-        {home && home.newAlbums.length > 0 && <Section title="New albums"><Grid items={home.newAlbums} /></Section>}
-        {home && home.trending.length > 0 && <Section title="Trending"><Grid items={home.trending} /></Section>}
+        {savedAlbums.length > 0 && <Section title="Your albums">{grid({ items: savedAlbums })}</Section>}
+        {home && home.newAlbums.length > 0 && <Section title="New albums">{grid({ items: home.newAlbums })}</Section>}
+        {home && home.trending.length > 0 && <Section title="Trending">{grid({ items: home.trending })}</Section>}
         {!savedAlbums.length && <p className="mt-4 text-white/50 text-[12.5px]">Open an album and press the heart to keep it under Your albums.</p>}
       </>
     );
@@ -486,7 +501,7 @@ export function MusicApp({
           <p className="py-2 text-white/50 text-[13px]">Make a playlist, then use + on any song to add it.</p>
         )}
         {home && (home.playlists.length > 0 || home.charts.length > 0) && (
-          <Section title="Playlists and charts from the service"><Grid items={[...home.charts, ...home.playlists].filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i).slice(0, 24)} /></Section>
+          <Section title="Playlists and charts from the service">{grid({ items: [...home.charts, ...home.playlists].filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i).slice(0, 24) })}</Section>
         )}
       </>
     );
@@ -499,31 +514,31 @@ export function MusicApp({
           <button type="button" onClick={() => void player.playAll(p.songs)} disabled={!p.songs.length} className="px-6 py-2 rounded-full bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white text-[13px] font-bold inline-flex items-center gap-1.5"><Play className="h-4 w-4" /> Play</button>
           <button type="button" onClick={async () => { setPlaylists(await deletePlaylist(p.id)); back(); }} className="px-4 py-2 rounded-full border border-white/30 text-white/80 text-[12.5px] font-semibold hover:bg-white/10 inline-flex items-center gap-1.5"><Trash2 className="h-4 w-4" /> Delete playlist</button>
         </div>
-        {p.songs.length ? <SongList songs={p.songs} onRemove={async (s) => setPlaylists(await removeFromPlaylist(p.id, s.id))} /> : <p className="py-6 text-white/50 text-[13px]">Empty — use + on any song to add it here.</p>}
+        {p.songs.length ? songList({ songs: p.songs, onRemove: async (s) => setPlaylists(await removeFromPlaylist(p.id, s.id)) }) : <p className="py-6 text-white/50 text-[13px]">Empty — use + on any song to add it here.</p>}
       </>
     ) : null;
   } else if (view.kind === "recent") {
     title = "Recently played";
-    main = recent.length ? <SongList songs={recent} /> : (
+    main = recent.length ? songList({ songs: recent }) : (
       <>
         <p className="text-white/50 text-[13px]">Nothing played yet. Start with what's new:</p>
-        {home && home.newSongs.length > 0 && <Section title="New songs"><SongList songs={home.newSongs.slice(0, 15)} /></Section>}
+        {home && home.newSongs.length > 0 && <Section title="New songs">{songList({ songs: home.newSongs.slice(0, 15) })}</Section>}
       </>
     );
   } else if (view.kind === "most") {
     title = "Most listened";
-    main = mostListened.length ? <SongList songs={mostListened} /> : (
+    main = mostListened.length ? songList({ songs: mostListened }) : (
       <>
         <p className="text-white/50 text-[13px]">Play a few songs and your favourites show up here by how often they played. Meanwhile, the charts:</p>
-        {home && home.charts.length > 0 && <Section title="Charts"><Grid items={home.charts.slice(0, 12)} /></Section>}
+        {home && home.charts.length > 0 && <Section title="Charts">{grid({ items: home.charts.slice(0, 12) })}</Section>}
       </>
     );
   } else if (view.kind === "queue") {
     title = "Up next";
-    main = ps.queue.length ? <SongList songs={ps.queue} onRemove={(s) => player.removeFromQueue(s.id)} /> : (
+    main = ps.queue.length ? songList({ songs: ps.queue, onRemove: (s) => player.removeFromQueue(s.id) }) : (
       <>
         <p className="text-white/50 text-[13px]">The queue is empty — press the + next to a song, or play an album or a chart and it fills up.</p>
-        {home && home.trending.length > 0 && <Section title="Trending now"><Grid items={home.trending.slice(0, 12)} /></Section>}
+        {home && home.trending.length > 0 && <Section title="Trending now">{grid({ items: home.trending.slice(0, 12) })}</Section>}
       </>
     );
   }
@@ -544,9 +559,22 @@ export function MusicApp({
     for (let i = 0; i < lyrics.length; i++) if (lyrics[i].t <= ps.position + 0.3) idx = i;
     return idx;
   }, [lyrics, ps.position]);
+  // Only when the line changes (not four times a second, which made the lyrics jitter).
+  const lyricEls = useRef<(HTMLDivElement | null)[]>([]);
+  useEffect(() => {
+    if (currentLine >= 0 && showLyrics && nowPlaying) lyricEls.current[currentLine]?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [currentLine, showLyrics, nowPlaying]);
+
+  /** Phone: a library section as a chip. */
+  const chip = (kind: View["kind"], label: string, count?: number) => (
+    <button key={kind} type="button" data-music-tab={kind} onClick={() => go({ kind } as View)} className={`shrink-0 rounded-full px-3 py-1.5 text-[12.5px] font-semibold ${view.kind === kind ? "bg-white text-slate-900" : "bg-white/10 text-white/80"}`}>
+      {label}
+      {count ? <span className="ml-1 opacity-60">{count}</span> : null}
+    </button>
+  );
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm lanx-fade" onMouseDown={onClose}>
+    <div className={compact ? "fixed inset-0 z-[60]" : "fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm lanx-fade"} onMouseDown={compact ? undefined : onClose}>
       <style>{`
         @keyframes lanx-music-drift { 0% { transform: scale(1.15) translate(0, 0); } 50% { transform: scale(1.25) translate(-2%, 2%); } 100% { transform: scale(1.15) translate(0, 0); } }
         .lanx-cf-card { transition: transform .55s cubic-bezier(.2,.8,.2,1), opacity .45s ease, filter .45s ease; will-change: transform; }
@@ -554,13 +582,42 @@ export function MusicApp({
       `}</style>
       <div
         data-music-panel
-        className="absolute inset-3 mx-auto max-w-[1500px] rounded-[26px] overflow-hidden flex flex-col text-white shadow-2xl"
+        className={compact ? "absolute inset-0 overflow-hidden flex flex-col text-white pt-[env(safe-area-inset-top)]" : "absolute inset-3 mx-auto max-w-[1500px] rounded-[26px] overflow-hidden flex flex-col text-white shadow-2xl"}
         style={{ background: "linear-gradient(160deg, #1e1b4b 0%, #0b1020 42%, #2e1065 100%)" }}
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {compact && (
+          <div data-music-top className="shrink-0 border-b border-white/10 px-3 pb-2 pt-2">
+            <div className="flex items-center gap-2">
+              <button type="button" data-music-close-nav onClick={onClose} aria-label="Back to chats" className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <div className="text-[18px] font-extrabold tracking-tight">Music</div>
+              {loading && <Loader2 className="h-4 w-4 animate-spin text-white/60" />}
+              <button type="button" disabled={!ps.song} onClick={() => setNowPlaying(true)} className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-semibold disabled:opacity-30">
+                <Maximize2 className="h-3.5 w-3.5" /> Now playing
+              </button>
+            </div>
+            <div className="relative mt-2">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+              <input data-music-search value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search songs, singers, films…" enterKeyHint="search" className="w-full rounded-full bg-white/10 py-2 pl-9 pr-3 text-[16px] text-white placeholder:text-white/40 focus:outline-none" />
+            </div>
+            <div className="-mx-3 mt-2 flex gap-1.5 overflow-x-auto px-3 [scrollbar-width:none]" data-music-chips>
+              {chip("home", "Discover")}
+              {query.trim() ? chip("search", "Results") : null}
+              {chip("favs", "Songs", favs.length)}
+              {chip("artists", "Artists", followed.length)}
+              {chip("albums", "Albums", savedAlbums.length)}
+              {chip("playlists", "Playlists", playlists.length)}
+              {chip("recent", "Recent")}
+              {chip("most", "Most played")}
+              {chip("queue", ps.queue.length ? `Queue · ${ps.queue.length}` : "Queue")}
+            </div>
+          </div>
+        )}
         <div className="flex flex-1 min-h-0">
           {/* ---- left: search + library */}
-          <aside className="w-60 shrink-0 border-r border-white/10 p-4 flex flex-col gap-1 overflow-y-auto lanx-music-scroll">
+          <aside className={`${compact ? "hidden" : "flex"} w-60 shrink-0 border-r border-white/10 p-4 flex-col gap-1 overflow-y-auto lanx-music-scroll`}>
             <div className="flex items-center gap-2 px-1 mb-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-violet-500"><Music2 className="h-4 w-4" /></span>
               <div className="text-[17px] font-extrabold tracking-tight">Music</div>
@@ -568,7 +625,7 @@ export function MusicApp({
             </div>
             <div className="relative mb-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
-              <input data-music-search autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search songs, singers, films…" className="w-full rounded-full bg-white/10 pl-9 pr-3 py-2 text-[13px] text-white placeholder:text-white/40 outline-none focus:bg-white/15" />
+              <input data-music-search autoFocus={!compact} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search songs, singers, films…" className="w-full rounded-full bg-white/10 pl-9 pr-3 py-2 text-[13px] text-white placeholder:text-white/40 outline-none focus:bg-white/15" />
             </div>
             {nav("home", "Discover", Home)}
             {query.trim() ? nav("search", "Search results", Search) : null}
@@ -590,12 +647,12 @@ export function MusicApp({
           </aside>
 
           {/* ---- middle: the page */}
-          <main className="flex-1 min-w-0 overflow-y-auto lanx-music-scroll px-6 py-5">
+          <main className={`flex-1 min-w-0 overflow-y-auto lanx-music-scroll ${compact ? "px-3 py-3" : "px-6 py-5"}`}>
             <div className="flex items-center gap-2 mb-4">
               <button type="button" onClick={back} disabled={!stack.length} className="h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"><ArrowLeft className="h-4 w-4" /></button>
               <h2 className="text-[20px] font-extrabold tracking-tight truncate">{title}</h2>
               {loading && <Loader2 className="h-4 w-4 animate-spin text-white/60" />}
-              <div className="ml-auto flex items-center gap-1.5">
+              <div className={`ml-auto items-center gap-1.5 ${compact ? "hidden" : "flex"}`}>
                 <button type="button" title="Now playing (full screen)" disabled={!ps.song} onClick={() => setNowPlaying(true)} className="h-8 px-3 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[12px] font-semibold inline-flex items-center gap-1.5"><Maximize2 className="h-3.5 w-3.5" /> Now playing</button>
                 <button type="button" data-music-close onClick={onClose} title="Close the music app (Esc) — the song keeps playing" className="h-8 px-3.5 rounded-full bg-white text-slate-900 hover:bg-white/90 text-[12px] font-bold inline-flex items-center gap-1.5"><X className="h-4 w-4" /> Close</button>
               </div>
@@ -606,7 +663,7 @@ export function MusicApp({
           </main>
 
           {/* ---- right: now playing + played */}
-          <aside className="hidden xl:flex w-72 shrink-0 border-l border-white/10 p-4 flex-col gap-4 overflow-y-auto lanx-music-scroll">
+          <aside className={`hidden ${compact ? "" : "xl:flex"} w-72 shrink-0 border-l border-white/10 p-4 flex-col gap-4 overflow-y-auto lanx-music-scroll`}>
             <div>
               <div className="text-[10.5px] font-bold uppercase tracking-widest text-white/40 mb-2">Now playing</div>
               {ps.song ? (
@@ -641,7 +698,34 @@ export function MusicApp({
           </aside>
         </div>
 
-        {/* ---- bottom: the player bar */}
+        {/* ---- bottom: the player bar (slim on the phone) */}
+        {compact ? (
+          <div data-music-bar className="shrink-0 border-t border-white/10 bg-[#0b1020] px-3 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-1.5">
+            <div className="mb-1.5 h-0.5 overflow-hidden rounded-full bg-white/15">
+              <div className="h-full bg-white" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="flex items-center gap-2.5">
+              <button type="button" onClick={() => ps.song && setNowPlaying(true)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                <Cover src={ps.song?.cover ?? ""} className="h-11 w-11 shrink-0 rounded-lg" />
+                <span className="min-w-0">
+                  <span className="block truncate text-[13.5px] font-semibold">{ps.song?.title ?? "Nothing playing"}</span>
+                  <span className="block truncate text-[11.5px] text-white/60">{ps.error ?? ps.song?.artist ?? "Pick a song or an album"}</span>
+                </span>
+              </button>
+              {ps.song && (
+                <button type="button" aria-label="Favourite" onClick={() => ps.song && void fav(ps.song)} className={`flex h-9 w-9 items-center justify-center rounded-full ${isFav(ps.song) ? "text-rose-400" : "text-white/60"}`}>
+                  <Heart className="h-5 w-5" fill={isFav(ps.song) ? "currentColor" : "none"} />
+                </button>
+              )}
+              <button type="button" data-music-bar-toggle aria-label={ps.playing ? "Pause" : "Play"} onClick={() => player.toggle()} disabled={!ps.song} className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-900 disabled:opacity-40">
+                {ps.playing ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
+              </button>
+              <button type="button" data-music-bar-next aria-label="Next" onClick={() => player.next()} disabled={!ps.song} className="flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40">
+                <SkipForward className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        ) : (
         <div data-music-bar className="shrink-0 border-t border-white/10 bg-black/30 backdrop-blur px-4 py-2.5 grid grid-cols-[1fr_minmax(320px,2fr)_1fr] items-center gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button type="button" onClick={() => ps.song && setNowPlaying(true)} className="shrink-0"><Cover src={ps.song?.cover ?? ""} className="h-12 w-12 rounded-lg" /></button>
@@ -675,8 +759,84 @@ export function MusicApp({
           </div>
         </div>
 
+        )}
+
+        {/* ---- Now playing on the phone: one big cover, the controls under it, no moving blur */}
+        {compact && nowPlaying && ps.song && (
+          <div data-music-now className="absolute inset-0 z-10 flex flex-col overflow-hidden bg-[#0b1020] text-white">
+            {ps.song.cover && <img src={ps.song.cover} alt="" className="absolute inset-0 h-full w-full scale-125 object-cover opacity-50" style={{ filter: "blur(40px) saturate(1.3)" }} />}
+            <div className="absolute inset-0 bg-black/40" />
+            <div className="relative flex items-center justify-between px-3 pt-[calc(env(safe-area-inset-top)+8px)]">
+              <button type="button" aria-label="Close" onClick={() => setNowPlaying(false)} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15">
+                <Minimize2 className="h-4 w-4" />
+              </button>
+              <button type="button" onClick={() => setShowLyrics((v) => !v)} className={`inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[13px] font-semibold ${showLyrics ? "bg-white text-slate-900" : "bg-white/15"}`}>
+                <Mic2 className="h-4 w-4" /> Lyrics
+              </button>
+            </div>
+            <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-6">
+              {!showLyrics ? (
+                <>
+                  <Cover src={ps.song.cover} className="aspect-square w-[min(78vw,340px)] rounded-3xl shadow-2xl" />
+                  <div className="mt-5 w-full text-center">
+                    <div className="truncate text-[20px] font-bold">{ps.song.title}</div>
+                    <div className="truncate text-[14px] text-white/70">{ps.song.artist}</div>
+                  </div>
+                </>
+              ) : (
+                <div className="h-full w-full space-y-2 overflow-y-auto py-6 text-center" style={{ maskImage: "linear-gradient(to bottom, transparent, black 12%, black 88%, transparent)" }}>
+                  {lyrics.length ? (
+                    lyrics.map((l, i) => (
+                      <div key={i} ref={(el) => { lyricEls.current[i] = el; }} onClick={() => player.seek(l.t)} className={`text-[18px] leading-snug ${i === currentLine ? "font-bold text-white" : i < currentLine ? "text-white/40" : "text-white/60"}`}>
+                        {l.text}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="pt-20 text-[14px] text-white/50">No lyrics found for this song.</div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="relative px-6 pb-[calc(env(safe-area-inset-bottom)+20px)]">
+              <input type="range" min={0} max={Math.max(1, Math.round(ps.duration))} value={Math.round(ps.position)} onChange={(e) => player.seek(Number(e.target.value))} className="w-full accent-white" aria-label="Position" />
+              <div className="flex justify-between text-[11px] tabular-nums text-white/60">
+                <span>{fmtTime(ps.position)}</span>
+                <span>{fmtTime(ps.duration)}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <button type="button" aria-label="Shuffle" onClick={() => player.setShuffle(!ps.shuffle)} className={`flex h-11 w-11 items-center justify-center rounded-full ${ps.shuffle ? "text-sky-300" : "text-white/70"}`}>
+                  <Shuffle className="h-5 w-5" />
+                </button>
+                <button type="button" aria-label="Previous" onClick={() => player.prev()} className="flex h-12 w-12 items-center justify-center rounded-full">
+                  <SkipBack className="h-6 w-6" />
+                </button>
+                <button type="button" data-music-now-toggle aria-label={ps.playing ? "Pause" : "Play"} onClick={() => player.toggle()} className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-slate-900">
+                  {ps.playing ? <Pause className="h-7 w-7" /> : <Play className="ml-1 h-7 w-7" />}
+                </button>
+                <button type="button" aria-label="Next" onClick={() => player.next()} className="flex h-12 w-12 items-center justify-center rounded-full">
+                  <SkipForward className="h-6 w-6" />
+                </button>
+                <button type="button" aria-label="Repeat" onClick={() => player.setRepeat(ps.repeat === "off" ? "all" : ps.repeat === "all" ? "one" : "off")} className={`flex h-11 w-11 items-center justify-center rounded-full ${ps.repeat !== "off" ? "text-sky-300" : "text-white/70"}`}>
+                  {ps.repeat === "one" ? <Repeat1 className="h-5 w-5" /> : <Repeat className="h-5 w-5" />}
+                </button>
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-3">
+                <button type="button" onClick={() => void fav(ps.song!)} className={`inline-flex h-9 items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-semibold ${isFav(ps.song) ? "text-rose-300" : ""}`}>
+                  <Heart className="h-4 w-4" fill={isFav(ps.song) ? "currentColor" : "none"} /> {isFav(ps.song) ? "Loved" : "Love"}
+                </button>
+                <button type="button" onClick={() => { setNowPlaying(false); go({ kind: "queue" }); }} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-semibold">
+                  <ListMusic className="h-4 w-4" /> Up next
+                </button>
+                <button type="button" disabled={!!busy} onClick={() => void send(ps.song!)} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white/10 px-3 text-[12.5px] font-semibold disabled:opacity-40">
+                  <Send className="h-4 w-4" /> Send
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ---- Now playing: the covers fanned out, lyrics, floating player */}
-        {nowPlaying && ps.song && (
+        {!compact && nowPlaying && ps.song && (
           <div data-music-now className="absolute inset-0 z-10 overflow-hidden text-white" onMouseDown={(e) => e.stopPropagation()}>
             {ps.song.cover && <img src={ps.song.cover} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ filter: "blur(70px) saturate(1.4)", animation: "lanx-music-drift 24s ease-in-out infinite" }} />}
             <div className="absolute inset-0 bg-black/35" />
@@ -723,7 +883,7 @@ export function MusicApp({
                   <div className="w-full max-h-[300px] overflow-y-auto lanx-music-scroll text-center space-y-2 py-4 px-2" style={{ maskImage: "linear-gradient(to bottom, transparent, black 15%, black 85%, transparent)" }}>
                     {lyrics.length ? (
                       lyrics.map((l, i) => (
-                        <div key={i} ref={(el) => { if (el && i === currentLine) el.scrollIntoView({ block: "center", behavior: "smooth" }); }} onClick={() => player.seek(l.t)} className={`cursor-pointer transition text-[18px] leading-snug ${i === currentLine ? "text-white font-bold scale-105" : i < currentLine ? "text-white/40" : "text-white/60"}`}>{l.text}</div>
+                        <div key={i} ref={(el) => { lyricEls.current[i] = el; }} onClick={() => player.seek(l.t)} className={`cursor-pointer transition text-[18px] leading-snug ${i === currentLine ? "text-white font-bold scale-105" : i < currentLine ? "text-white/40" : "text-white/60"}`}>{l.text}</div>
                       ))
                     ) : (
                       <div className="text-white/50 text-[14px]">No lyrics found for this song.</div>

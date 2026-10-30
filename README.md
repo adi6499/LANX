@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.4.0)
+# LANX — Local Network Messenger (v3.4.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,16 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.4.1: one-click install, and Linux again
+- **Windows:** open the installer, click **Yes** — it installs with a progress bar (no pages to click through) and
+  opens LANX. (`/WIZARD` brings the old step-by-step pages back.)
+- **Linux:** LANX 3.4 for Ubuntu / Debian / Mint as a .deb — open it and press **Install**. If the ufw firewall is
+  on, the package lets LANX through for local networks by itself.
+- The download page offers the Linux package first to Linux visitors.
+- **iPhone fixes:** Music no longer flickers (its covers were rebuilt four times a second while playing) and has a
+  real phone layout; the meme picker's header and close button fit; panels opened full screen are solid; the phone
+  page starts even in browsers without calls.
 
 ### New in 3.4.0: the rest of LANX on the phone
 - **Appearance:** the phone shows the PC's look — light / dark, accent colour, background, live wallpaper (your

@@ -1,11 +1,19 @@
 {
   "bundle": {
-    "targets": ["deb", "appimage"],
+    "targets": [
+      "deb",
+      "appimage"
+    ],
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libayatana-appindicator3-1"],
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
         "section": "net",
-        "priority": "optional"
+        "priority": "optional",
+        "postInstallScript": "deb/postinst.sh"
       },
       "appimage": {
         "bundleMediaFramework": false

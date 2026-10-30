@@ -257,7 +257,7 @@ export function BroadcastSheet({ peers, profiles, onClose, onSend }: { peers: Pe
 
 /** The PC's music player, full screen on the phone (songs play on the phone). */
 export function MusicScreen({ chatName, onBack, onError, onSendCard }: { chatName: string | null; onBack: () => void; onError: (t: string) => void; onSendCard: (card: Record<string, unknown>) => Promise<void> }) {
-  return <MusicApp chatName={chatName} onClose={onBack} onError={onError} onSendCard={(card) => onSendCard(card)} />;
+  return <MusicApp compact chatName={chatName} onClose={onBack} onError={onError} onSendCard={(card) => onSendCard(card)} />;
 }
 
 /** The PC's meme picker, full screen; what it sends is kept and sent by the PC. */

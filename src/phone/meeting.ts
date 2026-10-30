@@ -9,6 +9,7 @@ import type { Conversation, MeetingChatLine, MeetingEvent, MeetingInfo } from ".
 import { iceGathered, preferCodecs, tuneSdp } from "../lib/webrtc";
 import { Recorder, recordingSupported } from "../lib/recorder";
 import type { PhoneClient } from "./client";
+import { newStream } from "./call";
 
 /** "pc": the meeting is in LANX on the PC (the phone only says so). */
 export type MeetingStatus = "invited" | "joining" | "active" | "pc";
@@ -75,7 +76,7 @@ async function getCam(facing: "user" | "environment"): Promise<MediaStreamTrack 
 
 export class PhoneMeeting {
   state: PhoneMeetingState | null = null;
-  localStream = new MediaStream();
+  localStream = newStream();
   private conns = new Map<string, Conn>();
   private mic: MediaStreamTrack | null = null;
   private cam: MediaStreamTrack | null = null;
@@ -142,7 +143,7 @@ export class PhoneMeeting {
   // ------------------------------------------------------------- media
 
   private refreshLocal() {
-    this.localStream = new MediaStream([this.mic, this.cam].filter((t): t is MediaStreamTrack => !!t));
+    this.localStream = newStream([this.mic, this.cam].filter((t): t is MediaStreamTrack => !!t));
   }
 
   private async grabMedia(video: boolean) {
@@ -157,7 +158,7 @@ export class PhoneMeeting {
   private releaseMedia() {
     for (const t of [this.mic, this.cam]) t?.stop();
     this.mic = this.cam = null;
-    this.localStream = new MediaStream();
+    this.localStream = newStream();
   }
 
   private closeConn(id: string) {
@@ -226,7 +227,7 @@ export class PhoneMeeting {
     const tries = this.conns.get(id)?.tries ?? 0;
     this.closeConn(id);
     const pc = new RTCPeerConnection({ iceServers: [] });
-    const c: Conn = { pc, stream: new MediaStream(), audio: null, video: null, tries, connected: false, grace: 0, timer: 0 };
+    const c: Conn = { pc, stream: newStream(), audio: null, video: null, tries, connected: false, grace: 0, timer: 0 };
     pc.ontrack = (e) => {
       if (!c.stream.getTracks().includes(e.track)) c.stream.addTrack(e.track);
       e.track.onunmute = () => this.bump();

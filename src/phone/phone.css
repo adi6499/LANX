@@ -148,24 +148,7 @@ body {
 .ph-root [data-meme-action="wa"] {
   display: none !important;
 }
-.ph-root [data-music-panel] {
-  inset: 0 !important;
-  border-radius: 0 !important;
-  padding-top: env(safe-area-inset-top);
-}
-/* Music: the library on top, the songs below. */
-.ph-root [data-music-panel] > div:first-of-type {
-  flex-direction: column;
-}
-.ph-root [data-music-panel] aside {
-  width: 100% !important;
-  max-height: 34dvh;
-  border-right: 0 !important;
-  border-bottom: 1px solid rgb(255 255 255 / 0.1);
-}
-.ph-root [data-music-panel] main {
-  padding: 12px !important;
-}
+/* Music has its own phone layout (MusicApp compact, 3.4.1). */
 /* A phone has no mouse to hover with: the buttons the PC shows on hover are
    always there (send, queue, share on a song; send and favourite on a meme). */
 .ph-root [data-music-item] .opacity-0,
@@ -266,4 +249,45 @@ body {
 }
 .ph-root [data-directory] .grid {
   grid-template-columns: 1fr !important;
+}
+/* 3.4.1: the meme picker's header on a phone — title, then the tabs on their
+   own swipeable row; the close button always in the top corner. */
+.ph-root [data-meme-panel] {
+  position: relative;
+}
+.ph-root [data-meme-panel] > div:first-child {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding-right: 40px;
+}
+.ph-root [data-meme-panel] > div:first-child > span.text-\[11px\] {
+  display: none;
+}
+.ph-root [data-meme-panel] > div:first-child > div.ml-auto {
+  order: 3;
+  width: calc(100% + 40px);
+  margin-left: 0 !important;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ph-root [data-meme-panel] [data-meme-tab] {
+  flex-shrink: 0;
+}
+.ph-root [data-meme-panel] > div:first-child > div.ml-auto > button:last-child {
+  position: absolute;
+  right: 10px;
+  top: calc(10px + env(safe-area-inset-top));
+  padding: 8px;
+}
+/* 3.4.1: the PC's panels shown full screen on the phone are solid — the
+   screen behind (the More list) must not show through. */
+.ph-root [data-office],
+.ph-root [data-helpdesk],
+.ph-root [data-meme-panel],
+.ph-root [data-games-panel] {
+  background: var(--lanx-surface) !important;
+}
+/* A phone can't take a picture of the PC's screen for an IT ticket. */
+.ph-root label:has(> [data-help-shot]) {
+  display: none !important;
 }

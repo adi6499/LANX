@@ -43,6 +43,10 @@ export interface CallPush {
 const CONNECT_TIMEOUT_MS = 20_000;
 const DISCONNECT_GRACE_MS = 8_000;
 
+/** A media stream, or nothing on a browser without calls (the page must still
+ *  start there: an in-app browser, an old phone). */
+export const newStream = (tracks?: MediaStreamTrack[]): MediaStream => (typeof MediaStream === "undefined" ? (null as unknown as MediaStream) : tracks ? new MediaStream(tracks) : new MediaStream());
+
 export const canCall = () => window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && typeof RTCPeerConnection !== "undefined";
 
 function endText(reason: string | null, info: CallInfo): string {
@@ -127,8 +131,8 @@ export class PhoneCall {
   state: PhoneCallState | null = null;
   /** This phone's device id (from `hello`): which "answered" was ours. */
   myDeviceId = "";
-  remoteStream = new MediaStream();
-  localStream = new MediaStream();
+  remoteStream = newStream();
+  localStream = newStream();
   private listeners = new Set<() => void>();
   private pc: RTCPeerConnection | null = null;
   private mic: MediaStreamTrack | null = null;
@@ -212,8 +216,8 @@ export class PhoneCall {
     }
     this.pc = null;
     this.offer = null;
-    this.remoteStream = new MediaStream();
-    this.localStream = new MediaStream();
+    this.remoteStream = newStream();
+    this.localStream = newStream();
     window.clearTimeout(this.timers.connect);
     window.clearTimeout(this.timers.disconnect);
   }
@@ -279,7 +283,7 @@ export class PhoneCall {
   /** The picture this phone shows of itself: a fresh stream, so the preview
    *  picks up a new camera at once. */
   private refreshLocal() {
-    this.localStream = new MediaStream([this.mic, this.cam].filter((t): t is MediaStreamTrack => !!t && t.readyState === "live"));
+    this.localStream = newStream([this.mic, this.cam].filter((t): t is MediaStreamTrack => !!t && t.readyState === "live"));
     this.patch({ tracks: (this.state?.tracks ?? 0) + 1 });
   }
 
@@ -442,7 +446,7 @@ export class PhoneCall {
       if (video && !cam) this.onProblem("The camera isn't available, so this starts as a voice call.");
       this.adoptMic(mic);
       this.adoptCam(cam);
-      this.localStream = new MediaStream([mic, cam].filter((t): t is MediaStreamTrack => !!t));
+      this.localStream = newStream([mic, cam].filter((t): t is MediaStreamTrack => !!t));
       const pc = this.newPeer();
       this.audioSender = pc.addTransceiver(mic ?? "audio", { direction: "sendrecv", streams: [this.localStream] }).sender;
       this.videoSender = pc.addTransceiver(cam ?? "video", { direction: "sendrecv", streams: [this.localStream] }).sender;
@@ -480,7 +484,7 @@ export class PhoneCall {
       if (!mic) this.onProblem("The phone did not allow the microphone — they won't hear you.");
       this.adoptMic(mic);
       this.adoptCam(cam);
-      this.localStream = new MediaStream([mic, cam].filter((t): t is MediaStreamTrack => !!t));
+      this.localStream = newStream([mic, cam].filter((t): t is MediaStreamTrack => !!t));
       const pc = this.newPeer();
       await pc.setRemoteDescription({ type: "offer", sdp: tuneSdp(offer) });
       for (const t of pc.getTransceivers()) {

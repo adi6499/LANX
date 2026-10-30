@@ -25,9 +25,10 @@ const script = { check: "check-in-container.sh", test: "test-in-container.sh", b
 const distroArg = args.includes("--distro") ? args[args.indexOf("--distro") + 1] : null;
 
 const sh = process.platform === "win32";
-function run(cmd, cmdArgs) {
+function run(cmd, cmdArgs, direct = false) {
   console.log(`\n$ ${cmd} ${cmdArgs.join(" ")}`);
-  const r = spawnSync(cmd, cmdArgs, { stdio: "inherit", shell: sh });
+  // `direct`: no cmd.exe in between (it mangles quoted paths with spaces).
+  const r = spawnSync(cmd, cmdArgs, { stdio: "inherit", shell: sh && !direct });
   if (r.status !== 0) {
     console.error(`\n✖ ${cmd} failed (exit ${r.status})`);
     process.exit(r.status ?? 1);
@@ -62,7 +63,8 @@ if (where === "wsl") {
     `HOST=${q(host)} WORK=/root/lanx-work OUT=${q(host + "/release")} bash linux/${script}`,
   ].join(" && ");
   console.log(`Building in WSL distro "${wslDistro}" (as root). First time: installs build tools, downloads Rust crates.`);
-  run("wsl.exe", ["-d", wslDistro, "-u", "root", "--", "bash", "-c", `'${inner.replace(/'/g, `'\\''`)}'`]);
+  // --exec: WSL runs bash with exactly these arguments (no second shell parsing them).
+  run("wsl.exe", ["-d", wslDistro, "-u", "root", "--exec", "bash", "-c", inner], true);
 } else {
   console.log("Building in Docker (linux/Dockerfile).");
   run("docker", ["build", "-t", "lanx-linux-builder", path.join(root, "linux")]);

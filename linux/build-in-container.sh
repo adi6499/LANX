@@ -33,8 +33,9 @@ npx tauri build --config src-tauri/tauri.linux.conf.json "$@"
 echo "== results"
 B="$WORK/target/release/bundle"
 ls -la "$B/deb" "$B/appimage" 2>/dev/null || true
-DEB=$(ls "$B"/deb/*.deb | head -1)
-APP=$(ls "$B"/appimage/*.AppImage | head -1)
+# This version's files only (older builds stay in the bundle folders).
+DEB=$(ls "$B"/deb/*_"$VERSION"_*.deb | head -1)
+APP=$(ls "$B"/appimage/*_"$VERSION"_*.AppImage | head -1)
 cp -f "$DEB" "$OUT/LANX-$VERSION-linux-amd64.deb"
 cp -f "$APP" "$OUT/LANX-$VERSION-linux-amd64.AppImage"
 chmod +x "$OUT/LANX-$VERSION-linux-amd64.AppImage"

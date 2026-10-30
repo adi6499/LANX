@@ -71,7 +71,7 @@ export function CallScreen({ manager, profiles }: { manager: PhoneCall; profiles
   const { info, status } = call;
   const name = info.private ? "Incoming call" : info.peer_name || "Someone";
   const kind = info.video ? "video" : "voice";
-  const remoteVideoTrack = manager.remoteStream.getVideoTracks().find((t) => t.readyState === "live" && !t.muted);
+  const remoteVideoTrack = manager.remoteStream?.getVideoTracks().find((t) => t.readyState === "live" && !t.muted);
   const showRemoteVideo = status === "active" && (call.remoteVideo || call.remoteScreen) && !!remoteVideoTrack;
   // 3.4: a shared screen (remote help) is shown whole, not cropped.
   const screen = call.remoteScreen || info.help === "view";
