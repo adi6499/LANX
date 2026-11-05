@@ -11,6 +11,7 @@ import { AppsLauncher } from "./admin/AppsLauncher";
 import { ShieldCheck } from "lucide-react";
 import { isMuted } from "../lib/tools";
 import { useDictationLabel } from "../lib/voice";
+import { useGesturePrefs } from "../lib/gestures/prefs";
 import { stagger } from "../lib/motion";
 import { Avatar } from "./Avatar";
 import { CLEAR_AFTER, EMPTY_PROFILE, STATUS_PRESETS, effective, statusLine, statusPreset } from "../lib/profile";
@@ -82,6 +83,41 @@ interface SidebarProps {
 type ListView = "all" | "unread" | "archived" | string;
 
 const TAB_ORDER: NavTab[] = ["messages", "people", "transfers", "history"];
+
+/** LANX 3.6.1: gestures on and off in one click. The first time it also shows
+ *  how they work; a right-click opens the gesture settings. */
+const GestureButton: React.FC<{ onOpenGestures: () => void }> = ({ onOpenGestures }) => {
+  const [prefs, setPrefs] = useGesturePrefs();
+  const on = !!prefs?.enabled;
+  const toggle = () => {
+    if (!prefs) return;
+    setPrefs({ ...prefs, enabled: !on });
+    if (on) return;
+    let seen = false;
+    try {
+      seen = localStorage.getItem("lanx.gestures.guideSeen") === "1";
+      localStorage.setItem("lanx.gestures.guideSeen", "1");
+    } catch {}
+    if (!seen) onOpenGestures();
+  };
+  return (
+    <button
+      type="button"
+      data-gesture-toggle={on ? "on" : "off"}
+      onClick={toggle}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onOpenGestures();
+      }}
+      title={on ? "Gestures are on: the camera follows your hand. Click to turn them off (right-click for settings)" : "Gestures: use LANX with your hand through the camera (right-click for settings)"}
+      aria-pressed={on}
+      className={`lanx-tool relative flex h-8 w-8 items-center justify-center ${on ? "text-emerald-600 dark:text-emerald-400 !bg-emerald-500/12" : "text-slate-500 dark:text-slate-400"}`}
+    >
+      <Hand className="h-[17px] w-[17px]" />
+      {on && <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+    </button>
+  );
+};
 
 export const Sidebar: React.FC<SidebarProps> = ({
   settings,
@@ -405,6 +441,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <StickyNote className="h-[17px] w-[17px]" />
               </button>
             )}
+            {onOpenGestures && <GestureButton onOpenGestures={onOpenGestures} />}
             {(onOpenPdf || onOpenCalc) && (
               <div className="relative">
                 <button type="button" data-open-tools onClick={() => setToolsMenu((v) => !v)} title="Tools: PDF tools, voice, gestures, calculator" className={`lanx-tool flex h-8 w-8 items-center justify-center text-slate-600 dark:text-slate-300 ${toolsMenu ? "!bg-[var(--lanx-fill)]" : ""}`}>

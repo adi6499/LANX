@@ -62,6 +62,8 @@ others) and talks to the Windows copies on the same network.
   least 80% solid, whatever the Glass setting, so the small grey text (tabs, chat previews, hints) stays readable.
   LANX works out how bright each wallpaper is — for your own pictures and videos it measures them.
 - The softer greys of Golden hour and Toy box are a little deeper.
+- **A hand button** in the row of icons at the top left turns gestures on and off in one click (the first time it
+  also shows how they work; right-click it for the gesture settings).
 
 ### New in 3.6.0: Storybook colours
 LANX now looks like an animated film: **Settings → Appearance → Colours**.
