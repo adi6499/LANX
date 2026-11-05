@@ -65,6 +65,8 @@ export class GestureEngine {
   private times: number[] = [];
   private tried = new Map<Delegate, number>();
   private settled = false;
+  /** The way asked for, while the worker switches. */
+  private asked: Delegate | null = null;
 
   constructor(
     private onFrame: (f: Frame) => void,
@@ -83,6 +85,12 @@ export class GestureEngine {
       w.onmessage = (e: MessageEvent<FromWorker>) => {
         const m = e.data;
         if (m.kind === "ready") {
+          // It could not switch: that way is out (no asking again and again).
+          if (this.asked && m.delegate !== this.asked) {
+            this.tried.set(this.asked, Infinity);
+            this.settled = true;
+          }
+          this.asked = null;
           this.delegate = m.delegate;
           this.times = [];
           this.busy = false;
@@ -226,6 +234,7 @@ export class GestureEngine {
     if (otherTime !== undefined || !next) this.settled = true;
     if (next) {
       this.busy = true; // no frames while it switches; "ready" lets them go again
+      this.asked = next;
       this.worker?.postMessage({ kind: "delegate", delegate: next } satisfies ToWorker);
     }
     this.times = [];

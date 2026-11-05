@@ -68,7 +68,12 @@ const LOST_MS = 250;
 const MIN_SCALE = 0.07;
 const PINCH_IN = 0.33;
 const PINCH_OUT = 0.48;
-const DRAG_PX = 18;
+/** Fingertips at least this far apart (hand-lengths) for a closed hand to be a fist, not a pinch. */
+const FIST_GAP = 0.4;
+/** A pinch turns into a drag only after this long and this far: a quick pinch
+ *  is a click even while the hand moves (real hands wobble far more than a mouse). */
+const DRAG_PX = 36;
+const DRAG_DELAY = 180;
 const LONG_MS = 700;
 const DOUBLE_MS = 420;
 const REWIND_MS = 90;
@@ -145,16 +150,21 @@ export function poseOf(h: HandIn, aspect: number): Pose {
   const others = [curled(12, 10), curled(16, 14), curled(20, 18)].filter(Boolean).length;
   const thumbOut = dist(p(4), p(9)) / scale > 0.8 || dist(p(4), p(5)) / scale > 0.75;
   const canned = h.score >= 0.5 ? h.gesture : "None";
-  const fist = canned === "Closed_Fist" || (canned !== "Thumb_Up" && canned !== "Thumb_Down" && !thumbOut && indexCurled && others >= 3);
-  const ext = [extended(8, 6), extended(12, 10), extended(16, 14), extended(20, 18)].filter(Boolean).length;
   const t4 = p(4);
   const t8 = p(8);
+  const pinch = dist(t4, t8) / scale;
+  // A fist, unless the thumb and index fingertips touch: most people pinch with
+  // the other fingers curled, which the model calls "Closed_Fist" too. Measured
+  // on a real hand (5 Nov 2026): pinches 0.12–0.31 hand-lengths apart, fists 0.42–0.65.
+  const fistShape = canned === "Closed_Fist" || (canned !== "Thumb_Up" && canned !== "Thumb_Down" && !thumbOut && indexCurled && others >= 3);
+  const fist = fistShape && pinch >= FIST_GAP;
+  const ext = [extended(8, 6), extended(12, 10), extended(16, 14), extended(20, 18)].filter(Boolean).length;
   const sign = h.score >= 0.65 ? SIGNS[h.gesture] ?? null : null;
   return {
     palm,
     anchor,
     scale,
-    pinch: dist(t4, t8) / scale,
+    pinch,
     fist,
     open: canned === "Open_Palm" || ext >= 3,
     thumbOut,
@@ -263,7 +273,7 @@ export class GestureInterpreter {
       tr.screen = { x: tr.fx.filter(raw.x, f.t), y: tr.fy.filter(raw.y, f.t) };
       tr.shist.push({ t: f.t, ...tr.screen });
       while (tr.shist.length && f.t - tr.shist[0].t > 400) tr.shist.shift();
-      const pinchy = P.pinch < (tr.pinch ? PINCH_OUT : PINCH_IN) && !P.fist && !P.indexCurled;
+      const pinchy = P.pinch < (tr.pinch ? PINCH_OUT : PINCH_IN);
       tr.pinchFrames = pinchy ? tr.pinchFrames + 1 : 0;
       tr.openFrames = pinchy ? 0 : tr.openFrames + 1;
       if (!tr.pinch && tr.pinchFrames >= 2) tr.pinch = true;
@@ -273,7 +283,7 @@ export class GestureInterpreter {
       }
       tr.fistFrames = P.fist ? tr.fistFrames + 1 : 0;
       tr.plainFrames = P.fist ? 0 : tr.plainFrames + 1;
-      if (!tr.grab && tr.fistFrames >= 3) tr.grab = true;
+      if (!tr.grab && tr.fistFrames >= 4) tr.grab = true;
       else if (tr.grab && tr.plainFrames >= 3) tr.grab = false;
     }
 
@@ -377,7 +387,7 @@ export class GestureInterpreter {
         events.push({ type: "press", x, y });
       } else {
         const pr = this.press;
-        if (!pr.dragging && !pr.long && Math.hypot(x - pr.x, y - pr.y) > DRAG_PX) pr.dragging = true;
+        if (!pr.dragging && !pr.long && f.t - pr.t >= DRAG_DELAY && Math.hypot(x - pr.x, y - pr.y) > DRAG_PX) pr.dragging = true;
         if (pr.dragging) events.push({ type: "drag", x, y });
         else if (!pr.long && f.t - pr.t >= LONG_MS) {
           pr.long = true;

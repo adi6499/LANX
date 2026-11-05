@@ -41,11 +41,14 @@ let setup: Extract<ToWorker, { kind: "init" }> | null = null;
 const LOOK_EVERY = 10;
 const BOTH_HOLD_MS = 800;
 
+/** Each copy of the model needs the engine's loader to run afresh: a module
+ *  imported twice runs only once ("ModuleFactory not set"), so every copy after
+ *  the first asks for it under its own address. */
+let loads = 0;
+const loaderFor = (m: Extract<ToWorker, { kind: "init" }>) => (loads++ === 0 ? m.loader : `${m.loader}?copy=${loads}`);
 const create = (m: Extract<ToWorker, { kind: "init" }>, delegate: Delegate, numHands: number) =>
   GestureRecognizer.createFromOptions(
-    // Each copy needs the engine's loader to run afresh: a module imported twice
-    // runs only once, so the second copy asks for it under its own address.
-    { wasmLoaderPath: numHands === 1 ? m.loader : `${m.loader}?copy=${numHands}`, wasmBinaryPath: m.wasm },
+    { wasmLoaderPath: loaderFor(m), wasmBinaryPath: m.wasm },
     {
       baseOptions: { modelAssetPath: m.model, delegate },
       runningMode: "VIDEO",
