@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, events } from "../lib/api";
-import { DEFAULT_WALLPAPER, type WallpaperChoice, fileKind, mimeOf, startBuiltin } from "../lib/wallpaper";
+import { DEFAULT_WALLPAPER, type WallTone, type WallpaperChoice, builtinTone, fileKind, measureTone, mimeOf, startBuiltin } from "../lib/wallpaper";
 
 /** LANX 2.5.0: the live wallpaper behind the whole window (a built-in
  *  animation, or the user's own picture / video, looping). The settings panel
@@ -57,6 +57,21 @@ export function WallpaperLayer({ reduceMotion, fileSrc }: { reduceMotion: boolea
     return () => document.documentElement.classList.remove("lanx-has-wallpaper");
   }, [choice.kind]);
 
+  // LANX 3.6.1: how bright the wallpaper is, so see-through panels stay readable
+  // on it (App.css: --lanx-glass-floor). Pictures and videos are measured once shown.
+  const [measured, setMeasured] = useState<WallTone | null>(null);
+  const tone: WallTone | null = choice.kind === "none" ? null : choice.kind === "builtin" ? builtinTone(choice.id, choice.dim) : measured ?? "mid";
+  useEffect(() => {
+    const root = document.documentElement;
+    if (tone) root.dataset.wallTone = tone;
+    else delete root.dataset.wallTone;
+    return () => {
+      delete root.dataset.wallTone;
+    };
+  }, [tone]);
+  useEffect(() => setMeasured(null), [choice.kind, choice.path]);
+  const measure = (el: HTMLImageElement | HTMLVideoElement) => setMeasured(measureTone(el, choice.dim));
+
   // Built-in: draw it.
   useEffect(() => {
     if (choice.kind !== "builtin" || !canvasRef.current) return;
@@ -95,9 +110,9 @@ export function WallpaperLayer({ reduceMotion, fileSrc }: { reduceMotion: boolea
   return (
     <div data-wallpaper={choice.kind === "builtin" ? choice.id : kind ?? "file"} className="absolute inset-0 -z-10 overflow-hidden pointer-events-none" aria-hidden="true">
       {choice.kind === "builtin" && <canvas ref={canvasRef} className="h-full w-full" style={{ filter }} />}
-      {choice.kind === "file" && fileUrl && kind === "image" && <img src={fileUrl} alt="" className="h-full w-full object-cover" style={{ filter }} />}
+      {choice.kind === "file" && fileUrl && kind === "image" && <img src={fileUrl} alt="" onLoad={(e) => measure(e.currentTarget)} className="h-full w-full object-cover" style={{ filter }} />}
       {choice.kind === "file" && fileUrl && kind === "video" && (
-        <video src={fileUrl} autoPlay loop muted playsInline disablePictureInPicture className="h-full w-full object-cover" style={{ filter }} {...(reduceMotion ? { autoPlay: false } : {})} />
+        <video src={fileUrl} autoPlay loop muted playsInline disablePictureInPicture onLoadedData={(e) => measure(e.currentTarget)} className="h-full w-full object-cover" style={{ filter }} {...(reduceMotion ? { autoPlay: false } : {})} />
       )}
       <div className="absolute inset-0" data-wallpaper-dim style={{ background: `rgba(10, 14, 24, ${Math.min(80, Math.max(0, choice.dim)) / 100})` }} />
     </div>

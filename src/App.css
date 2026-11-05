@@ -146,16 +146,16 @@
   }
   /* Sidebar and the details panel: floating glass */
   .lanx-glass {
-    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(var(--lanx-glass-a) * 100%), transparent);
+    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(max(var(--lanx-glass-a), var(--lanx-glass-floor, 0)) * 100%), transparent);
     box-shadow: var(--lanx-rim-shadow), var(--lanx-shadow);
   }
   /* Top bars and the message box */
   .lanx-bar {
-    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(min(1, var(--lanx-glass-a) + 0.08) * 100%), transparent);
+    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(min(1, max(var(--lanx-glass-a), var(--lanx-glass-floor, 0)) + 0.08) * 100%), transparent);
   }
   /* Settings and the other windows */
   .lanx-sheet {
-    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(min(1, var(--lanx-glass-a) + 0.16) * 100%), transparent);
+    background-color: color-mix(in srgb, var(--lanx-surface-c) calc(min(1, max(var(--lanx-glass-a), var(--lanx-glass-floor, 0)) + 0.16) * 100%), transparent);
     box-shadow: var(--lanx-rim-shadow), 0 0 0 0.5px rgb(0 0 0 / 0.14), 0 40px 120px -30px rgb(0 0 0 / 0.5);
   }
   /* Small menus: solid whatever the glass setting, so they stay readable
@@ -166,7 +166,7 @@
   }
   /* Cards lying on the background (no blur, so many of them stay cheap) */
   .lanx-card {
-    background-color: color-mix(in srgb, var(--lanx-surface) calc(min(1, var(--lanx-glass-a) + 0.24) * 100%), transparent);
+    background-color: color-mix(in srgb, var(--lanx-surface) calc(min(1, max(var(--lanx-glass-a), var(--lanx-glass-floor, 0)) + 0.24) * 100%), transparent);
     box-shadow: var(--lanx-rim-shadow), 0 0 0 0.5px var(--lanx-line), 0 1px 3px rgb(0 0 0 / 0.04);
   }
   /* Grouped rows inside a window, like iPhone / Mac settings */
@@ -697,3 +697,13 @@
 
 /* LANX 3.6.0: in a Storybook look the island is the look's deepest ink, not plain black. */
 .storybook .lanx-island { background: var(--color-black); }
+
+/* LANX 3.6.1: see-through panels stay readable. Over a wallpaper that is darker
+   than a light LANX (or lighter than a dark one, or in between), the panels keep
+   at least this much of their own colour, whatever the Glass setting. */
+:root:not(.dark)[data-wall-tone="dark"],
+:root:not(.dark)[data-wall-tone="mid"],
+:root.dark[data-wall-tone="light"],
+:root.dark[data-wall-tone="mid"] {
+  --lanx-glass-floor: 0.8;
+}

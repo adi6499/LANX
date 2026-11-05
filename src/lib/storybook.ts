@@ -69,7 +69,7 @@ const NEUTRALS = ["slate", "gray", "zinc", "neutral", "stone"];
 
 const GOLDEN: Palette = {
   selector: ":root.storybook-golden:not(.dark)",
-  neutral: ["#fff8f0", "#fbefe4", "#f0dfd2", "#ddc6b8", "#b49a92", "#8c7276", "#6e5767", "#574457", "#3f3044", "#2e2236", "#1e1526"],
+  neutral: ["#fff8f0", "#fbefe4", "#f0dfd2", "#d6bcae", "#a3857f", "#7b6068", "#654f5f", "#524052", "#3f3044", "#2e2236", "#1e1526"],
   hues: { accent: "#ee5a3c", blue: "#3f8fe0", grape: "#8466e8", leaf: "#26a88f", teal: "#1fa59a", sun: "#f5a524", orange: "#f47b2e", red: "#e5484d", pink: "#f0609e", cyan: "#22b3c9" },
   paper: "#fffaf3",
   ink: "#2e1d33",
@@ -87,7 +87,7 @@ const GOLDEN: Palette = {
 };
 const TOYBOX: Palette = {
   selector: ":root.storybook-toybox:not(.dark)",
-  neutral: ["#f5f9ff", "#eaf2fc", "#d6e3f3", "#b6c8e0", "#8aa0bf", "#64799a", "#4b5e7e", "#3a4a66", "#29364e", "#1e2840", "#121a2e"],
+  neutral: ["#f5f9ff", "#eaf2fc", "#d6e3f3", "#adc0da", "#7a91b3", "#5a6e90", "#465878", "#364663", "#29364e", "#1e2840", "#121a2e"],
   hues: { accent: "#2f7de1", blue: "#2f7de1", grape: "#7b5ce6", leaf: "#2fa866", teal: "#1fa99a", sun: "#f7b500", orange: "#ff8c2b", red: "#e8453c", pink: "#f2549b", cyan: "#21a9e0" },
   paper: "#f8fbff",
   ink: "#141d36",

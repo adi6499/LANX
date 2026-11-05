@@ -25,6 +25,46 @@ export const BUILTIN: { id: string; name: string; hint: string; colors: string[]
   { id: "meadow", name: "Meadow", hint: "Sunlit gradient breeze", colors: ["#14532d", "#4ade80", "#fef08a"] },
 ];
 
+/** LANX 3.6.1: how bright a wallpaper looks once dimmed — so panels can stay
+ *  readable on it ("mid" and the opposite of the theme get more solid panels). */
+export type WallTone = "dark" | "mid" | "light";
+const luminance = (r: number, g: number, b: number) => {
+  const c = [r, g, b].map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+};
+export function toneOf(lum: number, dim: number): WallTone {
+  const l = lum * (1 - Math.min(80, Math.max(0, dim)) / 100);
+  return l < 0.2 ? "dark" : l > 0.4 ? "light" : "mid";
+}
+/** A built-in wallpaper: mostly its first (background) colour. */
+export function builtinTone(id: string | undefined, dim: number): WallTone {
+  const b = BUILTIN.find((x) => x.id === id) ?? BUILTIN[0];
+  const ls = b.colors.map((h) => {
+    const n = parseInt(h.slice(1), 16);
+    return luminance((n >> 16) & 255, (n >> 8) & 255, n & 255);
+  });
+  return toneOf(ls[0] * 0.6 + ls[1] * 0.25 + ls[2] * 0.15, dim);
+}
+/** A picture or video frame, measured on a small copy (null if it can't be read). */
+export function measureTone(el: HTMLImageElement | HTMLVideoElement, dim: number): WallTone | null {
+  try {
+    const c = document.createElement("canvas");
+    c.width = c.height = 16;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(el, 0, 0, 16, 16);
+    const d = ctx.getImageData(0, 0, 16, 16).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += luminance(d[i], d[i + 1], d[i + 2]);
+    return toneOf(sum / (d.length / 4), dim);
+  } catch {
+    return null;
+  }
+}
+
 type Painter = (ctx: CanvasRenderingContext2D, w: number, h: number, t: number, rnd: number[]) => void;
 
 function lerp(a: number, b: number, t: number) {

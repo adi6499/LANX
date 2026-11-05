@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.6.0)
+# LANX — Local Network Messenger (v3.6.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,12 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.6.1: text you can read on any wallpaper
+- With a live wallpaper darker than LANX's light look (or lighter than its dark look), the panels now stay at
+  least 80% solid, whatever the Glass setting, so the small grey text (tabs, chat previews, hints) stays readable.
+  LANX works out how bright each wallpaper is — for your own pictures and videos it measures them.
+- The softer greys of Golden hour and Toy box are a little deeper.
 
 ### New in 3.6.0: Storybook colours
 LANX now looks like an animated film: **Settings → Appearance → Colours**.
