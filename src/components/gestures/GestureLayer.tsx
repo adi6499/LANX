@@ -35,6 +35,10 @@ const BOX = 28;
 const DWELL_MS = 900;
 /** How far the pointer may wander while holding still (px). */
 const DWELL_MOVE = 28;
+/** It must have travelled this far (px) in the moment before reaching the button: a hand that
+ *  was only resting in view (chin on hand…) never clicks. */
+const DWELL_ARRIVE = 60;
+const DWELL_ARRIVE_MS = 1500;
 /** The "hold still to click" whisper shows for the first few clicks only. */
 const HINT_CLICKS = 6;
 const HINT_KEY = "lanx.gestures.clicks";
@@ -63,7 +67,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   const [choose, setChoose] = useState<{ el: HTMLSelectElement; rect: DOMRect } | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   /** Two hands resizing the window: the glow and the size label. */
-  const [framing, setFraming] = useState<{ w: number; h: number } | null>(null);
+  const [framing, setFraming] = useState<{ w: number; h: number; fill?: boolean } | null>(null);
   const winFrame = useRef<WindowFrame | null>(null);
   /** The pill's words: shown for a few seconds when something changes, or while the mouse (or hand) is on it. */
   const [pillOpen, setPillOpen] = useState(false);
@@ -103,6 +107,8 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   /** Holding still on a button: which, where it started, since when, and whether it already clicked. */
   const dwell = useRef<{ el: Element; x: number; y: number; since: number; done: boolean } | null>(null);
   const dwellP = useRef(0);
+  /** Where the pointer has been lately (to tell a pointer brought here from a resting hand). */
+  const trail = useRef<{ t: number; x: number; y: number }[]>([]);
   const flashUntil = useRef(0);
   const hintsLeft = useRef(clicksSoFar() < HINT_CLICKS);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
@@ -290,7 +296,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       case "zoom": return d.zoom(e.scale, e.rotate, e.cx, e.cy);
       case "zoom-end": return d.zoomEnd();
       case "frame-start":
-        winFrame.current ??= new WindowFrame((w, h) => setFraming({ w, h }));
+        winFrame.current ??= new WindowFrame((w, h, fill) => setFraming({ w, h, fill }));
         void winFrame.current.begin();
         return;
       case "frame":
@@ -331,12 +337,22 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       target.current = null;
       d.leave();
     }
+    if (c) {
+      trail.current.push({ t: f.t, x: c.x, y: c.y });
+      while (trail.current.length && f.t - trail.current[0].t > DWELL_ARRIVE_MS) trail.current.shift();
+    } else trail.current = [];
     // Holding still on a button clicks it: the button fills up first, so it never surprises.
     const t = target.current;
     const dwellable = !!t && (t.hug || /^(INPUT|TEXTAREA|SELECT)$/.test(t.el.tagName));
-    if (c && t && dwellable && c.mode === "point" && !c.hold && p.dwell !== false && out.tracking < 2) {
+    if (c && t && dwellable && c.mode === "point" && !c.hold && c.ready !== false && p.dwell !== false && out.tracking < 2) {
       let dw = dwell.current;
-      if (!dw || dw.el !== t.el) dw = dwell.current = { el: t.el, x: c.x, y: c.y, since: f.t, done: false };
+      if (!dw || dw.el !== t.el) {
+        // Brought here on purpose (it moved a little way just before)? Otherwise it waits until the pointer leaves.
+        const tr = trail.current;
+        let travelled = 0;
+        for (let i = 1; i < tr.length; i++) travelled = Math.max(travelled, Math.hypot(tr[i].x - tr[0].x, tr[i].y - tr[0].y));
+        dw = dwell.current = { el: t.el, x: c.x, y: c.y, since: f.t, done: travelled < DWELL_ARRIVE };
+      }
       else if (!dw.done && Math.hypot(c.x - dw.x, c.y - dw.y) > DWELL_MOVE) Object.assign(dw, { x: c.x, y: c.y, since: f.t });
       if (dw.done) dwellP.current = 0;
       else {
@@ -557,7 +573,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       <div data-gesture-ui data-gesture-glow className="lanx-glow" data-on={framing ? "" : undefined} aria-hidden />
       {framing && (
         <div data-gesture-ui data-gesture-size className="pointer-events-none fixed left-1/2 top-1/2 z-[211] -translate-x-1/2 -translate-y-1/2 rounded-full lanx-menu px-4 py-2 text-[15px] font-semibold tabular-nums text-slate-800 dark:text-slate-100 lanx-menu-in">
-          {framing.w} × {framing.h}
+          {framing.fill ? "Full screen" : `${framing.w} × ${framing.h}`}
         </div>
       )}
 

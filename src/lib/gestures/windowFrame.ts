@@ -2,6 +2,9 @@
  *  together: smaller — from the window's middle, kept between LANX's smallest
  *  size and the screen. In the browser preview only the numbers change. */
 import { PhysicalPosition, PhysicalSize, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+
+/** Past the screen's size by this much, the window fills the screen. */
+const FILL_PAST = 1.08;
 import { isTauri } from "../api";
 
 /** LANX's smallest window (tauri.conf.json minWidth / minHeight), in logical pixels. */
@@ -25,11 +28,12 @@ interface Start {
 
 export class WindowFrame {
   private start: Start | null = null;
-  private want: { w: number; h: number } | null = null;
+  private want: { w: number; h: number } | "fill" | null = null;
+  private filled = false;
   private busy = false;
 
-  /** `onSize`: the new size in logical pixels (for the little size label). */
-  constructor(private onSize: (w: number, h: number) => void) {}
+  /** `onSize`: the new size in logical pixels (for the little size label); `fill` when it fills the screen. */
+  constructor(private onSize: (w: number, h: number, fill?: boolean) => void) {}
 
   async begin() {
     if (!isTauri) {
@@ -63,12 +67,19 @@ export class WindowFrame {
     const s = this.start;
     if (!s) return;
     // The same factor both ways keeps the window's shape: no smaller than LANX's
-    // smallest window, no bigger than the screen.
-    const k = Math.min(Math.max(scale, s.minW / s.w, s.minH / s.h), s.maxW / s.w, s.maxH / s.h);
-    const w = Math.round(s.w * k);
-    const h = Math.round(s.h * k);
-    this.want = { w, h };
-    this.onSize(Math.round(w / s.sf), Math.round(h / s.sf));
+    // smallest window, no bigger than the screen (never smaller just for starting);
+    // past the screen it fills it.
+    const maxK = Math.max(1, Math.min(s.maxW / s.w, s.maxH / s.h));
+    if (scale > maxK * FILL_PAST) {
+      this.want = "fill";
+      this.onSize(Math.round(s.maxW / s.sf), Math.round(s.maxH / s.sf), true);
+    } else {
+      const k = Math.min(Math.max(scale, s.minW / s.w, s.minH / s.h), maxK);
+      const w = Math.round(s.w * k);
+      const h = Math.round(s.h * k);
+      this.want = { w, h };
+      this.onSize(Math.round(w / s.sf), Math.round(h / s.sf));
+    }
     void this.apply();
   }
 
@@ -79,8 +90,18 @@ export class WindowFrame {
     try {
       const win = getCurrentWindow();
       while (this.want && this.start) {
-        const { w, h } = this.want;
+        const want = this.want;
         this.want = null;
+        if (want === "fill") {
+          if (!this.filled) await win.maximize();
+          this.filled = true;
+          continue;
+        }
+        if (this.filled) {
+          await win.unmaximize();
+          this.filled = false;
+        }
+        const { w, h } = want;
         const s = this.start;
         let x = Math.round(s.cx - w / 2);
         let y = Math.round(s.cy - h / 2);
@@ -101,5 +122,6 @@ export class WindowFrame {
   end() {
     this.start = null;
     this.want = null;
+    this.filled = false;
   }
 }

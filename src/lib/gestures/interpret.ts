@@ -45,6 +45,8 @@ export interface Cursor {
   mode: CursorMode;
   /** A sign being held: which, and how far along (0..1). */
   hold: null | { sign: Sign; p: number };
+  /** LANX 3.6.1: the hand is open or pointing (a resting, curled hand never clicks by holding still). */
+  ready?: boolean;
 }
 export interface Out {
   cursor: Cursor | null;
@@ -140,6 +142,8 @@ export interface Pose {
   open: boolean;
   thumbOut: boolean;
   indexCurled: boolean;
+  /** The index finger is straight (open hand or pointing). */
+  pointing: boolean;
   sign: Sign | null;
   handed: "left" | "right";
 }
@@ -178,6 +182,7 @@ export function poseOf(h: HandIn, aspect: number): Pose {
     open: canned === "Open_Palm" || ext >= 3,
     thumbOut,
     indexCurled,
+    pointing: extended(8, 6),
     sign,
     // The engine assumes a mirrored picture; ours isn't, so its "Left" is the right hand.
     handed: h.handed === "Left" ? "right" : "left",
@@ -505,6 +510,6 @@ export class GestureInterpreter {
       hold = { sign: prim.sign, p: Math.min(1, (f.t - prim.signSince) / HOLD_MS) };
     }
 
-    return { cursor: { x, y, mode: "point", hold }, second: null, events, tracking: live.length };
+    return { cursor: { x, y, mode: "point", hold, ready: prim.pose.open || prim.pose.pointing }, second: null, events, tracking: live.length };
   }
 }
