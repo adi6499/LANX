@@ -1336,6 +1336,22 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                 Err(e) => fail(&id, &e),
             }
         }
+        // ---- LANX 3.6.2: this phone as the PC's camera. The PC asks (an offer, through
+        // `cam_send`); the phone answers, declines or stops here (WebRTC, straight to the PC).
+        "cam_signal" => {
+            svc.network.events.emit_json(
+                "lanx://phone-cam",
+                json!({
+                    "device_id": client.device.id,
+                    "device_name": client.device.name,
+                    "action": v["action"].as_str().unwrap_or(""),
+                    "cam_id": v["cam_id"].as_str().unwrap_or(""),
+                    "sdp": v["sdp"].as_str(),
+                    "reason": v["reason"].as_str(),
+                }),
+            );
+            ok(&id, serde_json::Map::new())
+        }
         "call_media" => {
             // Mute, camera, screen and (3.4) recording from the phone.
             let call_id = v["call_id"].as_str().unwrap_or("");

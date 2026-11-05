@@ -28,7 +28,8 @@ type ViewTransitionDoc = Document & {
  *  there is no origin. Instant when animations are off or unsupported. */
 export function revealChange(change: () => void, origin: Origin = null) {
   const doc = document as ViewTransitionDoc;
-  if (!doc.startViewTransition || lessMotion()) {
+  // Linux (3.6.2): no snapshot cross-fade — WebKitGTK blurs the whole window for it.
+  if (!doc.startViewTransition || lessMotion() || document.documentElement.classList.contains("lanx-linux")) {
     change();
     return;
   }

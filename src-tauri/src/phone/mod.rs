@@ -771,6 +771,29 @@ impl PhoneService {
     }
 
     /// Tells every connected phone something (a JSON line).
+    /// LANX 3.6.2: "lend the PC your camera" messages (`ev: "cam"`) to every connected
+    /// phone, or just one. Returns how many got it; when the PC asks and no phone has
+    /// LANX open, a push note asks the phone to open it.
+    pub fn cam_send(&self, mut payload: serde_json::Value, device: Option<&str>) -> usize {
+        payload["ev"] = serde_json::json!("cam");
+        let text = payload.to_string();
+        let mut n = 0;
+        for c in self.clients.lock().values() {
+            if device.is_none_or(|d| d == c.device_id) {
+                let _ = c.tx.send(text.clone());
+                n += 1;
+            }
+        }
+        if n == 0 && payload["action"] == "offer" {
+            self.push_notice(push::Notice {
+                title: "Your PC wants to use this phone's camera".into(),
+                body: "Tap to open LANX, then allow the camera.".into(),
+                conversation_id: None,
+            });
+        }
+        n
+    }
+
     pub(crate) fn broadcast(&self, json: &str) {
         for c in self.clients.lock().values() {
             let _ = c.tx.send(json.to_string());

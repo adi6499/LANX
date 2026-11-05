@@ -6,6 +6,7 @@ import loaderUrl from "@mediapipe/tasks-vision/vision_wasm_module_internal.js?ur
 import wasmUrl from "@mediapipe/tasks-vision/vision_wasm_module_internal.wasm?url";
 import modelUrl from "../../assets/gestures/gesture_recognizer.task?url";
 import type { Delegate, FromWorker, ToWorker, WorkerHand } from "./worker";
+import { setPhoneCamPurpose } from "../phoneCamera";
 
 export type { WorkerHand };
 export interface Frame {
@@ -101,6 +102,7 @@ export class GestureEngine {
     if (this.running) return true;
     this.running = true;
     this.onStatus({ phase: "starting" });
+    setPhoneCamPurpose("hand gestures");
     try {
       const [ok, cam] = await Promise.all([
         this.boot(),
@@ -119,6 +121,13 @@ export class GestureEngine {
         return false;
       }
       this.cam = cam;
+      // The camera went away (unplugged, or the phone lending it pressed Stop).
+      cam.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (this.cam !== cam || !this.running) return;
+        this.running = false;
+        this.release();
+        this.onStatus({ phase: "error", message: "The camera stopped. Turn gestures off and on to start it again." });
+      });
       const v = document.createElement("video");
       v.muted = true;
       v.playsInline = true;
@@ -137,8 +146,10 @@ export class GestureEngine {
       this.release();
       const name = e instanceof DOMException ? e.name : "";
       const message =
-        name === "NotAllowedError" ? "LANX isn't allowed to use the camera. Allow it in Windows Settings → Privacy → Camera."
-        : name === "NotFoundError" || name === "OverconstrainedError" ? "No camera was found. Plug one in, or pick another in Gesture settings."
+        // (The phone camera's own messages say what to do on the phone.)
+        e instanceof DOMException && /phone/i.test(e.message) ? e.message
+        : name === "NotAllowedError" ? "LANX isn't allowed to use the camera. Allow it in Windows Settings → Privacy → Camera."
+        : name === "NotFoundError" || name === "OverconstrainedError" ? "No camera was found. Plug one in, or use your phone's: pair it in Settings → Phone and open LANX on it."
         : name === "NotReadableError" ? "The camera is busy in another program. Close it there and try again."
         : `The camera didn't start: ${e instanceof Error ? e.message : String(e)}`;
       this.onStatus({ phase: "error", message });

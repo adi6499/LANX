@@ -6,6 +6,41 @@ import { Check, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
 import { api, errorText, events } from "../../lib/api";
 import type { PhoneStatus } from "../../types";
 import { QrCode } from "./QrCode";
+import { type PhoneCamMode, phoneCamMode, setPhoneCamMode } from "../../lib/phoneCamera";
+
+/** LANX 3.6.2: the phone as this PC's camera (calls, meetings, hand gestures). */
+function PhoneCameraSetting() {
+  const [mode, setMode] = useState<PhoneCamMode>(phoneCamMode);
+  const options: { id: PhoneCamMode; label: string }[] = [
+    { id: "auto", label: "When this PC has none" },
+    { id: "always", label: "Always" },
+    { id: "never", label: "Never" },
+  ];
+  return (
+    <div className="rounded-xl lanx-group p-3" data-phone-camera-setting={mode}>
+      <div className="text-[13px] font-semibold text-slate-900 dark:text-white">Use my phone as this PC's camera</div>
+      <div className="mt-1 text-[11.5px] text-slate-500 dark:text-slate-400 leading-snug">
+        For video calls, meetings and hand gestures. When LANX needs a camera, your phone asks you (LANX open on it, on the secure page), then sends the picture straight here over the office network. It also shows as "Phone camera" in camera lists.
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-[3px] rounded-[10px] bg-[var(--lanx-fill)] p-[3px]">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            data-value={o.id}
+            onClick={() => {
+              setPhoneCamMode(o.id);
+              setMode(o.id);
+            }}
+            className={`rounded-[8px] px-2 py-1 text-[12px] font-semibold transition-colors ${mode === o.id ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]" : "text-slate-500"}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const splitCode = (code: string) => `${code.slice(0, 4)} ${code.slice(4)}`;
 
@@ -253,6 +288,8 @@ export function PhonePanel() {
           A removed phone has to scan a new code. Phones see new messages while their LANX page is open; they don't get alerts when it is closed.
         </div>
       </div>
+
+      {!!status?.devices.length && <PhoneCameraSetting />}
 
       {problem && (
         <div className="rounded-xl bg-amber-500/15 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-200" data-phone-problem>

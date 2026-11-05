@@ -2,7 +2,7 @@
  *  profile, kudos, end-of-day reports, emergency alerts, the secure
  *  connection and alerts, a person's details. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, BellRing, Cake, CalendarDays, ClipboardList, Gamepad2, Info, Laugh, LifeBuoy, Mail, MessageCircle, Music2, Palette, Phone, Plus, Settings, Shield, ShieldCheck, ShieldOff, Smile, StickyNote, Trash2, Trophy, UserCircle, Wrench, X } from "lucide-react";
+import { ArrowLeft, BellRing, Cake, Camera, CalendarDays, ClipboardList, Gamepad2, Info, Laugh, LifeBuoy, Mail, MessageCircle, Music2, Palette, Phone, Plus, Settings, Shield, ShieldCheck, ShieldOff, Smile, StickyNote, Trash2, Trophy, UserCircle, Wrench, X } from "lucide-react";
 import type { AlertInfo, CalendarEvent, Note, Occurrence, Peer, Profile } from "../types";
 import { Avatar } from "../components/Avatar";
 import { CardView } from "../components/org/CardView";
@@ -26,7 +26,7 @@ const plain = "rounded-full lanx-group px-4 py-2 text-[13px] font-semibold text-
 
 // --------------------------------------------------------------------- more
 
-export type MoreKey = "cards" | "notes" | "calendar" | "games" | "music" | "memes" | "kudos" | "report" | "helpdesk" | "office" | "emergency" | "status" | "profile" | "appearance" | "tools" | "settings" | "secure" | "about";
+export type MoreKey = "cards" | "notes" | "calendar" | "games" | "music" | "memes" | "kudos" | "report" | "helpdesk" | "office" | "emergency" | "status" | "profile" | "appearance" | "tools" | "settings" | "secure" | "pccam" | "about";
 
 export function MoreScreen({ forMe, alertsLive, secure, onOpen }: { forMe: number; alertsLive: number; secure: boolean; onOpen: (key: MoreKey) => void }) {
   const items: { key: MoreKey; icon: React.ReactNode; label: string; hint?: string; badge?: number; tint: string }[] = [
@@ -47,6 +47,7 @@ export function MoreScreen({ forMe, alertsLive, secure, onOpen }: { forMe: numbe
     { key: "tools", icon: <Wrench className="h-5 w-5" />, label: "Tools", hint: "Calculator, PDF tools, directory, folders, apps", tint: "#475569" },
     { key: "settings", icon: <Settings className="h-5 w-5" />, label: "Settings", hint: "Sounds, quick replies, quiet hours, backup, help", tint: "#6b7280" },
     { key: "secure", icon: <Shield className="h-5 w-5" />, label: "Secure connection & alerts", hint: secure ? "Secure ✓" : "Voice notes and alerts need this", tint: secure ? "#22c55e" : "#f97316" },
+    { key: "pccam", icon: <Camera className="h-5 w-5" />, label: "Camera for your PC", hint: "Calls, meetings and gestures on a PC with no camera", tint: "#0284c7" },
     { key: "about", icon: <Info className="h-5 w-5" />, label: "This phone", tint: "#94a3b8" },
   ];
   return (

@@ -1696,6 +1696,12 @@ export const api = {
     return { size, modules };
   },
 
+  /** LANX 3.6.2: the phone as this PC's camera — an offer or a stop for the phones. */
+  phoneCamSend: async (payload: PhoneCamSignal, deviceId?: string): Promise<number> => {
+    if (isTauri) return invoke("phone_cam_send", { payload, deviceId: deviceId ?? null });
+    return 0;
+  },
+
   shareWhatsApp: async (req: { text?: string; phone?: string; file?: string }): Promise<"copied" | "opened"> => {
     if (isTauri) return invoke("share_whatsapp", { req });
     window.open(`https://wa.me/?text=${encodeURIComponent(req.text ?? "")}`, "_blank");
@@ -1852,6 +1858,27 @@ function mockScreenshot(): ArrayBuffer {
   return out.buffer;
 }
 
+/** LANX 3.6.2: PC → phone, "lend me your camera" (offer), "another phone said yes"
+ *  (taken) or "done" (stop). */
+export interface PhoneCamSignal {
+  action: "offer" | "taken" | "stop";
+  cam_id: string;
+  sdp?: string;
+  /** Which camera the PC would like: the front one (default) or the back one. */
+  facing?: "user" | "environment";
+  /** What it's for, shown on the phone ("a video call", "hand gestures"…). */
+  purpose?: string;
+}
+/** Phone → PC: its answer (with the SDP), "declined" / "busy", or "stop". */
+export interface PhoneCamEvent {
+  device_id: string;
+  device_name: string;
+  action: "answer" | "decline" | "stop";
+  cam_id: string;
+  sdp?: string | null;
+  reason?: string | null;
+}
+
 function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
   if (isTauri) return listen<T>(event, (e) => cb(e.payload));
   return Promise.resolve(() => {});
@@ -1888,6 +1915,8 @@ export const events = {
   onPhonePair: (cb: (r: PairRequestInfo) => void) => on<PairRequestInfo>("lanx://phone-pair", cb),
   /** LANX 3.0: the phone server's status changed (phones, requests, port). */
   onPhoneChanged: (cb: () => void) => on<null>("lanx://phone-changed", () => cb()),
+  /** LANX 3.6.2: a phone answered, declined or stopped lending its camera. */
+  onPhoneCam: (cb: (e: PhoneCamEvent) => void) => on<PhoneCamEvent>("lanx://phone-cam", cb),
   onUpdateChanged: (cb: () => void) => on<null>("lanx://update-changed", () => cb()),
   onUpdateProblem: (cb: (p: UpdateProblemPayload) => void) =>
     on<UpdateProblemPayload>("lanx://update-problem", cb),

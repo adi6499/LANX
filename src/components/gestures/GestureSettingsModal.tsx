@@ -8,7 +8,7 @@ import { type GesturePrefs, useGesturePrefs } from "../../lib/gestures/prefs";
 const GUIDE: { sign: string; name: string; does: string }[] = [
   { sign: "✋", name: "Open hand", does: "Moves the pointer. It wraps round the button it is over." },
   { sign: "⏳", name: "Hold still on a button", does: "The button fills up and clicks — nothing to learn." },
-  { sign: "🤏", name: "Pinch", does: "Click. Pinch twice: double-click. Pinch and hold: the right-click menu." },
+  { sign: "🤏", name: "Pinch", does: "Click — right away, on whatever the pointer shows. Pinch twice: double-click. In a list, pinch and hold: the right-click menu." },
   { sign: "🤏", name: "Pinch and move", does: "Drag a slider or a game piece, or scroll a list like a phone." },
   { sign: "✊", name: "Fist", does: "Grab the page and move it. Let go while moving to fling it." },
   { sign: "🙌", name: "Two hands pinching", does: "Pull apart to zoom in, together to zoom out, turn to rotate." },

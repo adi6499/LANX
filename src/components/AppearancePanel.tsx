@@ -13,6 +13,7 @@ import {
 } from "../lib/background";
 import { glassLensOn, setGlassLens } from "../lib/glass";
 import { colorStyle } from "../lib/storybook";
+import { IS_LINUX } from "../lib/platform";
 import { Origin, originOf, revealChange, setMotion } from "../lib/motion";
 
 type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion" | "cat_alerts" | "color_style">>;
@@ -394,6 +395,11 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             className="mt-0.5 h-4 w-4 accent-sky-500"
           />
         </label>
+        {IS_LINUX && (
+          <p data-linux-glass-note className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+            On Linux the glass is see-through but not frosted, and a little more solid, so LANX stays smooth.
+          </p>
+        )}
         <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
           {glass === 0
             ? "Solid panels: no see-through effect. Easiest to read and lightest on older computers."

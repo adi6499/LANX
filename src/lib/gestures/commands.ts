@@ -170,6 +170,9 @@ const words = (s: string) =>
     .split(/\s+/)
     .filter(Boolean);
 
+/** A word without its vowels and doubled letters: "mahek" → "mhk", "jinn" → "jn". */
+const skeleton = (w: string) => w.replace(/[aeiouy]/g, "").replace(/(.)\1+/g, "$1");
+
 /** How well a spoken name fits a contact's name (0..1). */
 export function nameScore(spoken: string, name: string): number {
   const said = words(spoken);
@@ -183,6 +186,8 @@ export function nameScore(spoken: string, name: string): number {
     for (const h of have) {
       if (h === w) best = 1;
       else if (h.startsWith(w) && w.length >= 3) best = Math.max(best, 0.9);
+      // The same consonants ("Jean" / "Jin", "Mehak" / "Mahek"): names the speech engine spells its own way.
+      else if (skeleton(w).length >= 2 && skeleton(w) === skeleton(h)) best = Math.max(best, 0.82);
       else {
         const sim = 1 - lev(w, h) / Math.max(w.length, h.length);
         best = Math.max(best, sim);

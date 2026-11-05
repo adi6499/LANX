@@ -735,6 +735,10 @@
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+/* Turning only while shown (3.6.2: it turned all the time, a whole window repainted for nothing). */
+.lanx-glow[data-on]::before,
+.lanx-glow[data-on]::after {
   animation: lanx-glow-turn 3.2s linear infinite;
 }
 .lanx-glow::after {
@@ -743,3 +747,66 @@
   opacity: 0.8;
 }
 @keyframes lanx-glow-turn { to { --lanx-glow-a: 360deg; } }
+
+/* LANX 3.6.2: LANX for Linux — the same look, drawn light. WebKitGTK blurs
+   (backdrop-filter) on the processor, behind every panel and pop-up, again on
+   every frame of the moving wallpaper: that was the stutter. There panels are
+   see-through but not frosted, and a little more solid so text stays easy to
+   read; the resize glow keeps its colours without the blurred halo. */
+:root.lanx-linux *,
+:root.lanx-linux *::before,
+:root.lanx-linux *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+:root.lanx-linux,
+:root.lanx-linux[data-wall-tone] {
+  --lanx-glass-floor: 0.86;
+}
+:root.lanx-linux .lanx-glow::after { display: none; }
+
+/* …and more of it. Measured in Linux's WebKit without a graphics chip, scrolling
+   the chat list over Crystal glass: 1.4 frames a second; 11 with no soft shadows,
+   drop shadows or text shadows; 29 with the always-moving decorations still too.
+   WebKitGTK paints each of these on the processor, again at every scroll step.
+   So on Linux: thin edges instead of soft shadows, no drop or text shadows, and
+   the little decorations that never stop moving hold still. */
+:root.lanx-linux *,
+:root.lanx-linux *::before,
+:root.lanx-linux *::after {
+  --tw-shadow: 0 0 #0000 !important;
+  --tw-inset-shadow: 0 0 #0000 !important;
+  --tw-drop-shadow: initial !important;
+  text-shadow: none !important;
+}
+:root.lanx-linux {
+  --lanx-shadow: 0 0 0 0.5px var(--lanx-line);
+}
+:root.lanx-linux .lanx-sheet,
+:root.lanx-linux .lanx-menu,
+:root.lanx-linux .lanx-card,
+:root.lanx-linux .lanx-glass {
+  box-shadow: var(--lanx-rim-shadow), 0 0 0 1px var(--lanx-line) !important;
+}
+:root.lanx-linux .lanx-cat-svg,
+:root.lanx-linux [style*="drop-shadow"],
+:root.lanx-linux [data-games-3d] .g3-stage[data-g3] > *,
+:root.lanx-linux [data-games-3d] .g3-stage[data-g3] svg circle {
+  filter: none !important;
+}
+/* The music player's blurred cover: plain and dimmed instead (white text stays readable). */
+:root.lanx-linux .lanx-cover-blur {
+  filter: brightness(0.45) !important;
+  animation: none !important;
+}
+:root.lanx-linux .online-pulse,
+:root.lanx-linux .lanx-orb,
+:root.lanx-linux .lanx-float,
+:root.lanx-linux .lanx-cat-swing,
+:root.lanx-linux .lanx-cat-eyes,
+:root.lanx-linux .lanx-cat-look,
+:root.lanx-linux .lanx-cat-wave,
+:root.lanx-linux .lanx-cat-tail,
+:root.lanx-linux .lanx-cat-head {
+  animation: none !important;
+}

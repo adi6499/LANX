@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarDays, Eye, EyeOff, Gamepad2, Hand, Loader2, Mic, Pause, Play, Power, Settings2, SkipForward, StickyNote, X } from "lucide-react";
-import { api, errorText } from "../../lib/api";
+import { api, errorText, events } from "../../lib/api";
 import { player } from "../../lib/music";
 import { loadDictationPrefs, startPcmRecorder, type PcmRecorder } from "../../lib/voice";
 import { GestureEngine, type EngineStatus, type Frame } from "../../lib/gestures/engine";
@@ -33,12 +33,18 @@ const SIGN_EMOJI: Record<Sign, string> = { yes: "👍", no: "👎", listen: "✌
 const BOX = 28;
 /** LANX 3.6.1: hold the pointer still on a button this long and it clicks (no pinch needed). */
 const DWELL_MS = 900;
-/** How far the pointer may wander while holding still (px). */
-const DWELL_MOVE = 28;
+/** LANX 3.6.2: once the pointer is on a button it stays "on" it while within this many px
+ *  of its edges — a hand held in the air sways 20–40 px, and small icons sit 34 px apart. */
+const STICK_PX = 22;
 /** It must have travelled this far (px) in the moment before reaching the button: a hand that
  *  was only resting in view (chin on hand…) never clicks. */
-const DWELL_ARRIVE = 60;
+const DWELL_ARRIVE = 40;
 const DWELL_ARRIVE_MS = 1500;
+/** LANX 3.6.2: a pinch presses the button the pointer showed most over this long before
+ *  (a closing hand makes the pointer jump 50–90 px, measured on a real hand). */
+const LIT_MS = 350;
+/** A pinch this soon after holding still clicked the same button is that same click. */
+const DWELL_PINCH_MS = 1200;
 /** The "hold still to click" whisper shows for the first few clicks only. */
 const HINT_CLICKS = 6;
 const HINT_KEY = "lanx.gestures.clicks";
@@ -109,6 +115,9 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   const dwellP = useRef(0);
   /** Where the pointer has been lately (to tell a pointer brought here from a resting hand). */
   const trail = useRef<{ t: number; x: number; y: number }[]>([]);
+  /** Which button the pointer showed, frame by frame (for the next pinch). */
+  const litHist = useRef<{ t: number; el: Element | null }[]>([]);
+  const dwellClick = useRef<{ el: Element; at: number } | null>(null);
   const flashUntil = useRef(0);
   const hintsLeft = useRef(clicksSoFar() < HINT_CLICKS);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
@@ -160,6 +169,10 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     setVoice({ phase: "listening", level: 0 });
     let heard = false;
     let quietSince = 0;
+    let peak = 0;
+    // The room's own level, from the first moments: speech is clearly above it (3.6.2 — a fixed
+    // level missed quieter voices and microphones).
+    const room: number[] = [];
     await new Promise<void>((done) => {
       const tick = window.setInterval(() => {
         if (rec.current !== r) {
@@ -170,11 +183,16 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         const lv = r.level();
         const secs = r.seconds();
         setVoice({ phase: "listening", level: lv });
-        if (lv > 0.14) {
+        if (secs < 0.35) room.push(lv);
+        const floor = room.length ? room.reduce((a, b) => a + b, 0) / room.length : 0.02;
+        const loud = Math.max(0.05, floor * 2.2 + 0.02);
+        const soft = Math.max(0.03, floor * 1.4 + 0.01);
+        peak = Math.max(peak, lv - floor);
+        if (secs >= 0.35 && lv > loud) {
           heard = true;
           quietSince = 0;
-        } else if (heard && lv < 0.08 && !quietSince) quietSince = performance.now();
-        if ((heard && quietSince && performance.now() - quietSince > 900) || secs > 8 || (!heard && secs > 4.5)) {
+        } else if (heard && lv < soft && !quietSince) quietSince = performance.now();
+        if ((heard && quietSince && performance.now() - quietSince > 900) || secs > 8 || (!heard && secs > 6)) {
           window.clearInterval(tick);
           done();
         }
@@ -186,9 +204,10 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     }
     rec.current = null;
     const pcm = await r.stop();
-    if (!heard || pcm.length < 8000) {
+    // Any voice at all: let the speech engine decide what was said.
+    if ((!heard && peak < 0.03) || pcm.length < 8000) {
       setVoice({ phase: "idle" });
-      say("I didn't hear a command — hold up ✌ again and speak.");
+      say("I didn't hear anything. Speak as soon as the red “Listening…” appears.", 4000);
       return;
     }
     setVoice({ phase: "thinking" });
@@ -277,9 +296,20 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     const d = driver.current;
     if (!d) return;
     switch (e.type) {
-      case "press":
+      case "press": {
         if (dwell.current) dwell.current.done = true;
-        return d.press(e.x, e.y);
+        // The button that was lit as the fingers came together (ties: the latest).
+        const h = litHist.current;
+        const end = h.length ? h[h.length - 1].t : 0;
+        const seen = new Map<Element, number>();
+        for (const s of h) if (s.el && end - s.t <= LIT_MS) seen.set(s.el, (seen.get(s.el) ?? 0) + 1);
+        let lit: Element | null = null;
+        let most = 0;
+        for (const [el, n] of seen) if (n >= most) [lit, most] = [el, n];
+        const dc = dwellClick.current;
+        if (dc && lit === dc.el && (lastFrame.current?.t ?? 0) - dc.at < DWELL_PINCH_MS) return;
+        return d.press(e.x, e.y, lit);
+      }
       case "drag": return d.drag(e.x, e.y);
       case "release":
         if (e.click) {
@@ -328,8 +358,17 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     const c = active ? out.cursor : null;
     cursor.current = c;
     second.current = active ? out.second : null;
+    let under: Element | null = null;
     if (c) {
-      const t = d.move(c.x, c.y, c.mode !== "point");
+      let t = d.move(c.x, c.y, c.mode !== "point");
+      under = t?.el ?? null;
+      // Sticky: the button the pointer is on keeps it while the hand sways a little,
+      // even when a neighbour is now nearer.
+      const cur = target.current;
+      if (c.mode === "point" && cur && t?.el !== cur.el && cur.el.isConnected) {
+        const r = cur.el.getBoundingClientRect();
+        if (c.x >= r.left - STICK_PX && c.x <= r.right + STICK_PX && c.y >= r.top - STICK_PX && c.y <= r.bottom + STICK_PX) t = { ...cur, rect: r };
+      }
       // While pressing, the pointer stays wrapped round the button being pressed.
       if (c.mode === "point") target.current = t;
       else if (c.mode !== "press") target.current = null;
@@ -341,6 +380,12 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       trail.current.push({ t: f.t, x: c.x, y: c.y });
       while (trail.current.length && f.t - trail.current[0].t > DWELL_ARRIVE_MS) trail.current.shift();
     } else trail.current = [];
+    if (c?.mode === "point") {
+      // What is really under the pointer (not the sway-sticky one): just arrived on the next
+      // button and pinched at once, it is that button.
+      litHist.current.push({ t: f.t, el: under });
+      while (litHist.current.length && f.t - litHist.current[0].t > LIT_MS) litHist.current.shift();
+    } else if (!c) litHist.current = [];
     // Holding still on a button clicks it: the button fills up first, so it never surprises.
     const t = target.current;
     const dwellable = !!t && (t.hug || /^(INPUT|TEXTAREA|SELECT)$/.test(t.el.tagName));
@@ -353,7 +398,6 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         for (let i = 1; i < tr.length; i++) travelled = Math.max(travelled, Math.hypot(tr[i].x - tr[0].x, tr[i].y - tr[0].y));
         dw = dwell.current = { el: t.el, x: c.x, y: c.y, since: f.t, done: travelled < DWELL_ARRIVE };
       }
-      else if (!dw.done && Math.hypot(c.x - dw.x, c.y - dw.y) > DWELL_MOVE) Object.assign(dw, { x: c.x, y: c.y, since: f.t });
       if (dw.done) dwellP.current = 0;
       else {
         dwellP.current = Math.min(1, (f.t - dw.since) / DWELL_MS);
@@ -364,8 +408,9 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
           const r = t.rect;
           const x = Math.min(r.right - 2, Math.max(r.left + 2, c.x));
           const y = Math.min(r.bottom - 2, Math.max(r.top + 2, c.y));
-          d.press(x, y);
+          d.press(x, y, t.el);
           d.release(x, y, true, false);
+          dwellClick.current = { el: t.el, at: f.t };
           countClick();
           hintsLeft.current = clicksSoFar() < HINT_CLICKS;
         }
@@ -395,6 +440,13 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs?.enabled, onFrame]);
+  // A phone just connected while there was no camera: it can lend its own (3.6.2).
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    void events.onPhoneChanged(() => statusRef.current.phase === "error" && setRetry((n) => n + 1)).then((u) => (off = u));
+    return () => off?.();
+  }, []);
   useEffect(() => {
     const e = engine.current;
     if (!e) return;
@@ -405,7 +457,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     cursor.current = null;
     target.current = null;
     if (wanted) void e.start(prefs?.camera).then((ok) => setStream(ok ? e.stream : null));
-  }, [wanted, prefs?.camera, prefs?.enabled]);
+  }, [wanted, prefs?.camera, prefs?.enabled, retry]);
   useEffect(() => () => engine.current?.dispose(), []);
 
   // For LANX's own tests: hand frames can be fed in without a real hand.
@@ -595,6 +647,11 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
             <span className={`flex h-6 w-6 items-center justify-center rounded-full ${status.phase === "on" ? "bg-emerald-500 text-white" : status.phase === "error" ? "bg-red-500 text-white" : "bg-slate-500/20"}`}>
               {status.phase === "starting" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Hand className="h-3.5 w-3.5" />}
             </span>
+            {prefs.voice && (
+              <button type="button" data-gesture-speak title="Speak a command, like “call Mahek” (or hold up ✌, or press Ctrl + Alt + J)" onClick={() => void listen(true)} className="flex h-6 items-center gap-1 rounded-full bg-red-500 px-2 text-[11px] font-semibold text-white hover:bg-red-600">
+                <Mic className="h-3 w-3" /> Speak
+              </button>
+            )}
             <span className={`flex items-center gap-1 overflow-hidden transition-[max-width,opacity] duration-300 ease-out ${pillShown ? "max-w-[380px] opacity-100" : "max-w-0 opacity-0"}`}>
               <span data-gesture-status-text className="max-w-[260px] truncate px-1" title={statusText}>{statusText}</span>
               <button type="button" title={prefs.preview ? "Hide the camera picture" : "Show the camera picture"} onClick={() => set({ preview: !prefs.preview })} className="lanx-tool h-6 w-6 shrink-0 flex items-center justify-center text-slate-500">

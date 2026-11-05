@@ -75,3 +75,11 @@ pub fn phone_qr(text: String) -> Result<QrData, String> {
         .collect();
     Ok(QrData { size, modules })
 }
+
+/// LANX 3.6.2: the phone as this PC's camera — an offer or a stop for the phones
+/// (all connected ones, or `device_id`). Returns how many phones it reached.
+#[tauri::command]
+pub async fn phone_cam_send(state: State<'_, AppState>, payload: serde_json::Value, device_id: Option<String>) -> Result<usize, String> {
+    state.network.privacy.guard()?;
+    Ok(state.phone.cam_send(payload, device_id.as_deref()))
+}

@@ -3,6 +3,7 @@
  *  <html>, so every screen follows the same choice. */
 import { lensFilter } from "./glass";
 import { WALLS, type WallLook, applyColorStyle, colorStyle } from "./storybook";
+import { IS_LINUX } from "./platform";
 
 export interface BackgroundPreset {
   id: string;
@@ -215,7 +216,8 @@ export function applyAppearance(a: AppearanceChoice) {
 
   const g = glassValues(a.glass_level, a.frost_level);
   style.setProperty("--lanx-glass-a", String(g.opacity));
-  // The lens (refraction) goes first, then the frost blur (2.15.0).
-  style.setProperty("--lanx-filter", g.solid ? "none" : `${lensFilter()}blur(${g.blur}px) saturate(${g.saturate}%)`);
+  // The lens (refraction) goes first, then the frost blur (2.15.0). Linux (3.6.2): neither —
+  // its web engine does them on the processor, behind every panel, every frame.
+  style.setProperty("--lanx-filter", g.solid || IS_LINUX ? "none" : `${lensFilter()}blur(${g.blur}px) saturate(${g.saturate}%)`);
   root.classList.toggle("lanx-solid", g.solid);
 }

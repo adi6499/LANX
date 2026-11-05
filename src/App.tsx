@@ -58,6 +58,7 @@ import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
 import { VoiceSettingsModal } from "./components/voice/VoiceSettingsModal";
 import { GestureLayer, type GestureActions } from "./components/gestures/GestureLayer";
+import { PhoneCamPill } from "./components/PhoneCamPill";
 import { GestureSettingsModal } from "./components/gestures/GestureSettingsModal";
 import { type IntentContext, runIntent } from "./components/gestures/runIntent";
 import type { ToolId } from "./lib/gestures/commands";
@@ -2157,6 +2158,7 @@ export default function App() {
       {showVoice && <VoiceSettingsModal onClose={() => setShowVoice(false)} onError={(t) => setNotice(t)} />}
       <DictationOverlay onError={(t) => setNotice(t)} onOpenSettings={() => setShowVoice(true)} external={dictateNow} />
       {showGestures && <GestureSettingsModal onClose={() => setShowGestures(false)} />}
+      <PhoneCamPill />
       <GestureLayer actions={gestureActions} locked={locked} onError={(t) => setNotice(t)} onOpenSettings={() => setShowGestures(true)} onOpenVoiceSettings={() => setShowVoice(true)} />
       {(shareText !== null || shareFile !== null) && (
         <SendToModal

@@ -12,6 +12,12 @@ import IslandApp from "./IslandApp";
 import RemoteBar from "./RemoteBar";
 import "./App.css";
 import { applyColorStyle, colorStyle } from "./lib/storybook";
+import { IS_LINUX } from "./lib/platform";
+import { installPhoneCamera } from "./lib/phoneCamera";
+
+// LANX 3.6.2: Linux draws a lighter LANX (App.css .lanx-linux): its web engine
+// blurs and filters on the processor, which made LANX stutter there.
+if (IS_LINUX) document.documentElement.classList.add("lanx-linux");
 
 // LANX 3.6.0: the last Storybook look straight away (settings load a moment later).
 let lastLook: string | null = null;
@@ -42,6 +48,8 @@ const windowLabel = (() => {
 const isIsland = windowLabel === "island" || location.hash === "#island";
 // LANX 2.0: and in the remote-control Stop bar.
 const isRemoteBar = windowLabel === "remote" || location.hash === "#remote";
+// LANX 3.6.2: the paired phone's camera for calls, meetings and gestures (main window).
+if (!isIsland && !isRemoteBar) installPhoneCamera();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>{isIsland ? <IslandApp /> : isRemoteBar ? <RemoteBar /> : <App />}</React.StrictMode>,

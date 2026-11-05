@@ -31,6 +31,8 @@ import type { CardKind } from "../components/org/cardModel";
 import { type Recording, enablePush, pushState as readPushState, secure as isSecure } from "./media";
 import { PhoneCall, canCall, unlockAudio } from "./call";
 import { CallScreen } from "./CallScreen";
+import { CameraLend, type CamPush } from "./camera";
+import { CameraLendScreen, PcCameraSheet } from "./CameraLendScreen";
 
 const sortConvs = (list: Conversation[]) => [...list].sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || b.last_message_time - a.last_message_time);
 
@@ -244,7 +246,7 @@ interface View {
 }
 
 type Tab = "chats" | "people" | "files" | "more";
-type SheetKind = "about" | "status" | "profile" | "kudos" | "report" | "secure" | "broadcast" | "hidden" | "chat-menu" | "helpdesk" | "office" | "mute" | "folders" | "folders-edit" | "delete-chat" | "connect" | "invite" | null;
+type SheetKind = "pccam" | "about" | "status" | "profile" | "kudos" | "report" | "secure" | "broadcast" | "hidden" | "chat-menu" | "helpdesk" | "office" | "mute" | "folders" | "folders-edit" | "delete-chat" | "connect" | "invite" | null;
 
 const FOLDER_KEY = "lanx_phone_folder";
 
@@ -331,6 +333,17 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       ),
     [client]
   );
+  // 3.6.2: this phone's camera for the PC (calls, meetings, gestures there).
+  const lend = useMemo(
+    () =>
+      new CameraLend(
+        client,
+        () => !!calls.snapshot(),
+        (t) => setProblem(t)
+      ),
+    [client, calls]
+  );
+  useEffect(() => calls.subscribe(() => calls.snapshot() && lend.state && lend.stop()), [calls, lend]);
   // 3.4: group meetings, the same way.
   const meetings = useMemo(
     () =>
@@ -593,6 +606,9 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
           break;
         case "call":
           void calls.handle(p);
+          break;
+        case "cam":
+          lend.handle(p as CamPush);
           break;
         case "alert": {
           const a = p.alert as AlertInfo;
@@ -1328,6 +1344,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       )}
       {alertBanner && <AlertBanner alert={alertBanner} onAnswer={answerAlert} onOpen={() => go({ page: "emergency" })} />}
       <CallScreen manager={calls} profiles={profiles} />
+      <CameraLendScreen manager={lend} />
       <MeetingScreen manager={meetings} peers={peers} profiles={profiles} />
       {/* 3.3: the song playing stays here while you move around. */}
       {view.page !== "music" && <MusicPlayer onOpenMusic={() => go({ page: "music" })} />}
@@ -1485,6 +1502,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
           }}
         />
       )}
+      {sheet === "pccam" && <PcCameraSheet manager={lend} onClose={() => setSheet(null)} />}
       {sheet === "about" && me && (
         <AboutSheet
           me={me}

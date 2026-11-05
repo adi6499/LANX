@@ -12,6 +12,8 @@ const CLICKABLE = [
   "textarea:not([disabled])", "summary", "label", '[contenteditable=""]', '[contenteditable="true"]', "[data-gesture-target]",
 ].join(",");
 const SNAP_PX = 30;
+/** A pinch presses the lit button if the fingers met within this of it. */
+const LIT_REACH = 48;
 /** Bigger than this, the pointer stays a ring instead of hugging the target. */
 const HUG_MAX = { w: 460, h: 140 };
 
@@ -68,7 +70,11 @@ export function findTarget(x: number, y: number): Target | null {
     }
     el = best;
   }
-  if (!el) return null;
+  return el ? targetOf(el) : null;
+}
+
+/** A clickable element as a target (null when it isn't shown). */
+export function targetOf(el: Element): Target | null {
   const rect = el.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
   const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
@@ -141,6 +147,19 @@ function fire(el: Element, type: string, x: number, y: number, extra: { buttons?
   return el.dispatchEvent(type.startsWith("pointer") ? new PointerEvent(type, init) : new MouseEvent(type, init));
 }
 
+/** Something here does its own thing while held (hold-to-talk, dragging an event,
+ *  a right-click menu for a long pinch): a React press or right-click handler on it
+ *  or round it, or a `data-gesture-hold` mark. */
+function wantsHold(el: Element): boolean {
+  for (let e: Element | null = el; e && e !== document.body; e = e.parentElement) {
+    if (e.hasAttribute("data-gesture-hold")) return true;
+    const key = Object.keys(e).find((k) => k.startsWith("__reactProps$"));
+    const props = key ? (e as unknown as Record<string, { onPointerDown?: unknown; onContextMenu?: unknown } | undefined>)[key] : undefined;
+    if (typeof props?.onPointerDown === "function" || typeof props?.onContextMenu === "function") return true;
+  }
+  return false;
+}
+
 /** Places that take typing get the text cursor (buttons don't, as with a mouse). */
 function focusable(el: Element): HTMLElement | null {
   const f = el.closest('input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select, [contenteditable=""], [contenteditable="true"]');
@@ -165,6 +184,8 @@ function setRange(el: HTMLInputElement, x: number) {
 type Down =
   | { kind: "pointer"; el: Element; x: number; y: number; scroller: Element | null; scrolling: boolean; last: { x: number; y: number }; samples: { t: number; x: number; y: number }[] }
   | { kind: "range"; el: HTMLInputElement }
+  /** Clicked the moment the fingers met; letting go only finishes a double-click. */
+  | { kind: "clicked"; el: Element; x: number; y: number }
   | { kind: "grab-scroll"; scroller: Element }
   | { kind: "grab-pointer"; el: Element; x: number; y: number };
 
@@ -239,9 +260,12 @@ export class DomDriver {
     this.last = null;
   }
 
-  press(x0: number, y0: number) {
+  /** The fingers met. `lit` is the button the pointer was showing just before:
+   *  the pinch presses that one, even if the hand jumped a little as it closed. */
+  press(x0: number, y0: number, lit?: Element | null) {
     this.stopFling();
-    const t = findTarget(x0, y0);
+    const near = lit?.isConnected ? targetOf(lit) : null;
+    const t = near && rectDist(near.rect, x0, y0) <= LIT_REACH ? near : findTarget(x0, y0);
     const { x, y } = pointIn(t, x0, y0);
     const hit = elementAt(x, y) ?? t?.el;
     if (!hit) return;
@@ -258,7 +282,18 @@ export class DomDriver {
     if (f && f !== document.activeElement) f.focus({ preventScroll: true });
     else if (!f && document.activeElement instanceof HTMLElement && !hit.closest("[data-gesture-menu]")) document.activeElement.blur();
     const drags = !!hit.closest('canvas, [draggable="true"], [data-gesture-drag]');
-    this.down = { kind: "pointer", el: hit, x, y, scroller: drags ? null : scrollerOf(hit, "any"), scrolling: false, last: { x, y }, samples: [{ t: performance.now(), x, y }] };
+    const scroller = drags ? null : scrollerOf(hit, "any");
+    // A plain button (nothing to drag or scroll here): click now. Waiting for the
+    // fingers to part lost clicks when the hand drifted or held the pinch a while.
+    if (!drags && !scroller && !(target instanceof HTMLSelectElement) && !wantsHold(hit)) {
+      fire(hit, "pointerup", x, y);
+      fire(hit, "mouseup", x, y, { detail: 1 });
+      captured = null;
+      fire(hit, "click", x, y, { detail: 1 });
+      this.down = { kind: "clicked", el: hit, x, y };
+      return;
+    }
+    this.down = { kind: "pointer", el: hit, x, y, scroller, scrolling: false, last: { x, y }, samples: [{ t: performance.now(), x, y }] };
   }
 
   drag(x: number, y: number) {
@@ -292,6 +327,10 @@ export class DomDriver {
     if (!d) return;
     if (d.kind === "range") {
       d.el.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
+    if (d.kind === "clicked") {
+      if (double && d.el.isConnected) fire(d.el, "dblclick", d.x, d.y, { detail: 2 });
       return;
     }
     if (d.kind !== "pointer") return;
@@ -330,6 +369,7 @@ export class DomDriver {
 
   cancel() {
     const d = this.down;
+    if (d?.kind === "clicked") this.down = null;
     if (!d || (d.kind !== "pointer" && d.kind !== "range")) return;
     this.down = null;
     if (d.kind === "pointer" && !d.scrolling) {

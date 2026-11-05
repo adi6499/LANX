@@ -712,6 +712,7 @@ pub fn run() {
             commands::phone::phone_answer,
             commands::phone::phone_forget,
             commands::phone::phone_qr,
+            commands::phone::phone_cam_send,
             commands::phone::phone_cert_path,
         ])
         .run(tauri::generate_context!())

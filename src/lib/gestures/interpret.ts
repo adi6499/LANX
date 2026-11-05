@@ -74,14 +74,17 @@ const ENGAGE_MS = 250;
 const LOST_MS = 250;
 const MIN_SCALE = 0.07;
 const PINCH_IN = 0.33;
-const PINCH_OUT = 0.48;
+/** Letting go (3.6.2: was 0.48 — with the other fingers curled, real fingertips part only 0.42–0.6). */
+const PINCH_OUT = 0.44;
 /** Fingertips at least this far apart (hand-lengths) for a closed hand to be a fist, not a pinch. */
 const FIST_GAP = 0.4;
 /** A pinch turns into a drag only after this long and this far: a quick pinch
- *  is a click even while the hand moves (real hands wobble far more than a mouse). */
-const DRAG_PX = 36;
+ *  is a click even while the hand moves (real hands wobble far more than a mouse).
+ *  3.6.2: 48 px (was 36), measured on the middle of the last three frames, so one jumpy frame doesn't count. */
+const DRAG_PX = 48;
 const DRAG_DELAY = 180;
-const LONG_MS = 700;
+/** Pinch held this long without moving: a right-click (3.6.2: was 700 — slow, careful pinches are clicks). */
+const LONG_MS = 900;
 const DOUBLE_MS = 420;
 const REWIND_MS = 90;
 const HOLD_MS = 500;
@@ -101,7 +104,7 @@ export class OneEuro {
   private v: number | null = null;
   private d = 0;
   private t = 0;
-  constructor(private minCutoff = 0.9, private beta = 0.025, private dCutoff = 1) {}
+  constructor(private minCutoff = 0.55, private beta = 0.03, private dCutoff = 1) {}
   reset() {
     this.v = null;
   }
@@ -129,6 +132,13 @@ interface P2 {
   y: number;
 }
 const dist = (a: P2, b: P2) => Math.hypot(a.x - b.x, a.y - b.y);
+const mid = (v: number[]) => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)];
+/** Where the hand is, unsmoothed but steady: the middle of the last three camera frames
+ *  (the model loses a closing hand for a frame now and then, and that frame is outvoted). */
+const steady = (h: { rx: number; ry: number }[]): [number, number] => {
+  const l = h.slice(-3);
+  return [mid(l.map((s) => s.rx)), mid(l.map((s) => s.ry))];
+};
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
 export interface Pose {
@@ -198,11 +208,14 @@ interface Track {
   fx: OneEuro;
   fy: OneEuro;
   screen: P2;
-  shist: { t: number; x: number; y: number }[];
+  /** The pointer lately: smoothed (x, y) and straight from the camera (rx, ry). */
+  shist: { t: number; x: number; y: number; rx: number; ry: number }[];
   pinch: boolean;
   pinchFrames: number;
   openFrames: number;
   fistFrames: number;
+  /** The last frame it was a fist. */
+  fistAt: number;
   plainFrames: number;
   grab: boolean;
   sign: Sign | null;
@@ -213,7 +226,8 @@ interface Track {
   spent: boolean;
 }
 
-type Press = { x: number; y: number; t: number; dragging: boolean; long: boolean };
+/** rx, ry: where the hand was (unsmoothed, middle of three frames) as the fingers met. */
+type Press = { x: number; y: number; t: number; dragging: boolean; long: boolean; rx: number; ry: number };
 
 export class GestureInterpreter {
   private tracks: Track[] = [];
@@ -265,7 +279,7 @@ export class GestureInterpreter {
       } else {
         const tr: Track = {
           id: this.nextId++, first: f.t, last: f.t, pose, hist: [], fx: new OneEuro(), fy: new OneEuro(), screen: { x: 0, y: 0 }, shist: [],
-          pinch: false, pinchFrames: 0, openFrames: 0, fistFrames: 0, plainFrames: 0, grab: false, sign: null, signSince: 0, signMiss: 0, signFired: false, spent: false,
+          pinch: false, pinchFrames: 0, openFrames: 0, fistFrames: 0, fistAt: 0, plainFrames: 0, grab: false, sign: null, signSince: 0, signMiss: 0, signFired: false, spent: false,
         };
         this.tracks.push(tr);
         seen.push(tr);
@@ -287,7 +301,7 @@ export class GestureInterpreter {
       while (tr.hist.length && f.t - tr.hist[0].t > 500) tr.hist.shift();
       const raw = this.toScreen(P.anchor, vw, vh);
       tr.screen = { x: tr.fx.filter(raw.x, f.t), y: tr.fy.filter(raw.y, f.t) };
-      tr.shist.push({ t: f.t, ...tr.screen });
+      tr.shist.push({ t: f.t, ...tr.screen, rx: raw.x, ry: raw.y });
       while (tr.shist.length && f.t - tr.shist[0].t > 400) tr.shist.shift();
       const pinchy = P.pinch < (tr.pinch ? PINCH_OUT : PINCH_IN);
       tr.pinchFrames = pinchy ? tr.pinchFrames + 1 : 0;
@@ -298,6 +312,7 @@ export class GestureInterpreter {
         tr.spent = false;
       }
       tr.fistFrames = P.fist ? tr.fistFrames + 1 : 0;
+      if (P.fist) tr.fistAt = f.t;
       tr.plainFrames = P.fist ? 0 : tr.plainFrames + 1;
       if (!tr.grab && tr.fistFrames >= 4) tr.grab = true;
       else if (tr.grab && tr.plainFrames >= 3) tr.grab = false;
@@ -409,7 +424,10 @@ export class GestureInterpreter {
     }
     if (this.grabbing) {
       this.grabbing = false;
-      const h = prim.shist.filter((s) => f.t - s.t <= 120);
+      // How fast it moved while still a fist (it lets go a few frames after the hand opens,
+      // by when a real hand has often stopped).
+      const end = prim.fistAt || f.t;
+      const h = prim.shist.filter((s) => s.t <= end && end - s.t <= 120);
       const first = h[0];
       const last = h[h.length - 1];
       const dt = first && last && last.t > first.t ? (last.t - first.t) / 1000 : 0;
@@ -423,13 +441,15 @@ export class GestureInterpreter {
         const px = back.x + this.offset.x;
         const py = back.y + this.offset.y;
         this.offset = { x: px - prim.screen.x, y: py - prim.screen.y };
-        this.press = { x: px, y: py, t: f.t, dragging: false, long: false };
+        const [rx, ry] = steady(prim.shist);
+        this.press = { x: px, y: py, t: f.t, dragging: false, long: false, rx, ry };
         x = px;
         y = py;
         events.push({ type: "press", x, y });
       } else {
         const pr = this.press;
-        if (!pr.dragging && !pr.long && f.t - pr.t >= DRAG_DELAY && Math.hypot(x - pr.x, y - pr.y) > DRAG_PX) pr.dragging = true;
+        const [rx, ry] = steady(prim.shist);
+        if (!pr.dragging && !pr.long && f.t - pr.t >= DRAG_DELAY && Math.hypot(rx - pr.rx, ry - pr.ry) > DRAG_PX) pr.dragging = true;
         if (pr.dragging) events.push({ type: "drag", x, y });
         else if (!pr.long && f.t - pr.t >= LONG_MS) {
           pr.long = true;

@@ -247,16 +247,31 @@ export function startBuiltin(canvas: HTMLCanvasElement, id: string, still = fals
       canvas.height = h;
     }
   };
+  const linux = document.documentElement.classList.contains("lanx-linux");
+  // On Linux it holds still while you scroll: each of its frames repaints the whole
+  // window there, and the list you're moving matters more (3.6.2).
+  let busyUntil = 0;
+  const busy = () => {
+    busyUntil = performance.now() + 500;
+  };
+  if (linux) {
+    window.addEventListener("scroll", busy, { capture: true, passive: true });
+    window.addEventListener("wheel", busy, { capture: true, passive: true });
+  }
   const frame = () => {
     if (!alive) return;
-    fit();
-    const t = still ? 12 : (performance.now() - t0) / 1000;
-    paint(ctx, canvas.width, canvas.height, t, rnd);
+    const skip = linux && !still && performance.now() < busyUntil;
+    if (!skip) {
+      fit();
+      const t = still ? 12 : (performance.now() - t0) / 1000;
+      paint(ctx, canvas.width, canvas.height, t, rnd);
+    }
     if (still) return;
-    // ~30 fps is plenty for a background and easy on laptops.
+    // ~30 fps is plenty for a background and easy on laptops; 15 on Linux (3.6.2),
+    // where the engine paints it on the processor.
     timer = window.setTimeout(() => {
       raf = requestAnimationFrame(frame);
-    }, 33);
+    }, skip ? 120 : linux ? 66 : 33);
   };
   const onVisible = () => {
     if (document.hidden) {
@@ -273,6 +288,8 @@ export function startBuiltin(canvas: HTMLCanvasElement, id: string, still = fals
     cancelAnimationFrame(raf);
     window.clearTimeout(timer);
     document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("scroll", busy, { capture: true });
+    window.removeEventListener("wheel", busy, { capture: true });
   };
 }
 

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.6.1)
+# LANX — Local Network Messenger (v3.6.2)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,31 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.6.2: your phone as the PC's camera, a pinch that always clicks, smooth on Linux
+- **No camera on the PC? Use your phone's.** A desktop PC usually has no camera: now LANX uses your paired
+  phone's instead — for video calls, meetings and hand gestures, everything that needs a camera. When LANX needs
+  one, the phone (LANX open on it, secure page) asks "Your PC wants to use this phone's camera"; tap Allow (or
+  "Always allow my PC") and the picture goes straight to the PC over the office network (never the internet).
+  The phone shows what it sends, with Flip (front/back) and Stop, and stays awake meanwhile. If LANX isn't open
+  on the phone, it gets a note to open it. Settings → Phone → "Use my phone as this PC's camera": when this PC
+  has none (the default), always, or never; it also shows as "Phone camera" in camera lists. Phone: More →
+  Camera for your PC.
+- **A pinch clicks, right away:** on a button, the click now happens the moment your fingers touch — however long
+  you hold the pinch or however the hand drifts (before, a slow pinch became a right-click and a drifting one a
+  drag, so nothing opened). It clicks the button the pointer was showing as your fingers came together, even if
+  the pointer jumped as the hand closed (measured on a real hand: 50–90 px). In lists, a pinch and move still
+  scrolls; a long pinch there (now 0.9 s) still gives the right-click menu. Holding still on a button and then
+  pinching it straight away is one click, not two. Letting go of a fist while moving flings the list reliably.
+- **Spoken commands:** a red **Speak** button on the gesture pill (or Ctrl + Alt + J, or hold up ✌); LANX now
+  listens to the room first, so quieter voices count; and names the speech engine spells its own way still find
+  the person ("Mehak" → Mahek, "Jean" → Jin).
+- **Linux, smooth:** WebKitGTK paints shadows, filters and moving decorations on the processor, again at every
+  scroll step. On Linux LANX now draws thin edges instead of soft shadows, no drop or text shadows, holds the
+  always-moving decorations still and pauses a moving wallpaper while you scroll. Measured in Linux's engine with
+  no graphics chip: scrolling 1.4 → 8 frames a second (frosted glass was already off on Linux).
+- The two-hand resize glow no longer turns invisibly in the background (it repainted the whole window, on every
+  system).
 
 ### New in 3.6.1: text you can read on any wallpaper
 - With a live wallpaper darker than LANX's light look (or lighter than its dark look), the panels now stay at

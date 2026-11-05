@@ -51,6 +51,8 @@ export async function getMic(): Promise<MediaStreamTrack | null> {
  *  steady 30 fps feels live. Falls back to whatever the camera can do. */
 export async function getCamera(kind: "call" | "meeting"): Promise<MediaStreamTrack | null> {
   const hd = kind === "call" ? { width: 1280, height: 720 } : { width: 960, height: 540 };
+  // (With no camera on the PC, the phone's: phoneCamera.ts. Tells the phone what for.)
+  (await import("./phoneCamera").catch(() => null))?.setPhoneCamPurpose(kind === "call" ? "a video call" : "a meeting");
   for (const video of [
     { width: { ideal: hd.width }, height: { ideal: hd.height }, frameRate: { ideal: 30, max: 30 } },
     true as const,

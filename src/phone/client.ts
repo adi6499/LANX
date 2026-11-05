@@ -142,6 +142,7 @@ export type Push =
   | { ev: "ring"; conversation_id: string; peer_name: string }
   | { ev: "notice"; text: string }
   | { ev: "call"; action: "incoming" | "accepted" | "media" | "ended" | "outgoing" | "answered"; call: CallInfo; sdp: string | null; video: boolean | null; muted: boolean | null; screen: boolean | null; reason: string | null; recording?: boolean | null }
+  | { ev: "cam"; action: "offer" | "taken" | "stop"; cam_id: string; sdp?: string; facing?: "user" | "environment"; purpose?: string }
   | { ev: "reload" }
   | { ev: "wallpaper" }
   | { ev: "update" }

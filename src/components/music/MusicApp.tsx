@@ -764,7 +764,7 @@ export function MusicApp({
         {/* ---- Now playing on the phone: one big cover, the controls under it, no moving blur */}
         {compact && nowPlaying && ps.song && (
           <div data-music-now className="absolute inset-0 z-10 flex flex-col overflow-hidden bg-[#0b1020] text-white">
-            {ps.song.cover && <img src={ps.song.cover} alt="" className="absolute inset-0 h-full w-full scale-125 object-cover opacity-50" style={{ filter: "blur(40px) saturate(1.3)" }} />}
+            {ps.song.cover && <img src={ps.song.cover} alt="" className="lanx-cover-blur absolute inset-0 h-full w-full scale-125 object-cover opacity-50" style={{ filter: "blur(40px) saturate(1.3)" }} />}
             <div className="absolute inset-0 bg-black/40" />
             <div className="relative flex items-center justify-between px-3 pt-[calc(env(safe-area-inset-top)+8px)]">
               <button type="button" aria-label="Close" onClick={() => setNowPlaying(false)} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15">
@@ -838,7 +838,7 @@ export function MusicApp({
         {/* ---- Now playing: the covers fanned out, lyrics, floating player */}
         {!compact && nowPlaying && ps.song && (
           <div data-music-now className="absolute inset-0 z-10 overflow-hidden text-white" onMouseDown={(e) => e.stopPropagation()}>
-            {ps.song.cover && <img src={ps.song.cover} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ filter: "blur(70px) saturate(1.4)", animation: "lanx-music-drift 24s ease-in-out infinite" }} />}
+            {ps.song.cover && <img src={ps.song.cover} alt="" className="lanx-cover-blur absolute inset-0 h-full w-full object-cover" style={{ filter: "blur(70px) saturate(1.4)", animation: "lanx-music-drift 24s ease-in-out infinite" }} />}
             <div className="absolute inset-0 bg-black/35" />
             <button type="button" onClick={() => setNowPlaying(false)} className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur flex items-center justify-center"><Minimize2 className="h-4 w-4" /></button>
             <button type="button" onClick={() => setShowLyrics((v) => !v)} className={`absolute top-4 right-16 h-9 px-3 rounded-full backdrop-blur text-[12px] font-semibold inline-flex items-center gap-1.5 ${showLyrics ? "bg-white text-slate-900" : "bg-white/15 hover:bg-white/25"}`}><Mic2 className="h-3.5 w-3.5" /> Lyrics</button>
