@@ -66,6 +66,12 @@ others) and talks to the Windows copies on the same network.
   was taken for a fist and scrolled instead of clicking — LANX now tells them apart by the gap between thumb and
   index fingertip (measured on a real hand); a quick pinch is always a click even if the hand moves, dragging
   starts only after holding the pinch. The switch to the graphics chip no longer retries over and over.
+- **Click without learning anything:** rest the pointer on a button — it fills up for a moment, then clicks (move
+  away to stop it). A pinch is still the quick way. A small "hold still to click · or pinch" shows the first few
+  times only. (Gesture settings → "Click by holding still on a button" turns it off.)
+- **Resize the window with both hands:** hold both hands up, open, for half a second — a soft colour glow runs
+  round the window — then move them apart to make LANX bigger or together to make it smaller (from its middle,
+  never smaller than LANX's smallest size or bigger than the screen). Drop a hand to keep the size.
 - **A hand button** in the row of icons at the top left turns gestures on and off in one click (the first time it
   also shows how they work; right-click it for the gesture settings).
 

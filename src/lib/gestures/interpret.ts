@@ -32,8 +32,13 @@ export type GEvent =
   | { type: "zoom"; scale: number; rotate: number; cx: number; cy: number }
   | { type: "zoom-end" }
   | { type: "swipe"; dir: SwipeDir }
+  /** LANX 3.6.1: both hands open and held up — the window follows the space between
+   *  them. `scale` is the distance now ÷ the distance when it started. */
+  | { type: "frame-start" }
+  | { type: "frame"; scale: number }
+  | { type: "frame-end" }
   | { type: "sign"; sign: Sign };
-export type CursorMode = "point" | "press" | "drag" | "grab" | "zoom";
+export type CursorMode = "point" | "press" | "drag" | "grab" | "zoom" | "frame";
 export interface Cursor {
   x: number;
   y: number;
@@ -83,6 +88,10 @@ const SWIPE_TAIL = 110;
 const SWIPE_DIST = 0.2;
 const SWIPE_SPEED = 1.7;
 const SWIPE_REST = 900;
+/** Both open hands held up this long before the window starts following them. */
+const FRAME_HOLD = 450;
+/** Frames without two open hands before the window lets go (the model flickers). */
+const FRAME_MISS = 4;
 const SIGNS: Record<string, Sign> = { Thumb_Up: "yes", Thumb_Down: "no", Victory: "listen", ILoveYou: "wheel" };
 
 /** The "1€ filter": steady when the hand is still, no lag when it moves. */
@@ -209,6 +218,7 @@ export class GestureInterpreter {
   private offset: P2 = { x: 0, y: 0 };
   private grabbing = false;
   private zoom: null | { a: number; b: number; d: number; angle: number } = null;
+  private frame: null | { since: number; d0: number; on: boolean; miss: number } = null;
   private lastClick: { t: number; x: number; y: number } | null = null;
   private swipeAt = 0;
 
@@ -219,6 +229,7 @@ export class GestureInterpreter {
     this.primary = null;
     this.press = null;
     this.grabbing = false;
+    this.frame = null;
     this.zoom = null;
   }
 
@@ -340,6 +351,32 @@ export class GestureInterpreter {
       events.push({ type: "zoom-end" });
       this.zoom = null;
     }
+
+    // Two open hands, held up for a moment: the window follows the space between them.
+    const both = !!prim && !!other && prim.pose.open && other.pose.open && !prim.pinch && !other.pinch && !prim.grab && !other.grab;
+    if (both && prim && other) {
+      const d = Math.max(0.01, dist(prim.pose.palm, other.pose.palm));
+      const fr = (this.frame ??= { since: f.t, d0: d, on: false, miss: 0 });
+      fr.miss = 0;
+      if (!fr.on && f.t - fr.since >= FRAME_HOLD) {
+        fr.on = true;
+        fr.d0 = d;
+        if (this.press) events.push({ type: "cancel" });
+        this.press = null;
+        events.push({ type: "frame-start" });
+      } else if (fr.on) events.push({ type: "frame", scale: d / fr.d0 });
+      if (fr.on) {
+        return { cursor: { x: prim.screen.x, y: prim.screen.y, mode: "frame", hold: null }, second: { x: other.screen.x, y: other.screen.y }, events, tracking: live.length };
+      }
+    } else if (this.frame) {
+      if (!this.frame.on || ++this.frame.miss > FRAME_MISS) {
+        if (this.frame.on) events.push({ type: "frame-end" });
+        this.frame = null;
+      } else if (prim) {
+        // A flicker: hold the window as it is for a moment.
+        return { cursor: { x: prim.screen.x, y: prim.screen.y, mode: "frame", hold: null }, second: other ? { x: other.screen.x, y: other.screen.y } : null, events, tracking: live.length };
+      }
+    }
     if (!prim) {
       return { cursor: null, second: null, events, tracking: 0 };
     }
@@ -416,7 +453,7 @@ export class GestureInterpreter {
 
     // A flick of the open hand.
     let swiped = false;
-    if (this.opts.swipes && prim.pose.open && f.t - prim.first >= 400 && f.t - this.swipeAt > SWIPE_REST) {
+    if (this.opts.swipes && !this.frame && prim.pose.open && f.t - prim.first >= 400 && f.t - this.swipeAt > SWIPE_REST) {
       // Far enough over the last quarter second, and still fast at the end.
       const win = prim.hist.filter((s) => f.t - s.t <= SWIPE_WINDOW);
       const tail = prim.hist.filter((s) => f.t - s.t <= SWIPE_TAIL);

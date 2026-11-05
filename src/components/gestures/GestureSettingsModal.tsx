@@ -7,6 +7,7 @@ import { type GesturePrefs, useGesturePrefs } from "../../lib/gestures/prefs";
  *  which hand, and the list of gestures and spoken commands. */
 const GUIDE: { sign: string; name: string; does: string }[] = [
   { sign: "✋", name: "Open hand", does: "Moves the pointer. It wraps round the button it is over." },
+  { sign: "⏳", name: "Hold still on a button", does: "The button fills up and clicks — nothing to learn." },
   { sign: "🤏", name: "Pinch", does: "Click. Pinch twice: double-click. Pinch and hold: the right-click menu." },
   { sign: "🤏", name: "Pinch and move", does: "Drag a slider or a game piece, or scroll a list like a phone." },
   { sign: "✊", name: "Fist", does: "Grab the page and move it. Let go while moving to fling it." },
@@ -83,6 +84,10 @@ export function GestureSettingsModal({ onClose }: { onClose: () => void }) {
           <label className={row}>
             <span className={label}>Show the camera picture in the corner</span>
             <input type="checkbox" checked={prefs.preview} onChange={(e) => set({ preview: e.target.checked })} className="h-4 w-4" />
+          </label>
+          <label className={row}>
+            <span className={label}>Click by holding still on a button<span className="block text-[11px] text-slate-400">The button fills up for a moment, then clicks. Move away to stop it.</span></span>
+            <input type="checkbox" data-gesture-dwell checked={prefs.dwell} onChange={(e) => set({ dwell: e.target.checked })} className="h-4 w-4" />
           </label>
           <label className={row}>
             <span className={label}>Flick to skip, go back or close</span>

@@ -1,9 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window. File dialogs, opening files and notifications are done by LANX's own Rust commands, so the page needs no extra plugin permissions.",
-  "windows": ["main", "island", "remote"],
+  "description": "Capability for the main window. File dialogs, opening files and notifications are done by LANX's own Rust commands, so the page needs no extra plugin permissions. LANX 3.6.1: the main window may resize and move itself (two-hand gesture).",
+  "windows": [
+    "main",
+    "island",
+    "remote"
+  ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-unmaximize"
   ]
 }

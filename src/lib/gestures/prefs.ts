@@ -16,8 +16,10 @@ export interface GesturePrefs {
   voice: boolean;
   /** A chosen camera (deviceId), or null for the usual one. */
   camera: string | null;
+  /** LANX 3.6.1: hold the pointer still on a button to click it. */
+  dwell: boolean;
 }
-export const DEFAULT_GESTURES: GesturePrefs = { enabled: false, preview: true, speed: "normal", hand: "auto", swipes: true, voice: true, camera: null };
+export const DEFAULT_GESTURES: GesturePrefs = { enabled: false, preview: true, speed: "normal", hand: "auto", swipes: true, voice: true, camera: null, dwell: true };
 const EVENT = "lanx:gesture-prefs";
 
 export async function loadGesturePrefs(): Promise<GesturePrefs> {

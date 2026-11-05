@@ -707,3 +707,39 @@
 :root.dark[data-wall-tone="mid"] {
   --lanx-glass-floor: 0.8;
 }
+
+/* LANX 3.6.1: while two hands resize the window, a soft colour glow moves round
+   its edge (asked for: "glow, Apple effect") — only then; everything else stays plain. */
+@property --lanx-glow-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.lanx-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s var(--ease-out-soft);
+}
+.lanx-glow[data-on] { opacity: 1; }
+.lanx-glow::before,
+.lanx-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 3px;
+  border-radius: 12px;
+  background: conic-gradient(from var(--lanx-glow-a), #ff8a3d, #ff4f8b, #a970ff, #4f8bff, #2ee6d6, #ffc94a, #ff8a3d);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: lanx-glow-turn 3.2s linear infinite;
+}
+.lanx-glow::after {
+  padding: 14px;
+  filter: blur(16px);
+  opacity: 0.8;
+}
+@keyframes lanx-glow-turn { to { --lanx-glow-a: 360deg; } }

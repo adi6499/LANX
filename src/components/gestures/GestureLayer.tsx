@@ -8,6 +8,7 @@ import { type Cursor, type GEvent, GestureInterpreter, type Sign } from "../../l
 import { DomDriver, type Target, elementAt } from "../../lib/gestures/dom";
 import { type Intent, parseCommand, restoreCase, splitWho } from "../../lib/gestures/commands";
 import { type GesturePrefs, useGesturePrefs } from "../../lib/gestures/prefs";
+import { WindowFrame } from "../../lib/gestures/windowFrame";
 
 /** LANX 3.5.0: Gesture control — move a hand in front of the camera and
  *  LANX follows it, like using a touch screen from across the desk. A pinch
@@ -30,6 +31,25 @@ export interface GestureActions {
 type Voice = { phase: "idle" } | { phase: "listening"; level: number } | { phase: "thinking" };
 const SIGN_EMOJI: Record<Sign, string> = { yes: "👍", no: "👎", listen: "✌️", wheel: "🤟" };
 const BOX = 28;
+/** LANX 3.6.1: hold the pointer still on a button this long and it clicks (no pinch needed). */
+const DWELL_MS = 900;
+/** How far the pointer may wander while holding still (px). */
+const DWELL_MOVE = 28;
+/** The "hold still to click" whisper shows for the first few clicks only. */
+const HINT_CLICKS = 6;
+const HINT_KEY = "lanx.gestures.clicks";
+const clicksSoFar = () => {
+  try {
+    return Number(localStorage.getItem(HINT_KEY) ?? 0);
+  } catch {
+    return HINT_CLICKS;
+  }
+};
+const countClick = () => {
+  try {
+    localStorage.setItem(HINT_KEY, String(clicksSoFar() + 1));
+  } catch {}
+};
 
 export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenVoiceSettings }: { actions: GestureActions; locked: boolean; onError: (t: string) => void; onOpenSettings: () => void; onOpenVoiceSettings: () => void }) {
   const [prefs, setPrefs] = useGesturePrefs();
@@ -42,6 +62,9 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   const [wheel, setWheel] = useState<{ x: number; y: number } | null>(null);
   const [choose, setChoose] = useState<{ el: HTMLSelectElement; rect: DOMRect } | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  /** Two hands resizing the window: the glow and the size label. */
+  const [framing, setFraming] = useState<{ w: number; h: number } | null>(null);
+  const winFrame = useRef<WindowFrame | null>(null);
   /** The pill's words: shown for a few seconds when something changes, or while the mouse (or hand) is on it. */
   const [pillOpen, setPillOpen] = useState(false);
   const [pillFresh, setPillFresh] = useState(true);
@@ -75,6 +98,13 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   const holdArc = useRef<SVGCircleElement>(null);
   const holdLabel = useRef<HTMLSpanElement>(null);
   const secondEl = useRef<HTMLDivElement>(null);
+  const fillEl = useRef<HTMLDivElement>(null);
+  const hintEl = useRef<HTMLSpanElement>(null);
+  /** Holding still on a button: which, where it started, since when, and whether it already clicked. */
+  const dwell = useRef<{ el: Element; x: number; y: number; since: number; done: boolean } | null>(null);
+  const dwellP = useRef(0);
+  const flashUntil = useRef(0);
+  const hintsLeft = useRef(clicksSoFar() < HINT_CLICKS);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
   const toastTimer = useRef(0);
   const fedAt = useRef(0);
@@ -241,9 +271,16 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     const d = driver.current;
     if (!d) return;
     switch (e.type) {
-      case "press": return d.press(e.x, e.y);
+      case "press":
+        if (dwell.current) dwell.current.done = true;
+        return d.press(e.x, e.y);
       case "drag": return d.drag(e.x, e.y);
-      case "release": return d.release(e.x, e.y, e.click, e.double);
+      case "release":
+        if (e.click) {
+          countClick();
+          hintsLeft.current = clicksSoFar() < HINT_CLICKS;
+        }
+        return d.release(e.x, e.y, e.click, e.double);
       case "cancel": return d.cancel();
       case "longpress": return d.longPress(e.x, e.y);
       case "grab": return d.grab(e.x, e.y);
@@ -252,6 +289,15 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       case "zoom-start": return d.zoomStart(e.cx, e.cy);
       case "zoom": return d.zoom(e.scale, e.rotate, e.cx, e.cy);
       case "zoom-end": return d.zoomEnd();
+      case "frame-start":
+        winFrame.current ??= new WindowFrame((w, h) => setFraming({ w, h }));
+        void winFrame.current.begin();
+        return;
+      case "frame":
+        return winFrame.current?.set(e.scale);
+      case "frame-end":
+        winFrame.current?.end();
+        return setFraming(null);
       case "swipe": return onSwipe(e.dir);
       case "sign": return onSign(e.sign);
     }
@@ -284,6 +330,33 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     } else {
       target.current = null;
       d.leave();
+    }
+    // Holding still on a button clicks it: the button fills up first, so it never surprises.
+    const t = target.current;
+    const dwellable = !!t && (t.hug || /^(INPUT|TEXTAREA|SELECT)$/.test(t.el.tagName));
+    if (c && t && dwellable && c.mode === "point" && !c.hold && p.dwell !== false && out.tracking < 2) {
+      let dw = dwell.current;
+      if (!dw || dw.el !== t.el) dw = dwell.current = { el: t.el, x: c.x, y: c.y, since: f.t, done: false };
+      else if (!dw.done && Math.hypot(c.x - dw.x, c.y - dw.y) > DWELL_MOVE) Object.assign(dw, { x: c.x, y: c.y, since: f.t });
+      if (dw.done) dwellP.current = 0;
+      else {
+        dwellP.current = Math.min(1, (f.t - dw.since) / DWELL_MS);
+        if (dwellP.current >= 1) {
+          dw.done = true;
+          dwellP.current = 0;
+          flashUntil.current = performance.now() + 220;
+          const r = t.rect;
+          const x = Math.min(r.right - 2, Math.max(r.left + 2, c.x));
+          const y = Math.min(r.bottom - 2, Math.max(r.top + 2, c.y));
+          d.press(x, y);
+          d.release(x, y, true, false);
+          countClick();
+          hintsLeft.current = clicksSoFar() < HINT_CLICKS;
+        }
+      }
+    } else {
+      if (!c || c.mode === "point") dwell.current = null;
+      dwellP.current = 0;
     }
     setHasHand((h) => (h === out.tracking > 0 ? h : out.tracking > 0));
     drawPreview(previewCanvas.current, f);
@@ -395,7 +468,15 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         ring.style.height = `${box.h}px`;
         ring.style.borderRadius = `${box.r}px`;
         ring.style.opacity = String(shown);
-        ring.dataset.mode = c ? (hug ? (c.mode === "press" ? "hug-press" : "hug") : c.mode) : "none";
+        const flash = now < flashUntil.current;
+        ring.dataset.mode = c ? (hug ? (c.mode === "press" || flash ? "hug-press" : "hug") : c.mode) : "none";
+        if (fillEl.current) fillEl.current.style.transform = `scaleX(${hug ? dwellP.current : 0})`;
+        const hint = hintEl.current;
+        if (hint) {
+          const showHint = !!hug && hintsLeft.current && dwellP.current > 0.12;
+          hint.style.opacity = showHint ? "1" : "0";
+          if (showHint) hint.style.transform = `translate3d(${box.x + box.w / 2}px, ${box.y + box.h + 8}px, 0) translateX(-50%)`;
+        }
         dot.style.opacity = String(c && !hug && c.mode !== "grab" ? shown : 0);
         if (c) dot.style.transform = `translate3d(${c.x - 2.5}px, ${c.y - 2.5}px, 0)`;
       }
@@ -455,7 +536,12 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     <>
       {/* The pointer and its rings: never in the way of the page (and skipped when finding what is under the hand). */}
       <div data-gesture-ui aria-hidden className="pointer-events-none fixed inset-0 z-[200] overflow-hidden">
-        <div ref={ringEl} data-gesture-cursor className="lanx-gesture-ring absolute left-0 top-0" style={{ opacity: 0 }} />
+        <div ref={ringEl} data-gesture-cursor className="lanx-gesture-ring absolute left-0 top-0 overflow-hidden" style={{ opacity: 0 }}>
+          <div ref={fillEl} data-gesture-fill className="absolute inset-0 origin-left bg-sky-500/25" style={{ transform: "scaleX(0)" }} />
+        </div>
+        <span ref={hintEl} data-gesture-hint className="absolute left-0 top-0 whitespace-nowrap rounded-full bg-slate-900/85 px-2.5 py-1 text-[11px] font-medium text-white transition-opacity duration-200" style={{ opacity: 0 }}>
+          Hold still to click · or pinch
+        </span>
         <div ref={dotEl} className="absolute left-0 top-0 h-[5px] w-[5px] rounded-full bg-white shadow-[0_0_0_1px_rgb(15_23_42/0.6)]" style={{ opacity: 0 }} />
         <div ref={secondEl} className="lanx-gesture-ring absolute left-0 top-0 h-5 w-5 rounded-full" data-mode="zoom" style={{ opacity: 0 }} />
         <div ref={holdEl} className="absolute left-0 top-0 h-[52px] w-[52px] transition-opacity duration-150" style={{ opacity: 0 }}>
@@ -466,6 +552,14 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
           <span ref={holdLabel} className="absolute -top-7 left-1/2 -translate-x-1/2 text-[18px]" />
         </div>
       </div>
+
+      {/* Two hands resizing the window: a soft moving glow round the edge, and the size. */}
+      <div data-gesture-ui data-gesture-glow className="lanx-glow" data-on={framing ? "" : undefined} aria-hidden />
+      {framing && (
+        <div data-gesture-ui data-gesture-size className="pointer-events-none fixed left-1/2 top-1/2 z-[211] -translate-x-1/2 -translate-y-1/2 rounded-full lanx-menu px-4 py-2 text-[15px] font-semibold tabular-nums text-slate-800 dark:text-slate-100 lanx-menu-in">
+          {framing.w} × {framing.h}
+        </div>
+      )}
 
       {/* The camera dot and its menu. */}
       {on && (
