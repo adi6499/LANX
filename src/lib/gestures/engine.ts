@@ -31,11 +31,9 @@ const IDLE_MS = 1000 / 6;
 const IDLE_AFTER = 2500;
 /** Frames are made this wide (the model looks at 192–224 pixels anyway). */
 const FRAME_W = 480;
-/** Slower than this per frame (ms), the other way of running the model is tried once. */
-const SLOW_MS = 45;
-/** Frames after a start or a switch that are not counted (the first ones build shaders and caches). */
-const WARMUP = 6;
-/** Support / testing: localStorage "lanx.gestures.delegate" = "CPU" or "GPU" fixes the way (no measuring). */
+/** The model runs on the processor: on this PC the graphics chip took ~10 s a frame to
+ *  warm up inside LANX (and was slower after), while the processor keeps 12–16 frames a
+ *  second. Support / testing: localStorage "lanx.gestures.delegate" = "GPU" tries the chip. */
 function forced(): Delegate | null {
   try {
     const v = localStorage.getItem("lanx.gestures.delegate");
@@ -61,12 +59,6 @@ export class GestureEngine {
   private frames: number[] = [];
   private lastMs = 0;
   private statusAt = 0;
-  /** Milliseconds per frame on the current way, and the typical time of each way tried. */
-  private times: number[] = [];
-  private tried = new Map<Delegate, number>();
-  private settled = false;
-  /** The way asked for, while the worker switches. */
-  private asked: Delegate | null = null;
 
   constructor(
     private onFrame: (f: Frame) => void,
@@ -85,14 +77,7 @@ export class GestureEngine {
       w.onmessage = (e: MessageEvent<FromWorker>) => {
         const m = e.data;
         if (m.kind === "ready") {
-          // It could not switch: that way is out (no asking again and again).
-          if (this.asked && m.delegate !== this.asked) {
-            this.tried.set(this.asked, Infinity);
-            this.settled = true;
-          }
-          this.asked = null;
           this.delegate = m.delegate;
-          this.times = [];
           this.busy = false;
           resolve(true);
           this.next();
@@ -208,36 +193,12 @@ export class GestureEngine {
     this.frames.push(now);
     while (this.frames.length && now - this.frames[0] > 1000) this.frames.shift();
     this.lastMs = m.ms;
-    if (!m.both) this.measure(m.ms);
     if (now - this.statusAt > 1000) {
       this.statusAt = now;
       this.onStatus({ phase: "on", delegate: this.delegate, fps: this.frames.length, ms: Math.round(this.lastMs) });
     }
     this.onFrame({ t: m.t, aspect: v && v.videoHeight ? v.videoWidth / v.videoHeight : 4 / 3, hands: m.hands });
     if (!this.busy) this.next(waking);
-  }
-
-  /** The processor is the start. If it is slow on this PC, the graphics chip
-   *  gets a turn, and whichever was quicker stays. */
-  private measure(ms: number) {
-    if (this.settled || forced()) return;
-    this.times.push(ms);
-    if (this.times.length < WARMUP + 10) return;
-    const t = this.times.slice(WARMUP).sort((a, b) => a - b);
-    const typical = t[Math.floor(t.length / 2)];
-    this.tried.set(this.delegate, typical);
-    const other: Delegate = this.delegate === "CPU" ? "GPU" : "CPU";
-    const otherTime = this.tried.get(other);
-    let next: Delegate | null = null;
-    if (otherTime === undefined) next = typical > SLOW_MS ? other : null;
-    else next = otherTime < typical ? other : null;
-    if (otherTime !== undefined || !next) this.settled = true;
-    if (next) {
-      this.busy = true; // no frames while it switches; "ready" lets them go again
-      this.asked = next;
-      this.worker?.postMessage({ kind: "delegate", delegate: next } satisfies ToWorker);
-    }
-    this.times = [];
   }
 
   private release() {
