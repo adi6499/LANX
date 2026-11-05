@@ -1,6 +1,7 @@
 import React from "react";
 import type { Profile } from "../types";
 import { effective, statusPreset } from "../lib/profile";
+import { storyColor } from "../lib/storybook";
 
 interface AvatarProps {
   name: string;
@@ -18,7 +19,8 @@ interface AvatarProps {
 
 /** A person's picture: their photo, their character on a gradient of their
  *  colour, or their initial — the same everywhere in LANX. */
-export const Avatar: React.FC<AvatarProps> = ({ name, color, profile, size, square, showStatus, className = "", children }) => {
+export const Avatar: React.FC<AvatarProps> = ({ name, color: given, profile, size, square, showStatus, className = "", children }) => {
+  const color = storyColor(given);
   const p = effective(profile);
   const radius = square ? Math.round(size * 0.3) : size / 2;
   const emoji = p?.avatar?.startsWith("emoji:") ? p.avatar.slice(6) : null;

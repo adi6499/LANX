@@ -252,6 +252,15 @@ fn appearance_settings_round_trip_and_are_cleaned() {
     db.save_settings(&s).unwrap();
     let s3 = db.get_settings().unwrap();
     assert_eq!((s3.chat_background.as_str(), s3.accent_color.as_str()), ("default", "default"));
+    // LANX 3.6.0: the colour look — Golden hour unless chosen; unknown values fall back.
+    assert_eq!(db.get_settings().unwrap().color_style, "golden");
+    s.color_style = "toybox".into();
+    db.save_settings(&s).unwrap();
+    assert_eq!(db.get_settings().unwrap().color_style, "toybox");
+    s.color_style = "neon; x".into();
+    db.save_settings(&s).unwrap();
+    assert_eq!(db.get_settings().unwrap().color_style, "golden");
+    s.color_style = "classic".into();
     s.accent_color = "purple".into();
     db.save_settings(&s).unwrap();
     assert_eq!(db.get_settings().unwrap().accent_color, "purple");

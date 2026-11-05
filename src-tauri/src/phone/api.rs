@@ -154,6 +154,7 @@ fn settings_json(s: &UserSettings) -> Value {
         // 3.4: Appearance and the rest of Settings the phone shows.
         "chat_background": s.chat_background,
         "accent_color": s.accent_color,
+        "color_style": s.color_style,
         "glass_level": s.glass_level,
         "frost_level": s.frost_level,
         "reduce_motion": s.reduce_motion,
@@ -216,6 +217,10 @@ fn apply_patch(s: &mut UserSettings, p: &Value) -> Result<(), String> {
                     s.accent_color = c;
                 }
             }
+            "color_style" => match v.as_str() {
+                Some(c @ ("classic" | "golden" | "toybox")) => s.color_style = c.to_string(),
+                _ => return Err("color_style: classic, golden or toybox".to_string()),
+            },
             "glass_level" => s.glass_level = level()?,
             "frost_level" => s.frost_level = level()?,
             "sound_volume" => s.sound_volume = level()?,

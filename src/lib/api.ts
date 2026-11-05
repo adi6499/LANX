@@ -133,6 +133,7 @@ let mockSettings: UserSettings = {
   sound_volume: 80,
   chat_background: "default",
   accent_color: "default",
+  color_style: "golden",
   glass_level: 55,
   frost_level: 60,
   reduce_motion: false,

@@ -11,6 +11,14 @@ import App from "./App";
 import IslandApp from "./IslandApp";
 import RemoteBar from "./RemoteBar";
 import "./App.css";
+import { applyColorStyle, colorStyle } from "./lib/storybook";
+
+// LANX 3.6.0: the last Storybook look straight away (settings load a moment later).
+let lastLook: string | null = null;
+try {
+  lastLook = localStorage.getItem("lanx.colorStyle");
+} catch {}
+applyColorStyle(colorStyle(lastLook));
 
 // The desktop app has no use for the browser's right-click menu (Reload,
 // Inspect...), except in text fields and selected text where Copy/Paste help.

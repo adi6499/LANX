@@ -4,11 +4,12 @@
  *  itself comes from the PC: `wallpaperSrc`). */
 import type { UserSettings } from "../types";
 import { applyAppearance } from "../lib/background";
+import { colorStyle } from "../lib/storybook";
 import { setGlassLens } from "../lib/glass";
 import { setMotion } from "../lib/motion";
 import type { WallpaperChoice } from "../lib/wallpaper";
 
-export type Look = Partial<Pick<UserSettings, "theme" | "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion">>;
+export type Look = Partial<Pick<UserSettings, "theme" | "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion" | "color_style">>;
 
 // The glass lens is an SVG filter inside backdrop-filter, which phone
 // browsers (Safari) can't do: it stays off here.
@@ -35,8 +36,17 @@ export function applyLook(s: Look | null | undefined) {
     accent_color: s.accent_color ?? "default",
     glass_level: s.glass_level ?? 55,
     frost_level: s.frost_level ?? 60,
+    color_style: s.color_style,
   });
   setMotion(!!s.reduce_motion);
+  paintBar(s.color_style);
+}
+
+/** LANX 3.6.0: the phone browser's own bar takes the look's colour too. */
+function paintBar(style: string | undefined) {
+  const look = colorStyle(style);
+  const bars = look === "classic" ? ["#f8fafc", "#080c14"] : [look === "golden" ? "#fff2e4" : "#eaf6ff", "#1b1640"];
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m, i) => m.setAttribute("content", bars[Math.min(i, 1)]));
 }
 
 /** Where the phone loads the wallpaper picture or video from: straight from

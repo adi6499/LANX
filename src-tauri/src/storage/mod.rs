@@ -73,6 +73,14 @@ pub fn clean_accent(v: &str) -> String {
     clean_choice(v, &PRESETS)
 }
 
+/// LANX 3.6.0: a colour look the UI knows (else Golden hour, the default).
+pub fn clean_color_style(v: &str) -> String {
+    match v.trim() {
+        s @ ("classic" | "golden" | "toybox") => s.to_string(),
+        _ => "golden".to_string(),
+    }
+}
+
 fn clean_choice(v: &str, presets: &[&str]) -> String {
     let v = v.trim();
     let hex = v.len() == 7 && v.starts_with('#') && v[1..].chars().all(|c| c.is_ascii_hexdigit());
@@ -405,6 +413,7 @@ impl Database {
                 .unwrap_or(80),
             chat_background: clean_background(map.get("chat_background").map(|s| s.as_str()).unwrap_or("")),
             accent_color: clean_accent(map.get("accent_color").map(|s| s.as_str()).unwrap_or("")),
+            color_style: clean_color_style(map.get("color_style").map(|s| s.as_str()).unwrap_or("")),
             glass_level: map
                 .get("glass_level")
                 .and_then(|v| v.parse::<u32>().ok())
@@ -503,6 +512,7 @@ impl Database {
             ("sound_volume", settings.sound_volume.min(100).to_string()),
             ("chat_background", clean_background(&settings.chat_background)),
             ("accent_color", clean_accent(&settings.accent_color)),
+            ("color_style", clean_color_style(&settings.color_style)),
             ("glass_level", settings.glass_level.min(100).to_string()),
             ("frost_level", settings.frost_level.min(100).to_string()),
             ("reduce_motion", settings.reduce_motion.to_string()),

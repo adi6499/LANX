@@ -431,8 +431,9 @@ export default function App() {
       accent_color: settings?.accent_color ?? "default",
       glass_level: settings?.glass_level ?? 55,
       frost_level: settings?.frost_level ?? 60,
+      color_style: settings?.color_style,
     });
-  }, [settings?.chat_background, settings?.accent_color, settings?.glass_level, settings?.frost_level]);
+  }, [settings?.chat_background, settings?.accent_color, settings?.glass_level, settings?.frost_level, settings?.color_style]);
 
   useEffect(() => {
     setMotion(!!settings?.reduce_motion);

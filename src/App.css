@@ -694,3 +694,6 @@
 .lanx-gesture-ring[data-mode="hug-press"] { background-color: rgb(14 165 233 / 0.28); }
 .lanx-wheel-item { animation: lanx-wheel-in 0.28s var(--ease-spring) backwards; }
 @keyframes lanx-wheel-in { from { opacity: 0; transform: scale(0.6); } }
+
+/* LANX 3.6.0: in a Storybook look the island is the look's deepest ink, not plain black. */
+.storybook .lanx-island { background: var(--color-black); }

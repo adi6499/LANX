@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { stagger } from "../lib/motion";
 import { Search, Paperclip, Link2, ClipboardList, X } from "lucide-react";
 import { parseCard, KIND_LABEL } from "./org/cardModel";
+import { storyColor } from "../lib/storybook";
 
 interface HistoryViewProps {
   conversations: Conversation[];
@@ -198,7 +199,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, peers =
                 >
                   <div
                     className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] shrink-0"
-                    style={{ backgroundColor: h.peer_avatar_color }}
+                    style={{ backgroundColor: storyColor(h.peer_avatar_color) }}
                   >
                     {h.peer_name.charAt(0).toUpperCase()}
                   </div>
@@ -240,7 +241,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ conversations, peers =
                   <div className="flex items-center gap-3 min-w-0">
                     <div
                       className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0"
-                      style={{ backgroundColor: c.peer_avatar_color }}
+                      style={{ backgroundColor: storyColor(c.peer_avatar_color) }}
                     >
                       {c.peer_name.charAt(0).toUpperCase()}
                     </div>

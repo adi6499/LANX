@@ -30,6 +30,8 @@ export interface UserSettings {
   chat_background: string;
   /** Accent colour: "default", a preset id or "#rrggbb" (see lib/background.ts). */
   accent_color: string;
+  /** LANX 3.6.0: Storybook colours — "classic" | "golden" | "toybox" (dark mode: Lantern night). */
+  color_style: string;
   /** How see-through the glass panels are: 0 (solid) – 100 (clear). */
   glass_level: number;
   /** How frosted (blurred) the glass is: 0 (clear) – 100 (heavy frost). */

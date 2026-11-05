@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.5.0)
+# LANX — Local Network Messenger (v3.6.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,19 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.6.0: Storybook colours
+LANX now looks like an animated film: **Settings → Appearance → Colours**.
+- **Golden hour** (the new standard look): warm sunset light, coral buttons and bubbles, sunny yellow, cream
+  panels and a soft peach-to-pink sky behind everything.
+- **Toy box:** bright sky blue with cheerful red, yellow and green.
+- **Lantern night:** the dark look — a deep indigo night lit by marigold, magenta and teal. Golden hour and Toy
+  box both turn into Lantern night when LANX is dark.
+- The rules behind them: warm light and cool shadows, no plain grey or black anywhere (text is a deep plum or
+  navy "ink"), one main colour with a bright one for what you press, rich colours that stay soft. Panels stay
+  flat and plain; the colour is in the background and the accents.
+- Everything follows: chats, menus, Settings, Notes, Calendar, the Organiser, calls, people's colours, the
+  little island and the phone page. **Classic** brings back the old look; your own accent colour still wins.
 
 ### New in 3.5.0: use LANX with your hands (and your voice)
 Turn it on in **Tools (🔧) → Gestures & commands**. The camera follows your hand, LANX moves with it, and the

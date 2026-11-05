@@ -58,6 +58,10 @@ pub struct UserSettings {
     /// "default", a preset name, or "#rrggbb".
     #[serde(default = "default_background")]
     pub accent_color: String,
+    /// LANX 3.6.0: Storybook colours — "classic", "golden" (Golden hour) or
+    /// "toybox"; in dark mode both Storybook looks become Lantern night.
+    #[serde(default = "default_color_style")]
+    pub color_style: String,
     /// LANX 1.2.5: how see-through the glass panels are, 0 (solid) – 100 (clear).
     #[serde(default = "default_glass")]
     pub glass_level: u32,
@@ -355,6 +359,10 @@ pub fn clean_quick_replies(list: &[String]) -> Vec<String> {
 
 fn default_background() -> String {
     "default".to_string()
+}
+
+fn default_color_style() -> String {
+    "golden".to_string()
 }
 
 fn default_sound() -> String {

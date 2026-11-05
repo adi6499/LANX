@@ -23,6 +23,7 @@ import {
   Square,
   MousePointer2,
 } from "lucide-react";
+import { storyColor } from "../lib/storybook";
 
 /** Imperative handle: the chat header's call buttons start calls here. */
 export interface CallLayerHandle {
@@ -1182,7 +1183,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     info.private ? (
       <div
         className={`${size} rounded-full flex items-center justify-center text-white font-bold shadow-xl`}
-        style={{ backgroundColor: info.avatar_color }}
+        style={{ backgroundColor: storyColor(info.avatar_color) }}
       >
         <Phone className="h-1/3 w-1/3" />
       </div>
@@ -1235,7 +1236,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
           className="fixed bottom-5 right-5 z-[70] flex items-center gap-3 rounded-full bg-emerald-600 py-1.5 pl-1.5 pr-1.5 text-white shadow-xl lanx-rise"
         >
           {info.private ? (
-            <span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: info.avatar_color }}>
+            <span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: storyColor(info.avatar_color) }}>
               <Phone className="h-4 w-4" />
             </span>
           ) : (

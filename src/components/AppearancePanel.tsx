@@ -12,9 +12,10 @@ import {
   backgroundCss,
 } from "../lib/background";
 import { glassLensOn, setGlassLens } from "../lib/glass";
+import { colorStyle } from "../lib/storybook";
 import { Origin, originOf, revealChange, setMotion } from "../lib/motion";
 
-type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion" | "cat_alerts">>;
+type Patch = Partial<Pick<UserSettings, "chat_background" | "accent_color" | "glass_level" | "frost_level" | "reduce_motion" | "cat_alerts" | "color_style">>;
 
 interface AppearancePanelProps {
   form: UserSettings;
@@ -73,6 +74,29 @@ const LivePreview: React.FC = () => (
   </div>
 );
 
+/** LANX 3.6.0: the Storybook looks (and Classic), each drawn in its own colours. */
+const LOOKS: { id: "classic" | "golden" | "toybox" | "lantern"; label: string; about: string; sky: string; side: string; chat: string; mine: string; theirs: string; ink: string; pop: string }[] = [
+  { id: "classic", label: "Classic", about: "LANX's cool greys and sky blue", sky: "#e3ebf5", side: "#f8fafc", chat: "#ffffff", mine: "#0ea5e9", theirs: "#eef2f7", ink: "#0f172a", pop: "#0ea5e9" },
+  { id: "golden", label: "Golden hour", about: "Warm sunset light, coral and sunny yellow", sky: "#ffd6bd", side: "#fff1e0", chat: "#fff8ee", mine: "#ee5a3c", theirs: "#ffffff", ink: "#3a2a4a", pop: "#f5a524" },
+  { id: "toybox", label: "Toy box", about: "Sky blue with cheerful red, yellow and green", sky: "#bfe6ff", side: "#f2faff", chat: "#ffffff", mine: "#2f7de1", theirs: "#eef6ff", ink: "#1e2b4a", pop: "#e8453c" },
+  { id: "lantern", label: "Lantern night", about: "The dark look: indigo night, marigold and magenta", sky: "#241b4a", side: "#2a2155", chat: "#2f2660", mine: "#e2457f", theirs: "#3a3170", ink: "#fff4e6", pop: "#ffb627" },
+];
+
+const LookThumb: React.FC<{ look: (typeof LOOKS)[number] }> = ({ look: l }) => (
+  <span className="absolute inset-0 flex" style={{ background: l.sky }}>
+    <span className="m-1.5 mr-0 w-[32%] rounded-[6px] p-1 space-y-1" style={{ background: l.side }}>
+      <span className="block h-2 rounded-full" style={{ background: l.mine }} />
+      <span className="block h-1.5 w-3/4 rounded-full opacity-40" style={{ background: l.ink }} />
+      <span className="block h-1.5 w-2/3 rounded-full opacity-40" style={{ background: l.ink }} />
+    </span>
+    <span className="relative m-1.5 flex-1 rounded-[6px]" style={{ background: l.chat }}>
+      <span className="absolute left-1.5 top-1.5 h-2.5 w-[46%] rounded-full" style={{ background: l.theirs, boxShadow: `inset 0 0 0 0.5px ${l.ink}22` }} />
+      <span className="absolute right-1.5 top-5 h-2.5 w-[52%] rounded-full" style={{ background: l.mine }} />
+      <span className="absolute right-1.5 bottom-1.5 h-2.5 w-2.5 rounded-full" style={{ background: l.pop }} />
+    </span>
+  </span>
+);
+
 const ThemeThumb: React.FC<{ mode: "light" | "dark" }> = ({ mode }) => {
   const dark = mode === "dark";
   return (
@@ -122,6 +146,23 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
 
   const background = form.chat_background || "default";
   const accent = form.accent_color || "default";
+  const style = colorStyle(form.color_style);
+  const lookOn = (id: (typeof LOOKS)[number]["id"]) => (id === "classic" ? style === "classic" : id === "lantern" ? style !== "classic" && dark : style === id && !dark);
+  /** Golden hour and Toy box are light looks; Lantern night is their dark mode. */
+  const pickLook = (id: (typeof LOOKS)[number]["id"], origin: Origin) => {
+    // A change of light or dark plays the theme's own reveal; the colours ride along with it.
+    if (id === "lantern") {
+      if (style === "classic") onChange({ color_style: "golden" });
+      if (!dark) onTheme("dark", origin);
+      return;
+    }
+    if (id !== "classic" && dark) {
+      onChange({ color_style: id });
+      onTheme("light", origin);
+      return;
+    }
+    pick({ color_style: id }, origin);
+  };
   // Transparency at zero is "Solid" whatever the frost (frost does nothing then).
   const preset = glass === 0 ? "solid" : GLASS_PRESETS.find((p) => p.glass === glass && p.frost === frost)?.id;
 
@@ -164,6 +205,29 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             );
           })}
         </div>
+      </Section>
+
+      <Section title="Colours" hint={LOOKS.find((l) => lookOn(l.id))?.label}>
+        <div className="grid grid-cols-4 gap-3" data-look-picker>
+          {LOOKS.map((l) => {
+            const on = lookOn(l.id);
+            return (
+              <button key={l.id} type="button" data-look={l.id} onClick={(e) => pickLook(l.id, originOf(e))} title={l.about} className="group flex flex-col items-center gap-1.5">
+                <span
+                  className={`relative block h-16 w-full rounded-[10px] overflow-hidden transition-all ${
+                    on ? "ring-[3px] ring-sky-500 ring-offset-2 ring-offset-transparent" : "ring-1 ring-black/10 dark:ring-white/10 group-hover:scale-[1.03]"
+                  }`}
+                >
+                  <LookThumb look={l} />
+                </span>
+                <span className={`text-[11px] font-medium ${on ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-slate-400"}`}>{l.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
+          Storybook colours, in the spirit of animated films: warm light, soft rich colours and no plain greys. Golden hour and Toy box turn into Lantern night when LANX is dark.
+        </p>
       </Section>
 
       <Section title="Accent colour" hint={isCustomColor(accent) ? "Your colour" : ACCENT_PRESETS.find((p) => p.id === accent)?.label}>
@@ -220,7 +284,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
                   className={`relative block h-12 w-full rounded-[11px] transition-all ${
                     on ? "ring-[3px] ring-sky-500 ring-offset-2 ring-offset-transparent" : "ring-1 ring-black/10 dark:ring-white/10 group-hover:scale-[1.04]"
                   }`}
-                  style={{ background: backgroundCss(p.id, dark) }}
+                  style={{ background: backgroundCss(p.id, dark, form.color_style) }}
                 >
                   {on && (
                     <span className="absolute inset-0 m-auto h-5 w-5 rounded-full bg-white/90 shadow flex items-center justify-center">

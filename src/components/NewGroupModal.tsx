@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Peer } from "../types";
 import { Users, X, Check, Search } from "lucide-react";
 import { errorText } from "../lib/api";
+import { storyColor } from "../lib/storybook";
 
 interface PeerPickerProps {
   peers: Peer[];
@@ -55,7 +56,7 @@ export const PeerPicker: React.FC<PeerPickerProps> = ({ peers, selected, onChang
               <div className="relative">
                 <div
                   className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                  style={{ backgroundColor: p.avatar_color }}
+                  style={{ backgroundColor: storyColor(p.avatar_color) }}
                 >
                   {p.display_name.charAt(0).toUpperCase()}
                 </div>

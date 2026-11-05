@@ -2,6 +2,7 @@
  *  colour and the glass panels. Everything is applied as CSS variables on
  *  <html>, so every screen follows the same choice. */
 import { lensFilter } from "./glass";
+import { WALLS, type WallLook, applyColorStyle, colorStyle } from "./storybook";
 
 export interface BackgroundPreset {
   id: string;
@@ -105,11 +106,15 @@ const alpha = (c: string, pct: number) => mix(c, pct, "transparent");
 /** The full window background for a setting value: soft colour glows over a
  *  gentle base, like a desktop wallpaper, so the glass panels have something
  *  to pick their colour up from. */
-export function wallpaperCss(value: string, dark: boolean, unit: "vmax" | "%" = "vmax"): string {
+export function wallpaperCss(value: string, dark: boolean, unit: "vmax" | "%" = "vmax", look?: WallLook): string {
   const cs = backgroundColors(value);
   let c1: string, c2: string, c3: string;
   let strength = 1;
-  if (cs.length === 0) {
+  if (look) {
+    // LANX 3.6.0: a Storybook look's own painted sky.
+    [c1, c2, c3] = look.glows;
+    strength = look.strength;
+  } else if (cs.length === 0) {
     [c1, c2, c3] = ["#38bdf8", "#818cf8", "#f0abfc"];
     strength = 0.55;
   } else if (cs.length === 1) {
@@ -118,9 +123,11 @@ export function wallpaperCss(value: string, dark: boolean, unit: "vmax" | "%" = 
     [c1, c2, c3] = [cs[0], cs[1], mix(cs[0], 50, cs[1])];
   }
   const p = (x: number) => Math.round(x * strength);
-  const base = dark
-    ? `linear-gradient(160deg, ${mix(c1, p(12), "#0a0c11")}, ${mix(c2, p(16), "#05070b")})`
-    : `linear-gradient(160deg, ${mix(c1, p(18), "#f6f8fb")}, ${mix(c2, p(26), "#eef1f6")})`;
+  const base = look
+    ? `linear-gradient(160deg, ${look.base[0]}, ${look.base[1]})`
+    : dark
+      ? `linear-gradient(160deg, ${mix(c1, p(12), "#0a0c11")}, ${mix(c2, p(16), "#05070b")})`
+      : `linear-gradient(160deg, ${mix(c1, p(18), "#f6f8fb")}, ${mix(c2, p(26), "#eef1f6")})`;
   // Sizes follow the window (vmax), or the box for small previews (%).
   const k = unit === "%" ? 1.6 : 1;
   const glow = (c: string, at: string, size: number, light: number, darkPct: number) =>
@@ -135,8 +142,15 @@ export function wallpaperCss(value: string, dark: boolean, unit: "vmax" | "%" = 
   ].join(", ");
 }
 
+/** The Storybook sky for a look, when the background is left on Default. */
+export function storyWall(value: string, style: string | undefined, dark: boolean): WallLook | undefined {
+  const s = colorStyle(style);
+  if (s === "classic" || (value || "default") !== "default") return undefined;
+  return dark ? WALLS.lantern : WALLS[s];
+}
+
 /** A small preview of a background (Settings swatches). */
-export const backgroundCss = (value: string, dark: boolean) => wallpaperCss(value, dark, "%");
+export const backgroundCss = (value: string, dark: boolean, style?: string) => wallpaperCss(value, dark, "%", storyWall(value, style, dark));
 
 // ------------------------------------------------------------ apply
 
@@ -159,6 +173,8 @@ export interface AppearanceChoice {
   accent_color: string;
   glass_level: number;
   frost_level: number;
+  /** LANX 3.6.0: "classic" | "golden" | "toybox" (Storybook colours). */
+  color_style?: string;
 }
 
 /** Glass numbers for the CSS: panel opacity, blur and colour boost. */
@@ -178,9 +194,13 @@ export function applyAppearance(a: AppearanceChoice) {
   const root = document.documentElement;
   const style = root.style;
   const bg = a.chat_background || "default";
-  style.setProperty("--lanx-wall-l", wallpaperCss(bg, false));
-  style.setProperty("--lanx-wall-d", wallpaperCss(bg, true));
-  style.setProperty("--lanx-tint", backgroundColors(bg)[0] ?? "#94a3b8");
+  const look = colorStyle(a.color_style);
+  applyColorStyle(look);
+  style.setProperty("--lanx-wall-l", wallpaperCss(bg, false, "vmax", storyWall(bg, look, false)));
+  style.setProperty("--lanx-wall-d", wallpaperCss(bg, true, "vmax", storyWall(bg, look, true)));
+  // A Storybook look brings its own panel tint (set in its colours) unless a background colour was chosen.
+  if (look !== "classic" && !backgroundColors(bg).length) style.removeProperty("--lanx-tint");
+  else style.setProperty("--lanx-tint", backgroundColors(bg)[0] ?? "#94a3b8");
 
   // Accent: LANX's buttons, bubbles and highlights all use Tailwind's "sky"
   // colours, so recolouring that palette recolours the whole app.

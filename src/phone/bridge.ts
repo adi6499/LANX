@@ -88,6 +88,7 @@ export type PhoneSettings = Pick<
   // 3.4
   | "chat_background"
   | "accent_color"
+  | "color_style"
   | "glass_level"
   | "frost_level"
   | "reduce_motion"
