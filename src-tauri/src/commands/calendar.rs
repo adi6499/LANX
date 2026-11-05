@@ -42,7 +42,7 @@ pub fn export_events_ics(state: State<AppState>) -> Result<String, String> {
 
 /// Small JSON preferences of the 2.5.0 tools. Only these keys, so the window
 /// can't poke at other settings.
-const PREF_KEYS: [&str; 17] = ["holidays", "wallpaper", "signature", "calendar_prefs", "share_link", "dictation", "memes", "memes_fav", "memes_recent", "memes_cache", "music_fav", "music_recent", "music_artists", "music_albums", "music_playlists", "music_cache", "games_stats"];
+const PREF_KEYS: [&str; 18] = ["holidays", "wallpaper", "signature", "calendar_prefs", "share_link", "dictation", "memes", "memes_fav", "memes_recent", "memes_cache", "music_fav", "music_recent", "music_artists", "music_albums", "music_playlists", "music_cache", "games_stats", "gestures"];
 const MAX_PREF_BYTES: usize = 2 * 1024 * 1024;
 
 #[tauri::command]

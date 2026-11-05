@@ -57,6 +57,11 @@ import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
 import { VoiceSettingsModal } from "./components/voice/VoiceSettingsModal";
+import { GestureLayer, type GestureActions } from "./components/gestures/GestureLayer";
+import { GestureSettingsModal } from "./components/gestures/GestureSettingsModal";
+import { type IntentContext, runIntent } from "./components/gestures/runIntent";
+import type { ToolId } from "./lib/gestures/commands";
+import { loadGesturePrefs, saveGesturePrefs } from "./lib/gestures/prefs";
 import { HelpDeskModal } from "./components/HelpDeskModal";
 import { EndOfDayModal } from "./components/EndOfDayModal";
 import { withoutForwardMark } from "./components/chat/chatUtils";
@@ -1215,6 +1220,110 @@ export default function App() {
     api.saveSettings(updated).catch(console.error);
   };
 
+  // ---- LANX 3.5.0: gestures and spoken commands
+  const [showGestures, setShowGestures] = useState(false);
+  /** Open windows a flick up (or "go back") closes, the one on top first. The PDF tools and games close themselves. */
+  const openPanels: [boolean, () => void][] = [
+    [showGestures, () => setShowGestures(false)],
+    [showVoice, () => setShowVoice(false)],
+    [!!settingsTab, () => setSettingsTab(null)],
+    [showInvite, () => setShowInvite(false)],
+    [showHelpDesk, () => setShowHelpDesk(false)],
+    [showEndOfDay, () => setShowEndOfDay(false)],
+    [showNewGroup, () => setShowNewGroup(false)],
+    [showBroadcast, () => setShowBroadcast(false)],
+    [showStarred, () => setShowStarred(false)],
+    [showCalc, () => setShowCalc(false)],
+    [!!showMemes, () => setShowMemes(null)],
+    [!!showMusic, () => setShowMusic(null)],
+    [!!showNotes, () => setShowNotes(false)],
+    [showCalendar, () => setShowCalendar(false)],
+    [showOrganiser, () => setShowOrganiser(false)],
+  ];
+  const gestureState = useRef({ peers, conversations, activeConversationId, messages, islandCall, islandMeeting, settings, openPanels });
+  gestureState.current = { peers, conversations, activeConversationId, messages, islandCall, islandMeeting, settings, openPanels };
+  const gestureActions = useMemo<GestureActions>(() => {
+    const openTool = (w: ToolId) => {
+      if (w === "music") setShowMusic({ query: "" });
+      else if (w === "notes") setShowNotes({ initial: null });
+      else if (w === "calendar") setShowCalendar(true);
+      else if (w === "games") setShowGames({ query: "", matchId: null });
+      else if (w === "calculator") setShowCalc(true);
+      else if (w === "pdf") setPdfPath({ path: null });
+      else if (w === "memes") setShowMemes({ query: "" });
+      else if (w === "settings") setSettingsTab("profile");
+      else if (w === "voice") setShowVoice(true);
+      else if (w === "gestures") setShowGestures(true);
+      else if (w === "organiser") setShowOrganiser(true);
+      else if (w === "starred") setShowStarred(true);
+      else if (w === "help-desk") setShowHelpDesk(true);
+    };
+    const ctx = (): IntentContext => {
+      const g = gestureState.current;
+      return {
+        peers: g.peers,
+        conversations: g.conversations,
+        activeConversationId: g.activeConversationId,
+        messages: g.messages,
+        call: g.islandCall,
+        meeting: g.islandMeeting,
+        callLayer: callRef.current,
+        meetingLayer: meetingRef.current,
+        openConversation: (c) => {
+          setConversations((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev]));
+          setActiveConversationId(c.id);
+          setActiveTab("messages");
+        },
+        send: async (id, text) => {
+          await api.sendMessage(id, text);
+          if (activeConversationIdRef.current === id) setMessages(await api.getMessages(id));
+        },
+        updateMessage: (m) => setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x))),
+        setTab: (t) => setActiveTab(t),
+        open: openTool,
+        setTheme: (theme) => {
+          const st = gestureState.current.settings;
+          if (!st) return;
+          const updated = { ...st, theme };
+          setSettings(updated);
+          applyTheme(theme);
+          api.saveSettings(updated).catch(console.error);
+        },
+        search: (q) => {
+          setActiveTab("messages");
+          setSearchQuery(q);
+        },
+        note: (text) => setShowNotes({ initial: text ? { title: "", body: text } : null }),
+        gesturesOff: () => void loadGesturePrefs().then((p) => saveGesturePrefs({ ...p, enabled: false })),
+        close: closeTop,
+      };
+    };
+    const closeTop = () => {
+      const top = gestureState.current.openPanels.find(([open]) => open);
+      top?.[1]();
+      return !!top;
+    };
+    return {
+      yes: () => {
+        const g = gestureState.current;
+        if (g.islandCall?.status === "incoming") callRef.current?.accept(g.islandCall.video);
+        else if (g.islandMeeting?.status === "invited") meetingRef.current?.join(g.islandMeeting.video);
+        else return false;
+        return true;
+      },
+      no: () => {
+        const g = gestureState.current;
+        if (g.islandCall?.status === "incoming") callRef.current?.decline();
+        else if (g.islandMeeting?.status === "invited") meetingRef.current?.decline();
+        else return false;
+        return true;
+      },
+      run: (intent) => runIntent(intent, ctx()),
+      close: closeTop,
+      names: () => [...gestureState.current.peers.map((p) => p.display_name), ...gestureState.current.conversations.filter((c) => c.kind === "group").map((c) => c.peer_name)],
+    };
+  }, [applyTheme]);
+
   const transferActions: TransferActions = useMemo(
     () => ({
       accept: (id) => api.acceptTransfer(id).then((t) => setTransfers((prev) => upsertTransfer(prev, t))).catch(showError),
@@ -1448,6 +1557,7 @@ export default function App() {
         onInviteWhatsApp={() => setShowInvite(true)}
         onDictate={() => setDictateNow({ start: Date.now() })}
         onOpenVoice={() => setShowVoice(true)}
+        onOpenGestures={() => setShowGestures(true)}
         onOpenStarred={() => setShowStarred(true)}
         onOpenOrganiser={() => setShowOrganiser(true)}
         organiserCount={organiserCount}
@@ -2045,6 +2155,8 @@ export default function App() {
       {showInvite && <WhatsAppInviteModal onClose={() => setShowInvite(false)} onError={(t) => setNotice(t)} />}
       {showVoice && <VoiceSettingsModal onClose={() => setShowVoice(false)} onError={(t) => setNotice(t)} />}
       <DictationOverlay onError={(t) => setNotice(t)} onOpenSettings={() => setShowVoice(true)} external={dictateNow} />
+      {showGestures && <GestureSettingsModal onClose={() => setShowGestures(false)} />}
+      <GestureLayer actions={gestureActions} locked={locked} onError={(t) => setNotice(t)} onOpenSettings={() => setShowGestures(true)} onOpenVoiceSettings={() => setShowVoice(true)} />
       {(shareText !== null || shareFile !== null) && (
         <SendToModal
           paths={shareFile ? [shareFile] : []}

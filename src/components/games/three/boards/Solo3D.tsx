@@ -217,7 +217,17 @@ export function Game2048_3D({ onScore }: SoloProps) {
       }
     };
     window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    // LANX 3.5.0: a flick of the hand plays like an arrow key.
+    const flick = (e: Event) => {
+      const d = (e as CustomEvent<{ dir: string }>).detail.dir;
+      e.preventDefault();
+      h(new KeyboardEvent("keydown", { key: `Arrow${d[0].toUpperCase()}${d.slice(1)}` }));
+    };
+    window.addEventListener("lanx:gesture-swipe", flick);
+    return () => {
+      window.removeEventListener("keydown", h);
+      window.removeEventListener("lanx:gesture-swipe", flick);
+    };
   }, [step]);
   // A swipe on the board.
   const swipe = useRef<{ x: number; y: number } | null>(null);
@@ -464,7 +474,17 @@ export function Snake3D({ onScore }: SoloProps) {
       }
     };
     window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    // LANX 3.5.0: a flick of the hand plays like an arrow key.
+    const flick = (e: Event) => {
+      const d = (e as CustomEvent<{ dir: string }>).detail.dir;
+      e.preventDefault();
+      h(new KeyboardEvent("keydown", { key: `Arrow${d[0].toUpperCase()}${d.slice(1)}` }));
+    };
+    window.addEventListener("lanx:gesture-swipe", flick);
+    return () => {
+      window.removeEventListener("keydown", h);
+      window.removeEventListener("lanx:gesture-swipe", flick);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (

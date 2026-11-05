@@ -33,6 +33,9 @@ export interface CallLayerHandle {
   decline: () => void;
   hangup: () => void;
   toggleSize: () => void;
+  /** LANX 3.5.0 (spoken commands): microphone and camera on or off. False when there is no call. */
+  setMuted: (muted: boolean) => boolean;
+  setCamera: (on: boolean) => boolean;
 }
 
 /** What the Dynamic Island shows about the current call. */
@@ -967,6 +970,18 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       decline: () => void decline(),
       hangup: () => void cancelStarting(),
       toggleSize: () => setCall((c) => (c ? { ...c, expanded: !c.expanded } : c)),
+      setMuted: (m) => {
+        const c = callStateRef.current;
+        if (!c || c.status !== "active") return false;
+        if (c.muted !== m) togglesRef.current.toggleMute();
+        return true;
+      },
+      setCamera: (on) => {
+        const c = callStateRef.current;
+        if (!c || c.status !== "active") return false;
+        if (c.camera !== on) void togglesRef.current.toggleCamera();
+        return true;
+      },
     }),
     [start, accept, decline]
   );
@@ -1014,6 +1029,9 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
     patch({ camera: true });
     sendMedia({ video: true });
   };
+
+  const togglesRef = useRef({ toggleMute, toggleCamera });
+  togglesRef.current = { toggleMute, toggleCamera };
 
   const stopScreen = useCallback(async () => {
     // No picture, no remote control.

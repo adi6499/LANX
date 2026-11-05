@@ -425,6 +425,29 @@ export function PdfStudio({
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, page, pendingText, signPad, cur, sources, pages, decor]);
+  // LANX 3.5.0: hands — two hands pinching zoom, a flick turns the page.
+  const studioRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = studioRef.current;
+    const onZoom = (e: Event) => {
+      e.preventDefault();
+      const d = (e as CustomEvent<{ scale: number }>).detail;
+      setScale((s) => Math.max(0.3, Math.min(4, s * d.scale)));
+    };
+    const onFlick = (e: Event) => {
+      const dir = (e as CustomEvent<{ dir: string }>).detail.dir;
+      if (dir !== "left" && dir !== "right") return;
+      e.preventDefault();
+      goToLive(liveIdx.indexOf(cur) + 1 + (dir === "left" ? 1 : -1));
+    };
+    root?.addEventListener("lanx:gesture-zoom", onZoom);
+    window.addEventListener("lanx:gesture-swipe", onFlick);
+    return () => {
+      root?.removeEventListener("lanx:gesture-zoom", onZoom);
+      window.removeEventListener("lanx:gesture-swipe", onFlick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cur, liveIdx]);
 
   // ---- pages
   const rotatePage = (i: number) => setPages((ps) => ps.map((p, j) => (j === i ? { ...p, rotate: (p.rotate + 90) % 360 } : p)));
@@ -481,7 +504,7 @@ export function PdfStudio({
 
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center p-3 lanx-scrim ${closing ? "lanx-closing" : ""}`}>
-      <div data-pdf-studio className="w-full h-full max-w-[1400px] flex flex-col rounded-[22px] lanx-sheet overflow-hidden lanx-rise">
+      <div ref={studioRef} data-pdf-studio className="w-full h-full max-w-[1400px] flex flex-col rounded-[22px] lanx-sheet overflow-hidden lanx-rise">
         {/* Top bar */}
         <div className="flex items-center gap-2 px-4 py-2 border-b lanx-line">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-rose-500 text-white"><FileText className="h-4 w-4" /></span>

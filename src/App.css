@@ -670,3 +670,27 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* LANX 3.5.0: the hand pointer (Gesture control). Plain: a white ring with a
+   thin dark edge so it shows on light and dark; it wraps round buttons. */
+.lanx-gesture-ring {
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1.5px rgb(15 23 42 / 0.7), 0 3px 12px rgb(0 0 0 / 0.18);
+  background-color: rgb(15 23 42 / 0.12);
+  will-change: transform, width, height;
+  transition: background-color 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.lanx-gesture-ring[data-mode="press"],
+.lanx-gesture-ring[data-mode="drag"],
+.lanx-gesture-ring[data-mode="zoom"] { background-color: rgb(15 23 42 / 0.35); }
+.lanx-gesture-ring[data-mode="grab"] { background-color: #fff; }
+/* Over a button: an accent outline that hugs it, like a pointer on an iPad. */
+.lanx-gesture-ring[data-mode="hug"],
+.lanx-gesture-ring[data-mode="hug-press"] {
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7);
+  background-color: rgb(14 165 233 / 0.1);
+}
+.lanx-gesture-ring[data-mode="hug-press"] { background-color: rgb(14 165 233 / 0.28); }
+.lanx-wheel-item { animation: lanx-wheel-in 0.28s var(--ease-spring) backwards; }
+@keyframes lanx-wheel-in { from { opacity: 0; transform: scale(0.6); } }

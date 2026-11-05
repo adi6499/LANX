@@ -41,6 +41,10 @@ export interface MeetingLayerHandle {
   show: () => void;
   /** "Join again" from a meeting line in a chat. */
   rejoin: (messageId: string) => void;
+  /** LANX 3.5.0 (spoken commands and gestures). False when not in a meeting. */
+  setMuted: (muted: boolean) => boolean;
+  setCamera: (on: boolean) => boolean;
+  setHand: (up: boolean) => boolean;
 }
 
 /** What the Dynamic Island shows about the meeting. */
@@ -463,6 +467,21 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       leave: () => void leave(),
       show: () => setMini(false),
       rejoin: (id) => void rejoin(id),
+      setMuted: (m) => {
+        if (statusRef.current !== "active") return false;
+        if (meRef.current.muted !== m) void toggleMute();
+        return true;
+      },
+      setCamera: (on) => {
+        if (statusRef.current !== "active") return false;
+        if (meRef.current.camera !== on) void toggleCamera();
+        return true;
+      },
+      setHand: (up) => {
+        if (statusRef.current !== "active") return false;
+        if (meRef.current.hand !== up) toggleHand();
+        return true;
+      },
     }));
 
     // ------------------------------------------------------------- events

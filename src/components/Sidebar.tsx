@@ -5,7 +5,7 @@ import {
   UserSettings,
   NavTab,
 } from "../types";
-import { MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic } from "lucide-react";
+import { MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Hand } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
 import { ShieldCheck } from "lucide-react";
@@ -50,6 +50,8 @@ interface SidebarProps {
   onInviteWhatsApp?: () => void;
   onDictate?: () => void;
   onOpenVoice?: () => void;
+  /** LANX 3.5.0 */
+  onOpenGestures?: () => void;
   /** LANX 1.5.0: starred messages from all chats. */
   onOpenStarred?: () => void;
   /** LANX 1.6.0: the Organiser, and how many cards wait for you. */
@@ -107,6 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onInviteWhatsApp,
   onDictate,
   onOpenVoice,
+  onOpenGestures,
   onOpenStarred,
   onOpenOrganiser,
   organiserCount = 0,
@@ -404,7 +407,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
             {(onOpenPdf || onOpenCalc) && (
               <div className="relative">
-                <button type="button" data-open-tools onClick={() => setToolsMenu((v) => !v)} title="Tools: PDF tools, calculator" className={`lanx-tool flex h-8 w-8 items-center justify-center text-slate-600 dark:text-slate-300 ${toolsMenu ? "!bg-[var(--lanx-fill)]" : ""}`}>
+                <button type="button" data-open-tools onClick={() => setToolsMenu((v) => !v)} title="Tools: PDF tools, voice, gestures, calculator" className={`lanx-tool flex h-8 w-8 items-center justify-center text-slate-600 dark:text-slate-300 ${toolsMenu ? "!bg-[var(--lanx-fill)]" : ""}`}>
                   <Wrench className="h-[17px] w-[17px]" />
                 </button>
                 {toolsMenu && (
@@ -424,6 +427,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {onOpenVoice && (
                         <button type="button" data-tools-item="voice-settings" onClick={() => { setToolsMenu(false); onOpenVoice(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
                           <Mic className="h-4 w-4 text-slate-500" /> Voice settings
+                        </button>
+                      )}
+                      {onOpenGestures && (
+                        <button type="button" data-tools-item="gestures" onClick={() => { setToolsMenu(false); onOpenGestures(); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
+                          <Hand className="h-4 w-4 text-emerald-600" /> Gestures &amp; commands
                         </button>
                       )}
                       {onOpenCalc && (

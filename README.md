@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.4.1)
+# LANX — Local Network Messenger (v3.5.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,24 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.5.0: use LANX with your hands (and your voice)
+Turn it on in **Tools (🔧) → Gestures & commands**. The camera follows your hand, LANX moves with it, and the
+picture is looked at on this PC only (nothing recorded or sent; the camera stops when LANX is hidden or locked).
+- **Open hand** moves a pointer, which wraps round the button it is over. **Pinch** (thumb to finger) clicks;
+  pinch twice for a double-click; pinch and hold for the right-click menu; pinch and move to drag a slider or a
+  game piece, or to scroll a list like a phone.
+- **Fist** grabs the page and moves it; let go while moving and it flings on. **Two hands pinching** zoom (pull
+  apart / together) and turn — in the PDF tools too.
+- **Flick** the open hand sideways for next / previous (song, PDF page — and it steers 2048 and Snake); flick up to
+  close.
+- **Hold up 👍** to answer a call or join a meeting (over a message: like it), **👎** to decline or close,
+  **🤟** for a command wheel (music, notes, calendar, games).
+- **Hold up ✌ (or press Ctrl + Alt + J) and say a command:** “call Bharat”, “video call Asha”, “message Bharat I'm
+  on my way”, “play Kesariya”, “next song”, “mute”, “hang up”, “raise my hand”, “open notes”, “dark mode”… Hinglish
+  works too (“Bharat ko call karo”, “agla gaana”). It uses the speech model from Voice settings, on this PC.
+- Pointer speed, which hand, the camera picture in the corner and flicks can be changed in the same window. The
+  hand model (Google MediaPipe, Apache 2.0) ships inside LANX, so it works without the internet.
 
 ### New in 3.4.1: one-click install, and Linux again
 - **Windows:** open the installer, click **Yes** — it installs with a progress bar (no pages to click through) and
