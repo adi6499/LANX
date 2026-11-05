@@ -156,13 +156,25 @@ function rules(p: Palette): string {
   return `${p.selector}{${v.join(";")}}`;
 }
 
-/** Puts the three palettes into the page once (they only apply with the classes below). */
+let added = false;
+/** Puts the three palettes into the page once (they only apply with the classes below).
+ *  As an adopted style sheet: the desktop window's security policy blocks a
+ *  <style> element added at run time (Tauri puts hashes in style-src, which
+ *  switches 'unsafe-inline' off); older phone browsers get the element. */
 export function ensureStorybookCss() {
-  if (typeof document === "undefined" || document.getElementById("lanx-storybook")) return;
-  const el = document.createElement("style");
-  el.id = "lanx-storybook";
-  el.textContent = [GOLDEN, TOYBOX, LANTERN].map(rules).join("\n");
-  document.head.appendChild(el);
+  if (added || typeof document === "undefined") return;
+  added = true;
+  const css = [GOLDEN, TOYBOX, LANTERN].map(rules).join("\n");
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(css);
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  } catch {
+    const el = document.createElement("style");
+    el.id = "lanx-storybook";
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
 }
 
 /** Switches <html> to a look (dark mode is the "dark" class, set elsewhere). */
