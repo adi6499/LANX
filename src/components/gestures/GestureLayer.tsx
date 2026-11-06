@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarDays, Eye, EyeOff, Gamepad2, Hand, Keyboard, Loader2, Mic, Pause, Play, Power, Settings2, SkipForward, StickyNote, X } from "lucide-react";
+import { CalendarDays, Eye, EyeOff, Gamepad2, GraduationCap, Hand, Keyboard, Loader2, Mic, Pause, Play, Power, Settings2, SkipForward, StickyNote, X } from "lucide-react";
 import { emitTo, listen as listenTauri } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText, events } from "../../lib/api";
@@ -17,6 +17,19 @@ import { type CallMove, CallWatcher } from "../../lib/gestures/calls";
 import { EMPTY_KB, KB_SIZE, type KbOut, type KbState, type KeyRect, applyKey, keyAt, layoutKeyboard, loadDictionary, suggest } from "../../lib/gestures/keyboard";
 import { HUD_EVENT, HUD_NOTE_H, HUD_NOTE_W, type HudState } from "../../lib/gestures/hud";
 import { AirKeyboard } from "./AirKeyboard";
+import { setGestureLive, useGestureHint } from "../../lib/gestures/live";
+import { GestureTutorial } from "./GestureTutorial";
+import { IS_LINUX } from "../../lib/platform";
+
+/** 3.7.1: the practice guide opens by itself once, the first time the camera comes on. */
+const LEARNED_KEY = "lanx.gestures.learned";
+const learned = () => {
+  try {
+    return localStorage.getItem(LEARNED_KEY) === "1";
+  } catch {
+    return true;
+  }
+};
 
 /** LANX 3.5.0: Gesture control — move a hand in front of the camera and
  *  LANX follows it, like using a touch screen from across the desk. A pinch
@@ -186,6 +199,12 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   const hudSize = useRef("");
   const [hudNote, setHudNote] = useState<{ text: string; tone?: "red" } | null>(null);
   const hudTimer = useRef(0);
+  /** 3.7.1: inside LANX a drag and a fist scroll glide at screen rate between camera frames. */
+  const dragAim = useRef<{ x: number; y: number } | null>(null);
+  const dragAt = useRef<{ x: number; y: number } | null>(null);
+  const grabLeft = useRef({ dx: 0, dy: 0 });
+  const hint = useGestureHint();
+  const [learn, setLearn] = useState(false);
 
   const say = useCallback((t: string, ms = 2200) => {
     window.clearTimeout(toastTimer.current);
@@ -647,8 +666,18 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         d.press(e.x, e.y, lit);
         return afterClick();
       }
-      case "drag": return d.drag(e.x, e.y);
+      case "drag":
+        // Eased towards the hand by the drawing loop (no steps between camera frames).
+        if (statusRef.current.phase !== "on") return d.drag(e.x, e.y);
+        dragAim.current = { x: e.x, y: e.y };
+        if (!dragAt.current) {
+          dragAt.current = { x: e.x, y: e.y };
+          d.drag(e.x, e.y);
+        }
+        return;
       case "release":
+        if (dragAt.current) d.drag(e.x, e.y);
+        dragAim.current = dragAt.current = null;
         if (e.click) {
           countClick();
           hintsLeft.current = clicksSoFar() < HINT_CLICKS;
@@ -656,11 +685,25 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         d.release(e.x, e.y, e.click, e.double);
         if (e.click) afterClick();
         return;
-      case "cancel": return d.cancel();
+      case "cancel":
+        dragAim.current = dragAt.current = null;
+        return d.cancel();
       case "longpress": return d.longPress(e.x, e.y);
-      case "grab": return d.grab(e.x, e.y);
-      case "grab-move": return d.grabMove(e.dx, e.dy);
-      case "grab-end": return d.grabEnd(e.vx, e.vy);
+      case "grab":
+        grabLeft.current = { dx: 0, dy: 0 };
+        return d.grab(e.x, e.y);
+      case "grab-move":
+        // Let out by the drawing loop, a share each screen refresh.
+        if (statusRef.current.phase !== "on") return d.grabMove(e.dx, e.dy);
+        grabLeft.current.dx += e.dx;
+        grabLeft.current.dy += e.dy;
+        return;
+      case "grab-end": {
+        const g = grabLeft.current;
+        if (g.dx || g.dy) d.grabMove(g.dx, g.dy);
+        grabLeft.current = { dx: 0, dy: 0 };
+        return d.grabEnd(e.vx, e.vy);
+      }
       case "zoom-start": return d.zoomStart(e.cx, e.cy);
       case "zoom": return d.zoom(e.scale, e.rotate, e.cx, e.cy);
       case "zoom-end": return d.zoomEnd();
@@ -730,6 +773,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       if (active || e.type === "sign") handleRef.current(e);
     }
     const pt = active ? out.cursor : null;
+    setGestureLive({ on: true, pc: !!P, tracking: out.tracking, mode: pt?.mode ?? null, x: P ? null : pt?.x ?? null, y: P ? null : pt?.y ?? null, holding: pt?.hold?.sign ?? null });
     // The keyboard key under the hand.
     const hoverKey = kbRef.current && pt && (pt.mode === "point" || pt.mode === "press") ? fn.kbKeyAt(pt.x, pt.y)?.id ?? null : null;
     if (hoverKey !== kbHoverRef.current) setKbHover(hoverKey);
@@ -884,6 +928,11 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     target.current = null;
   }, [pc]);
 
+  useEffect(() => {
+    setGestureLive({ on: status.phase === "on", pc, ...(status.phase === "on" ? {} : { tracking: 0, mode: null, x: null, y: null, holding: null }) });
+  }, [status.phase, pc]);
+  useEffect(() => () => setGestureLive({ on: false, tracking: 0, mode: null, x: null, y: null, holding: null }), []);
+
   // ---- 3.7.0: the hands window over other programs (keyboard, notes) while controlling the whole PC
   const voiceNote = voice.phase === "listening" ? (voice.typing ? "Listening… say what to type" : "Listening… say a command") : voice.phase === "thinking" ? "Working it out…" : null;
   const endingNote = endingLeft !== null ? `👋 Ending the call in ${endingLeft}… make a fist to stay` : null;
@@ -891,7 +940,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   useEffect(() => {
     const o = os.current;
     const away = !focused;
-    const note = endingNote ?? (away ? voiceNote ?? hudNote?.text ?? null : null);
+    const note = endingNote ?? (away ? voiceNote ?? hudNote?.text ?? (prefsRef.current?.hints !== false ? hint : null) : null);
     const red = !!endingNote || (away && voice.phase === "listening");
     const show = pc && !!o && (!!kb || !!note);
     const w = kb ? KB_SIZE.w : HUD_NOTE_W;
@@ -913,7 +962,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         })
         .catch(() => {});
     } else if (show) sendHud.current();
-  }, [pc, kb, kbHover, kbPressed, hudNote, voice.phase, voice.phase === "listening" && voice.typing, endingNote, voiceNote, focused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pc, kb, kbHover, kbPressed, hudNote, voice.phase, voice.phase === "listening" && voice.typing, endingNote, voiceNote, focused, hint]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     // The hands window asks for what to show once it has loaded.
@@ -962,6 +1011,27 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       delete w.__lanxGestures;
     };
   }, [prefs?.enabled, onFrame, act, openKb]);
+  // 3.7.1: the practice guide — once by itself when the camera first comes on, and on request.
+  useEffect(() => {
+    if (status.phase === "on" && !learned()) setLearn(true);
+  }, [status.phase]);
+  useEffect(() => {
+    const on = () => {
+      setLearn(true);
+      const p = prefsRef.current;
+      if (p && !p.enabled) setPrefs({ ...p, enabled: true });
+    };
+    window.addEventListener("lanx:gesture-learn", on);
+    return () => window.removeEventListener("lanx:gesture-learn", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const closeLearn = () => {
+    setLearn(false);
+    try {
+      localStorage.setItem(LEARNED_KEY, "1");
+    } catch {}
+  };
+
   // 3.7.0: Gesture settings → "Teach a sign" borrows the camera's frames for a moment.
   useEffect(() => {
     const on = (e: Event) => {
@@ -996,6 +1066,29 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     const step = (now: number) => {
       const dt = Math.min(0.05, (now - t0) / 1000);
       t0 = now;
+      // 3.7.1: a drag follows the hand smoothly, and a fist scroll is let out evenly.
+      const dv = driver.current;
+      const da = dragAim.current;
+      const dp = dragAt.current;
+      if (dv && da && dp) {
+        const k = 1 - Math.exp(-dt * 28);
+        const nx = dp.x + (da.x - dp.x) * k;
+        const ny = dp.y + (da.y - dp.y) * k;
+        if (Math.abs(nx - dp.x) + Math.abs(ny - dp.y) > 0.3) {
+          dp.x = nx;
+          dp.y = ny;
+          dv.drag(nx, ny);
+        }
+      }
+      const gl = grabLeft.current;
+      if (dv && (Math.abs(gl.dx) > 0.5 || Math.abs(gl.dy) > 0.5)) {
+        const k = 1 - Math.exp(-dt * 22);
+        const px = gl.dx * k;
+        const py = gl.dy * k;
+        gl.dx -= px;
+        gl.dy -= py;
+        dv.grabMove(px, py);
+      }
       const c = cursor.current;
       const ring = ringEl.current;
       const dot = dotEl.current;
@@ -1134,6 +1227,10 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
               <canvas ref={previewCanvas} width={160} height={120} className="absolute inset-0 h-full w-full" />
             </div>
           )}
+          {/* 3.7.1: what LANX thinks the hand is doing, and what to do next. */}
+          {prefs.hints !== false && hint && status.phase === "on" && (
+            <div data-gesture-hint-chip className="rounded-full bg-slate-900/85 px-3 py-1.5 text-[12px] font-medium text-white">{hint}</div>
+          )}
           <div
             data-gesture-status={status.phase}
             onMouseEnter={() => setPillOpen(true)}
@@ -1156,6 +1253,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
               <button type="button" title={prefs.preview ? "Hide the camera picture" : "Show the camera picture"} onClick={() => set({ preview: !prefs.preview })} className="lanx-tool h-6 w-6 shrink-0 flex items-center justify-center text-slate-500">
                 {prefs.preview ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
+              <button type="button" data-gesture-learn title="Learn hand gestures: a short practice" onClick={() => setLearn(true)} className="lanx-tool h-6 w-6 shrink-0 flex items-center justify-center text-slate-500"><GraduationCap className="h-3.5 w-3.5" /></button>
               <button type="button" title="Gesture settings" onClick={onOpenSettings} className="lanx-tool h-6 w-6 shrink-0 flex items-center justify-center text-slate-500"><Settings2 className="h-3.5 w-3.5" /></button>
               <button type="button" data-gesture-off title="Turn gestures off (the camera stops)" onClick={() => set({ enabled: false })} className="lanx-tool h-6 w-6 shrink-0 flex items-center justify-center text-slate-500 hover:text-red-500"><Power className="h-3.5 w-3.5" /></button>
             </span>
@@ -1186,6 +1284,9 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
           )}
         </div>
       )}
+
+      {/* 3.7.1: Learn hand gestures. */}
+      {learn && on && <GestureTutorial onClose={closeLearn} pcAvailable={!IS_LINUX} pcOn={!!prefs.pc} onTurnOnPc={() => set({ pc: true })} />}
 
       {/* 3.7.0: the air keyboard inside LANX (over other programs it is in the hands window). */}
       {kb && !pc && (

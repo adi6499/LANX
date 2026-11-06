@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.7.0)
+# LANX — Local Network Messenger (v3.7.1)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,11 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.7.1: smoother hands, and easy to learn
+- **The mouse glides:** controlling the whole PC, the mouse is eased towards your hand about 120 times a second instead of jumping with each camera picture; scrolling is let out smoothly too. Inside LANX, dragging and fist-scrolling glide at screen rate.
+- **Learn hand gestures:** a short hands-on practice (show your hand, point, pinch, drag, fist-scroll, type in the air), ticking off each step as LANX sees it. It opens the first time gestures are turned on, and from the hand button.
+- **LANX says what it sees:** “✋ Moving · pinch to click”, “✊ Scrolling — open your hand to let go”… by the hand button, and over other programs while controlling the whole PC (Gesture settings → Show what my hand is doing).
 
 ### New in 3.7.0: hands for the whole PC, a keyboard in the air, signs of your own, hands in calls
 - **Control the whole PC** (Gesture settings, Windows): your hand moves the real mouse in every program — Chrome, Excel, File Explorer. A pinch clicks where the pointer was as your fingers met, pinch and move drags, pinch and hold is a right-click, a fist scrolls (let go while moving to fling), two hands zoom (Ctrl + wheel), a flick presses ← or →. It keeps working while LANX is minimised.

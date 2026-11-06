@@ -2,7 +2,7 @@
 import { X } from "lucide-react";
 import type { Release } from "../lib/whatsNew";
 
-export function WhatsNewModal({ releases, onClose, onTry }: { releases: Release[]; onClose: () => void; onTry?: () => void }) {
+export function WhatsNewModal({ releases, onClose, onTry, tryLabel = "Open Gesture settings" }: { releases: Release[]; onClose: () => void; onTry?: () => void; tryLabel?: string }) {
   const [first, ...older] = releases;
   if (!first) return null;
   return (
@@ -40,7 +40,7 @@ export function WhatsNewModal({ releases, onClose, onTry }: { releases: Release[
         <div className="mt-6 flex justify-end gap-2">
           {onTry && (
             <button type="button" data-whats-new-try onClick={onTry} className="rounded-full px-4 py-2 text-[13px] font-semibold text-sky-700 dark:text-sky-300 hover:bg-[var(--lanx-fill)]">
-              Open Gesture settings
+              {tryLabel}
             </button>
           )}
           <button type="button" data-whats-new-ok onClick={onClose} className="rounded-full bg-sky-500 px-5 py-2 text-[13px] font-semibold text-white hover:bg-sky-600">

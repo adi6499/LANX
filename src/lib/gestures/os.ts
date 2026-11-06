@@ -8,6 +8,10 @@ import { api, errorText } from "../api";
 
 export type HandInput =
   | { op: "move"; x: number; y: number }
+  /** 3.7.1: glide there (LANX eases the mouse between camera frames, ~120 steps a second). */
+  | { op: "aim"; x: number; y: number }
+  /** 3.7.1: scroll this much, let out smoothly. */
+  | { op: "scroll"; dx: number; dy: number }
   | { op: "button"; button: 0 | 1 | 2; down: boolean }
   | { op: "wheel"; dx: number; dy: number }
   | { op: "key"; code: string; down: boolean }
@@ -84,12 +88,16 @@ export class OsDriver {
   private at(x: number, y: number): HandInput {
     return { op: "move", x: clamp01(x / this.w), y: clamp01(y / this.h) };
   }
+  private aim(x: number, y: number): HandInput {
+    return { op: "aim", x: clamp01(x / this.w), y: clamp01(y / this.h) };
+  }
 
   private push(...ops: HandInput[]) {
     for (const op of ops) {
       const last = this.q[this.q.length - 1];
-      // Only the newest place matters.
-      if (op.op === "move" && last?.op === "move") this.q[this.q.length - 1] = op;
+      // Only the newest place matters; scrolling adds up.
+      if (op.op === "aim" && last?.op === "aim") this.q[this.q.length - 1] = op;
+      else if (op.op === "scroll" && last?.op === "scroll") this.q[this.q.length - 1] = { op: "scroll", dx: last.dx + op.dx, dy: last.dy + op.dy };
       else this.q.push(op);
     }
     void this.flush();
@@ -116,10 +124,10 @@ export class OsDriver {
     }
   }
 
-  /** The pointer follows the hand (but holds still while a pinch may still be a click). */
+  /** The pointer follows the hand, gliding (but holds still while a pinch may still be a click). */
   move(x: number, y: number) {
     if (this.press && !this.held) return;
-    this.push(this.at(x, y));
+    this.push(this.aim(x, y));
   }
 
   pressAt(x: number, y: number) {
@@ -135,7 +143,8 @@ export class OsDriver {
       this.held = true;
       this.push(this.at(p.x, p.y), { op: "button", button: 0, down: true });
     }
-    this.push(this.at(x, y));
+    // From where the fingers met, the mouse glides after the hand (no jump).
+    this.push(this.aim(x, y));
   }
 
   release(x: number, y: number, click: boolean, double: boolean) {
@@ -187,7 +196,7 @@ export class OsDriver {
     const wy = Math.abs(y) >= WHEEL_MIN || (all && Math.abs(y) >= 1) ? Math.round(y) : 0;
     if (!wx && !wy) return;
     this.wheelAcc = { x: x - wx, y: y - wy };
-    this.push({ op: "wheel", dx: wx, dy: wy });
+    this.push({ op: "scroll", dx: wx, dy: wy });
   }
 
   grabEnd(vx: number, vy: number) {

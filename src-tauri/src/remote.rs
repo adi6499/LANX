@@ -720,7 +720,12 @@ pub fn take_dry_log() -> Vec<String> {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
 pub enum HandInput {
+    /// Straight there (before a click, so it lands exactly where the fingers met).
     Move { x: f64, y: f64 },
+    /// LANX 3.7.1: glide there (the hand's newest place; see `glide`).
+    Aim { x: f64, y: f64 },
+    /// LANX 3.7.1: scroll this much, spread smoothly over the next moments.
+    Scroll { dx: i32, dy: i32 },
     /// 0 left, 1 middle, 2 right.
     Button { button: u8, down: bool },
     /// 120 = one notch; positive `dy` scrolls up.
@@ -728,6 +733,169 @@ pub enum HandInput {
     /// A key by place (`KeyboardEvent.code`): "Enter", "ArrowLeft", "ControlLeft"…
     Key { code: String, down: bool },
     Text { text: String },
+}
+
+/// LANX 3.7.1: the hand pointer glides. The camera sees the hand 15–20 times a
+/// second; moving the mouse only then looks steppy. Here the mouse is eased
+/// towards the hand's newest place about 120 times a second (and scrolling is
+/// spread out the same way), so it moves like a real mouse.
+mod glide {
+    use super::{dry_run, inject_move, inject_wheel, DRY_LOG, TEST_BLOCKED};
+    use parking_lot::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    /// How quickly it catches up (seconds to cover about two-thirds of the way).
+    const TAU: f64 = 0.045;
+    const STEP: Duration = Duration::from_millis(8);
+    /// No new place for this long: it rests (and the next aim starts from wherever the mouse is).
+    const REST: Duration = Duration::from_millis(1500);
+    /// Scrolling is let out at this share per step (about 90% within a tenth of a second).
+    const SCROLL_SHARE: f64 = 0.18;
+
+    struct State {
+        x: f64,
+        y: f64,
+        tx: f64,
+        ty: f64,
+        sent: (i32, i32),
+        wx: f64,
+        wy: f64,
+        at: Instant,
+    }
+    static STATE: Mutex<Option<State>> = Mutex::new(None);
+    static RUNNING: AtomicBool = AtomicBool::new(false);
+
+    fn here() -> Option<(i32, i32)> {
+        #[cfg(windows)]
+        {
+            super::win::cursor()
+        }
+        #[cfg(not(windows))]
+        {
+            None
+        }
+    }
+
+    fn with<R>(px: i32, py: i32, f: impl FnOnce(&mut State) -> R) -> R {
+        let mut g = STATE.lock();
+        let fresh = g.as_ref().map(|s| s.at.elapsed() > REST).unwrap_or(true);
+        if fresh {
+            let (cx, cy) = here().unwrap_or((px, py));
+            *g = Some(State { x: cx as f64, y: cy as f64, tx: px as f64, ty: py as f64, sent: (cx, cy), wx: 0.0, wy: 0.0, at: Instant::now() });
+        }
+        let s = g.as_mut().expect("just set");
+        s.at = Instant::now();
+        f(s)
+    }
+
+    fn start() {
+        if RUNNING.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        std::thread::Builder::new()
+            .name("lanx-hand-glide".into())
+            .spawn(|| {
+                let mut last = Instant::now();
+                let mut resting = false;
+                loop {
+                    // Resting (no hand for a while): look in far less often.
+                    std::thread::sleep(if resting { Duration::from_millis(120) } else { STEP });
+                    let dt = last.elapsed().as_secs_f64().min(0.05);
+                    last = Instant::now();
+                    let (to, wheel) = {
+                        let mut g = STATE.lock();
+                        let Some(s) = g.as_mut() else {
+                            resting = true;
+                            continue;
+                        };
+                        resting = s.at.elapsed() > REST && s.wx.abs() < 1.0 && s.wy.abs() < 1.0;
+                        if resting {
+                            continue;
+                        }
+                        let k = 1.0 - (-dt / TAU).exp();
+                        s.x += (s.tx - s.x) * k;
+                        s.y += (s.ty - s.y) * k;
+                        if (s.tx - s.x).abs() < 0.5 && (s.ty - s.y).abs() < 0.5 {
+                            s.x = s.tx;
+                            s.y = s.ty;
+                        }
+                        let p = (s.x.round() as i32, s.y.round() as i32);
+                        let to = (p != s.sent).then(|| {
+                            s.sent = p;
+                            p
+                        });
+                        // Whole wheel units only; what is left waits for the next step.
+                        let take = |v: &mut f64| {
+                            let part = if v.abs() < 4.0 { *v } else { *v * SCROLL_SHARE.max(4.0 / v.abs()) };
+                            let n = part.trunc();
+                            *v -= n;
+                            n as i32
+                        };
+                        let wheel = (take(&mut s.wx), take(&mut s.wy));
+                        (to, wheel)
+                    };
+                    if let Some((x, y)) = to {
+                        inject_move(x, y);
+                    }
+                    if wheel != (0, 0) {
+                        inject_wheel(wheel.0, wheel.1);
+                    }
+                }
+            })
+            .map_err(|_| RUNNING.store(false, Ordering::SeqCst))
+            .ok();
+    }
+
+    /// Glide towards (px, py).
+    pub fn aim(px: i32, py: i32) -> bool {
+        if dry_run() {
+            DRY_LOG.lock().push(format!("aim {},{}", px, py));
+            return !TEST_BLOCKED.load(Ordering::SeqCst);
+        }
+        with(px, py, |s| {
+            s.tx = px as f64;
+            s.ty = py as f64;
+        });
+        start();
+        true
+    }
+
+    /// The mouse was put straight there: glide on from there.
+    pub fn snap(px: i32, py: i32) {
+        if dry_run() {
+            return;
+        }
+        with(px, py, |s| {
+            s.x = px as f64;
+            s.y = py as f64;
+            s.tx = s.x;
+            s.ty = s.y;
+            s.sent = (px, py);
+        });
+    }
+
+    /// Scroll by (dx, dy) wheel units, let out smoothly.
+    pub fn scroll(dx: i32, dy: i32) -> bool {
+        if dry_run() {
+            return inject_wheel(dx, dy);
+        }
+        let mut g = STATE.lock();
+        match g.as_mut() {
+            Some(s) => {
+                s.wx += dx as f64;
+                s.wy += dy as f64;
+                s.at = Instant::now();
+            }
+            None => {
+                drop(g);
+                return inject_wheel(dx, dy);
+            }
+        }
+        drop(g);
+        start();
+        true
+    }
 }
 
 /// The most typed in one go (the air keyboard sends a key or a word at a time).
@@ -759,8 +927,14 @@ pub fn hand_input(screen: usize, ops: &[HandInput]) -> Result<(), String> {
         ok &= match op {
             HandInput::Move { x, y } => {
                 let (px, py) = to_pixel(&s, *x, *y);
+                glide::snap(px, py);
                 inject_move(px, py)
             }
+            HandInput::Aim { x, y } => {
+                let (px, py) = to_pixel(&s, *x, *y);
+                glide::aim(px, py)
+            }
+            HandInput::Scroll { dx, dy } => glide::scroll((*dx).clamp(-2400, 2400), (*dy).clamp(-2400, 2400)),
             HandInput::Button { button, down } => match button {
                 0..=2 => inject_button(*button, *down),
                 _ => return Err("Unknown mouse button".to_string()),
@@ -1469,6 +1643,11 @@ mod tests {
         assert_eq!(log.len(), 7, "{log:?}");
         assert!(log[0].starts_with("move "));
         assert_eq!(&log[1..], ["button 0 down", "button 0 up", "wheel 0,-240", "key Enter down", "key Enter up", "text hi 👋"]);
+        // 3.7.1: gliding and smooth scrolling (test copies write them down straight away).
+        let ops: Vec<HandInput> = serde_json::from_str(r#"[{"op":"aim","x":0.0,"y":0.0},{"op":"scroll","dx":0,"dy":-90}]"#).unwrap();
+        hand_input(99, &ops).unwrap();
+        let log = take_dry_log();
+        assert!(log.len() == 2 && log[0].starts_with("aim ") && log[1] == "wheel 0,-90", "{log:?}");
         // Unknown keys and buttons, and too much text, are refused before anything happens.
         assert!(hand_input(0, &[HandInput::Key { code: "<script>".into(), down: true }]).is_err());
         assert!(hand_input(0, &[HandInput::Button { button: 7, down: true }]).is_err());

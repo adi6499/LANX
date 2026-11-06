@@ -109,6 +109,10 @@ export function GestureSettingsModal({ onClose }: { onClose: () => void }) {
             </label>
           )}
           <label className={row}>
+            <span className={label}>Show what my hand is doing<span className="block text-[11px] text-slate-400">A few words by the hand button: “✋ Moving · pinch to click”, “✊ Scrolling”.</span></span>
+            <input type="checkbox" data-gesture-hints checked={prefs.hints !== false} onChange={(e) => set({ hints: e.target.checked })} className="h-4 w-4" />
+          </label>
+          <label className={row}>
             <span className={label}>Hands in calls and meetings<span className="block text-[11px] text-slate-400">Raise your hand high to raise it in a meeting, hold your palm up to the camera to mute, wave to end the call, 👍 for a reaction.</span></span>
             <input type="checkbox" data-gesture-calls checked={prefs.calls !== false} onChange={(e) => set({ calls: e.target.checked })} className="h-4 w-4" />
           </label>
@@ -121,6 +125,14 @@ export function GestureSettingsModal({ onClose }: { onClose: () => void }) {
             <input type="checkbox" data-gesture-voice-toggle checked={prefs.voice} onChange={(e) => set({ voice: e.target.checked })} className="h-4 w-4" />
           </label>
         </div>
+
+        <button type="button" data-gesture-learn-settings onClick={() => { onClose(); window.dispatchEvent(new Event("lanx:gesture-learn")); }} className="mt-3 flex w-full items-center justify-between rounded-xl lanx-group px-3 py-2.5 text-left">
+          <span>
+            <span className="block text-[13px] font-semibold text-slate-900 dark:text-white">🎓 Learn hand gestures</span>
+            <span className="block text-[11.5px] text-slate-500">A short practice: point, pinch, drag, scroll and type — LANX ticks each one off as it sees you do it.</span>
+          </span>
+          <span className="text-[12px] font-semibold text-sky-600 dark:text-sky-400">Start</span>
+        </button>
 
         <h4 className="mt-4 mb-1 text-[12px] font-bold uppercase tracking-wide text-slate-400">Your signs</h4>
         <p className="mb-2 text-[11.5px] text-slate-500">Teach LANX a hand shape of your own — 🤙, 🤘, three fingers… — and choose what it does. Hold it up for a moment to use it.</p>

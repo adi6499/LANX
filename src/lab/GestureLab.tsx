@@ -9,6 +9,7 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { GestureLayer, type GestureActions } from "../components/gestures/GestureLayer";
 import { GestureSettingsModal } from "../components/gestures/GestureSettingsModal";
+import { GestureTutorial } from "../components/gestures/GestureTutorial";
 import { DEFAULT_GESTURES, saveGesturePrefs } from "../lib/gestures/prefs";
 
 declare global {
@@ -26,6 +27,7 @@ function Lab() {
   const [zoom, setZoom] = useState(1);
   const [turn, setTurn] = useState(0);
   const [settings, setSettings] = useState(false);
+  const [tutorial, setTutorial] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const zoomEl = useRef<HTMLDivElement>(null);
@@ -131,6 +133,9 @@ function Lab() {
       </div>
       <GestureLayer actions={actions} locked={false} onError={(t) => note(`error:${t}`)} onOpenSettings={() => setSettings(true)} onOpenVoiceSettings={() => note("voice-settings")} />
       {settings && <GestureSettingsModal onClose={() => setSettings(false)} />}
+      {/* 3.7.1: the practice guide (kept clear of the test targets: top right, over the canvas's empty corner). */}
+      <button type="button" data-lab-tutorial onClick={() => setTutorial(true)} className="fixed right-6 top-6 z-[60] h-9 rounded-full bg-emerald-600 px-4 text-[12px] font-semibold text-white">Learn</button>
+      {tutorial && <GestureTutorial pcAvailable={false} pcOn={false} onTurnOnPc={() => note("pc-on")} onClose={() => (note("tutorial-close"), setTutorial(false))} />}
     </div>
   );
 }

@@ -2198,11 +2198,13 @@ export default function App() {
         <WhatsNewModal
           releases={whatsNew}
           onClose={() => setWhatsNew(null)}
+          tryLabel="Learn hand gestures"
           onTry={
-            whatsNew[0]?.version === "3.7.0"
+            whatsNew[0]?.version.startsWith("3.7")
               ? () => {
                   setWhatsNew(null);
-                  setShowGestures(true);
+                  // The gesture layer opens its practice guide (and turns the camera on).
+                  window.dispatchEvent(new Event("lanx:gesture-learn"));
                 }
               : undefined
           }

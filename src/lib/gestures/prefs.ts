@@ -27,8 +27,10 @@ export interface GesturePrefs {
   keyboard: boolean;
   /** Your own signs. */
   signs: CustomSign[];
+  /** 3.7.1: a few words on what the hand is doing ("✋ Moving · pinch to click"). */
+  hints: boolean;
 }
-export const DEFAULT_GESTURES: GesturePrefs = { enabled: false, preview: true, speed: "normal", hand: "auto", swipes: true, voice: true, camera: null, dwell: true, pc: false, calls: true, keyboard: true, signs: [] };
+export const DEFAULT_GESTURES: GesturePrefs = { enabled: false, preview: true, speed: "normal", hand: "auto", swipes: true, voice: true, camera: null, dwell: true, pc: false, calls: true, keyboard: true, signs: [], hints: true };
 const EVENT = "lanx:gesture-prefs";
 
 export async function loadGesturePrefs(): Promise<GesturePrefs> {

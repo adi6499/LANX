@@ -19,6 +19,15 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.7.1",
+    title: "Smoother hands, and easy to learn",
+    items: [
+      { icon: "🧈", title: "The mouse glides", text: "Your hand moves the mouse smoothly now — about 120 small steps a second instead of a jump with every camera picture. Dragging and scrolling glide too, in LANX and in every other program." },
+      { icon: "🎓", title: "Learn hand gestures", text: "A short hands-on practice: show your hand, point, pinch a button, drag a ball, scroll with a fist, type in the air. Each step ticks off when LANX sees you do it. The hand button's menu → Learn." },
+      { icon: "💬", title: "LANX tells you what it sees", text: "A few words by the hand button — “✋ Moving · pinch to click”, “✊ Scrolling — open your hand to let go” — so you always know what your hand is doing." },
+    ],
+  },
+  {
     version: "3.7.0",
     title: "Your hands, for the whole PC",
     items: [
