@@ -1073,7 +1073,7 @@ impl NetworkService {
                 }
                 PacketPayload::Ring(r) => Some(PacketPayload::Ack(self.handle_ring(&peer, r))),
                 PacketPayload::Call(c) => Some(PacketPayload::Ack(self.handle_call(&peer, c))),
-                PacketPayload::Meeting(m) => Some(self.handle_meeting(&peer, m)),
+                PacketPayload::Meeting(m) => Some(self.handle_meeting_from(&peer, m, &remote_version)),
                 PacketPayload::MessageAction(a) => Some(PacketPayload::Ack(self.handle_message_action(&peer, a))),
                 PacketPayload::Sync(s) => Some(PacketPayload::Ack(self.handle_sync(&peer, s))),
                 PacketPayload::Alert(a) => Some(PacketPayload::Ack(self.handle_alert(&peer, a))),

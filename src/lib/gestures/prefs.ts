@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Speed } from "./interpret";
+import type { CustomSign } from "./signs";
 
 export interface GesturePrefs {
   /** The camera watches for hands (off until turned on). */
@@ -18,8 +19,16 @@ export interface GesturePrefs {
   camera: string | null;
   /** LANX 3.6.1: hold the pointer still on a button to click it. */
   dwell: boolean;
+  /** LANX 3.7.0: the hand drives the real mouse and keyboard in every program (Windows). */
+  pc: boolean;
+  /** In calls and meetings: raise a hand, palm to mute, wave to end, 👍 reacts. */
+  calls: boolean;
+  /** The keyboard opens when a hand picks a text box in LANX. */
+  keyboard: boolean;
+  /** Your own signs. */
+  signs: CustomSign[];
 }
-export const DEFAULT_GESTURES: GesturePrefs = { enabled: false, preview: true, speed: "normal", hand: "auto", swipes: true, voice: true, camera: null, dwell: true };
+export const DEFAULT_GESTURES: GesturePrefs = { enabled: false, preview: true, speed: "normal", hand: "auto", swipes: true, voice: true, camera: null, dwell: true, pc: false, calls: true, keyboard: true, signs: [] };
 const EVENT = "lanx:gesture-prefs";
 
 export async function loadGesturePrefs(): Promise<GesturePrefs> {

@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.6.2)
+# LANX — Local Network Messenger (v3.7.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,15 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.7.0: hands for the whole PC, a keyboard in the air, signs of your own, hands in calls
+- **Control the whole PC** (Gesture settings, Windows): your hand moves the real mouse in every program — Chrome, Excel, File Explorer. A pinch clicks where the pointer was as your fingers met, pinch and move drags, pinch and hold is a right-click, a fist scrolls (let go while moving to fling), two hands zoom (Ctrl + wheel), a flick presses ← or →. It keeps working while LANX is minimised.
+- **Type in the air:** a keyboard you type on by pointing and pinching, with word suggestions that learn your words, numbers, symbols, a few emoji, and 🎤 to type what you say. Inside LANX it comes up when you pinch a text box; over other programs it floats at the bottom of the screen (🤟, or say “open keyboard”) and types into whatever is in front, without taking the keyboard away from it.
+- **Signs of your own:** Gesture settings → Your signs → Teach a sign. Say what it does like a spoken command (“open keyboard”, “mute or unmute”, “call Bharat”, “take a screenshot”, “lock this PC”), then show the sign three times. Hold it up for a moment to use it; either hand, near or far. LANX's own signs (👍 👎 ✌ 🤟, a pinch, a fist) can't be taken.
+- **Hands in calls and meetings:** raise your hand high to raise it in a meeting, hold your palm up to the camera to turn the microphone off or on, 👍 sends a reaction everyone sees (floating over your picture), and a wave ends the call after a 3-second countdown — make a fist to stay. Reactions reach people on 3.7.0 or newer.
+- **New spoken commands:** “open keyboard”, “type …”, “press ctrl c”, “take a screenshot”, “lock this PC”, “show LANX”, “mute or unmute”.
+- **What's new, after every update:** the first time LANX opens on a new version it shows what that version brings (Settings → Updates → What's new shows it again).
+- **Fixes:** hands work the moment LANX opens (the camera was ignored for its first 10 seconds); turning the camera off and on quickly can no longer leave it stopped.
 
 ### New in 3.6.2: your phone as the PC's camera, a pinch that always clicks, smooth on Linux
 - **No camera on the PC? Use your phone's.** A desktop PC usually has no camera: now LANX uses your paired

@@ -148,6 +148,28 @@ pub const RULES_2170_GAMES: [&str; 39] = [
     "archery",
 ];
 
+/// LANX 3.7.0: emoji reactions during calls and meetings (`CallPayload.reaction`,
+/// `MeetingPersonPayload.reaction / reaction_at`). Older copies re-check
+/// signatures on the fields they know, so they are never sent these.
+pub const FEATURES_REACTIONS: &str = "3.7.0";
+
+/// LANX 3.7.0: the only reactions a call or meeting carries (sent and received).
+pub const CALL_REACTIONS: [&str; 7] = ["👍", "\u{2764}\u{FE0F}", "😂", "👏", "🎉", "✋", "👋"];
+
+/// LANX 3.7.0: the reaction when it is one of `CALL_REACTIONS` (a plain ❤
+/// without its emoji marker counts as ❤️); anything else is dropped.
+pub fn clean_reaction(r: &str) -> Option<String> {
+    let r = match r.trim() {
+        "\u{2764}" => "\u{2764}\u{FE0F}",
+        r => r,
+    };
+    CALL_REACTIONS.iter().find(|x| **x == r).map(|x| x.to_string())
+}
+
+fn is_zero(v: &i64) -> bool {
+    *v == 0
+}
+
 /// LANX 1.9.0: the admin computer's office settings. Answered with `Ack`
 /// whose reason is the colleague's status (waiting | accepted | declined | …).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +280,12 @@ pub struct MeetingPersonPayload {
     pub hand: bool,
     #[serde(default)]
     pub recording: bool,
+    /// LANX 3.7.0: their last emoji reaction (👍…) and when they made it
+    /// (their clock, milliseconds). Only sent to 3.7.0 or newer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub reaction_at: i64,
 }
 
 /// LANX 1.4.0: group meetings. Everyone in a meeting talks to everyone else
@@ -300,6 +328,20 @@ pub struct MeetingPayload {
     /// never overwrites a newer one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seq: Option<u64>,
+}
+
+impl MeetingPayload {
+    /// LANX 3.7.0: the packet as a copy running `version` may see it (one
+    /// older than 3.7.0 gets no reactions: it couldn't check the signature).
+    pub fn for_version(mut self, version: &str) -> Self {
+        if !version_at_least(version, FEATURES_REACTIONS) {
+            for p in self.people.iter_mut().chain(self.person.iter_mut()) {
+                p.reaction = None;
+                p.reaction_at = 0;
+            }
+        }
+        self
+    }
 }
 
 /// LANX 1.2.9: a colleague's profile, with its fingerprint.
@@ -424,6 +466,9 @@ pub struct CallPayload {
     /// asks to see the other person's screen; "show" = the caller will show theirs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub help: Option<String>,
+    /// LANX 3.7.0: an emoji reaction (👍…) during the call (media only, to 3.7.0+).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Hand, X } from "lucide-react";
 import { EXAMPLES } from "../../lib/gestures/commands";
 import { type GesturePrefs, useGesturePrefs } from "../../lib/gestures/prefs";
+import { IS_LINUX } from "../../lib/platform";
+import { YourSigns } from "./YourSigns";
 
 /** LANX 3.5.0: Gesture settings — on/off, which camera, pointer speed,
  *  which hand, and the list of gestures and spoken commands. */
@@ -13,10 +15,14 @@ const GUIDE: { sign: string; name: string; does: string }[] = [
   { sign: "✊", name: "Fist", does: "Grab the page and move it. Let go while moving to fling it." },
   { sign: "🙌", name: "Two hands pinching", does: "Pull apart to zoom in, together to zoom out, turn to rotate." },
   { sign: "👋", name: "Flick sideways", does: "Next or previous: song, photo, PDF page. Flick up: close." },
-  { sign: "👍", name: "Thumbs up (hold)", does: "Answer a call or join a meeting. Over a message: like it." },
+  { sign: "👍", name: "Thumbs up (hold)", does: "Answer a call or join a meeting. In a call: a 👍 for everyone. Over a message: like it." },
   { sign: "👎", name: "Thumbs down (hold)", does: "Decline a call, or close what is open." },
   { sign: "✌️", name: "Victory (hold)", does: "LANX listens: say a command, like “call Bharat”." },
-  { sign: "🤟", name: "Rock on (hold)", does: "The command wheel: music, notes, calendar, games." },
+  { sign: "🤟", name: "Rock on (hold)", does: "The command wheel: music, notes, keyboard… Controlling the whole PC: the keyboard." },
+  { sign: "⌨️", name: "Air keyboard", does: "Point at a key and pinch. Words come up on top; 🎤 types what you say. Opens when you pinch a text box." },
+  { sign: "🙋", name: "Hand raised high (meeting)", does: "Raise or lower your hand, like in the room." },
+  { sign: "🖐", name: "Palm up to the camera (call)", does: "Microphone off — or on again." },
+  { sign: "👋", name: "Wave (call)", does: "Ends the call after 3 seconds. Make a fist to stay." },
 ];
 
 function Segmented<T extends string>({ value, options, onChange, name }: { value: T; options: { id: T; label: string }[]; onChange: (v: T) => void; name: string }) {
@@ -56,7 +62,7 @@ export function GestureSettingsModal({ onClose }: { onClose: () => void }) {
           <button type="button" onClick={onClose} className="lanx-tool p-1 text-slate-400"><X className="h-4 w-4" /></button>
         </div>
         <p className="mt-2 text-[12px] text-slate-500">
-          The camera follows your hand and LANX moves with it. The picture is looked at <b>on this PC only</b>. Nothing is recorded or sent anywhere, and the camera stops when LANX is hidden or locked.
+          The camera follows your hand and LANX moves with it. The picture is looked at <b>on this PC only</b>. Nothing is recorded or sent anywhere, and the camera stops when LANX is locked, or hidden (unless it controls the whole PC).
         </p>
 
         <div className="mt-3 rounded-xl lanx-group px-3 divide-y divide-[var(--lanx-line)]">
@@ -93,11 +99,32 @@ export function GestureSettingsModal({ onClose }: { onClose: () => void }) {
             <span className={label}>Flick to skip, go back or close</span>
             <input type="checkbox" checked={prefs.swipes} onChange={(e) => set({ swipes: e.target.checked })} className="h-4 w-4" />
           </label>
+          {!IS_LINUX && (
+            <label className={row}>
+              <span className={label}>
+                <b className="font-semibold text-slate-900 dark:text-white">Control the whole PC</b>
+                <span className="block text-[11px] text-slate-400">Your hand moves the real mouse in every program — Chrome, Excel, File Explorer. Pinch clicks, a fist scrolls, 🤟 brings up a keyboard. It keeps working while LANX is minimised.</span>
+              </span>
+              <input type="checkbox" data-gesture-pc checked={!!prefs.pc} onChange={(e) => set({ pc: e.target.checked })} className="h-4 w-4" />
+            </label>
+          )}
+          <label className={row}>
+            <span className={label}>Hands in calls and meetings<span className="block text-[11px] text-slate-400">Raise your hand high to raise it in a meeting, hold your palm up to the camera to mute, wave to end the call, 👍 for a reaction.</span></span>
+            <input type="checkbox" data-gesture-calls checked={prefs.calls !== false} onChange={(e) => set({ calls: e.target.checked })} className="h-4 w-4" />
+          </label>
+          <label className={row}>
+            <span className={label}>A keyboard when I pick a text box<span className="block text-[11px] text-slate-400">Pinch a text box in LANX and a keyboard comes up to type on with your hand.</span></span>
+            <input type="checkbox" data-gesture-kb-auto checked={prefs.keyboard !== false} onChange={(e) => set({ keyboard: e.target.checked })} className="h-4 w-4" />
+          </label>
           <label className={row}>
             <span className={label}>Spoken commands<span className="block text-[11px] text-slate-400">Hold up ✌, or press Ctrl + Alt + J (works without a camera too).</span></span>
             <input type="checkbox" data-gesture-voice-toggle checked={prefs.voice} onChange={(e) => set({ voice: e.target.checked })} className="h-4 w-4" />
           </label>
         </div>
+
+        <h4 className="mt-4 mb-1 text-[12px] font-bold uppercase tracking-wide text-slate-400">Your signs</h4>
+        <p className="mb-2 text-[11.5px] text-slate-500">Teach LANX a hand shape of your own — 🤙, 🤘, three fingers… — and choose what it does. Hold it up for a moment to use it.</p>
+        <YourSigns prefs={prefs} set={set} />
 
         <h4 className="mt-4 mb-2 text-[12px] font-bold uppercase tracking-wide text-slate-400">The gestures</h4>
         <div className="grid grid-cols-2 gap-2">

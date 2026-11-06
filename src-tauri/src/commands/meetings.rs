@@ -68,10 +68,11 @@ pub async fn meeting_media(
     screen: Option<bool>,
     hand: Option<bool>,
     recording: Option<bool>,
+    reaction: Option<String>,
 ) -> Result<(), String> {
     state
         .network
-        .meeting_media(&meeting_id, muted, camera, screen, hand, recording)
+        .meeting_media(&meeting_id, muted, camera, screen, hand, recording, reaction)
         .await
 }
 

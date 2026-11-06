@@ -113,7 +113,10 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
         <div className="flex items-center gap-3 rounded-xl lanx-group p-3">
           <ArrowUpCircle className="h-5 w-5 text-sky-500 shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">This computer runs LANX {status.current_version} for {OS_NAME}</div>
+            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+              This computer runs LANX {status.current_version} for {OS_NAME}
+              <button type="button" data-whats-new-open onClick={() => window.dispatchEvent(new Event("lanx:whats-new"))} className="ml-2 font-semibold text-sky-600 hover:underline dark:text-sky-400">What's new</button>
+            </div>
             <div className="text-[11px] text-slate-500">
               New Linux versions come from the LANX download page (the .deb or AppImage file). The automatic update exchange on this
               tab is between Windows PCs: their installer cannot run here, so this computer never asks for it or passes it on.
@@ -128,7 +131,10 @@ export const UpdatesPanel: React.FC<UpdatesPanelProps> = ({ status, installing, 
       <div className="flex items-center gap-3 rounded-xl lanx-group p-3">
         <ArrowUpCircle className="h-5 w-5 text-sky-500 shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">This PC runs LANX {status.current_version}</div>
+          <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+            This PC runs LANX {status.current_version}
+            <button type="button" data-whats-new-open onClick={() => window.dispatchEvent(new Event("lanx:whats-new"))} className="ml-2 font-semibold text-sky-600 hover:underline dark:text-sky-400">What's new</button>
+          </div>
           <div className="text-[11px] text-slate-500">
             {available
               ? available.state === "installing"

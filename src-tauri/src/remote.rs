@@ -399,6 +399,24 @@ mod win {
         })
     }
 
+    /// LANX 3.7.0: types text as characters (any language, emoji), whatever the keyboard layout.
+    pub fn text(t: &str) -> bool {
+        let mut inputs: Vec<INPUT> = Vec::with_capacity(t.encode_utf16().count() * 2);
+        for unit in t.encode_utf16() {
+            for flags in [KEYEVENTF_UNICODE, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP] {
+                inputs.push(INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: 0, wScan: unit, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+                });
+            }
+        }
+        // In batches: very long texts in one SendInput can be dropped.
+        inputs.chunks(200).all(|c| {
+            // SAFETY: fully initialised INPUTs, the count matches the slice.
+            unsafe { SendInput(c.len() as u32, c.as_ptr(), std::mem::size_of::<INPUT>() as i32) == c.len() as u32 }
+        })
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn cursor() -> Option<(i32, i32)> {
         let mut p = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
@@ -692,6 +710,95 @@ fn inject_key(scan: u16, ext: bool, down: bool, name: &str) -> bool {
 /// Test copies: what remote control would have done (and forget it).
 pub fn take_dry_log() -> Vec<String> {
     std::mem::take(&mut *DRY_LOG.lock())
+}
+
+// ------------------------------------------- LANX 3.7.0: hands drive this PC
+
+/// One thing a hand gesture does to this PC's own mouse or keyboard ("Control
+/// the whole PC"): the pointer goes to a 0..1 spot on a screen, a mouse button
+/// or a key goes down or up, the wheel turns, or text is typed (the air keyboard).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "op", rename_all = "camelCase")]
+pub enum HandInput {
+    Move { x: f64, y: f64 },
+    /// 0 left, 1 middle, 2 right.
+    Button { button: u8, down: bool },
+    /// 120 = one notch; positive `dy` scrolls up.
+    Wheel { dx: i32, dy: i32 },
+    /// A key by place (`KeyboardEvent.code`): "Enter", "ArrowLeft", "ControlLeft"…
+    Key { code: String, down: bool },
+    Text { text: String },
+}
+
+/// The most typed in one go (the air keyboard sends a key or a word at a time).
+const MAX_HAND_TEXT: usize = 4000;
+/// Test copies on a PC without screens pretend to have this one.
+const PRETEND_SCREEN: Screen = Screen { left: 0, top: 0, width: 1920, height: 1080, work_left: 0, work_top: 0, work_width: 1920, work_height: 1040, primary: true };
+
+fn inject_text(text: &str) -> bool {
+    #[cfg(windows)]
+    {
+        if !dry_run() {
+            return win::text(text);
+        }
+    }
+    DRY_LOG.lock().push(format!("text {}", text));
+    !TEST_BLOCKED.load(Ordering::SeqCst)
+}
+
+/// Does `ops` in order on screen number `screen` (of `screens()`; the main one
+/// when there is no such screen).
+pub fn hand_input(screen: usize, ops: &[HandInput]) -> Result<(), String> {
+    if !cfg!(windows) && !dry_run() {
+        return Err("Controlling the whole PC with your hands works on Windows for now.".to_string());
+    }
+    let all = screens();
+    let s = all.get(screen).or_else(|| all.iter().find(|s| s.primary)).or(all.first()).copied().unwrap_or(PRETEND_SCREEN);
+    let mut ok = true;
+    for op in ops {
+        ok &= match op {
+            HandInput::Move { x, y } => {
+                let (px, py) = to_pixel(&s, *x, *y);
+                inject_move(px, py)
+            }
+            HandInput::Button { button, down } => match button {
+                0..=2 => inject_button(*button, *down),
+                _ => return Err("Unknown mouse button".to_string()),
+            },
+            HandInput::Wheel { dx, dy } => inject_wheel((*dx).clamp(-2400, 2400), (*dy).clamp(-2400, 2400)),
+            HandInput::Key { code, down } => {
+                let (scan, ext) = scan_code(code).ok_or_else(|| format!("Unknown key {code}"))?;
+                inject_key(scan, ext, *down, code)
+            }
+            HandInput::Text { text } => {
+                if text.len() > MAX_HAND_TEXT {
+                    return Err("That is too much to type in one go.".to_string());
+                }
+                text.is_empty() || inject_text(text)
+            }
+        };
+    }
+    if ok {
+        Ok(())
+    } else {
+        Err("Windows didn't take it: the program in front may be running as administrator.".to_string())
+    }
+}
+
+/// LANX 3.7.0 ("lock this PC" by a sign or a spoken command).
+pub fn lock_pc() -> Result<(), String> {
+    if dry_run() {
+        DRY_LOG.lock().push("lock".to_string());
+        return Ok(());
+    }
+    #[cfg(windows)]
+    let r = std::process::Command::new("rundll32.exe").args(["user32.dll,LockWorkStation"]).status();
+    #[cfg(not(windows))]
+    let r = std::process::Command::new("loginctl").arg("lock-session").status();
+    match r {
+        Ok(s) if s.success() => Ok(()),
+        _ => Err("This PC didn't lock.".to_string()),
+    }
 }
 
 // ------------------------------------------------------------------ clipboard
@@ -1349,5 +1456,25 @@ mod tests {
         assert_eq!(read_clipboard().as_deref(), Some("hello"));
         assert!(test_copy("from me") > seq);
         assert_eq!(read_clipboard().as_deref(), Some("from me"));
+
+        // LANX 3.7.0: hands drive this PC (here in the same test: the log is shared).
+        take_dry_log();
+        let ops: Vec<HandInput> = serde_json::from_str(
+            r#"[{"op":"move","x":0.5,"y":0.5},{"op":"button","button":0,"down":true},{"op":"button","button":0,"down":false},
+                {"op":"wheel","dx":0,"dy":-240},{"op":"key","code":"Enter","down":true},{"op":"key","code":"Enter","down":false},{"op":"text","text":"hi 👋"}]"#,
+        )
+        .unwrap();
+        hand_input(99, &ops).unwrap();
+        let log = take_dry_log();
+        assert_eq!(log.len(), 7, "{log:?}");
+        assert!(log[0].starts_with("move "));
+        assert_eq!(&log[1..], ["button 0 down", "button 0 up", "wheel 0,-240", "key Enter down", "key Enter up", "text hi 👋"]);
+        // Unknown keys and buttons, and too much text, are refused before anything happens.
+        assert!(hand_input(0, &[HandInput::Key { code: "<script>".into(), down: true }]).is_err());
+        assert!(hand_input(0, &[HandInput::Button { button: 7, down: true }]).is_err());
+        assert!(hand_input(0, &[HandInput::Text { text: "x".repeat(MAX_HAND_TEXT + 1) }]).is_err());
+        assert!(take_dry_log().is_empty());
+        lock_pc().unwrap();
+        assert_eq!(take_dry_log(), vec!["lock"]);
     }
 }

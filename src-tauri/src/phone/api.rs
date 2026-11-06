@@ -1266,9 +1266,11 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
                     }
                 }
                 "meeting_media" => {
-                    // No screen sharing from a phone browser; recording is fine.
+                    // No screen sharing from a phone browser; recording is fine
+                    // (and, 3.7.0, a reaction).
                     let b = |k: &str| v[k].as_bool();
-                    match svc.network.meeting_media(mid, b("muted"), b("camera"), None, b("hand"), b("recording")).await {
+                    let reaction = v["reaction"].as_str().map(str::to_string);
+                    match svc.network.meeting_media(mid, b("muted"), b("camera"), None, b("hand"), b("recording"), reaction).await {
                         Ok(()) => ok(&id, obj(json!({ "meeting": svc.network.current_meeting() }))),
                         Err(e) => fail(&id, &e),
                     }
@@ -1353,13 +1355,14 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             ok(&id, serde_json::Map::new())
         }
         "call_media" => {
-            // Mute, camera, screen and (3.4) recording from the phone.
+            // Mute, camera, screen, (3.4) recording and (3.7.0) a reaction from the phone.
             let call_id = v["call_id"].as_str().unwrap_or("");
             let video = v["video"].as_bool();
             let muted = v["muted"].as_bool();
             let screen = v["screen"].as_bool();
             let recording = v["recording"].as_bool();
-            match svc.network.call_media(call_id, video, muted, screen, recording).await {
+            let reaction = v["reaction"].as_str().map(str::to_string);
+            match svc.network.call_media(call_id, video, muted, screen, recording, reaction).await {
                 Ok(()) => ok(&id, serde_json::Map::new()),
                 Err(e) => fail(&id, &e),
             }

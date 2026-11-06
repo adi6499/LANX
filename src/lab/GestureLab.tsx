@@ -62,6 +62,12 @@ function Lab() {
     run: async (i) => (note(`intent:${JSON.stringify(i)}`), "done"),
     names: () => ["Bharat (Manager)", "Asha (Staff)"],
     close: () => false,
+    // 3.7.0: a pretend call the tests switch on (window.__labCall = "call" | "meeting").
+    inCall: () => (window as unknown as { __labCall?: "call" | "meeting" }).__labCall ?? null,
+    react: (emoji) => (note(`react:${emoji}`), !!(window as unknown as { __labCall?: string }).__labCall),
+    toggleMute: () => (note("mute-toggle"), (window as unknown as { __labCall?: string }).__labCall ? true : null),
+    toggleHand: () => (note("hand-toggle"), (window as unknown as { __labCall?: string }).__labCall === "meeting" ? true : null),
+    hangup: () => (note("hangup"), !!(window as unknown as { __labCall?: string }).__labCall),
   };
   return (
     <div className="h-screen flex gap-4 p-4">

@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "island",
-    "remote"
+    "remote",
+    "hud"
   ],
   "permissions": [
     "core:default",

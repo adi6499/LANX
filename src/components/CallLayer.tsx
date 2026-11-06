@@ -24,6 +24,7 @@ import {
   MousePointer2,
 } from "lucide-react";
 import { storyColor } from "../lib/storybook";
+import { FloatingReactions, cleanReaction, useReactionBursts } from "./FloatingReactions";
 
 /** Imperative handle: the chat header's call buttons start calls here. */
 export interface CallLayerHandle {
@@ -37,6 +38,12 @@ export interface CallLayerHandle {
   /** LANX 3.5.0 (spoken commands): microphone and camera on or off. False when there is no call. */
   setMuted: (muted: boolean) => boolean;
   setCamera: (on: boolean) => boolean;
+  /** LANX 3.7.0 (gestures): sends an emoji reaction (👍 ❤️ 😂 👏 🎉 ✋ 👋) and
+   *  shows it here too. False when there is no connected call (or it isn't one of those). */
+  react: (emoji: string) => boolean;
+  /** LANX 3.7.0 (gestures): flips the microphone like the mute button. The new
+   *  muted state, or null when there is no connected call on this PC. */
+  toggleMute: () => boolean | null;
 }
 
 /** What the Dynamic Island shows about the current call. */
@@ -191,6 +198,8 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
   const blockedTimerRef = useRef<number | undefined>(undefined);
   /** Someone controls this PC: the shared screen favours a steady frame rate. */
   const liveRef = useRef(false);
+  /** LANX 3.7.0: reactions floating over the call (theirs and mine). */
+  const [reactions, addReaction] = useReactionBursts();
 
   const patch = useCallback((p: Partial<CallState>) => setCall((c) => (c ? { ...c, ...p } : c)), []);
   const patchRemote = useCallback(
@@ -463,11 +472,14 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
               }
             : c
         );
+        // LANX 3.7.0: they reacted.
+        const r = cleanReaction(ev.reaction);
+        if (r) addReaction(r);
       } else if (ev.action === "ended") {
         finish(endReasonText(ev.reason, ev.call));
       }
     },
-    [armConnectTimeout, finish, hangup, patch, patchRemote, showOnPhone]
+    [addReaction, armConnectTimeout, finish, hangup, patch, patchRemote, showOnPhone]
   );
 
   const handleEventRef = useRef(handleEvent);
@@ -983,8 +995,24 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
         if (c.camera !== on) void togglesRef.current.toggleCamera();
         return true;
       },
+      react: (emoji) => {
+        const c = callStateRef.current;
+        const id = callIdRef.current;
+        const r = cleanReaction(emoji);
+        if (!c || c.status !== "active" || !id || !r) return false;
+        addReaction(r);
+        // (Their LANX may be too old for reactions: then only we see it.)
+        api.callMedia(id, { reaction: r }).catch(() => {});
+        return true;
+      },
+      toggleMute: () => {
+        const c = callStateRef.current;
+        if (!c || c.status !== "active") return null;
+        togglesRef.current.toggleMute();
+        return !c.muted;
+      },
     }),
-    [start, accept, decline]
+    [start, accept, decline, addReaction]
   );
 
   const cancelStarting = () => {
@@ -1471,6 +1499,7 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
                 </div>
               </div>
             </div>
+            <FloatingReactions bursts={reactions} size={call.expanded ? "lg" : "md"} />
           </div>
         ) : (
           <div className="flex items-center gap-3 p-4 pb-2">
@@ -1485,6 +1514,8 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
             </div>
           </div>
         )}
+        {/* LANX 3.7.0: a voice call's small panel: reactions rise above the buttons. */}
+        {!withVideo && <FloatingReactions bursts={reactions} bottom={call.expanded ? "40%" : "46%"} />}
 
         <div className="flex items-center justify-center gap-2.5 p-3 bg-slate-950">
           <CtlButton label={call.muted ? "Unmute microphone" : "Mute microphone"} onClick={toggleMute} active={call.muted}>

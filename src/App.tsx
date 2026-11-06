@@ -60,6 +60,9 @@ import { VoiceSettingsModal } from "./components/voice/VoiceSettingsModal";
 import { GestureLayer, type GestureActions } from "./components/gestures/GestureLayer";
 import { PhoneCamPill } from "./components/PhoneCamPill";
 import { GestureSettingsModal } from "./components/gestures/GestureSettingsModal";
+import { WhatsNewModal } from "./components/WhatsNewModal";
+import { type Release, releaseNotes, whatsNewOnStart } from "./lib/whatsNew";
+import { getVersion } from "@tauri-apps/api/app";
 import { type IntentContext, runIntent } from "./components/gestures/runIntent";
 import type { ToolId } from "./lib/gestures/commands";
 import { loadGesturePrefs, saveGesturePrefs } from "./lib/gestures/prefs";
@@ -410,6 +413,8 @@ export default function App() {
         applyTheme(s.theme);
         if (!s.onboarding_completed) setShowOnboarding(true);
         else if (!readFlag(TOUR_KEY)) setShowTour(true);
+        // LANX 3.7.0: just updated? What the new version brings.
+        void whatsNewOnStart(!!s.onboarding_completed).then((r) => r.length > 0 && setWhatsNew(r)).catch(() => {});
         if (!l.locked) {
           const c = await reloadAll();
           if (c.length > 0 && !activeConversationIdRef.current) setActiveConversationId(c[0].id);
@@ -1224,6 +1229,20 @@ export default function App() {
 
   // ---- LANX 3.5.0: gestures and spoken commands
   const [showGestures, setShowGestures] = useState(false);
+  /** LANX 3.7.0: "What's new" after an update (or from Settings → Updates). */
+  const [whatsNew, setWhatsNew] = useState<Release[] | null>(null);
+  useEffect(() => {
+    const on = () => {
+      void getVersion()
+        .then((v) => {
+          const r = releaseNotes(v);
+          if (r) setWhatsNew([r]);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("lanx:whats-new", on);
+    return () => window.removeEventListener("lanx:whats-new", on);
+  }, []);
   /** Open windows a flick up (or "go back") closes, the one on top first. The PDF tools and games close themselves. */
   const openPanels: [boolean, () => void][] = [
     [showGestures, () => setShowGestures(false)],
@@ -1323,6 +1342,23 @@ export default function App() {
       run: (intent) => runIntent(intent, ctx()),
       close: closeTop,
       names: () => [...gestureState.current.peers.map((p) => p.display_name), ...gestureState.current.conversations.filter((c) => c.kind === "group").map((c) => c.peer_name)],
+      // LANX 3.7.0: hands in calls and meetings.
+      inCall: () => {
+        const g = gestureState.current;
+        if (g.islandMeeting?.status === "active") return "meeting";
+        if (g.islandCall?.status === "active") return "call";
+        return null;
+      },
+      react: (emoji) => !!(callRef.current?.react(emoji) || meetingRef.current?.react(emoji)),
+      toggleMute: () => callRef.current?.toggleMute() ?? meetingRef.current?.toggleMute() ?? null,
+      toggleHand: () => meetingRef.current?.toggleHand() ?? null,
+      hangup: () => {
+        const g = gestureState.current;
+        if (g.islandCall) callRef.current?.hangup();
+        else if (g.islandMeeting) meetingRef.current?.leave();
+        else return false;
+        return true;
+      },
     };
   }, [applyTheme]);
 
@@ -2158,6 +2194,20 @@ export default function App() {
       {showVoice && <VoiceSettingsModal onClose={() => setShowVoice(false)} onError={(t) => setNotice(t)} />}
       <DictationOverlay onError={(t) => setNotice(t)} onOpenSettings={() => setShowVoice(true)} external={dictateNow} />
       {showGestures && <GestureSettingsModal onClose={() => setShowGestures(false)} />}
+      {whatsNew && !showOnboarding && !showTour && !locked && (
+        <WhatsNewModal
+          releases={whatsNew}
+          onClose={() => setWhatsNew(null)}
+          onTry={
+            whatsNew[0]?.version === "3.7.0"
+              ? () => {
+                  setWhatsNew(null);
+                  setShowGestures(true);
+                }
+              : undefined
+          }
+        />
+      )}
       <PhoneCamPill />
       <GestureLayer actions={gestureActions} locked={locked} onError={(t) => setNotice(t)} onOpenSettings={() => setShowGestures(true)} onOpenVoiceSettings={() => setShowVoice(true)} />
       {(shareText !== null || shareFile !== null) && (

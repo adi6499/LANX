@@ -47,8 +47,9 @@ pub async fn call_media(
     muted: Option<bool>,
     screen: Option<bool>,
     recording: Option<bool>,
+    reaction: Option<String>,
 ) -> Result<(), String> {
-    state.network.call_media(&call_id, video, muted, screen, recording).await
+    state.network.call_media(&call_id, video, muted, screen, recording, reaction).await
 }
 
 #[tauri::command]

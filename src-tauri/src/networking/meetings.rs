@@ -48,6 +48,10 @@ pub struct MeetingPerson {
     pub hand: bool,
     pub recording: bool,
     pub is_me: bool,
+    /// LANX 3.7.0: their last emoji reaction (👍…) and when they made it
+    /// (their clock, milliseconds): the window floats a new one over their tile.
+    pub reaction: Option<String>,
+    pub reaction_at: i64,
     /// Newest change applied (changes can arrive out of order).
     #[serde(skip)]
     seq: u64,
@@ -178,6 +182,7 @@ fn clean_title(t: &str) -> String {
 }
 
 fn person_from_payload(p: &MeetingPersonPayload) -> MeetingPerson {
+    let (reaction, reaction_at) = received_reaction(p);
     MeetingPerson {
         device_id: p.device_id.clone(),
         name: if p.name.trim().is_empty() { "Someone".to_string() } else { p.name.chars().take(60).collect() },
@@ -188,7 +193,18 @@ fn person_from_payload(p: &MeetingPersonPayload) -> MeetingPerson {
         hand: p.hand,
         recording: p.recording,
         is_me: false,
+        reaction,
+        reaction_at,
         seq: 0,
+    }
+}
+
+/// LANX 3.7.0: someone's reaction as we keep it: only the allowed ones (with
+/// when it was made); anything else counts as no reaction.
+fn received_reaction(p: &MeetingPersonPayload) -> (Option<String>, i64) {
+    match p.reaction.as_deref().and_then(clean_reaction) {
+        Some(r) => (Some(r), p.reaction_at),
+        None => (None, 0),
     }
 }
 
@@ -241,6 +257,8 @@ impl NetworkService {
             hand: false,
             recording: false,
             is_me: true,
+            reaction: None,
+            reaction_at: 0,
             seq: 0,
         }
     }
@@ -255,6 +273,8 @@ impl NetworkService {
             screen: p.screen,
             hand: p.hand,
             recording: p.recording,
+            reaction: p.reaction.clone(),
+            reaction_at: p.reaction_at,
             ..Default::default()
         };
         if p.is_me {
@@ -331,6 +351,7 @@ impl NetworkService {
 
     async fn send_meeting(&self, peer: &Peer, p: MeetingPayload) -> Result<(), String> {
         let mut chan = self.meeting_channel(peer).await?;
+        let p = p.for_version(&chan.remote.app_version);
         let reply = NetworkService::send_acked(&mut chan, PacketPayload::Meeting(p)).await;
         chan.close().await;
         match reply {
@@ -345,6 +366,7 @@ impl NetworkService {
         let unreachable = || format!("Could not reach {}.", peer.display_name);
         let meeting_id = p.meeting_id.clone();
         let mut chan = self.meeting_channel(peer).await?;
+        let p = p.for_version(&chan.remote.app_version);
         let sent = match chan.send(PacketPayload::Meeting(p), None).await {
             Ok(s) => s,
             Err(_) => {
@@ -598,6 +620,7 @@ impl NetworkService {
                             who.screen = p.screen;
                             who.hand = p.hand;
                             who.recording = p.recording;
+                            (who.reaction, who.reaction_at) = received_reaction(p);
                             continue;
                         }
                     }
@@ -772,7 +795,8 @@ impl NetworkService {
         self.send_meeting(&peer, p).await
     }
 
-    /// Tells everyone about our mute / camera / screen / hand / recording.
+    /// Tells everyone about our mute / camera / screen / hand / recording, and
+    /// (LANX 3.7.0) an emoji reaction (only the allowed ones; others are dropped).
     #[allow(clippy::too_many_arguments)]
     pub async fn meeting_media(
         &self,
@@ -782,8 +806,10 @@ impl NetworkService {
         screen: Option<bool>,
         hand: Option<bool>,
         recording: Option<bool>,
+        reaction: Option<String>,
     ) -> Result<(), String> {
         let seq = now_ms();
+        let reaction = reaction.as_deref().and_then(clean_reaction);
         let update = self.with_meeting(meeting_id, |m| {
             if !m.joined() {
                 return None;
@@ -805,6 +831,10 @@ impl NetworkService {
             }
             if let Some(v) = recording {
                 me.recording = v;
+            }
+            if let Some(r) = reaction {
+                me.reaction = Some(r);
+                me.reaction_at = seq as i64;
             }
             me.seq = seq;
             let me = me.clone();
@@ -973,6 +1003,15 @@ impl NetworkService {
 
     // ------------------------------------------------------------- receiving
 
+    /// `handle_meeting`, with the answer (who is in the meeting) as a copy
+    /// running `remote_version` may see it (LANX 3.7.0: no reactions for older ones).
+    pub(super) fn handle_meeting_from(&self, peer: &Peer, p: MeetingPayload, remote_version: &str) -> PacketPayload {
+        match self.handle_meeting(peer, p) {
+            PacketPayload::Meeting(r) => PacketPayload::Meeting(r.for_version(remote_version)),
+            other => other,
+        }
+    }
+
     pub(super) fn handle_meeting(&self, peer: &Peer, p: MeetingPayload) -> PacketPayload {
         let ack = |ok: bool, reason: Option<String>| PacketPayload::Ack(AckPayload { ok, reason });
         let ended = || ack(false, Some("This meeting has ended.".to_string()));
@@ -1042,6 +1081,8 @@ impl NetworkService {
                             hand: false,
                             recording: false,
                             is_me: false,
+                            reaction: None,
+                            reaction_at: 0,
                             seq: 0,
                         };
                         m.add(person.clone()).then_some(person)
@@ -1092,6 +1133,7 @@ impl NetworkService {
                     who.screen = state.screen;
                     who.hand = state.hand;
                     who.recording = state.recording;
+                    (who.reaction, who.reaction_at) = received_reaction(&state);
                     who.seq = seq;
                     let who = who.clone();
                     if who.recording != was_recording {

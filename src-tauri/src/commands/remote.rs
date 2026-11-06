@@ -124,3 +124,88 @@ pub fn remote_test_copy(text: String) -> Result<u32, String> {
     crate::testmode::profile().ok_or("Only for test copies")?;
     Ok(remote::test_copy(&text))
 }
+
+/// LANX 3.7.0: hand gestures drive this PC's own mouse and keyboard ("Control
+/// the whole PC" and the air keyboard).
+#[tauri::command]
+pub fn hand_input(screen: usize, ops: Vec<remote::HandInput>) -> Result<(), String> {
+    if ops.len() > 64 {
+        return Err("Too much at once".to_string());
+    }
+    remote::hand_input(screen, &ops)
+}
+
+/// The screens hands can drive, in real pixels (the main one is marked).
+#[tauri::command]
+pub fn hand_screens() -> Vec<remote::Screen> {
+    remote::screens()
+}
+
+/// LANX 3.7.0: "lock this PC" (a sign or a spoken command).
+#[tauri::command]
+pub fn lock_pc() -> Result<(), String> {
+    remote::lock_pc()
+}
+
+/// Where the hands window is, in real pixels, and its screen's scale.
+#[derive(Serialize)]
+pub struct HudRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub scale: f64,
+}
+
+/// LANX 3.7.0: the small always-on-top window while hands control the whole PC
+/// (the air keyboard and short notes), at the bottom of `screen`. `width` and
+/// `height` are CSS pixels; 0 hides it. It never takes the keyboard (typing
+/// goes to the program in front) and the real mouse clicks straight through it.
+/// (async: a window made in a plain command can hang on Windows.)
+#[tauri::command]
+pub async fn hand_hud(app: AppHandle, screen: usize, width: f64, height: f64) -> Result<Option<HudRect>, String> {
+    let existing = app.get_webview_window("hud");
+    if !(width > 0.0 && height > 0.0) {
+        if let Some(w) = existing {
+            let _ = w.hide();
+        }
+        return Ok(None);
+    }
+    let w = match existing {
+        Some(w) => w,
+        None => tauri::WebviewWindowBuilder::new(&app, "hud", tauri::WebviewUrl::App("index.html".into()))
+            .title("LANX hands")
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .maximizable(false)
+            .minimizable(false)
+            .focused(false)
+            .focusable(false)
+            .visible(false)
+            .disable_drag_drop_handler()
+            .build()
+            .map_err(|e| e.to_string())?,
+    };
+    let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+    let _ = w.set_ignore_cursor_events(true);
+    let all = remote::screens();
+    let s = all.get(screen).or_else(|| all.iter().find(|s| s.primary)).copied();
+    let (wl, wt, ww, wh, left, top) = s.map(|s| (s.work_left, s.work_top, s.work_width, s.work_height, s.left, s.top)).unwrap_or((0, 0, 1920, 1040, 0, 0));
+    let scale = app
+        .available_monitors()
+        .ok()
+        .and_then(|ms| ms.into_iter().find(|m| m.position().x == left && m.position().y == top).map(|m| m.scale_factor()))
+        .unwrap_or(1.0);
+    let pw = (width * scale).round().min(ww.max(1) as f64) as i32;
+    let ph = (height * scale).round().min(wh.max(1) as f64) as i32;
+    let x = wl + (ww - pw) / 2;
+    let y = wt + wh - ph - (12.0 * scale).round() as i32;
+    let _ = w.set_size(tauri::PhysicalSize::new(pw as u32, ph as u32));
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    crate::events::show_without_focus(&w);
+    Ok(Some(HudRect { x, y, width: pw, height: ph, scale }))
+}

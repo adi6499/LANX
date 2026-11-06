@@ -31,6 +31,11 @@ impl Node {
 }
 
 fn new_service(name: &str) -> (NetworkService, tempfile::TempDir) {
+    new_service_with(name, Events::default())
+}
+
+/// LANX 3.7.0: `events` lets a test watch what the window would be told.
+fn new_service_with(name: &str, events: Events) -> (NetworkService, tempfile::TempDir) {
     let db = Arc::new(Database::new_in_memory().unwrap());
     let identity = DeviceIdentity::load_or_create(&db.conn.lock()).unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -42,7 +47,7 @@ fn new_service(name: &str) -> (NetworkService, tempfile::TempDir) {
     // it, and the LANX installed on this PC would be contacted).
     s.tcp_messaging_port = 9;
     db.save_settings(&s).unwrap();
-    (NetworkService::new(db, identity, Events::default()), dir)
+    (NetworkService::new(db, identity, events), dir)
 }
 
 async fn serve_on(svc: &NetworkService, port: u16) -> u16 {
@@ -1355,6 +1360,7 @@ async fn second_caller_hears_busy_and_strangers_cannot_end_the_call() {
         screen: None,
         recording: None,
         help: None,
+        reaction: None,
     };
     assert!(!b.svc.handle_call(&chetan, forged.clone()).ok);
     assert!(b.svc.current_call().is_some(), "call must survive");
@@ -1809,12 +1815,12 @@ async fn group_meeting_invites_joins_shares_and_leaves() {
     assert!(a.svc.meeting_signal(&m.meeting_id, &c.id(), "bogus", "x".into()).await.is_err());
 
     // Mute + raised hand reach everyone; newer changes win.
-    c.svc.meeting_media(&m.meeting_id, Some(true), None, None, Some(true), None).await.unwrap();
+    c.svc.meeting_media(&m.meeting_id, Some(true), None, None, Some(true), None, None).await.unwrap();
     assert!(wait_for(|| a.svc.current_meeting().is_some_and(|x| person(&x, "Chetan").muted && person(&x, "Chetan").hand), 5).await);
     assert!(wait_for(|| b.svc.current_meeting().is_some_and(|x| person(&x, "Chetan").hand), 5).await);
 
     // Recording: everyone is told (a line in the meeting chat).
-    b.svc.meeting_media(&m.meeting_id, None, None, None, None, Some(true)).await.unwrap();
+    b.svc.meeting_media(&m.meeting_id, None, None, None, None, Some(true), None).await.unwrap();
     assert!(wait_for(|| chat_texts(&a).contains(&"● Bharat started recording".to_string()), 5).await);
     assert!(wait_for(|| chat_texts(&c).contains(&"● Bharat started recording".to_string()), 5).await);
     assert!(chat_texts(&b).contains(&"● You started recording".to_string()));
@@ -1822,7 +1828,7 @@ async fn group_meeting_invites_joins_shares_and_leaves() {
 
     // Someone joining later learns Chetan's state from Chetan himself, even
     // if Asha's copy were out of date.
-    c.svc.meeting_media(&m.meeting_id, None, Some(true), None, None, None).await.unwrap();
+    c.svc.meeting_media(&m.meeting_id, None, Some(true), None, None, None, None).await.unwrap();
     assert!(wait_for(|| b.svc.current_meeting().is_some_and(|x| person(&x, "Chetan").camera), 5).await);
 
     // Meeting chat.
@@ -1933,6 +1939,7 @@ fn meeting_packets_keep_old_fields_optional() {
         screen: None,
         recording: None,
         help: None,
+        reaction: None,
     };
     assert!(!serde_json::to_string(&c).unwrap().contains("recording"));
     assert_eq!(
@@ -1940,6 +1947,245 @@ fn meeting_packets_keep_old_fields_optional() {
         "🎥 Meeting · 25 min · 4 people"
     );
     assert_eq!(crate::storage::meeting_preview(r#"{"outcome":"missed"}"#), "🎥 Missed meeting");
+}
+
+// ------------------------------------------------ reactions (LANX 3.7.0)
+
+#[test]
+fn reactions_only_the_allowed_emoji() {
+    for r in CALL_REACTIONS {
+        assert_eq!(clean_reaction(r).as_deref(), Some(r));
+    }
+    assert_eq!(CALL_REACTIONS[1], "❤️", "the heart keeps its emoji marker");
+    assert_eq!(clean_reaction(" 👍 ").as_deref(), Some("👍"));
+    assert_eq!(clean_reaction("\u{2764}").as_deref(), Some("❤️"), "a plain heart counts as ❤️");
+    for bad in ["", " ", "🔥", "👍🏽", "👍👍", "thumbs up", "<b>👍</b>", "❤️❤️"] {
+        assert_eq!(clean_reaction(bad), None, "{:?}", bad);
+    }
+}
+
+#[test]
+fn reaction_packets_read_on_old_and_new_copies() {
+    // A 3.6 packet (no reaction) still reads…
+    let c: CallPayload = serde_json::from_str(r#"{"call_id":"c","action":"media","muted":true}"#).unwrap();
+    assert_eq!((c.muted, c.reaction.as_deref()), (Some(true), None));
+    let p: MeetingPersonPayload = serde_json::from_str(r#"{"device_id":"d","name":"Asha","hand":true}"#).unwrap();
+    assert!(p.hand && p.reaction.is_none() && p.reaction_at == 0);
+    // …and with no reaction nothing new is written, so 3.6 signatures still match.
+    assert!(!serde_json::to_string(&c).unwrap().contains("reaction"));
+    assert!(!serde_json::to_string(&p).unwrap().contains("reaction"));
+    // With one, it goes there and back unchanged.
+    let mut c2 = c.clone();
+    c2.reaction = Some("🎉".into());
+    let back: CallPayload = serde_json::from_str(&serde_json::to_string(&c2).unwrap()).unwrap();
+    assert_eq!(back.reaction.as_deref(), Some("🎉"));
+    let mut p2 = p.clone();
+    p2.reaction = Some("❤️".into());
+    p2.reaction_at = 1_762_400_000_123;
+    let back: MeetingPersonPayload = serde_json::from_str(&serde_json::to_string(&p2).unwrap()).unwrap();
+    assert_eq!(back, p2);
+}
+
+#[test]
+fn reactions_are_only_given_to_copies_that_can_check_them() {
+    // An older copy checks the signature on the fields it knows: without
+    // "reaction" the packet no longer matches, and it would be refused.
+    let (svc, _d) = new_service("Asha");
+    let call = CallPayload {
+        call_id: "c".into(),
+        action: "media".into(),
+        video: None,
+        sdp: None,
+        muted: None,
+        screen: None,
+        recording: None,
+        help: None,
+        reaction: Some("👍".into()),
+    };
+    let pkt = PacketEnvelope::new(&svc.identity, "Asha", None, PacketPayload::Call(call));
+    assert_eq!(pkt.verify_signature(), Ok(true));
+    let mut v = serde_json::to_value(&pkt).unwrap();
+    v["payload"]["data"].as_object_mut().unwrap().remove("reaction");
+    let as_old_copy_sees_it: PacketEnvelope = serde_json::from_value(v).unwrap();
+    assert_eq!(as_old_copy_sees_it.verify_signature(), Ok(false));
+
+    // So meeting packets lose their reactions on the way to them…
+    let person = MeetingPersonPayload {
+        device_id: "d".into(),
+        name: "Asha".into(),
+        hand: true,
+        reaction: Some("👋".into()),
+        reaction_at: 7,
+        ..Default::default()
+    };
+    let p = MeetingPayload {
+        meeting_id: "m".into(),
+        action: "roster".into(),
+        people: vec![person.clone()],
+        person: Some(person.clone()),
+        ..Default::default()
+    };
+    let old = p.clone().for_version("3.6.2");
+    assert!(old.people[0].hand && old.people[0].reaction.is_none() && old.people[0].reaction_at == 0);
+    assert!(old.person.as_ref().unwrap().reaction.is_none());
+    assert!(!serde_json::to_string(&old).unwrap().contains("reaction"));
+    // …and keep them on 3.7.0 and newer.
+    assert_eq!(p.clone().for_version("3.7.0").people[0], person);
+    assert_eq!(p.for_version("3.10.1").person.unwrap(), person);
+}
+
+/// LANX 3.7.0: a node that reports LANX `version` and lets the test watch
+/// what its window would be told.
+async fn watched(name: &str, version: &str) -> Node {
+    let (svc, dir) = new_service_with(name, Events::new(None));
+    let port = serve_on(&svc, 0).await;
+    let n = Node { svc, port, dir };
+    n.svc.set_update_config(update_cfg(n.dir.path(), version));
+    n
+}
+
+/// The next `lanx://call` event with this action.
+async fn next_call_event(
+    tap: &mut tokio::sync::broadcast::Receiver<Arc<crate::events::TapEvent>>,
+    action: &str,
+) -> serde_json::Value {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let ev = tap.recv().await.expect("event tap");
+            if ev.0 == "lanx://call" && ev.1["action"] == action {
+                break ev.1.clone();
+            }
+        }
+    })
+    .await
+    .expect("the call event")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn call_reactions_reach_3_7_0_and_older_copies_keep_the_call() {
+    let a = watched("Asha", "3.7.0").await;
+    let b = watched("Bharat", "3.7.0").await;
+    let conv = link(&a, &b).await;
+    let call = a.svc.start_call(&conv, true, "v=0 offer".into(), None).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
+    b.svc.answer_call(&call.call_id, "v=0 answer".into(), true).await.unwrap();
+    assert!(wait_for(|| a.svc.current_call().is_some_and(|c| c.phase == "active"), 5).await);
+    let mut tap = b.svc.events.subscribe().expect("Bharat's events");
+
+    a.svc.call_media(&call.call_id, None, None, None, None, Some("👍".into())).await.unwrap();
+    let ev = next_call_event(&mut tap, "media").await;
+    assert_eq!(ev["reaction"], "👍");
+    assert!(ev["muted"].is_null(), "{}", ev);
+
+    // Mute and a reaction together: both arrive.
+    a.svc.call_media(&call.call_id, None, Some(true), None, None, Some("👏".into())).await.unwrap();
+    let first = next_call_event(&mut tap, "media").await;
+    let second = next_call_event(&mut tap, "media").await;
+    assert_eq!((first["muted"].clone(), first["reaction"].clone()), (serde_json::json!(true), serde_json::Value::Null));
+    assert_eq!(second["reaction"], "👏");
+
+    // Anything off the list isn't sent at all, and is dropped when it arrives.
+    a.svc.call_media(&call.call_id, None, None, None, None, Some("🔥".into())).await.unwrap();
+    let asha = b.db().get_peer(&a.id()).unwrap().unwrap();
+    let forged = CallPayload {
+        call_id: call.call_id.clone(),
+        action: "media".into(),
+        video: None,
+        sdp: None,
+        muted: Some(false),
+        screen: None,
+        recording: None,
+        help: None,
+        reaction: Some("🔥".into()),
+    };
+    assert!(b.svc.handle_call(&asha, forged).ok);
+    let ev = next_call_event(&mut tap, "media").await;
+    assert_eq!(ev["muted"], false, "nothing came from the 🔥: {}", ev);
+    assert!(ev["reaction"].is_null(), "{}", ev);
+
+    // Bharat's LANX is older: the reaction is refused with a clear reason,
+    // everything else still reaches him and the call carries on.
+    b.svc.set_update_config(update_cfg(b.dir.path(), "3.6.2"));
+    let err = a.svc.call_media(&call.call_id, None, None, None, None, Some("😂".into())).await.unwrap_err();
+    assert!(err.contains("3.7.0") && err.contains("reactions"), "got {}", err);
+    a.svc.call_media(&call.call_id, None, Some(true), None, None, Some("😂".into())).await.unwrap_err();
+    let ev = next_call_event(&mut tap, "media").await;
+    assert_eq!(ev["muted"], true, "the mute still arrived: {}", ev);
+    assert!(b.svc.current_call().is_some() && a.svc.current_call().is_some());
+    a.svc.hangup_call(&call.call_id).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn meeting_reactions_reach_3_7_0_and_older_copies_get_the_rest() {
+    let a = updater("Asha", "3.7.0").await;
+    let b = updater("Bharat", "3.7.0").await;
+    let c = updater("Chetan", "3.6.2").await;
+    link(&a, &b).await;
+    link(&a, &c).await;
+    let conv = a.svc.create_group("Site Team", &[b.id(), c.id()]).unwrap();
+    let gid = conv.id.clone();
+    assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
+    let m = a.svc.start_meeting(&gid, true, None).await.unwrap();
+    assert!(wait_for(|| invited(&b) && invited(&c), 10).await);
+    b.svc.join_meeting(&m.meeting_id).await.unwrap();
+    c.svc.join_meeting(&m.meeting_id).await.unwrap();
+    for n in [&a, &b, &c] {
+        assert!(wait_for(|| people_in(n) == ["Asha", "Bharat", "Chetan"], 10).await, "{:?}", people_in(n));
+    }
+
+    // Asha reacts: Bharat sees it (and when); Chetan's older LANX isn't sent it.
+    let before = chrono::Utc::now().timestamp_millis();
+    a.svc.meeting_media(&m.meeting_id, None, None, None, None, None, Some("👍".into())).await.unwrap();
+    let mine = person(&a.svc.current_meeting().unwrap(), "Asha").clone();
+    assert_eq!(mine.reaction.as_deref(), Some("👍"));
+    assert!(mine.reaction_at >= before, "{} < {}", mine.reaction_at, before);
+    let same = |x: &super::meetings::MeetingInfo| {
+        let p = person(x, "Asha");
+        p.reaction.as_deref() == Some("👍") && p.reaction_at == mine.reaction_at
+    };
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|x| same(&x)), 5).await);
+
+    // Chetan still gets the rest from Asha (a raised hand), just not the reaction.
+    a.svc.meeting_media(&m.meeting_id, None, None, None, Some(true), None, None).await.unwrap();
+    assert!(wait_for(|| c.svc.current_meeting().is_some_and(|x| person(&x, "Asha").hand), 5).await);
+    let seen_by_chetan = person(&c.svc.current_meeting().unwrap(), "Asha").clone();
+    assert!(seen_by_chetan.reaction.is_none() && seen_by_chetan.reaction_at == 0);
+    // For Bharat the reaction stays as it was (not a new one).
+    assert!(wait_for(|| b.svc.current_meeting().is_some_and(|x| person(&x, "Asha").hand), 5).await);
+    assert!(same(&b.svc.current_meeting().unwrap()));
+
+    // Someone joining later learns it from Asha herself.
+    b.svc.leave_meeting(&m.meeting_id).await.unwrap();
+    let line_id = messages_in(b.db(), &gid).into_iter().rev().find(|x| x.message_type == "meeting").unwrap().id;
+    b.svc.rejoin_meeting(&line_id).await.unwrap();
+    assert!(same(&b.svc.current_meeting().unwrap()));
+
+    // Anything off the list changes nothing, on either side.
+    b.svc.meeting_media(&m.meeting_id, None, None, None, None, None, Some("🔥".into())).await.unwrap();
+    assert!(person(&b.svc.current_meeting().unwrap(), "Bharat").reaction.is_none());
+    let chetan = a.db().get_peer(&c.id()).unwrap().unwrap();
+    let forged = MeetingPayload {
+        meeting_id: m.meeting_id.clone(),
+        action: "media".into(),
+        person: Some(MeetingPersonPayload {
+            device_id: c.id(),
+            name: "Chetan".into(),
+            muted: true,
+            reaction: Some("🔥".into()),
+            reaction_at: 42,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(matches!(a.svc.handle_meeting(&chetan, forged), PacketPayload::Ack(AckPayload { ok: true, .. })));
+    let x = a.svc.current_meeting().unwrap();
+    let p = person(&x, "Chetan");
+    assert!(p.muted && p.reaction.is_none() && p.reaction_at == 0);
+
+    for n in [&a, &b, &c] {
+        n.svc.leave_meeting(&m.meeting_id).await.unwrap();
+    }
 }
 
 // ------------------------------------------------------- chat features (1.5.0)

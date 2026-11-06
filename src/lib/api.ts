@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import type { PairRequestInfo, PhoneStatus, QrData } from "../types";
 import type { RemoteInput } from "./remote";
+import type { HandInput, HandScreen } from "./gestures/os";
 import {
   UserSettings,
   Profile,
@@ -965,9 +966,10 @@ export const api = {
     if (isTauri) return invoke("call_hangup", { callId });
   },
 
+  /** LANX 3.7.0 `reaction`: an emoji (👍…) for the other side; it needs 3.7.0 there. */
   callMedia: async (
     callId: string,
-    media: { video?: boolean; muted?: boolean; screen?: boolean; recording?: boolean }
+    media: { video?: boolean; muted?: boolean; screen?: boolean; recording?: boolean; reaction?: string }
   ): Promise<void> => {
     if (isTauri)
       return invoke("call_media", {
@@ -976,6 +978,7 @@ export const api = {
         muted: media.muted ?? null,
         screen: media.screen ?? null,
         recording: media.recording ?? null,
+        reaction: media.reaction ?? null,
       });
   },
 
@@ -1181,9 +1184,10 @@ export const api = {
   meetingSignal: async (meetingId: string, to: string, kind: "offer" | "answer", sdp: string): Promise<void> => {
     if (isTauri) return invoke("meeting_signal", { meetingId, to, kind, sdp });
   },
+  /** LANX 3.7.0 `reaction`: an emoji (👍…) everyone on 3.7.0 or newer sees over your tile. */
   meetingMedia: async (
     meetingId: string,
-    m: { muted?: boolean; camera?: boolean; screen?: boolean; hand?: boolean; recording?: boolean }
+    m: { muted?: boolean; camera?: boolean; screen?: boolean; hand?: boolean; recording?: boolean; reaction?: string }
   ): Promise<void> => {
     if (isTauri)
       return invoke("meeting_media", {
@@ -1193,6 +1197,7 @@ export const api = {
         screen: m.screen ?? null,
         hand: m.hand ?? null,
         recording: m.recording ?? null,
+        reaction: m.reaction ?? null,
       });
   },
   meetingChat: async (meetingId: string, text: string): Promise<MeetingChatLine> => {
@@ -1264,6 +1269,20 @@ export const api = {
   remoteAllow: async (callId: string, width: number, height: number): Promise<RemoteInfo> => {
     if (isTauri) return invoke("remote_allow", { callId, width, height });
     throw new Error("Remote control needs the LANX app.");
+  },
+  /** LANX 3.7.0: hand gestures drive this PC's own mouse and keyboard ("Control the whole PC"). */
+  handInput: async (screen: number, ops: HandInput[]): Promise<void> => {
+    if (isTauri) return invoke("hand_input", { screen, ops });
+    throw new Error("Controlling the whole PC needs the LANX app.");
+  },
+  /** The screens, in real pixels. */
+  handScreens: async (): Promise<HandScreen[]> => (isTauri ? invoke("hand_screens") : []),
+  /** The always-on-top hands window (air keyboard, notes): its CSS size, or 0 to hide it. Answers where it is, in real pixels. */
+  handHud: async (screen: number, width: number, height: number): Promise<{ x: number; y: number; width: number; height: number; scale: number } | null> =>
+    isTauri ? invoke("hand_hud", { screen, width, height }) : null,
+  lockPc: async (): Promise<void> => {
+    if (isTauri) return invoke("lock_pc");
+    throw new Error("Locking the PC needs the LANX app.");
   },
   /** LANX 2.1.0: says whether Windows refused some of it. */
   remoteInput: async (callId: string, events: RemoteInput[]): Promise<{ blocked: boolean }> => {

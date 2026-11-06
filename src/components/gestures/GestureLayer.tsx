@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarDays, Eye, EyeOff, Gamepad2, Hand, Loader2, Mic, Pause, Play, Power, Settings2, SkipForward, StickyNote, X } from "lucide-react";
+import { CalendarDays, Eye, EyeOff, Gamepad2, Hand, Keyboard, Loader2, Mic, Pause, Play, Power, Settings2, SkipForward, StickyNote, X } from "lucide-react";
+import { emitTo, listen as listenTauri } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText, events } from "../../lib/api";
 import { player } from "../../lib/music";
 import { loadDictationPrefs, startPcmRecorder, type PcmRecorder } from "../../lib/voice";
@@ -9,6 +11,12 @@ import { DomDriver, type Target, elementAt } from "../../lib/gestures/dom";
 import { type Intent, parseCommand, restoreCase, splitWho } from "../../lib/gestures/commands";
 import { type GesturePrefs, useGesturePrefs } from "../../lib/gestures/prefs";
 import { WindowFrame } from "../../lib/gestures/windowFrame";
+import { OsDriver } from "../../lib/gestures/os";
+import { type CustomSign, SignWatcher } from "../../lib/gestures/signs";
+import { type CallMove, CallWatcher } from "../../lib/gestures/calls";
+import { EMPTY_KB, KB_SIZE, type KbOut, type KbState, type KeyRect, applyKey, keyAt, layoutKeyboard, loadDictionary, suggest } from "../../lib/gestures/keyboard";
+import { HUD_EVENT, HUD_NOTE_H, HUD_NOTE_W, type HudState } from "../../lib/gestures/hud";
+import { AirKeyboard } from "./AirKeyboard";
 
 /** LANX 3.5.0: Gesture control — move a hand in front of the camera and
  *  LANX follows it, like using a touch screen from across the desk. A pinch
@@ -26,9 +34,26 @@ export interface GestureActions {
   names: () => string[];
   /** Closes the window on top (Notes, the calendar, a settings window…). False when none is open. */
   close: () => boolean;
+  /** LANX 3.7.0: in a call or a meeting right now (hands in the air do things there). */
+  inCall: () => "call" | "meeting" | null;
+  /** 👍 and friends during a call or meeting; false when not in one. */
+  react: (emoji: string) => boolean;
+  /** Microphone off or on: the new state (true = off), null when not in a call. */
+  toggleMute: () => boolean | null;
+  /** A meeting's raised hand: the new state, null when not in a meeting. */
+  toggleHand: () => boolean | null;
+  /** Ends the call or leaves the meeting; false when there is none. */
+  hangup: () => boolean;
 }
 
-type Voice = { phase: "idle" } | { phase: "listening"; level: number } | { phase: "thinking" };
+type Voice = { phase: "idle" } | { phase: "listening"; level: number; typing?: boolean } | { phase: "thinking" };
+/** A text box hands can type into (the air keyboard). */
+const isEditable = (el: Element | null): el is HTMLElement =>
+  !!el &&
+  !el.closest("[data-air-keyboard]") &&
+  ((el instanceof HTMLInputElement && /^(text|search|email|url|tel|password|number|)$/.test(el.type)) || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable));
+/** A wave starts this countdown before the call ends (a fist stays). */
+const ENDING_MS = 3000;
 const SIGN_EMOJI: Record<Sign, string> = { yes: "👍", no: "👎", listen: "✌️", wheel: "🤟" };
 const BOX = 28;
 /** LANX 3.6.1: hold the pointer still on a button this long and it clicks (no pinch needed). */
@@ -122,51 +147,103 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   const hintsLeft = useRef(clicksSoFar() < HINT_CLICKS);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
   const toastTimer = useRef(0);
-  const fedAt = useRef(0);
+  // (3.7.0: was 0 — the page clock starts at 0 too, so the camera was ignored for its first 10 s.)
+  const fedAt = useRef(-Infinity);
   const statusRef = useRef(status);
   statusRef.current = status;
+
+  // ---- LANX 3.7.0: the whole PC, the air keyboard, your own signs, calls
+  const os = useRef<OsDriver | null>(null);
+  /** This PC's mouse can be driven (Windows): null until known. */
+  const [pcReady, setPcReady] = useState<boolean | null>(null);
+  const pc = !!prefs?.enabled && !!prefs.pc && pcReady === true;
+  const pcRef = useRef(pc);
+  pcRef.current = pc;
+  /** The hand's point in "whole PC" mode (LANX's own ring isn't drawn then). */
+  const pointer = useRef<Cursor | null>(null);
+  const signWatch = useRef(new SignWatcher());
+  const callWatch = useRef(new CallWatcher());
+  /** A sign of the user's or a call gesture being held: shown on the hold ring. */
+  const extraHold = useRef<{ label: string; p: number } | null>(null);
+  /** A pinch skipped because a sign of the user's was up (its release is skipped too). */
+  const skipped = useRef(false);
+  /** Teaching a sign: frames go to the teacher, nothing else happens. */
+  const teaching = useRef(false);
+  const ending = useRef<{ until: number } | null>(null);
+  const [endingLeft, setEndingLeft] = useState<number | null>(null);
+  const [kb, setKb] = useState<KbState | null>(null);
+  const kbRef = useRef(kb);
+  kbRef.current = kb;
+  const [kbHover, setKbHover] = useState<string | null>(null);
+  const kbHoverRef = useRef(kbHover);
+  kbHoverRef.current = kbHover;
+  const [kbPressed, setKbPressed] = useState<string | null>(null);
+  const kbPress = useRef<KeyRect | null>(null);
+  const kbPanel = useRef<HTMLDivElement>(null);
+  /** The LANX text box the keyboard types into. */
+  const kbTarget = useRef<HTMLElement | null>(null);
+  const hudRect = useRef<{ x: number; y: number; width: number; height: number; scale: number } | null>(null);
+  const hudSize = useRef("");
+  const [hudNote, setHudNote] = useState<{ text: string; tone?: "red" } | null>(null);
+  const hudTimer = useRef(0);
 
   const say = useCallback((t: string, ms = 2200) => {
     window.clearTimeout(toastTimer.current);
     setToast(t);
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
+    // Controlling the whole PC with LANX out of sight: the note shows over the other programs.
+    if (pcRef.current && !focusedRef.current) {
+      window.clearTimeout(hudTimer.current);
+      setHudNote({ text: t });
+      hudTimer.current = window.setTimeout(() => setHudNote(null), ms);
+    }
   }, []);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  /** Keys and typing for the whole PC (made on first use: keys and text need no screen). */
+  const osFor = useCallback(() => (os.current ??= new OsDriver((t) => onErrorRef.current(t))), []);
+
+  /** LANX 3.7.0: commands the gesture layer does itself (the keyboard, keys, the PC…); null: not one of those. */
+  const runLocal = useRef<(intent: Intent) => Promise<string | null>>(async () => null);
 
   // ---- spoken commands (✌, the wheel, or Ctrl + Alt + J)
   /** The words heard → done, with a note of what happened. */
   const act = useCallback(async (said: string) => {
     let intent = parseCommand(said);
     if (intent.kind === "message" && intent.rest !== undefined) intent = { ...intent, ...splitWho(intent.rest, actionsRef.current.names()) };
-    if (intent.kind === "message" || intent.kind === "note") intent = { ...intent, text: restoreCase(said, intent.text) };
-    const result = await actionsRef.current.run(intent);
+    if (intent.kind === "message" || intent.kind === "note" || intent.kind === "type") intent = { ...intent, text: restoreCase(said, intent.text) };
+    const result = (await runLocal.current(intent)) ?? (await actionsRef.current.run(intent));
     say(`“${said}” — ${result}`, 3600);
     return result;
   }, [say]);
   const rec = useRef<PcmRecorder | null>(null);
   const askedForModel = useRef(false);
   /** `asked`: a key or a button (always explains); ✌ explains once, then just says so. */
-  const listen = useCallback(async (asked = true) => {
-    if (voiceRef.current.phase !== "idle") return;
+  /** Listens until the speaker stops and answers with the words (null: nothing, with a note why).
+   *  Leaves the "Working it out…" state on for the caller to end. 3.7.0: shared by commands and
+   *  the keyboard's microphone key (`typing`). */
+  const hear = useCallback(async (asked: boolean, typing: boolean): Promise<string | null> => {
+    if (voiceRef.current.phase !== "idle") return null;
     const dp = await loadDictationPrefs();
     const models = await api.voiceModels().catch(() => []);
     const model = models.find((m) => m.id === dp.model && m.downloaded) ?? models.find((m) => m.downloaded);
     if (!model) {
       if (asked || !askedForModel.current) {
         askedForModel.current = true;
-        onError("Spoken commands need the speech model once: open Voice settings and download it.");
+        onError(`${typing ? "Typing by voice" : "Spoken commands"} need the speech model once: open Voice settings and download it.`);
         onOpenVoiceSettings();
       } else say("✌ Spoken commands need the speech model (Voice settings)");
-      return;
+      return null;
     }
     let r: PcmRecorder;
     try {
       r = await startPcmRecorder();
     } catch (e) {
       onError(`Microphone: ${errorText(e)}`);
-      return;
+      return null;
     }
     rec.current = r;
-    setVoice({ phase: "listening", level: 0 });
+    setVoice({ phase: "listening", level: 0, typing });
     let heard = false;
     let quietSince = 0;
     let peak = 0;
@@ -182,7 +259,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         }
         const lv = r.level();
         const secs = r.seconds();
-        setVoice({ phase: "listening", level: lv });
+        setVoice({ phase: "listening", level: lv, typing });
         if (secs < 0.35) room.push(lv);
         const floor = room.length ? room.reduce((a, b) => a + b, 0) / room.length : 0.02;
         const loud = Math.max(0.05, floor * 2.2 + 0.02);
@@ -200,7 +277,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     });
     if (rec.current !== r) {
       void r.stop();
-      return; // cancelled
+      return null; // cancelled
     }
     rec.current = null;
     const pcm = await r.stop();
@@ -208,7 +285,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     if ((!heard && peak < 0.03) || pcm.length < 8000) {
       setVoice({ phase: "idle" });
       say("I didn't hear anything. Speak as soon as the red “Listening…” appears.", 4000);
-      return;
+      return null;
     }
     setVoice({ phase: "thinking" });
     try {
@@ -216,16 +293,28 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       const t = await api.transcribe(pcm, model.id, "en");
       const said = t.text.trim();
       if (!said) {
+        setVoice({ phase: "idle" });
         say("I didn't catch that. Try again a little closer to the microphone.");
-        return;
+        return null;
       }
+      return said;
+    } catch (e) {
+      setVoice({ phase: "idle" });
+      say(errorText(e), 3600);
+      return null;
+    }
+  }, [onError, onOpenVoiceSettings, say]);
+  const listen = useCallback(async (asked = true) => {
+    const said = await hear(asked, false);
+    if (!said) return;
+    try {
       await act(said);
     } catch (e) {
       say(errorText(e), 3600);
     } finally {
       setVoice({ phase: "idle" });
     }
-  }, [onError, onOpenVoiceSettings, say, act]);
+  }, [hear, act, say]);
   const stopListening = () => {
     rec.current = null;
     setVoice({ phase: "idle" });
@@ -243,11 +332,224 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     return () => window.removeEventListener("keydown", onKey);
   }, [listen]);
 
+  // ---- LANX 3.7.0: the air keyboard
+  // The text box it types into: the last one used in LANX.
+  useEffect(() => {
+    const on = (e: FocusEvent) => {
+      if (isEditable(e.target as Element | null)) kbTarget.current = e.target as HTMLElement;
+    };
+    document.addEventListener("focusin", on);
+    return () => document.removeEventListener("focusin", on);
+  }, []);
+  const openKb = useCallback(() => {
+    if (!kbRef.current) setKb({ ...EMPTY_KB, suggestions: suggest("") });
+    void loadDictionary();
+  }, []);
+  /** Into LANX's own text box (the keyboard inside the LANX window). */
+  const typeInLanx = useCallback((text: string) => {
+    const el = kbTarget.current;
+    if (!el?.isConnected) return say("Pick a text box first (pinch it), then type.");
+    if (document.activeElement !== el) el.focus();
+    document.execCommand("insertText", false, text);
+  }, [say]);
+  const keyInLanx = useCallback((code: "Backspace" | "Enter" | "ArrowLeft" | "ArrowRight") => {
+    const el = kbTarget.current;
+    if (!el?.isConnected) return;
+    if (document.activeElement !== el) el.focus();
+    if (code === "Backspace") {
+      document.execCommand("delete");
+      return;
+    }
+    if (code === "Enter") {
+      // The chat box sends on Enter; other boxes get a new line.
+      const ok = el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+      if (ok && !(el instanceof HTMLInputElement)) document.execCommand("insertText", false, "\n");
+      return;
+    }
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      const at = Math.max(0, Math.min(el.value.length, (el.selectionStart ?? 0) + (code === "ArrowLeft" ? -1 : 1)));
+      el.setSelectionRange(at, at);
+    }
+  }, []);
+  const typeText = useCallback((text: string) => (pcRef.current ? osFor().text(text) : typeInLanx(text)), [osFor, typeInLanx]);
+  const typeKey = useCallback((code: "Backspace" | "Enter" | "ArrowLeft" | "ArrowRight") => (pcRef.current ? osFor().key(code) : keyInLanx(code)), [osFor, keyInLanx]);
+  /** The keyboard's microphone: what is said gets typed. */
+  const dictate = useCallback(async () => {
+    const said = await hear(true, true);
+    setVoice({ phase: "idle" });
+    if (said) typeText(`${said} `);
+  }, [hear, typeText]);
+  const doOut = useCallback((o: KbOut) => {
+    switch (o.kind) {
+      case "text": return typeText(o.text);
+      case "key": return typeKey(o.code);
+      case "backspaces":
+        for (let i = 0; i < o.n; i++) typeKey("Backspace");
+        return;
+      case "close": return setKb(null);
+      case "mic": return void dictate();
+    }
+  }, [typeText, typeKey, dictate]);
+  const pressKey = useCallback((k: KeyRect) => {
+    const cur = kbRef.current;
+    if (!cur) return;
+    const { state, out } = applyKey(cur, k);
+    setKb(state);
+    for (const o of out) doOut(o);
+  }, [doOut]);
+  /** The key under the hand's point (LANX's panel, or the hands window over other programs). */
+  const kbKeyAt = useCallback((x: number, y: number): KeyRect | null => {
+    const st = kbRef.current;
+    if (!st) return null;
+    if (pcRef.current) {
+      const r = hudRect.current;
+      const o = os.current;
+      if (!r || !o) return null;
+      const real = o.toReal(x, y);
+      return keyAt(layoutKeyboard(KB_SIZE.w, KB_SIZE.h, st), (real.x - r.x) / r.scale, (real.y - r.y) / r.scale - HUD_NOTE_H);
+    }
+    const panel = kbPanel.current?.getBoundingClientRect();
+    if (!panel) return null;
+    return keyAt(layoutKeyboard(panel.width, panel.height, st), x - panel.left, y - panel.top);
+  }, []);
+  /** Pinches over the keyboard press its keys (they never reach what is under it). */
+  const kbTakes = useCallback((e: GEvent): boolean => {
+    if (!kbRef.current) return false;
+    switch (e.type) {
+      case "press": {
+        const k = kbKeyAt(e.x, e.y);
+        if (!k) return false;
+        kbPress.current = k;
+        setKbPressed(k.id);
+        return true;
+      }
+      case "drag":
+        return !!kbPress.current;
+      case "longpress": {
+        const k = kbPress.current;
+        if (!k) return false;
+        // Holding ⌫ deletes the whole word before.
+        if (k.kind === "back") {
+          kbPress.current = null;
+          setKbPressed(null);
+          if (pcRef.current) osFor().chord(["ControlLeft", "Backspace"]);
+          else for (let i = 0; i < Math.max(1, kbRef.current.word.length); i++) keyInLanx("Backspace");
+          setKb((s) => (s ? { ...s, word: "", suggestions: suggest("") } : s));
+        }
+        return true;
+      }
+      case "release": {
+        const k = kbPress.current;
+        if (!k) return false;
+        kbPress.current = null;
+        setKbPressed(null);
+        // A hand drifts while pinching: still that key if it ends on it (or was a quick pinch).
+        if (e.click || kbKeyAt(e.x, e.y)?.id === k.id) pressKey(k);
+        return true;
+      }
+      case "cancel":
+        if (!kbPress.current) return false;
+        kbPress.current = null;
+        setKbPressed(null);
+        return true;
+      default:
+        return false;
+    }
+  }, [kbKeyAt, pressKey, osFor, keyInLanx]);
+
+  // ---- LANX 3.7.0: the user's own signs, and hands in calls
+  const runSign = useCallback((s: CustomSign) => {
+    say(`🖐 ${s.name || s.command}`, 1600);
+    void act(s.command);
+  }, [act, say]);
+  const cancelEnding = useCallback((note = true) => {
+    if (!ending.current) return;
+    ending.current = null;
+    setEndingLeft(null);
+    if (note) say("✊ Staying in the call");
+  }, [say]);
+  const onCallMove = useCallback((m: CallMove, where: "call" | "meeting") => {
+    const a = actionsRef.current;
+    if (m === "raise") {
+      if (where !== "meeting") return say("✋ Raising a hand works in meetings");
+      const up = a.toggleHand();
+      if (up !== null) say(up ? "✋ Hand raised" : "Hand lowered");
+    } else if (m === "mute") {
+      const off = a.toggleMute();
+      if (off !== null) say(off ? "🔇 Microphone off" : "🎙 Microphone on");
+    } else if (!ending.current) {
+      ending.current = { until: performance.now() + ENDING_MS };
+      setEndingLeft(Math.ceil(ENDING_MS / 1000));
+    }
+  }, [say]);
+  // The countdown after a wave.
+  useEffect(() => {
+    if (endingLeft === null) return;
+    const t = window.setInterval(() => {
+      const e = ending.current;
+      if (!e) return;
+      const left = e.until - performance.now();
+      if (left <= 0) {
+        ending.current = null;
+        setEndingLeft(null);
+        if (actionsRef.current.hangup()) say("👋 Call ended");
+      } else setEndingLeft(Math.ceil(left / 1000));
+    }, 200);
+    return () => window.clearInterval(t);
+  }, [endingLeft !== null, say]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Commands the gesture layer does itself.
+  runLocal.current = async (intent: Intent): Promise<string | null> => {
+    const a = actionsRef.current;
+    switch (intent.kind) {
+      case "keyboard": {
+        const open = intent.open ?? !kbRef.current;
+        if (open) openKb();
+        else setKb(null);
+        return open ? "Keyboard open: point at a key and pinch" : "Keyboard closed";
+      }
+      case "type":
+        typeText(intent.text);
+        return "Typed";
+      case "keys":
+        osFor().chord(intent.keys);
+        return `Pressed ${intent.label}`;
+      case "screenshot":
+        // Windows saves it by itself (Pictures → Screenshots).
+        osFor().chord(["MetaLeft", "PrintScreen"]);
+        return "Screenshot saved in Pictures → Screenshots";
+      case "lock":
+        await api.lockPc();
+        return "Locked";
+      case "show-lanx": {
+        const w = getCurrentWindow();
+        await w.unminimize().catch(() => {});
+        await w.show().catch(() => {});
+        await w.setFocus().catch(() => {});
+        return "Here's LANX";
+      }
+      case "mute-toggle": {
+        const off = a.toggleMute();
+        return off === null ? "There's no call right now." : off ? "Microphone off" : "Microphone on";
+      }
+      case "hand-toggle": {
+        const up = a.toggleHand();
+        return up === null ? "Raising a hand works in a meeting." : up ? "✋ Hand raised" : "Hand lowered";
+      }
+      default:
+        return null;
+    }
+  };
+
   // ---- signs and flicks
   const onSign = useCallback((sign: Sign) => {
     const a = actionsRef.current;
+    // Over other programs (whole PC), Esc and arrows go to the program in front.
+    const elsewhere = pcRef.current && !focusedRef.current;
     if (sign === "yes") {
       if (a.yes()) return say("👍 Answered");
+      // 3.7.0: in a call or meeting, a 👍 for everyone to see.
+      if (prefsRef.current?.calls !== false && a.inCall() && a.react("👍")) return say("👍");
       // 👍 over a message: like it.
       const c = cursor.current;
       const msg = c ? elementAt(c.x, c.y)?.closest("[data-msg]")?.getAttribute("data-msg") : null;
@@ -255,17 +557,21 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       else say("👍");
     } else if (sign === "no") {
       if (a.no()) return say("👎 Declined");
-      if (!a.close()) driver.current?.key("Escape");
+      if (elsewhere) osFor().key("Escape");
+      else if (!a.close()) driver.current?.key("Escape");
       say("👎 Closed");
     } else if (sign === "listen") {
       if (prefsRef.current?.voice) void listen(false);
     } else if (sign === "wheel") {
+      // 3.7.0: over other programs 🤟 opens and closes the keyboard.
+      if (pcRef.current) return void runLocal.current({ kind: "keyboard", open: null }).then((t) => t && say(`🤟 ${t}`));
       const c = cursor.current;
       if (c) setWheel({ x: Math.min(window.innerWidth - 130, Math.max(130, c.x)), y: Math.min(window.innerHeight - 130, Math.max(130, c.y)) });
     }
-  }, [listen, say]);
+  }, [listen, say, osFor]);
 
   const onSwipe = useCallback((dir: "left" | "right" | "up" | "down") => {
+    const elsewhere = pcRef.current && !focusedRef.current;
     if (wheelRef.current) {
       setWheel(null);
       return;
@@ -274,7 +580,8 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     const ev = new CustomEvent("lanx:gesture-swipe", { cancelable: true, detail: { dir } });
     if (!window.dispatchEvent(ev)) return;
     if (dir === "up") {
-      if (!actionsRef.current.close()) driver.current?.key("Escape");
+      if (elsewhere) osFor().key("Escape");
+      else if (!actionsRef.current.close()) driver.current?.key("Escape");
       return say("Closed");
     }
     if (dir === "down") return;
@@ -289,10 +596,39 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       }
       return;
     }
-    driver.current?.key(dir === "left" ? "ArrowRight" : "ArrowLeft");
-  }, [say]);
+    const key = dir === "left" ? "ArrowRight" : "ArrowLeft";
+    if (elsewhere) osFor().key(key);
+    else driver.current?.key(key);
+  }, [say, osFor]);
 
+  /** A text box picked by hand in LANX: the keyboard comes up for it. */
+  const afterClick = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (prefsRef.current?.keyboard !== false && !kbRef.current && isEditable(document.activeElement)) openKb();
+    });
+  }, [openKb]);
+  /** Controlling the whole PC: the same moves on this PC's real mouse. */
+  const handleOs = useCallback((e: GEvent, o: OsDriver) => {
+    switch (e.type) {
+      case "press": return o.pressAt(e.x, e.y);
+      case "drag": return o.drag(e.x, e.y);
+      case "release": return o.release(e.x, e.y, e.click, e.double);
+      case "cancel": return o.cancel();
+      case "longpress": return o.longPress(e.x, e.y);
+      case "grab": return o.grab();
+      case "grab-move": return o.grabMove(e.dx, e.dy);
+      case "grab-end": return o.grabEnd(e.vx, e.vy);
+      case "zoom-start": return o.zoomStart();
+      case "zoom": return o.zoom(e.scale);
+      case "swipe": return onSwipe(e.dir);
+      case "sign": return onSign(e.sign);
+      // (Two hands resizing a window: LANX's own only.)
+      default: return;
+    }
+  }, [onSwipe, onSign]);
   const handle = useCallback((e: GEvent) => {
+    if (kbTakes(e)) return;
+    if (pcRef.current && os.current) return handleOs(e, os.current);
     const d = driver.current;
     if (!d) return;
     switch (e.type) {
@@ -308,7 +644,8 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
         for (const [el, n] of seen) if (n >= most) [lit, most] = [el, n];
         const dc = dwellClick.current;
         if (dc && lit === dc.el && (lastFrame.current?.t ?? 0) - dc.at < DWELL_PINCH_MS) return;
-        return d.press(e.x, e.y, lit);
+        d.press(e.x, e.y, lit);
+        return afterClick();
       }
       case "drag": return d.drag(e.x, e.y);
       case "release":
@@ -316,7 +653,9 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
           countClick();
           hintsLeft.current = clicksSoFar() < HINT_CLICKS;
         }
-        return d.release(e.x, e.y, e.click, e.double);
+        d.release(e.x, e.y, e.click, e.double);
+        if (e.click) afterClick();
+        return;
       case "cancel": return d.cancel();
       case "longpress": return d.longPress(e.x, e.y);
       case "grab": return d.grab(e.x, e.y);
@@ -337,29 +676,87 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       case "swipe": return onSwipe(e.dir);
       case "sign": return onSign(e.sign);
     }
-  }, [onSign, onSwipe]);
+  }, [onSign, onSwipe, kbTakes, handleOs, afterClick]);
   const handleRef = useRef(handle);
   handleRef.current = handle;
 
   // ---- each frame from the camera
+  /** What the frame handler calls (kept current; the handler itself never changes). */
+  const fx = useRef({ runSign, onCallMove, cancelEnding, kbKeyAt, afterClick });
+  fx.current = { runSign, onCallMove, cancelEnding, kbKeyAt, afterClick };
   const onFrame = useCallback((f: Frame) => {
     const p = prefsRef.current;
     const g = interp.current;
     const d = driver.current;
     if (!p || !g || !d) return;
     lastFrame.current = f;
-    g.opts = { speed: p.speed, hand: p.hand, swipes: p.swipes };
-    const out = g.update(f, window.innerWidth, window.innerHeight);
-    const active = focusedRef.current;
+    // 3.7.0: teaching a sign — the frames go to the teacher, nothing else happens.
+    if (teaching.current) {
+      window.dispatchEvent(new CustomEvent("lanx:gesture-frame", { detail: f }));
+      cursor.current = null;
+      pointer.current = null;
+      target.current = null;
+      d.leave();
+      setHasHand((h) => (h === f.hands.length > 0 ? h : f.hands.length > 0));
+      drawPreview(previewCanvas.current, f);
+      return;
+    }
+    const fn = fx.current;
+    // The user's own signs, and hands in calls, look at the hands first.
+    const sw = signWatch.current.update(f, p.signs ?? []);
+    if (sw.fired) fn.runSign(sw.fired);
+    const where = p.calls !== false ? actionsRef.current.inCall() : null;
+    const cw = where ? callWatch.current.update(f) : null;
+    if (!where) callWatch.current.reset();
+    if (cw?.fired && where) fn.onCallMove(cw.fired, where);
+    if (cw?.fist && ending.current) fn.cancelEnding();
+    extraHold.current = sw.holding ? { label: "🖐", p: sw.holding.p } : cw?.holding ? { label: cw.holding.move === "raise" ? "✋" : "🔇", p: cw.holding.p } : null;
+    const P = pcRef.current ? os.current : null;
+    // (No flicks in a call: a wave would skip songs.)
+    g.opts = { speed: p.speed, hand: p.hand, swipes: p.swipes && !where };
+    const out = P ? g.update(f, P.w, P.h) : g.update(f, window.innerWidth, window.innerHeight);
+    const active = !!P || focusedRef.current;
     for (const e of out.events) {
+      // A sign of the user's is up: its pinch waits (and so does the release that goes with it).
+      if (e.type === "press" && sw.active) {
+        skipped.current = true;
+        continue;
+      }
+      if (skipped.current && (e.type === "drag" || e.type === "release" || e.type === "cancel" || e.type === "longpress")) {
+        if (e.type === "release" || e.type === "cancel") skipped.current = false;
+        continue;
+      }
       // Behind other windows only the signs work (👍 answers a call, ✌ listens).
       if (active || e.type === "sign") handleRef.current(e);
     }
-    const c = active ? out.cursor : null;
+    const pt = active ? out.cursor : null;
+    // The keyboard key under the hand.
+    const hoverKey = kbRef.current && pt && (pt.mode === "point" || pt.mode === "press") ? fn.kbKeyAt(pt.x, pt.y)?.id ?? null : null;
+    if (hoverKey !== kbHoverRef.current) setKbHover(hoverKey);
+    if (P) {
+      // The whole PC: the real mouse follows the hand (LANX's own ring isn't drawn).
+      pointer.current = pt;
+      cursor.current = null;
+      second.current = null;
+      target.current = null;
+      dwell.current = null;
+      dwellP.current = 0;
+      if (pt && (pt.mode === "point" || pt.mode === "drag")) P.move(pt.x, pt.y);
+      else if (!pt) P.leave();
+      P.tick(performance.now());
+      setHasHand((h) => (h === out.tracking > 0 ? h : out.tracking > 0));
+      drawPreview(previewCanvas.current, f);
+      return;
+    }
+    pointer.current = null;
+    const c = pt;
     cursor.current = c;
     second.current = active ? out.second : null;
+    // Over the keyboard: its keys, not what is under it.
+    const kbBox = kbRef.current ? kbPanel.current?.getBoundingClientRect() : null;
+    const overKb = !!c && !!kbBox && c.x >= kbBox.left - 14 && c.x <= kbBox.right + 14 && c.y >= kbBox.top - 14 && c.y <= kbBox.bottom + 14;
     let under: Element | null = null;
-    if (c) {
+    if (c && !overKb) {
       let t = d.move(c.x, c.y, c.mode !== "point");
       under = t?.el ?? null;
       // Sticky: the button the pointer is on keeps it while the hand sways a little,
@@ -411,6 +808,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
           d.press(x, y, t.el);
           d.release(x, y, true, false);
           dwellClick.current = { el: t.el, at: f.t };
+          fn.afterClick();
           countClick();
           hintsLeft.current = clicksSoFar() < HINT_CLICKS;
         }
@@ -424,7 +822,25 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   }, []);
 
   // ---- the camera on and off
-  const wanted = !!prefs?.enabled && !locked && !hidden;
+  // 3.7.0: controlling the whole PC keeps going while LANX is hidden or minimised.
+  const wanted = !!prefs?.enabled && !locked && (!hidden || pc);
+  useEffect(() => {
+    if (!prefs?.enabled || !prefs.pc) {
+      os.current?.leave();
+      return;
+    }
+    let alive = true;
+    void osFor()
+      .init()
+      .then((ok) => {
+        if (!alive) return;
+        setPcReady(ok);
+        if (!ok) onErrorRef.current("Controlling the whole PC works on Windows for now.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [prefs?.enabled, prefs?.pc, osFor]);
   useEffect(() => {
     if (!prefs?.enabled) {
       engine.current?.dispose();
@@ -456,8 +872,62 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     driver.current?.leave();
     cursor.current = null;
     target.current = null;
+    os.current?.leave();
     if (wanted) void e.start(prefs?.camera).then((ok) => setStream(ok ? e.stream : null));
   }, [wanted, prefs?.camera, prefs?.enabled, retry]);
+  // 3.7.0: switching to (or from) the whole PC keeps the camera going; the pointer starts afresh.
+  useEffect(() => {
+    interp.current?.reset();
+    driver.current?.leave();
+    os.current?.leave();
+    cursor.current = null;
+    target.current = null;
+  }, [pc]);
+
+  // ---- 3.7.0: the hands window over other programs (keyboard, notes) while controlling the whole PC
+  const voiceNote = voice.phase === "listening" ? (voice.typing ? "Listening… say what to type" : "Listening… say a command") : voice.phase === "thinking" ? "Working it out…" : null;
+  const endingNote = endingLeft !== null ? `👋 Ending the call in ${endingLeft}… make a fist to stay` : null;
+  const sendHud = useRef<() => void>(() => {});
+  useEffect(() => {
+    const o = os.current;
+    const away = !focused;
+    const note = endingNote ?? (away ? voiceNote ?? hudNote?.text ?? null : null);
+    const red = !!endingNote || (away && voice.phase === "listening");
+    const show = pc && !!o && (!!kb || !!note);
+    const w = kb ? KB_SIZE.w : HUD_NOTE_W;
+    const h = HUD_NOTE_H + (kb ? KB_SIZE.h : 0);
+    const size = show ? `${w}x${h}` : "";
+    const state: HudState = { kb, hover: kbHover, pressed: kbPressed, listening: voice.phase === "listening" && !!voice.typing, note, noteTone: red ? "red" : "plain", dark: document.documentElement.classList.contains("dark") };
+    sendHud.current = () => {
+      if ("__TAURI_INTERNALS__" in window) void emitTo("hud", HUD_EVENT, state).catch(() => {});
+    };
+    if (size !== hudSize.current) {
+      hudSize.current = size;
+      if (!show) hudRect.current = null;
+      void api
+        .handHud(o?.screen ?? 0, show ? w : 0, show ? h : 0)
+        .then((r) => {
+          if (!show) return;
+          hudRect.current = r;
+          sendHud.current();
+        })
+        .catch(() => {});
+    } else if (show) sendHud.current();
+  }, [pc, kb, kbHover, kbPressed, hudNote, voice.phase, voice.phase === "listening" && voice.typing, endingNote, voiceNote, focused]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    // The hands window asks for what to show once it has loaded.
+    let off: (() => void) | undefined;
+    let gone = false;
+    void listenTauri("lanx:hud-ready", () => sendHud.current())
+      .then((u) => (gone ? u() : (off = u)))
+      .catch(() => {});
+    return () => {
+      gone = true;
+      off?.();
+      if (hudSize.current) void api.handHud(0, 0, 0).catch(() => {});
+    };
+  }, []);
   useEffect(() => () => engine.current?.dispose(), []);
 
   // For LANX's own tests: hand frames can be fed in without a real hand.
@@ -480,11 +950,28 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       ignoreCamera: () => {
         fedAt.current = Infinity;
       },
+      /** LANX 3.7.0 */
+      keyboard: () => kbRef.current,
+      kbHover: () => kbHoverRef.current,
+      openKeyboard: () => openKb(),
+      inCall: () => actionsRef.current.inCall(),
+      /** Controlling the whole PC: the screen in pointer units and real pixels, and the hands window. */
+      pc: () => (pcRef.current && os.current ? { w: os.current.w, h: os.current.h, real: os.current.real, hud: hudRect.current } : null),
     };
     return () => {
       delete w.__lanxGestures;
     };
-  }, [prefs?.enabled, onFrame, act]);
+  }, [prefs?.enabled, onFrame, act, openKb]);
+  // 3.7.0: Gesture settings → "Teach a sign" borrows the camera's frames for a moment.
+  useEffect(() => {
+    const on = (e: Event) => {
+      teaching.current = !!(e as CustomEvent<{ on: boolean }>).detail?.on;
+      interp.current?.reset();
+      signWatch.current.reset();
+    };
+    window.addEventListener("lanx:gesture-teach", on);
+    return () => window.removeEventListener("lanx:gesture-teach", on);
+  }, []);
   useEffect(() => {
     const vis = () => setHidden(document.hidden);
     const foc = () => setFocused(true);
@@ -550,12 +1037,13 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       }
       const hold = holdEl.current;
       if (hold && holdArc.current && holdLabel.current) {
-        const h = c?.hold;
-        hold.style.opacity = h ? "1" : "0";
+        // LANX's signs, or (3.7.0) the user's own and the ones in calls.
+        const h = c?.hold ? { label: SIGN_EMOJI[c.hold.sign], p: c.hold.p } : extraHold.current;
+        hold.style.opacity = h && c ? "1" : "0";
         if (h && c) {
           hold.style.transform = `translate3d(${c.x - 26}px, ${c.y - 26}px, 0)`;
           holdArc.current.style.strokeDashoffset = String(150.8 * (1 - h.p));
-          holdLabel.current.textContent = SIGN_EMOJI[h.sign];
+          holdLabel.current.textContent = h.label;
         }
       }
       const s2 = secondEl.current;
@@ -586,11 +1074,13 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
     { id: "notes", label: "Notes", icon: <StickyNote className="h-5 w-5" />, run: () => void actionsRef.current.run({ kind: "open", what: "notes" }) },
     { id: "calendar", label: "Calendar", icon: <CalendarDays className="h-5 w-5" />, run: () => void actionsRef.current.run({ kind: "open", what: "calendar" }) },
     { id: "games", label: "Games", icon: <Gamepad2 className="h-5 w-5" />, run: () => void actionsRef.current.run({ kind: "open", what: "games" }) },
+    { id: "keyboard", label: "Keyboard", icon: <Keyboard className="h-5 w-5" />, run: openKb },
   ];
 
   const statusText =
     status.phase === "starting" ? "Starting the camera…"
     : status.phase === "error" ? status.message ?? "The camera stopped"
+    : status.phase === "on" && pc ? (hasHand ? "Your hand is the mouse, in every program" : "Show your open hand: it moves the mouse")
     : status.phase === "on" ? (focused ? (hasHand ? "Following your hand" : "Show your open hand") : "In the background: 👍 ✌ still work")
     : locked ? "Paused while LANX is locked"
     : hidden ? "Paused while LANX is hidden"
@@ -598,6 +1088,12 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
 
   if (!prefs) return null;
   const on = prefs.enabled;
+  // The keyboard inside LANX: opposite the text box, so what is typed stays in view.
+  const kbW = Math.min(KB_SIZE.w, window.innerWidth - 24);
+  const kbH = Math.round((kbW * KB_SIZE.h) / KB_SIZE.w);
+  const kbBox = kb && !pc && kbTarget.current?.isConnected ? kbTarget.current.getBoundingClientRect() : null;
+  const kbTop = !!kbBox && kbBox.top + kbBox.height / 2 > window.innerHeight / 2;
+  const kbBottom = !!kb && !pc && !kbTop;
   const pillShown = pillOpen || pillFresh || status.phase !== "on";
 
   return (
@@ -631,7 +1127,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
 
       {/* The camera dot and its menu. */}
       {on && (
-        <div className="pointer-events-none fixed left-4 bottom-[76px] z-[190] flex flex-col items-start gap-2">
+        <div className="pointer-events-none fixed left-4 bottom-[76px] z-[190] flex flex-col items-start gap-2" style={kbBottom ? { bottom: kbH + 20 } : undefined}>
           {prefs.preview && stream && status.phase === "on" && (
             <div data-gesture-ui data-gesture-preview className="relative h-[120px] w-[160px] overflow-hidden rounded-2xl lanx-menu">
               <video autoPlay muted playsInline ref={(v) => { if (v && v.srcObject !== stream) v.srcObject = stream; }} className="absolute inset-0 h-full w-full object-cover -scale-x-100" />
@@ -652,6 +1148,9 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
                 <Mic className="h-3 w-3" /> Speak
               </button>
             )}
+            <button type="button" data-gesture-keyboard title={kb ? "Close the keyboard" : "A keyboard to type on with your hand (pinch the keys)"} onClick={() => (kb ? setKb(null) : openKb())} className={`flex h-6 w-6 items-center justify-center rounded-full ${kb ? "bg-sky-500 text-white" : "lanx-tool text-slate-500"}`}>
+              <Keyboard className="h-3.5 w-3.5" />
+            </button>
             <span className={`flex items-center gap-1 overflow-hidden transition-[max-width,opacity] duration-300 ease-out ${pillShown ? "max-w-[380px] opacity-100" : "max-w-0 opacity-0"}`}>
               <span data-gesture-status-text className="max-w-[260px] truncate px-1" title={statusText}>{statusText}</span>
               <button type="button" title={prefs.preview ? "Hide the camera picture" : "Show the camera picture"} onClick={() => set({ preview: !prefs.preview })} className="lanx-tool h-6 w-6 shrink-0 flex items-center justify-center text-slate-500">
@@ -676,7 +1175,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
                   <span key={i} className="w-[3px] rounded-full bg-red-500 transition-[height] duration-75" style={{ height: `${Math.max(3, Math.min(16, voice.level * 22 * k))}px` }} />
                 ))}
               </span>
-              <span className="text-slate-400">say a command</span>
+              <span className="text-slate-400">{voice.typing ? "say what to type" : "say a command"}</span>
               <button type="button" onClick={stopListening} className="lanx-tool h-6 w-6 flex items-center justify-center text-slate-400"><X className="h-3.5 w-3.5" /></button>
             </>
           ) : (
@@ -685,6 +1184,21 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
               <span className="font-semibold">Working it out…</span>
             </>
           )}
+        </div>
+      )}
+
+      {/* 3.7.0: the air keyboard inside LANX (over other programs it is in the hands window). */}
+      {kb && !pc && (
+        <div ref={kbPanel} data-gesture-kb className={`fixed left-1/2 z-[186] -translate-x-1/2 lanx-menu-in ${kbTop ? "top-3" : "bottom-3"}`} style={{ width: kbW, height: kbH }}>
+          <AirKeyboard state={kb} width={kbW} height={kbH} hover={kbHover} pressed={kbPressed} listening={voice.phase === "listening" && !!voice.typing} interactive onKey={pressKey} />
+        </div>
+      )}
+
+      {/* 3.7.0: a wave ends the call after a moment; a fist (or this button) stays. */}
+      {endingLeft !== null && focused && (
+        <div data-gesture-ending className="fixed left-1/2 top-4 z-[196] -translate-x-1/2 flex items-center gap-2 rounded-full bg-red-500 px-4 py-2 text-[13px] font-semibold text-white lanx-menu-in">
+          👋 Ending the call in {endingLeft}… make a fist to stay
+          <button type="button" onClick={() => cancelEnding()} className="rounded-full bg-white/20 px-2.5 py-0.5 text-[12px] hover:bg-white/30">Stay</button>
         </div>
       )}
 

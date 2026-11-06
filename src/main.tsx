@@ -10,6 +10,7 @@ import "@fontsource/jetbrains-mono/500.css";
 import App from "./App";
 import IslandApp from "./IslandApp";
 import RemoteBar from "./RemoteBar";
+import HudApp from "./HudApp";
 import "./App.css";
 import { applyColorStyle, colorStyle } from "./lib/storybook";
 import { IS_LINUX } from "./lib/platform";
@@ -48,18 +49,20 @@ const windowLabel = (() => {
 const isIsland = windowLabel === "island" || location.hash === "#island";
 // LANX 2.0: and in the remote-control Stop bar.
 const isRemoteBar = windowLabel === "remote" || location.hash === "#remote";
+// LANX 3.7.0: and in the hands window (air keyboard over other programs).
+const isHud = windowLabel === "hud" || location.hash === "#hud";
 // LANX 3.6.2: the paired phone's camera for calls, meetings and gestures (main window).
-if (!isIsland && !isRemoteBar) installPhoneCamera();
+if (!isIsland && !isRemoteBar && !isHud) installPhoneCamera();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{isIsland ? <IslandApp /> : isRemoteBar ? <RemoteBar /> : <App />}</React.StrictMode>,
+  <React.StrictMode>{isIsland ? <IslandApp /> : isRemoteBar ? <RemoteBar /> : isHud ? <HudApp /> : <App />}</React.StrictMode>,
 );
 // LANX 2.5.3: the start-up logo (index.html) goes once the app has drawn.
 requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("lanx-splash")?.remove()));
 
 // LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
 // WebView2 folder if a window stays blank).
-if (!isIsland && !isRemoteBar && "__TAURI_INTERNALS__" in window) {
+if (!isIsland && !isRemoteBar && !isHud && "__TAURI_INTERNALS__" in window) {
   requestAnimationFrame(() => {
     void import("@tauri-apps/api/core").then(({ invoke }) => invoke("ui_ready")).catch(() => {});
   });

@@ -236,6 +236,9 @@ export async function runIntent(intent: Intent, ctx: IntentContext): Promise<str
         return "Here's what you can do";
       case "unknown":
         return "I didn't understand that. Try “call Bharat”, “play music” or “open notes”.";
+      default:
+        // LANX 3.7.0: the keyboard, keys, typing, the PC itself — done by the gesture layer.
+        return "Turn on hand gestures for that.";
     }
   } catch (e) {
     return errorText(e);

@@ -61,6 +61,8 @@ pub struct CallEvent {
     pub reason: Option<String>,
     /// LANX 1.4.0: the other side started / stopped recording.
     pub recording: Option<bool>,
+    /// LANX 3.7.0: the other side reacted (👍…); the window floats it over the call.
+    pub reaction: Option<String>,
 }
 
 fn payload(call_id: &str, action: &str) -> CallPayload {
@@ -73,6 +75,7 @@ fn payload(call_id: &str, action: &str) -> CallPayload {
         screen: None,
         recording: None,
         help: None,
+        reaction: None,
     }
 }
 
@@ -91,6 +94,7 @@ impl NetworkService {
             screen: None,
             reason: None,
             recording: None,
+            reaction: None,
         };
         extra(&mut ev);
         self.events.emit_json("lanx://call", ev);
@@ -352,8 +356,9 @@ impl NetworkService {
         Ok(())
     }
 
-    /// Tells the other side about mute / camera / screen sharing, and (LANX
-    /// 1.4.0) recording: that is only allowed when their LANX shows the notice.
+    /// Tells the other side about mute / camera / screen sharing, (LANX
+    /// 1.4.0) recording: that is only allowed when their LANX shows the notice,
+    /// and (LANX 3.7.0) an emoji reaction, which needs 3.7.0 on their side.
     pub async fn call_media(
         &self,
         call_id: &str,
@@ -361,6 +366,7 @@ impl NetworkService {
         muted: Option<bool>,
         screen: Option<bool>,
         recording: Option<bool>,
+        reaction: Option<String>,
     ) -> Result<(), String> {
         let Some(call) = self.current_call().filter(|c| c.call_id == call_id) else {
             return Ok(());
@@ -368,20 +374,32 @@ impl NetworkService {
         let Some(peer) = self.db.get_peer(&call.peer_id).ok().flatten() else {
             return Ok(());
         };
-        let mut p = payload(call_id, "media");
-        p.video = video;
-        p.muted = muted;
-        p.screen = screen;
-        p.recording = recording;
-        match recording {
-            Some(on) => {
-                self.send_call_min(&peer, p, FEATURES_MEETINGS, "call recording").await?;
-                let text = if on { "🔴 You started recording this call" } else { "You stopped recording this call" };
-                self.call_note(&call, &self.identity.device_id.clone(), true, text);
-                Ok(())
+        // Only the allowed reactions; anything else is dropped.
+        let asked_reaction = reaction.is_some();
+        let reaction = reaction.as_deref().and_then(clean_reaction);
+        let changes = video.is_some() || muted.is_some() || screen.is_some() || recording.is_some();
+        if changes || !asked_reaction {
+            let mut p = payload(call_id, "media");
+            p.video = video;
+            p.muted = muted;
+            p.screen = screen;
+            p.recording = recording;
+            match recording {
+                Some(on) => {
+                    self.send_call_min(&peer, p, FEATURES_MEETINGS, "call recording").await?;
+                    let text = if on { "🔴 You started recording this call" } else { "You stopped recording this call" };
+                    self.call_note(&call, &self.identity.device_id.clone(), true, text);
+                }
+                None => self.send_call(&peer, p).await?,
             }
-            None => self.send_call(&peer, p).await,
         }
+        // A reaction goes on its own, so a copy too old for it still gets the rest.
+        if let Some(r) = reaction {
+            let mut p = payload(call_id, "media");
+            p.reaction = Some(r);
+            self.send_call_min(&peer, p, FEATURES_REACTIONS, "reactions").await?;
+        }
+        Ok(())
     }
 
     /// A line in the call's chat ("🔴 Bharat started recording this call").
@@ -499,6 +517,7 @@ impl NetworkService {
                         e.muted = c.muted;
                         e.screen = c.screen;
                         e.recording = c.recording;
+                        e.reaction = c.reaction.as_deref().and_then(clean_reaction);
                     });
                     ok
                 }

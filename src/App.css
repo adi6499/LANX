@@ -395,6 +395,40 @@
   }
 }
 
+/* LANX 3.7.0: reactions in calls and meetings (FloatingReactions.tsx). Each
+   one pops in, rises about 60px and fades; plain, no glow. */
+.lanx-reaction {
+  position: absolute;
+  bottom: 18%;
+  transform: translateX(-50%);
+  animation: lanx-reaction-rise 1.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+.lanx-reaction-pop {
+  display: block;
+  animation: lanx-reaction-pop 0.32s var(--ease-spring) both;
+}
+@keyframes lanx-reaction-rise {
+  0% { opacity: 0; transform: translate(-50%, 0); }
+  10% { opacity: 1; }
+  65% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -60px); }
+}
+@keyframes lanx-reaction-pop {
+  from { transform: scale(0.4); }
+  to { transform: scale(1); }
+}
+@keyframes lanx-reaction-fade {
+  0% { opacity: 0; }
+  10%, 65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Only a fade, in place (the page-wide rule above would hide it at once). */
+  .lanx-reaction { animation: lanx-reaction-fade 1.6s linear both !important; }
+  .lanx-reaction-pop { animation: none !important; }
+}
+
 /* Chat messages run under the glass header and message box; keep the
    scrollbar between them. */
 .lanx-under::-webkit-scrollbar-track {

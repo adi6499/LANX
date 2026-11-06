@@ -32,6 +32,10 @@ const IDLE_MS = 1000 / 6;
 const IDLE_AFTER = 2500;
 /** Frames are made this wide (the model looks at 192–224 pixels anyway). */
 const FRAME_W = 480;
+/** A camera that ends this soon after it was asked for is asked for once more. */
+const EARLY_END_MS = 5000;
+/** Asking again (300, 700, 1100… ms apart, about 6 s in all) while the camera is still being let go. */
+const ASK_TRIES = 5;
 /** The model runs on the processor: on this PC the graphics chip took ~10 s a frame to
  *  warm up inside LANX (and was slower after), while the processor keeps 12–16 frames a
  *  second. Support / testing: localStorage "lanx.gestures.delegate" = "GPU" tries the chip. */
@@ -60,6 +64,12 @@ export class GestureEngine {
   private frames: number[] = [];
   private lastMs = 0;
   private statusAt = 0;
+  /** LANX 3.7.0: which start is the current one. A camera that answers after a quicker
+   *  restart (turning "Control the whole PC" on does one) is let go, not left running. */
+  private gen = 0;
+  /** The start before this one, until it has finished: the camera is asked for one at a time.
+   *  (Two requests at once share one camera, and letting go of the old one ended the new one.) */
+  private starting: Promise<unknown> = Promise.resolve();
 
   constructor(
     private onFrame: (f: Frame) => void,
@@ -101,17 +111,43 @@ export class GestureEngine {
   async start(deviceId?: string | null): Promise<boolean> {
     if (this.running) return true;
     this.running = true;
+    const gen = ++this.gen;
     this.onStatus({ phase: "starting" });
     setPhoneCamPurpose("hand gestures");
+    const before = this.starting;
+    const run = this.open(gen, deviceId, before);
+    this.starting = run;
+    return run;
+  }
+
+  /** The camera — asked again a few times when it has only just been let go: for a moment it
+   *  can answer "no camera" or hand over a picture that has already ended (3.7.0). */
+  private async askCamera(gen: number, deviceId: string | null | undefined): Promise<MediaStream> {
+    const want: MediaStreamConstraints = {
+      video: { ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }), width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+      audio: false,
+    };
+    for (let i = 0; ; i++) {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia(want);
+        if (s.getVideoTracks()[0]?.readyState !== "ended" || i >= ASK_TRIES) return s;
+        s.getTracks().forEach((t) => t.stop());
+      } catch (e) {
+        const busy = e instanceof DOMException && /^(NotFoundError|NotReadableError|AbortError)$/.test(e.name) && !/phone/i.test(e.message);
+        if (!busy || i >= ASK_TRIES || gen !== this.gen) throw e;
+      }
+      await new Promise((r) => window.setTimeout(r, 300 + i * 400));
+      if (gen !== this.gen) throw new DOMException("Stopped", "AbortError");
+    }
+  }
+
+  private async open(gen: number, deviceId: string | null | undefined, before: Promise<unknown>, again = 0): Promise<boolean> {
+    await before.catch(() => {});
+    if (gen !== this.gen) return false;
     try {
-      const [ok, cam] = await Promise.all([
-        this.boot(),
-        navigator.mediaDevices.getUserMedia({
-          video: { ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }), width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
-          audio: false,
-        }),
-      ]);
-      if (!this.running) {
+      const [ok, cam] = await Promise.all([this.boot(), this.askCamera(gen, deviceId)]);
+      const gotAt = performance.now();
+      if (!this.running || gen !== this.gen) {
         cam.getTracks().forEach((t) => t.stop());
         return false;
       }
@@ -123,11 +159,20 @@ export class GestureEngine {
       this.cam = cam;
       // The camera went away (unplugged, or the phone lending it pressed Stop).
       cam.getVideoTracks()[0]?.addEventListener("ended", () => {
-        if (this.cam !== cam || !this.running) return;
+        if (this.cam !== cam || !this.running || gen !== this.gen) return;
+        // 3.7.0: ended straight away — the camera was still letting go of the last start
+        // (seen when it is stopped and asked for again within moments). Once more, shortly.
+        if (again < 2 && performance.now() - gotAt < EARLY_END_MS) {
+          this.release();
+          this.starting = this.open(gen, deviceId, new Promise((r) => window.setTimeout(r, 600)), again + 1);
+          return;
+        }
         this.running = false;
         this.release();
         this.onStatus({ phase: "error", message: "The camera stopped. Turn gestures off and on to start it again." });
       });
+      // (3.7.0: this video keeps playing while LANX is minimised or in the tray — LANX's window
+      // never counts as hidden, so hands keep driving the whole PC; measured on this PC.)
       const v = document.createElement("video");
       v.muted = true;
       v.playsInline = true;
@@ -136,12 +181,20 @@ export class GestureEngine {
       v.style.cssText = "position:fixed;left:-10px;top:-10px;width:1px;height:1px;opacity:0;pointer-events:none";
       document.body.appendChild(v);
       await v.play();
+      if (gen !== this.gen || !this.running) {
+        // Stopped (or restarted, or the camera went away) meanwhile.
+        v.srcObject = null;
+        v.remove();
+        cam.getTracks().forEach((t) => t.stop());
+        return false;
+      }
       this.video = v;
       this.lastHand = performance.now();
       this.onStatus({ phase: "on", delegate: this.delegate });
       this.next();
       return true;
     } catch (e) {
+      if (gen !== this.gen) return false;
       this.running = false;
       this.release();
       const name = e instanceof DOMException ? e.name : "";
@@ -226,6 +279,7 @@ export class GestureEngine {
 
   /** Turns the camera off (the hand model stays loaded for a quick restart). */
   stop() {
+    this.gen++;
     this.running = false;
     this.release();
     this.onStatus({ phase: "off" });

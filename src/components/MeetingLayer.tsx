@@ -25,6 +25,7 @@ import {
   VideoOff,
   X,
 } from "lucide-react";
+import { FloatingReactions, cleanReaction, useReactionBursts, type ReactionBurst } from "./FloatingReactions";
 
 /** LANX 1.4.0: group meetings (video conferences). Everyone in the meeting is
  *  connected to everyone else directly (WebRTC between the LANX windows on
@@ -45,6 +46,13 @@ export interface MeetingLayerHandle {
   setMuted: (muted: boolean) => boolean;
   setCamera: (on: boolean) => boolean;
   setHand: (up: boolean) => boolean;
+  /** LANX 3.7.0 (gestures): sends an emoji reaction (👍 ❤️ 😂 👏 🎉 ✋ 👋) that
+   *  floats over your tile for everyone. False when not in a meeting (or it isn't one of those). */
+  react: (emoji: string) => boolean;
+  /** LANX 3.7.0 (gestures): flips the microphone / raised hand like their
+   *  buttons. The new state, or null when not in a meeting. */
+  toggleMute: () => boolean | null;
+  toggleHand: () => boolean | null;
 }
 
 /** What the Dynamic Island shows about the meeting. */
@@ -103,6 +111,8 @@ const DISCONNECT_GRACE_MS = 8_000;
 const CONNECT_TIMEOUT_MS = 15_000;
 const LOST_AFTER_MS = 30_000;
 const NO_ME: Me = { muted: false, camera: false, screen: false, hand: false };
+/** LANX 3.7.0: a reaction older than this (when we first see someone) isn't shown. */
+const REACTION_FRESH_MS = 5_000;
 
 function gridCols(n: number) {
   return n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
@@ -134,6 +144,10 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     const [inviting, setInviting] = useState(false);
     const [, setTick] = useState(0);
     const joinedAtRef = useRef<number | null>(null);
+    /** LANX 3.7.0: reactions floating over the tiles, and the newest one
+     *  handled for each person (their `reaction_at`). */
+    const [reactions, addReaction] = useReactionBursts();
+    const reactionSeenRef = useRef(new Map<string, number>());
 
     const connsRef = useRef(new Map<string, Conn>());
     const micRef = useRef<MediaStreamTrack | null>(null);
@@ -359,6 +373,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       setInviteSel(new Set());
       setSpeaking(new Set());
       setLoudest(null);
+      reactionSeenRef.current.clear();
       joinedAtRef.current = null;
     }, [closeConn, setMeeting, setStatus, setMe]);
 
@@ -481,6 +496,27 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         if (statusRef.current !== "active") return false;
         if (meRef.current.hand !== up) toggleHand();
         return true;
+      },
+      react: (emoji) => {
+        const m = meetingRef.current;
+        const r = cleanReaction(emoji);
+        if (statusRef.current !== "active" || !m || !r) return false;
+        addReaction(r, m.my_id);
+        // (Colleagues on LANX older than 3.7.0 don't see it.)
+        api.meetingMedia(m.meeting_id, { reaction: r }).catch(() => {});
+        return true;
+      },
+      toggleMute: () => {
+        if (statusRef.current !== "active") return null;
+        // (Unmuting without a microphone fails with a message, as the button does.)
+        const muted = !meRef.current.muted;
+        void toggleMute();
+        return muted;
+      },
+      toggleHand: () => {
+        if (statusRef.current !== "active") return null;
+        toggleHand();
+        return meRef.current.hand;
       },
     }));
 
@@ -639,6 +675,26 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         ctx.close().catch(() => {});
       };
     }, [status]);
+
+    // LANX 3.7.0: a colleague's new reaction floats over their tile (ours is
+    // shown when we send it). Each PC stamps reactions with its own clock, so
+    // a newer stamp is what counts; the "a moment ago" check is only for
+    // people we see for the first time (e.g. just after joining).
+    useEffect(() => {
+      if (!meeting || status !== "active") return;
+      const seen = reactionSeenRef.current;
+      for (const p of meeting.people) {
+        if (p.is_me) continue;
+        const at = p.reaction_at ?? 0;
+        const before = seen.get(p.device_id);
+        if (before !== undefined && at <= before) continue;
+        seen.set(p.device_id, at);
+        const r = cleanReaction(p.reaction);
+        if (!r || !at) continue;
+        if (before === undefined && Math.abs(Date.now() - at) > REACTION_FRESH_MS) continue;
+        addReaction(r, p.device_id, p.name);
+      }
+    }, [meeting, status, addReaction]);
 
     // Tell the island.
     const anyRecording = !!recording || !!meeting?.people.some((p) => p.recording && !p.is_me);
@@ -976,8 +1032,13 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     const mine = people.find((p) => p.is_me);
     const ordered = mine ? [...others, mine] : others;
 
-    const tileFor = (p: MeetingPerson, big = false) => {
+    /** `everyone`: the small meeting window shows one tile, so every reaction
+     *  floats over it (with the name of whoever made it, when it's someone else). */
+    const tileFor = (p: MeetingPerson, big = false, everyone = false) => {
       const c = connsRef.current.get(p.device_id);
+      const floating: ReactionBurst[] = everyone
+        ? reactions.map((b) => (b.from === p.device_id ? { ...b, name: undefined } : { ...b, name: b.name ?? "You" }))
+        : reactions.filter((b) => b.from === p.device_id).map((b) => ({ ...b, name: undefined }));
       const local = p.is_me;
       const state = local
         ? null
@@ -1003,6 +1064,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
           big={big}
           pinned={pinned === p.device_id}
           onPin={() => setPinned((x) => (x === p.device_id ? null : p.device_id))}
+          reactions={floating}
         />
       );
     };
@@ -1017,7 +1079,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
             data-meeting-mini
             className="fixed bottom-6 right-6 z-[70] w-[340px] rounded-3xl bg-slate-950 text-white shadow-2xl shadow-black/40 border border-white/10 overflow-hidden lanx-rise"
           >
-            <div className="relative h-[190px] p-1.5">{focus && tileFor(focus, true)}</div>
+            <div className="relative h-[190px] p-1.5">{focus && tileFor(focus, true, true)}</div>
             <div className="flex items-center gap-2 px-3 pb-3 pt-1">
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-semibold truncate">{meeting.title || "Meeting"}</div>
@@ -1335,6 +1397,7 @@ function Tile({
   big,
   pinned,
   onPin,
+  reactions = [],
 }: {
   person: MeetingPerson;
   stream: MediaStream | null;
@@ -1346,6 +1409,8 @@ function Tile({
   big: boolean;
   pinned: boolean;
   onPin: () => void;
+  /** LANX 3.7.0: reactions floating over this tile. */
+  reactions?: ReactionBurst[];
 }) {
   const attach = useCallback(
     (el: HTMLVideoElement | null) => {
@@ -1411,6 +1476,7 @@ function Tile({
           <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" /> REC
         </span>
       )}
+      <FloatingReactions bursts={reactions} size={big ? "lg" : "md"} />
     </div>
   );
 }

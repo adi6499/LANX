@@ -24,7 +24,41 @@ export type Intent =
   | { kind: "back" }
   | { kind: "gestures-off" }
   | { kind: "help" }
+  /** LANX 3.7.0: the air keyboard (null: open if closed, close if open). */
+  | { kind: "keyboard"; open: boolean | null }
+  | { kind: "screenshot" }
+  | { kind: "lock" }
+  | { kind: "show-lanx" }
+  /** Types the words into whatever is in front. */
+  | { kind: "type"; text: string }
+  /** Keys pressed together, by place ("ControlLeft", "KeyC"); `label` as said. */
+  | { kind: "keys"; keys: string[]; label: string }
+  | { kind: "mute-toggle" }
+  | { kind: "hand-toggle" }
   | { kind: "unknown"; text: string };
+
+/** Key names people say → keys by place (as the browser names them). */
+const KEY_NAMES: Record<string, string> = {
+  ctrl: "ControlLeft", control: "ControlLeft", alt: "AltLeft", shift: "ShiftLeft", windows: "MetaLeft", win: "MetaLeft", start: "MetaLeft",
+  enter: "Enter", return: "Enter", escape: "Escape", esc: "Escape", tab: "Tab", space: "Space", spacebar: "Space", backspace: "Backspace",
+  delete: "Delete", del: "Delete", up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End",
+  pageup: "PageUp", pagedown: "PageDown", printscreen: "PrintScreen", prtsc: "PrintScreen", minus: "Minus", equals: "Equal",
+};
+/** "ctrl c", "alt f4", "page down" → the keys, or null when a word isn't a key. */
+export function parseKeys(words: string): string[] | null {
+  const parts = words
+    .replace(/\b(page) (up|down)\b/g, "$1$2")
+    .replace(/\bprint screen\b/g, "printscreen")
+    .split(/\s+|\+/)
+    .filter((w) => w && !/^(and|plus|then|the|key|keys|button|arrow)$/.test(w));
+  const keys: string[] = [];
+  for (const w of parts) {
+    const k = KEY_NAMES[w] ?? (/^[a-z]$/.test(w) ? `Key${w.toUpperCase()}` : /^[0-9]$/.test(w) ? `Digit${w}` : /^f([1-9]|1[0-2])$/.test(w) ? w.toUpperCase() : null);
+    if (!k) return null;
+    keys.push(k);
+  }
+  return keys.length && keys.length <= 4 ? keys : null;
+}
 
 const TOOLS: [RegExp, ToolId][] = [
   [/^(the )?(music|songs?|music player|gaane?|gana)$/, "music"],
@@ -95,6 +129,20 @@ export function parseCommand(raw: string): Intent {
   if (/^(turn off (my )?(camera|video)|(camera|video) off|stop (my )?(camera|video)|hide my face)$/.test(s)) return { kind: "call-control", action: "camera-off" };
   if (/^(raise|put up) (my )?hand$|^hand (up|raise)$/.test(s)) return { kind: "hand", up: true };
   if (/^(lower|put down|drop) (my )?hand$|^hand down$/.test(s)) return { kind: "hand", up: false };
+  if (/^(mute or unmute|unmute or mute|toggle (the )?(mute|mic|microphone)|mute toggle)$/.test(s)) return { kind: "mute-toggle" };
+  if (/^(raise or lower (my )?hand|lower or raise (my )?hand|toggle (my )?hand|hand)$/.test(s)) return { kind: "hand-toggle" };
+
+  // LANX 3.7.0: the keyboard, the PC itself, typing and keys.
+  if (/^((open|show|bring up|start|use)( the| my)?( air| on ?screen)? keyboard|keyboard( on)?|type with (my )?hands?)$/.test(s)) return { kind: "keyboard", open: true };
+  if (/^((close|hide|put away)( the)?( air| on ?screen)? keyboard|keyboard (off|away))$/.test(s)) return { kind: "keyboard", open: false };
+  if (/^((take|grab|capture)( a)? (screenshot|screen ?shot|snapshot|screen grab)|screenshot|capture (the )?screen)$/.test(s)) return { kind: "screenshot" };
+  if (/^lock( (the|my|this))?( (pc|computer|screen|laptop|system))?$/.test(s)) return { kind: "lock" };
+  if (/^(show|open|bring( up| back)?|switch to|go to)( the)? (lanx|lynx|links)$/.test(s)) return { kind: "show-lanx" };
+  if ((m = s.match(/^type (.+)$/))) return { kind: "type", text: m[1] };
+  if ((m = s.match(/^press (.+)$/))) {
+    const keys = parseKeys(m[1]);
+    if (keys) return { kind: "keys", keys, label: m[1] };
+  }
 
   // Music.
   if (/^(pause|pause (the )?(music|song|it)|stop (the )?(music|song)|stop playing|music (band|stop)|gaana band karo|band karo)$/.test(s)) return { kind: "music", action: "pause" };
@@ -254,4 +302,5 @@ export function restoreCase(raw: string, text: string): string {
 export const EXAMPLES: string[] = [
   "Call Bharat", "Video call Asha", "Message Bharat I'm on my way", "Open chat with Asha", "Play Kesariya", "Pause", "Next song", "Louder",
   "Answer", "Decline", "Mute", "Hang up", "Raise my hand", "Open notes", "Open calendar", "Open games", "Who's in", "Dark mode", "Search invoice", "Take a note call the bank",
+  "Open keyboard", "Type see you at 5", "Press ctrl c", "Take a screenshot", "Lock this PC", "Show LANX", "Mute or unmute",
 ];

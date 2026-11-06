@@ -637,6 +637,8 @@ export interface CallEvent {
   reason: string | null;
   /** LANX 1.4.0: the other side started / stopped recording. */
   recording?: boolean | null;
+  /** LANX 3.7.0: the other side reacted (👍…) during the call. */
+  reaction?: string | null;
 }
 
 /** LANX 1.6.0: one entry of a card's state ("vote:<id>" → [1]). */
@@ -678,6 +680,10 @@ export interface MeetingPerson {
   hand: boolean;
   recording: boolean;
   is_me: boolean;
+  /** LANX 3.7.0: their last emoji reaction (👍…) and when they made it
+   *  (their clock, milliseconds); a newer one floats over their tile. */
+  reaction?: string | null;
+  reaction_at?: number;
 }
 
 /** A meeting chat line (`from` is empty for LANX's notes: "Bharat joined"). */
