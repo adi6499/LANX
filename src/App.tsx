@@ -52,6 +52,7 @@ const CalcPanel = lazy(() => import("./components/tools/CalcPanel").then((m) => 
 const MemePanel = lazy(() => import("./components/memes/MemePanel").then((m) => ({ default: m.MemePanel })));
 const MusicApp = lazy(() => import("./components/music/MusicApp").then((m) => ({ default: m.MusicApp })));
 const MusicPlayer = lazy(() => import("./components/music/MusicPlayer").then((m) => ({ default: m.MusicPlayer })));
+const ListenInvites = lazy(() => import("./components/music/ListenTogether").then((m) => ({ default: m.ListenInvites })));
 const GamesPanel = lazy(() => import("./components/games/GamesPanel").then((m) => ({ default: m.GamesPanel })));
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
@@ -2090,6 +2091,10 @@ export default function App() {
       <Suspense fallback={null}>
         <MusicPlayer onOpenMusic={() => setShowMusic({ query: "" })} />
       </Suspense>
+      {/* LANX 3.8.0: Listen together — colleagues' invites (and joining them). */}
+      <Suspense fallback={null}>
+        <ListenInvites onOpenMusic={() => setShowMusic((m) => m ?? { query: "" })} />
+      </Suspense>
       {/* LANX 2.17.0: keeps a hosted game going while the host looks elsewhere. */}
       <HostRunner />
       {gamesPresence.mounted && lastGames.current && settings && (
@@ -2198,15 +2203,20 @@ export default function App() {
         <WhatsNewModal
           releases={whatsNew}
           onClose={() => setWhatsNew(null)}
-          tryLabel="Learn hand gestures"
+          tryLabel={whatsNew[0]?.version.startsWith("3.8") ? "Open Music" : "Learn hand gestures"}
           onTry={
-            whatsNew[0]?.version.startsWith("3.7")
+            whatsNew[0]?.version.startsWith("3.8")
               ? () => {
                   setWhatsNew(null);
-                  // The gesture layer opens its practice guide (and turns the camera on).
-                  window.dispatchEvent(new Event("lanx:gesture-learn"));
+                  setShowMusic({ query: "" });
                 }
-              : undefined
+              : whatsNew[0]?.version.startsWith("3.7")
+                ? () => {
+                    setWhatsNew(null);
+                    // The gesture layer opens its practice guide (and turns the camera on).
+                    window.dispatchEvent(new Event("lanx:gesture-learn"));
+                  }
+                : undefined
           }
         />
       )}

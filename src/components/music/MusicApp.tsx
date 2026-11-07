@@ -5,6 +5,7 @@ import {
   Clock,
   Disc3,
   Flame,
+  Headphones,
   Heart,
   Home,
   ListMusic,
@@ -64,6 +65,7 @@ import {
   toggleMusicFavourite,
   toggleSavedAlbum,
 } from "../../lib/music";
+import { TogetherLine, TogetherSheet } from "./ListenTogether";
 
 type View =
   | { kind: "home" }
@@ -192,7 +194,14 @@ export function MusicApp({
   const [nowPlaying, setNowPlaying] = useState(false);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [showLyrics, setShowLyrics] = useState(false);
+  /** LANX 3.8.0: the Listen together panel. */
+  const [together, setTogether] = useState(false);
   const lyricsFor = useRef<string>("");
+  useEffect(() => {
+    const open = () => setTogether(true);
+    window.addEventListener("lanx:together-open", open);
+    return () => window.removeEventListener("lanx:together-open", open);
+  }, []);
 
   const go = useCallback((v: View) => {
     setStack((s) => [...s, view].slice(-20));
@@ -227,7 +236,8 @@ export function MusicApp({
       }
     });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // (The Listen together panel closes itself first.)
+      if (e.key === "Escape" && !document.querySelector("[data-together-sheet]")) {
         e.stopPropagation();
         if (nowPlaying) setNowPlaying(false);
         else onClose();
@@ -575,11 +585,6 @@ export function MusicApp({
 
   return (
     <div className={compact ? "fixed inset-0 z-[60]" : "fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm lanx-fade"} onMouseDown={compact ? undefined : onClose}>
-      <style>{`
-        @keyframes lanx-music-drift { 0% { transform: scale(1.15) translate(0, 0); } 50% { transform: scale(1.25) translate(-2%, 2%); } 100% { transform: scale(1.15) translate(0, 0); } }
-        .lanx-cf-card { transition: transform .55s cubic-bezier(.2,.8,.2,1), opacity .45s ease, filter .45s ease; will-change: transform; }
-        .lanx-music-scroll::-webkit-scrollbar { width: 8px; } .lanx-music-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 8px; }
-      `}</style>
       <div
         data-music-panel
         className={compact ? "absolute inset-0 overflow-hidden flex flex-col text-white pt-[env(safe-area-inset-top)]" : "absolute inset-3 mx-auto max-w-[1500px] rounded-[26px] overflow-hidden flex flex-col text-white shadow-2xl"}
@@ -699,6 +704,8 @@ export function MusicApp({
         </div>
 
         {/* ---- bottom: the player bar (slim on the phone) */}
+        {/* (Phones join Listen together in a later version.) */}
+        {!compact && <TogetherLine onOpen={() => setTogether(true)} />}
         {compact ? (
           <div data-music-bar className="shrink-0 border-t border-white/10 bg-[#0b1020] px-3 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-1.5">
             <div className="mb-1.5 h-0.5 overflow-hidden rounded-full bg-white/15">
@@ -751,6 +758,7 @@ export function MusicApp({
             </div>
           </div>
           <div className="flex items-center justify-end gap-2">
+            <button type="button" data-music-together onClick={() => setTogether(true)} title="Listen together: play for colleagues, every PC in step" className="h-8 px-3 rounded-full bg-white/10 hover:bg-white/20 text-[12px] font-semibold inline-flex items-center gap-1.5"><Headphones className="h-4 w-4" /> Together</button>
             <button type="button" onClick={() => go({ kind: "queue" })} title="Up next" className={`h-8 w-8 rounded-full flex items-center justify-center ${view.kind === "queue" ? "text-sky-300" : "text-white/60 hover:text-white"}`}><ListMusic className="h-4 w-4" /></button>
             <button type="button" onClick={() => { setShowLyrics(true); setNowPlaying(true); }} title="Lyrics" disabled={!ps.song} className="h-8 w-8 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-30"><Mic2 className="h-4 w-4" /></button>
             <Volume2 className="h-4 w-4 text-white/60" />
@@ -907,6 +915,7 @@ export function MusicApp({
               </div>
               <button type="button" onClick={() => setShowLyrics((v) => !v)} title="Lyrics" className={`h-9 w-9 rounded-full flex items-center justify-center ${showLyrics ? "bg-white text-slate-900" : "hover:bg-white/15"}`}><Mic2 className="h-4 w-4" /></button>
               <button type="button" onClick={() => { setNowPlaying(false); go({ kind: "queue" }); }} title="Up next" className="h-9 w-9 rounded-full hover:bg-white/15 flex items-center justify-center"><ListMusic className="h-4 w-4" /></button>
+              <button type="button" data-music-together onClick={() => setTogether(true)} title="Listen together" className="h-9 w-9 rounded-full hover:bg-white/15 flex items-center justify-center"><Headphones className="h-4 w-4" /></button>
               <div className="flex items-center gap-1.5 pr-1">
                 <Volume2 className="h-4 w-4 text-white/70" />
                 <input type="range" min={0} max={100} value={Math.round(ps.volume * 100)} onChange={(e) => player.setVolume(Number(e.target.value) / 100)} className="w-20 accent-white" />
@@ -914,6 +923,7 @@ export function MusicApp({
             </div>
           </div>
         )}
+        {together && !compact && <TogetherSheet onClose={() => setTogether(false)} />}
       </div>
     </div>
   );

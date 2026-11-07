@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Music2, Pause, Play, SkipBack, SkipForward, Volume2, X } from "lucide-react";
 import { type PlayerState, type Song, fmtTime, player } from "../../lib/music";
+import { TogetherLine } from "./ListenTogether";
 
 /** LANX 2.7.0: the little player at the bottom right. It appears when a song
  *  plays (from the music picker or a song card) and stays while you chat. */
@@ -44,6 +45,12 @@ export function MusicPlayer({ onOpenMusic }: { onOpenMusic?: () => void }) {
         <Volume2 className="h-3.5 w-3.5 ml-1" />
         <input type="range" min={0} max={100} value={Math.round(ps.volume * 100)} onChange={(e) => player.setVolume(Number(e.target.value) / 100)} className="w-16 accent-sky-400" />
       </div>
+      <TogetherLine
+        onOpen={() => {
+          onOpenMusic?.();
+          window.setTimeout(() => window.dispatchEvent(new Event("lanx:together-open")), 250);
+        }}
+      />
       {ps.queue.length > 1 && <div className="px-3 pb-2 text-[10px] text-white/50">Next: {ps.queue[ps.index + 1] ? ps.queue[ps.index + 1].title : "end of the queue"} · {ps.queue.length} in the queue</div>}
     </div>
   );

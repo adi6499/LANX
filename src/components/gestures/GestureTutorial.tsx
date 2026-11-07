@@ -34,23 +34,7 @@ const keyboardUp = () => !!document.querySelector("[data-gesture-kb], [data-air-
 
 // Plain and gentle: transform/opacity only, and nothing moves for people who asked for less motion.
 // (The dim backdrop fades its colour, never its opacity: that would switch off the panel's glass.)
-const CSS = `
-@keyframes gt-rise { 0%, 100% { transform: translateY(5px) rotate(-5deg); } 50% { transform: translateY(-5px) rotate(5deg); } }
-@keyframes gt-slide { 0%, 100% { transform: translateX(-13px); } 50% { transform: translateX(13px); } }
-@keyframes gt-pinch { 0%, 60%, 100% { transform: scale(1); } 30% { transform: scale(0.78); } }
-@keyframes gt-drag { 0% { transform: translateX(-13px) scale(1); } 18% { transform: translateX(-13px) scale(0.82); } 62% { transform: translateX(13px) scale(0.82); } 78% { transform: translateX(13px) scale(1); } 100% { transform: translateX(-13px) scale(1); } }
-@keyframes gt-scroll { 0%, 100% { transform: translateY(-10px); } 50% { transform: translateY(10px); } }
-@keyframes gt-tap { 0%, 55%, 100% { transform: translateY(0) scale(1); } 25% { transform: translateY(6px) scale(0.84); } }
-@keyframes gt-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-@keyframes gt-pop { 0% { opacity: 0; transform: scale(0.5); } 60% { opacity: 1; transform: scale(1.06); } 100% { opacity: 1; transform: scale(1); } }
-@keyframes gt-dim { from { background-color: transparent; } }
-.gt-art { display: inline-block; will-change: transform; }
-.gt-pop { animation: gt-pop 0.38s var(--ease-out-soft, ease-out) both; }
-@media (prefers-reduced-motion: reduce) {
-  .gt-art, .gt-pop { animation: none !important; }
-  [data-gesture-tutorial] * { transition-duration: 0.01ms !important; }
-}
-`;
+// (Its keyframes are in App.css: a <style> block is blocked by the window's security rules.)
 
 interface StepInfo {
   title: string;
@@ -514,7 +498,6 @@ export function GestureTutorial({ onClose, pcAvailable, pcOn, onTurnOnPc }: Gest
 
   return (
     <div data-gesture-tutorial role="dialog" aria-modal="true" aria-labelledby="gt-title" className="fixed inset-0 z-[180] flex items-center justify-center bg-[rgb(15_23_42/0.2)] p-3 dark:bg-[rgb(0_0_0/0.45)]" style={{ animation: "gt-dim 0.3s ease backwards" }}>
-      <style>{CSS}</style>
       <div className="flex h-[540px] max-h-[88vh] w-[760px] max-w-[94vw] flex-col overflow-y-auto rounded-[26px] px-6 pb-5 pt-3 lanx-sheet lanx-sheet-in">
         {/* Where you are: one dot per step */}
         <div className="flex shrink-0 items-center gap-3">

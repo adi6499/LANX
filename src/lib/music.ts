@@ -22,6 +22,9 @@ export interface Song {
   year: string;
   /** Primary artist ids, for the artist page. */
   artistIds: string[];
+  /** 3.8.0: how often it has been played on the service (the same recording on
+   *  another album counts the same, which is how its copies are recognised). */
+  plays?: number;
 }
 
 /** An album, a playlist (chart) or an artist as the browse pages list them. */
@@ -62,11 +65,14 @@ export const clean = (s: unknown) => String(s ?? "").replace(/&(amp|quot|#039|ap
 const https = (u: unknown) => String(u ?? "").replace(/^http:\/\//, "https://");
 
 type Img = { quality?: string; url?: string; link?: string }[] | string | undefined;
+/** 3.8.0: the service names some pictures tiny (…-150x150.jpg); the same picture
+ *  comes in 500x500 under the same name, so ask for that one (no more blur). */
+export const bigPicture = (u: string) => u.replace(/-(50x50|150x150)(\.(?:jpe?g|png|webp))/i, "-500x500$2");
 export function pickImage(image: Img, want = "500x500"): string {
   if (!image) return "";
-  if (typeof image === "string") return https(image);
+  if (typeof image === "string") return bigPicture(https(image));
   const hit = image.find((i) => i.quality === want) ?? image[image.length - 1];
-  return https(hit?.url ?? hit?.link ?? "");
+  return bigPicture(https(hit?.url ?? hit?.link ?? ""));
 }
 
 interface RawSong {
@@ -82,6 +88,7 @@ interface RawSong {
   primaryArtists?: string;
   image?: Img;
   downloadUrl?: { quality?: string; url?: string; link?: string }[];
+  playCount?: number | string;
 }
 interface RawCollection {
   id: string;
@@ -122,7 +129,71 @@ export function toSong(r: RawSong): Song | null {
     language: clean(r.language),
     year: clean(r.year),
     artistIds: primary.map((a) => String(a.id ?? "")).filter(Boolean),
+    plays: Number(r.playCount) || undefined,
   };
+}
+
+// ------------------------------------------------------------ 3.8.0: the right picture
+
+/** A title without "(From "Film")" and punctuation, for comparing. */
+const plainTitle = (t: string) =>
+  t
+    .toLowerCase()
+    .replace(/\s*\(\s*from\s+[^)]*\)/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+const yearOf = (s: Song) => Number(s.year) || 9999;
+/** The title before any brackets ("Kesariya (From …) (Happy Diwali)" → "kesariya"). */
+const baseTitle = (t: string) => plainTitle(t.replace(/\s*[([].*$/, ""));
+/** Two entries are the same recording: same title, same length (±2 s) and the
+ *  same play count (the service counts a recording once, whatever album it's on —
+ *  a lofi or dance version has a play count of its own). */
+function sameRecording(a: Song, b: Song): boolean {
+  if (baseTitle(a.title) !== baseTitle(b.title) || Math.abs(a.duration - b.duration) > 2) return false;
+  if (!a.plays || !b.plays) return false;
+  return Math.abs(a.plays - b.plays) <= Math.max(500, Math.max(a.plays, b.plays) * 0.0005);
+}
+/** Search answers the same song many times, from every compilation it is on
+ *  ("Garba Vibes Only", "Holi Party Mix"…), each with that compilation's
+ *  picture. Keep one per recording — the original release (the earliest), with
+ *  the film's own picture — where the first copy was in the list. */
+export function originals(songs: Song[]): Song[] {
+  const groups: Song[][] = [];
+  for (const s of songs) {
+    const g = groups.find((g) => sameRecording(g[0], s));
+    if (g) g.push(s);
+    else groups.push([s]);
+  }
+  return groups.map((g) => g.reduce((best, s) => (yearOf(s) < yearOf(best) ? s : best), g[0]));
+}
+
+/** "Tum Hi Ho (From "Aashiqui 2")" on a compilation: the film's picture instead.
+ *  Looked up once per film (kept for the session). */
+const filmCovers = new Map<string, Promise<string>>();
+function filmCover(film: string, year: string): Promise<string> {
+  const key = plainTitle(film);
+  let p = filmCovers.get(key);
+  if (!p) {
+    p = get<{ results?: RawCollection[] }>(`search/albums?query=${encodeURIComponent(film)}&limit=5`)
+      .then((d) => {
+        const hit = results(d).find((r) => plainTitle(clean(r.name ?? r.title)) === key && (!year || !r.year || Number(r.year) <= Number(year)));
+        return hit ? pickImage(hit.image) : "";
+      })
+      .catch(() => "");
+    filmCovers.set(key, p);
+  }
+  return p;
+}
+export async function filmPictures(songs: Song[], budgetMs = 1500): Promise<Song[]> {
+  const jobs = songs.map(async (s) => {
+    const film = /\(\s*from\s+["“]([^"”]+)["”]\s*\)/i.exec(s.title)?.[1];
+    if (!film || plainTitle(s.album).includes(plainTitle(film))) return s;
+    const cover = await filmCover(film, s.year);
+    return cover ? { ...s, cover } : s;
+  });
+  const all = Promise.all(jobs);
+  const late = new Promise<Song[]>((r) => window.setTimeout(() => r(songs), budgetMs));
+  return Promise.race([all, late]);
 }
 
 function toCollection(r: RawCollection, fallback: Collection["type"]): Collection | null {
@@ -157,7 +228,7 @@ export async function searchSongs(query: string, limit = 30): Promise<Song[]> {
   const q = query.trim();
   if (!q) return [];
   const d = await get<{ results?: RawSong[] }>(`search/songs?query=${encodeURIComponent(q)}&limit=${limit}`);
-  return results(d).map(toSong).filter((s): s is Song => !!s);
+  return filmPictures(originals(results(d).map(toSong).filter((s): s is Song => !!s)));
 }
 export async function searchAll(query: string): Promise<{ songs: Song[]; artists: Collection[]; albums: Collection[]; playlists: Collection[] }> {
   const q = encodeURIComponent(query.trim());
@@ -170,7 +241,7 @@ export async function searchAll(query: string): Promise<{ songs: Song[]; artists
   const ok = <T,>(r: PromiseSettledResult<T>, empty: T): T => (r.status === "fulfilled" ? r.value : empty);
   if (s.status === "rejected" && a.status === "rejected") throw s.reason;
   return {
-    songs: results(ok(s, {})).map(toSong).filter((x): x is Song => !!x),
+    songs: await filmPictures(originals(results(ok(s, {})).map(toSong).filter((x): x is Song => !!x))),
     artists: results(ok(a, {})).map((r) => toCollection(r, "artist")).filter((x): x is Collection => !!x),
     albums: results(ok(al, {})).map((r) => toCollection(r, "album")).filter((x): x is Collection => !!x),
     playlists: results(ok(p, {})).map((r) => toCollection(r, "playlist")).filter((x): x is Collection => !!x),
@@ -216,7 +287,7 @@ export async function browseHome(languages: string[]): Promise<Home> {
     charts: (d.charts ?? []).map((r) => toCollection(r, "playlist")).filter((x): x is Collection => !!x),
     playlists: (d.top_playlists ?? []).map((r) => toCollection(r, "playlist")).filter((x): x is Collection => !!x),
     newAlbums,
-    newSongs,
+    newSongs: await filmPictures(newSongs),
   };
 }
 
@@ -273,7 +344,7 @@ export async function getCollectionSongs(c: Collection): Promise<{ collection: C
   }
   const d = await get<RawCollection & { songs?: RawSong[] }>(`${c.type === "album" ? "albums" : "playlists"}?id=${encodeURIComponent(c.id)}`);
   const col = toCollection(d, c.type) ?? c;
-  return { collection: { ...col, image: col.image || c.image }, songs: (d.songs ?? []).map(toSong).filter((x): x is Song => !!x) };
+  return { collection: { ...col, image: col.image || c.image }, songs: await filmPictures((d.songs ?? []).map(toSong).filter((x): x is Song => !!x)) };
 }
 
 export const fmtTime = (s: number) => {
@@ -417,32 +488,95 @@ function nextIndex(): number {
 if (audio) {
   audio.volume = state.volume;
   audio.addEventListener("timeupdate", () => {
+    if (out) return; // listening together: the party's player says where it is
     state.position = audio.currentTime;
     state.duration = audio.duration || state.song?.duration || 0;
     emit();
   });
   audio.addEventListener("play", () => {
+    if (out) return;
     state.playing = true;
     emit();
   });
   audio.addEventListener("pause", () => {
+    if (out) return;
     state.playing = false;
     emit();
   });
   audio.addEventListener("ended", () => {
-    const n = nextIndex();
-    if (n >= 0) void playAt(n);
-    else {
-      state.playing = false;
-      emit();
-    }
+    if (!out) songEnded();
   });
   audio.addEventListener("error", () => {
+    if (out || !audio.getAttribute("src")) return;
     state.error = "This song could not be played (no internet, or the stream is gone).";
     state.playing = false;
     emit();
   });
 }
+
+function songEnded() {
+  const n = nextIndex();
+  if (n >= 0) void playAt(n);
+  else {
+    state.playing = false;
+    emit();
+  }
+}
+
+// ------------------------------------------------------------ 3.8.0: Listen together
+
+/** While listening together the sound comes from the party's player (every PC
+ *  in step), not this page's audio element. */
+export interface MusicOutput {
+  /** A colleague chooses the music: the controls here only change the volume. */
+  follower: boolean;
+  play(song: Song, fromS: number): void;
+  resume(): void;
+  pause(): void;
+  seek(s: number): void;
+  setVolume(v: number): void;
+  stop(): void;
+}
+let out: MusicOutput | null = null;
+/** "Only Asha can change the music" (the screen shows it). */
+const followerTried = () => window.dispatchEvent(new CustomEvent("lanx:music-follower"));
+export const musicOutput = {
+  /** Switches the sound to a party's player (or back with null); says what was playing here. */
+  attach(o: MusicOutput | null): { song: Song | null; position: number; playing: boolean } {
+    const was = { song: state.song, position: audio?.currentTime ?? state.position, playing: !!audio && !audio.paused && !!state.song };
+    out = o;
+    if (o) o.setVolume(state.volume);
+    return was;
+  },
+  current: () => out,
+  /** Where this page's own audio is (s). */
+  localTime: () => audio?.currentTime ?? 0,
+  /** This page's own audio goes quiet in `ms` (the party's player takes over then). */
+  silenceLocalAt(ms: number) {
+    window.setTimeout(() => audio?.pause(), Math.max(0, ms));
+  },
+  /** Back to this page's own audio, at `pos` s. */
+  resumeLocal(song: Song, pos: number, playing: boolean) {
+    if (!audio) return;
+    if (audio.getAttribute("src") !== song.stream) audio.src = song.stream;
+    const go = () => {
+      audio.currentTime = Math.max(0, pos);
+      if (playing) void audio.play().catch(() => {});
+    };
+    if (audio.readyState >= 1) go();
+    else audio.addEventListener("loadedmetadata", go, { once: true });
+    state.song = song;
+    state.playing = playing;
+    state.position = pos;
+    emit();
+  },
+  update(p: Partial<PlayerState>) {
+    Object.assign(state, p);
+    emit();
+  },
+  /** The party's player reached the end of the song. */
+  ended: () => songEnded(),
+};
 
 export const player = {
   subscribe(l: (s: PlayerState) => void): () => void {
@@ -452,6 +586,7 @@ export const player = {
   },
   /** Plays a song now; `queue` (optional) becomes the list it plays through. */
   async play(song: Song, queue?: Song[]) {
+    if (out?.follower) return followerTried();
     if (queue && queue.length) {
       state.queue = queue;
       state.index = Math.max(0, queue.findIndex((s) => s.id === song.id));
@@ -472,34 +607,51 @@ export const player = {
     await player.play(songs[start], songs);
   },
   enqueue(song: Song) {
+    if (out?.follower) return followerTried();
     if (state.queue.some((s) => s.id === song.id)) return;
     state.queue = [...state.queue, song];
     if (!state.song) void playAt(0);
     else emit();
   },
   toggle() {
+    if (out) {
+      if (out.follower) return followerTried();
+      if (!state.song) return;
+      if (state.playing) out.pause();
+      else out.resume();
+      return;
+    }
     if (!audio || !state.song) return;
     if (audio.paused) void audio.play().catch(() => {});
     else audio.pause();
   },
   next() {
+    if (out?.follower) return followerTried();
     const n = state.repeat === "one" ? (state.index + 1 < state.queue.length ? state.index + 1 : state.repeat === "one" ? state.index : -1) : nextIndex();
     if (n >= 0) void playAt(n);
   },
   prev() {
-    if (audio && audio.currentTime > 4) {
-      audio.currentTime = 0;
+    if (out?.follower) return followerTried();
+    if (out ? state.position > 4 : audio && audio.currentTime > 4) {
+      player.seek(0);
       return;
     }
     if (state.index > 0) void playAt(state.index - 1);
     else if (state.repeat === "all" && state.queue.length) void playAt(state.queue.length - 1);
   },
   seek(seconds: number) {
-    if (audio && state.song) audio.currentTime = Math.max(0, Math.min(seconds, state.duration || seconds));
+    const s = Math.max(0, Math.min(seconds, state.duration || seconds));
+    if (out) {
+      if (out.follower) return followerTried();
+      if (state.song) out.seek(s);
+      return;
+    }
+    if (audio && state.song) audio.currentTime = s;
   },
   setVolume(v: number) {
     state.volume = Math.max(0, Math.min(1, v));
     if (audio) audio.volume = state.volume;
+    out?.setVolume(state.volume);
     emit();
   },
   setShuffle(on: boolean) {
@@ -511,6 +663,10 @@ export const player = {
     emit();
   },
   stop() {
+    if (out) {
+      if (out.follower) return out.stop();
+      out.stop();
+    }
     if (audio) {
       audio.pause();
       audio.removeAttribute("src");
@@ -544,6 +700,12 @@ async function playAt(index: number) {
   state.error = null;
   state.position = 0;
   state.duration = song.duration;
+  if (out) {
+    audio.pause();
+    emit();
+    out.play(song, 0);
+    return;
+  }
   audio.src = song.stream;
   emit();
   try {

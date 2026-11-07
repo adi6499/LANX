@@ -15,6 +15,7 @@ pub mod remote;
 pub mod tools;
 pub mod memes;
 pub mod games;
+pub mod music;
 pub mod phone;
 
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};

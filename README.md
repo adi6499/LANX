@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.7.1)
+# LANX — Local Network Messenger (v3.8.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,11 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.8.0: Listen together, and the right pictures
+- **Listen together:** Music → Together → pick colleagues. Those who join hear the same moment of the same song on their own PC. Every PC compares its clock with the host's over the network (NTP-style, quickest of many round trips), the host sends plans ("1:02.350 is heard at 12:00:03.250 host time", a third of a second ahead), and each PC hands its sound card the decoded song with a sample-exact start, timed by the sound card's own output clock; four times a second it checks and evens out any drift (±0.4% speed, inaudible). Measured in tests: PCs within 0.1–0.3 ms of each other, even with clocks 1.5 s apart. Songs start from their first 1.5 MB (≈0.3 s to decode) while the rest downloads. A slider covers Bluetooth speakers' hidden delay. Only between LANX 3.8.0 or newer; not on phones yet.
+- **The right pictures:** pictures named 150x150 are fetched at 500x500 (no more blur); search groups copies of the same recording (same title, length and play count) and keeps the original release with its own cover; a "(From \"Film\")" song on a compilation gets the film's cover.
+- **Fix: blocked styles.** The music app, the Ludo board and the gesture guide put their animations in <style> blocks, which the window's security rules (a nonce in style-src) block in the installed app; they are in App.css now.
 
 ### New in 3.7.1: smoother hands, and easy to learn
 - **The mouse glides:** controlling the whole PC, the mouse is eased towards your hand about 120 times a second instead of jumping with each camera picture; scrolling is let out smoothly too. Inside LANX, dragging and fist-scrolling glide at screen rate.

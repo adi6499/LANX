@@ -1601,6 +1601,21 @@ export const api = {
     if (isTauri) return invoke("send_game", { peerId, step });
     return true;
   },
+  /** LANX 3.8.0 Listen together: a party step to a colleague. */
+  sendMusic: async (peerId: string, step: { party_id: string; action: string; seq: number; data: unknown; at: number }): Promise<boolean> => {
+    if (isTauri) return invoke("send_music", { peerId, step });
+    return true;
+  },
+  /** LANX 3.8.0: a colleague's clock against this PC's (ms), from the quickest of `samples` round trips. */
+  musicClock: async (peerId: string, samples = 12): Promise<{ offset_ms: number; delay_ms: number; samples: number }> => {
+    if (isTauri) return invoke("music_clock", { peerId, samples });
+    return { offset_ms: 0, delay_ms: 0, samples };
+  },
+  /** LANX 3.8.0: this PC's clock, ms since 1970 (with fractions). */
+  musicNow: async (): Promise<number> => {
+    if (isTauri) return invoke("music_now");
+    return performance.timeOrigin + performance.now();
+  },
   getPref: async (key: string): Promise<string | null> => {
     if (isTauri) return invoke("get_pref", { key });
     return mockPrefs[key] ?? null;
@@ -1968,6 +1983,9 @@ export const events = {
   /** LANX 1.8.0: an intercom message arrived (play it unless quiet). */
   onIntercom: (cb: (e: IntercomEvent) => void) => on<IntercomEvent>("lanx://intercom", cb),
   /** LANX 2.9.0: a colleague's step in a game. */
+  /** LANX 3.8.0: a Listen together step from a colleague. */
+  onMusic: (cb: (e: { from_id: string; from_name: string; party_id: string; action: string; seq: number; data: Record<string, unknown>; at: number }) => void) =>
+    on<{ from_id: string; from_name: string; party_id: string; action: string; seq: number; data: Record<string, unknown>; at: number }>("lanx://music", cb),
   onGame: (cb: (e: { from_id: string; from_name: string; match_id: string; game: string; action: string; seq: number; data: unknown; at: number }) => void) =>
     on<{ from_id: string; from_name: string; match_id: string; game: string; action: string; seq: number; data: unknown; at: number }>("lanx://game", cb),
 };

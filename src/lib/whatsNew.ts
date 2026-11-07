@@ -19,6 +19,16 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.8.0",
+    title: "Listen together, and the right pictures",
+    items: [
+      { icon: "🎧", title: "Listen together", text: "Play music for colleagues: everyone who joins hears the same moment of the same song on their own PC — in step to the millisecond. Music → Together, pick who, and they get an invite. You choose the songs; they can change their volume or leave." },
+      { icon: "🖼️", title: "Every song with its own picture", text: "A song shows its film's or album's own cover — not the picture of some party-mix compilation it was copied onto — and Discover's pictures are sharp instead of blurry." },
+      { icon: "✨", title: "Music screens move as they should", text: "Now playing’s sliding covers and drifting colours now work in the installed LANX — they were being blocked. So are the gesture guide’s and Ludo’s animations." },
+      { icon: "🔎", title: "Each song once in search", text: "Search used to list the same song ten times, once per compilation. Now each recording appears once: the original. (Lofi, remix and instrumental versions still show — they are different recordings.)" },
+    ],
+  },
+  {
     version: "3.7.1",
     title: "Smoother hands, and easy to learn",
     items: [

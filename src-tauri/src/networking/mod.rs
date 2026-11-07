@@ -17,6 +17,7 @@ pub mod tools;
 pub mod transfer;
 pub mod update;
 pub mod games;
+pub mod music;
 #[cfg(test)]
 mod tests;
 
@@ -1034,6 +1035,8 @@ impl NetworkService {
                 Ok(p) => p,
                 Err(_) => break,
             };
+            // LANX 3.8.0: when it arrived, for clock questions (Listen together).
+            let arrived = music::clock_ms();
             let corr = Some(pkt.packet_id.clone());
             let reply = match pkt.payload {
                 PacketPayload::Message(m) => {
@@ -1078,6 +1081,8 @@ impl NetworkService {
                 PacketPayload::Sync(s) => Some(PacketPayload::Ack(self.handle_sync(&peer, s))),
                 PacketPayload::Alert(a) => Some(PacketPayload::Ack(self.handle_alert(&peer, a))),
                 PacketPayload::Game(g) => Some(PacketPayload::Ack(self.handle_game(&peer, g, &remote_version))),
+                PacketPayload::Music(m) => Some(PacketPayload::Ack(self.handle_music(&peer, m))),
+                PacketPayload::Clock(c) => Some(PacketPayload::ClockReply(music::clock_reply(c, arrived))),
                 PacketPayload::Policy(p) => Some(PacketPayload::Ack(self.handle_policy(&peer, p))),
                 PacketPayload::PolicyAnswer(a) => Some(PacketPayload::Ack(self.handle_policy_answer(&peer, a))),
                 PacketPayload::GroupUpdate(g) => {

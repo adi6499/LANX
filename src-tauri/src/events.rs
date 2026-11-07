@@ -135,6 +135,11 @@ impl Events {
         self.emit("lanx://game", e);
     }
 
+    /// LANX 3.8.0: a Listen together step from a colleague.
+    pub fn music(&self, e: &crate::networking::music::MusicEvent) {
+        self.emit("lanx://music", e);
+    }
+
     pub fn message_updated(&self, message: &Message) {
         self.emit(
             "lanx://message-status-updated",

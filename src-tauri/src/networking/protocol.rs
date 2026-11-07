@@ -148,6 +148,39 @@ pub const RULES_2170_GAMES: [&str; 39] = [
     "archery",
 ];
 
+/// LANX 3.8.0: Listen together (`Music`, `Clock`, `ClockReply`). Older copies
+/// don't know these packets, so they are only sent to 3.8.0 or newer.
+pub const FEATURES_LISTEN: &str = "3.8.0";
+
+/// LANX 3.8.0: one step of Listen together (invite, join, state, ready,
+/// status, leave, end, decline). `data` is small JSON the UIs agree on: the
+/// song, and where it is on the host's clock.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MusicPayload {
+    pub party_id: String,
+    pub action: String,
+    /// Counts up within a party, so a step that arrives late or twice is ignored.
+    #[serde(default)]
+    pub seq: u64,
+    #[serde(default)]
+    pub data: serde_json::Value,
+    #[serde(default)]
+    pub at: i64,
+}
+
+/// LANX 3.8.0: a clock question (`t0`, the asker's clock) and its answer (`t1`
+/// when it arrived, `t2` when the answer left, the answerer's clock), in
+/// microseconds since 1970. Whole numbers: a fraction may be read back a hair
+/// differently on the other side, and then the packet's signature fails.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ClockPayload {
+    pub t0: i64,
+    #[serde(default)]
+    pub t1: i64,
+    #[serde(default)]
+    pub t2: i64,
+}
+
 /// LANX 3.7.0: emoji reactions during calls and meetings (`CallPayload.reaction`,
 /// `MeetingPersonPayload.reaction / reaction_at`). Older copies re-check
 /// signatures on the fields they know, so they are never sent these.
@@ -656,6 +689,10 @@ pub enum PacketPayload {
     PolicyAnswer(PolicyAnswerPayload),
     // LANX 2.9.0 (only sent to peers reporting app_version >= 2.9.0)
     Game(GamePayload),
+    // LANX 3.8.0 (only sent to peers reporting app_version >= 3.8.0)
+    Music(MusicPayload),
+    Clock(ClockPayload),
+    ClockReply(ClockPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

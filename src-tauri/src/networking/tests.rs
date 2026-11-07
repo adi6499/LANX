@@ -2710,3 +2710,42 @@ async fn forward_unread_follow_up_and_connection_check() {
     assert!(!bad.ok && bad.steps.iter().any(|s| s.ok == Some(false)), "{:?}", bad);
 }
 
+
+// ------------------------------------------------ Listen together (LANX 3.8.0)
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn listen_together_steps_and_clocks_reach_3_8_0() {
+    let a = watched("Asha", "3.8.0").await;
+    let b = watched("Bharat", "3.8.0").await;
+    let old = watched("Chetan", "3.7.1").await;
+    link(&a, &b).await;
+    link(&a, &old).await;
+    let mut tap = b.svc.events.subscribe().expect("Bharat's events");
+    let step = MusicPayload { party_id: "party-1".into(), action: "invite".into(), seq: 1, data: serde_json::json!({ "song": { "id": "s1", "title": "Kesariya" } }), at: 0 };
+    assert!(a.svc.send_music(&b.id(), step.clone()).await.unwrap());
+    let ev = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let ev = tap.recv().await.expect("event tap");
+            if ev.0 == "lanx://music" {
+                break ev.1.clone();
+            }
+        }
+    })
+    .await
+    .expect("the music event");
+    assert_eq!(ev["action"], "invite");
+    assert_eq!(ev["party_id"], "party-1");
+    assert_eq!(ev["from_name"], "Asha");
+    assert_eq!(ev["data"]["song"]["title"], "Kesariya");
+
+    // Same PC, same clock: the offset is about nothing, the round trip short.
+    let c = a.svc.music_clock(&b.id(), 12).await.unwrap();
+    assert!(c.offset_ms.abs() < 2.0, "{c:?}");
+    assert!(c.delay_ms < 50.0, "{c:?}");
+    assert_eq!(c.samples, 12);
+
+    // An older LANX is never sent these (it wouldn't understand them).
+    let e = a.svc.send_music(&old.id(), step).await.unwrap_err();
+    assert!(e.contains("3.8.0"), "{e}");
+    assert!(a.svc.music_clock(&old.id(), 4).await.unwrap_err().contains("3.8.0"));
+}

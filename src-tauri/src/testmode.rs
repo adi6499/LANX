@@ -18,6 +18,8 @@
 //!   screen picture (another size than any real screen)
 //! - `LANX_WEBVIEW_BASE=dir` pick the WebView2 folder in `dir` the way a normal
 //!   installation picks it in %LOCALAPPDATA% (tests the blank-window fix)
+//! - `LANX_TEST_CLOCK_SKEW_MS=1500` (LANX 3.8.0) this copy's clock runs that
+//!   far ahead (Listen together must still play in step)
 //! - `LANX_PHONE=1` / `LANX_PHONE_PORT=52960` (LANX 3.0) start with "Use on
 //!   your phone" switched on, on that port
 
@@ -50,6 +52,11 @@ pub fn extra_beacon_targets() -> Vec<SocketAddr> {
     var("LANX_BEACON_TO")
         .map(|v| v.split(',').filter_map(|s| s.trim().parse().ok()).collect())
         .unwrap_or_default()
+}
+
+/// LANX 3.8.0: how far this test copy's clock is off, in milliseconds.
+pub fn clock_skew_ms() -> f64 {
+    var("LANX_TEST_CLOCK_SKEW_MS").and_then(|v| v.trim().parse().ok()).unwrap_or(0.0)
 }
 
 pub fn quiet() -> bool {

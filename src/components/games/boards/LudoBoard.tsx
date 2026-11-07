@@ -350,13 +350,6 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
           <clipPath id="ludoRound">
             <rect width={SIZE} height={SIZE} rx={14} />
           </clipPath>
-          <style>{`
-            .ludo-bob { animation: ludoBob 0.9s ease-in-out infinite; }
-            .ludo-glow { animation: ludoGlow 1.4s ease-in-out infinite; }
-            @keyframes ludoBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(${-C * 0.18}px); } }
-            @keyframes ludoGlow { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.95; } }
-            @media (prefers-reduced-motion: reduce) { .ludo-bob, .ludo-glow { animation: none; } }
-          `}</style>
         </defs>
         <g clipPath="url(#ludoRound)">
           <g transform={`rotate(${k * 90} ${SIZE / 2} ${SIZE / 2})`}>
