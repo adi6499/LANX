@@ -372,6 +372,8 @@ fn emit_lock(svc: &PhoneService) -> crate::privacy::LockStatus {
 
 /// One request from the phone → one reply line.
 pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -> String {
+    // LANX 3.9.0: when the question arrived (the phone's clock check, for Listen together).
+    let arrived = crate::networking::music::clock_ms();
     let v: Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => return fail(&Value::Null, "bad json"),
@@ -381,6 +383,12 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
     // LANX 3.3: a locked PC can be unlocked from the phone with the PIN;
     // everything else waits until it is unlocked.
     match op {
+        // LANX 3.9.0: this PC's clock (µs) when the question arrived and when the answer
+        // left — the phone lines its clock up with the quickest of several.
+        "clock" => {
+            use crate::networking::music::{clock_ms, us};
+            return ok(&id, obj(json!({ "t1": us(arrived), "t2": us(clock_ms()) })));
+        }
         "lock_status" => return ok(&id, obj(json!({ "status": svc.network.privacy.status(&svc.network.db) }))),
         "unlock" => {
             let pin = v["pin"].as_str().unwrap_or("");
@@ -1164,6 +1172,18 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             }
         }
         // ---- games
+        // LANX 3.9.0: Listen together on the phone — what the PC is listening to…
+        "music_state" => ok(&id, obj(json!({ "share": crate::networking::music::PHONE_SHARE.lock().clone() }))),
+        // …and "join this invite" / "not now" / "leave" from the phone, for the PC's window.
+        "music_ask" => {
+            let action = v["action"].as_str().unwrap_or("");
+            let party = v["party_id"].as_str().unwrap_or("");
+            if !["join", "decline", "leave"].contains(&action) || party.len() > 64 || !party.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                return fail(&id, "Bad request");
+            }
+            svc.network.events.emit_json("lanx://music-phone-ask", json!({ "action": action, "party_id": party, "device": client.device.name }));
+            ok(&id, obj(json!({})))
+        }
         "game_send" => {
             // One step of a game (accept, a move, resign…) straight to the
             // colleague's LANX; `sent` is true when theirs took it.
@@ -1601,6 +1621,7 @@ pub(super) fn map_event(svc: &PhoneService, name: &str, payload: &Value) -> Opti
             "hidden_unlocked": payload["hidden_unlocked"],
             "retry_after_secs": payload["retry_after_secs"],
         }),
+        "lanx://music-phone" => json!({ "ev": "music", "share": payload }),
         "lanx://game" => {
             // A step of a game from a colleague, as the window gets it
             // (from_id, from_name, match_id, game, action, seq, data, at).

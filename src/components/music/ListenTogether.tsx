@@ -4,8 +4,9 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Check, Headphones, Loader2, Radio, Users, X } from "lucide-react";
 import { api, errorText } from "../../lib/api";
-import { type Invite, type PartyView, decline, join, leave, listenTogether, startListening, startListeningForInvites, stopListening } from "../../lib/musicSync";
+import { type Invite, type PartyView, type PhoneView, decline, join, leave, listenTogether, phoneListen, startListening, startListeningForInvites, stopListening } from "../../lib/musicSync";
 import type { Peer } from "../../types";
+import { InviteStack } from "../together/common";
 
 export function useListenTogether(): { view: PartyView; invites: Invite[] } {
   const view = useSyncExternalStore(listenTogether.subscribe, listenTogether.view, listenTogether.view);
@@ -268,7 +269,7 @@ export function ListenInvites({ onOpenMusic }: { onOpenMusic: () => void }) {
   const shown = invites.filter((i) => i.partyId !== view?.id).slice(0, 2);
   if (!shown.length && !note) return null;
   return (
-    <div className="pointer-events-none fixed right-6 top-16 z-[90] flex w-[360px] max-w-[92vw] flex-col gap-2">
+    <InviteStack>
       {shown.map((inv) => (
         <div key={inv.partyId} data-together-invite={inv.partyId} className="pointer-events-auto overflow-hidden rounded-2xl bg-slate-900/95 text-white shadow-2xl lanx-rise">
           <div className="flex items-center gap-3 p-3">
@@ -305,6 +306,131 @@ export function ListenInvites({ onOpenMusic }: { onOpenMusic: () => void }) {
         </div>
       ))}
       {note && <div className="pointer-events-auto rounded-2xl bg-slate-900/95 px-3.5 py-2.5 text-[12.5px] text-white shadow-2xl lanx-rise">{note}</div>}
+    </InviteStack>
+  );
+}
+
+// ------------------------------------------------------------------ 3.9.0: on the phone
+
+export function usePhoneListen(): PhoneView {
+  return useSyncExternalStore(listenTogether.subscribe, phoneListen.view, phoneListen.view);
+}
+
+/** The phone page, always there: invites that reached its PC, and "play here too"
+ *  while the PC listens together. `ask` sends "join"/"decline" to the PC. */
+export function PhoneListen({ ask, onOpenMusic }: { ask: (action: "join" | "decline", partyId: string) => Promise<unknown>; onOpenMusic: () => void }) {
+  const v = usePhoneListen();
+  const [hidden, setHidden] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inv = v.invites.find((i) => i.party_id !== v.pc?.id && i.party_id !== hidden);
+  const offer = !v.here && v.pc && hidden !== v.pc.id ? v.pc : null;
+  if (!inv && !offer) return null;
+  const card = "pointer-events-auto overflow-hidden rounded-2xl bg-slate-900/95 text-white shadow-2xl lanx-rise";
+  return (
+    <div className="pointer-events-none fixed inset-x-3 top-[calc(env(safe-area-inset-top)+10px)] z-[80] flex flex-col gap-2">
+      {inv && (
+        <div data-phone-together-invite={inv.party_id} className={card}>
+          <div className="flex items-center gap-3 p-3">
+            <span className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/10">{inv.song?.cover ? <img src={inv.song.cover} alt="" className="h-full w-full object-cover" /> : <Headphones className="m-3.5 h-5 w-5" />}</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold">🎧 {inv.host_name} is playing music for you</div>
+              <div className="truncate text-[12.5px] text-white/65">{inv.song ? `${inv.song.title} — ${inv.song.artist}` : "Join to listen together, in step"}</div>
+            </div>
+          </div>
+          <div className="flex gap-2 px-3 pb-3">
+            <button
+              type="button"
+              data-phone-together-join
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await ask("join", inv.party_id);
+                  await phoneListen.playHere(true);
+                  onOpenMusic();
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-sky-500 py-2.5 text-[14px] font-bold"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Join
+            </button>
+            <button type="button" onClick={() => (setHidden(inv.party_id), void ask("decline", inv.party_id))} className="flex-1 rounded-full bg-white/10 py-2.5 text-[14px] font-semibold">
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+      {!inv && offer && (
+        <div data-phone-together-offer className={card}>
+          <div className="flex items-center gap-3 p-3">
+            <Headphones className="h-5 w-5 shrink-0 text-sky-300" />
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold">Your PC is listening together</div>
+              <div className="truncate text-[12.5px] text-white/65">{offer.role === "host" ? "Your music" : `${offer.host_name}'s music`} · {offer.people} listening</div>
+            </div>
+            <button type="button" aria-label="Not now" onClick={() => setHidden(offer.id)} className="flex h-8 w-8 items-center justify-center rounded-full text-white/60">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="px-3 pb-3">
+            <button type="button" data-phone-together-here onClick={() => void phoneListen.playHere(true).then(onOpenMusic)} className="w-full rounded-full bg-sky-500 py-2.5 text-[14px] font-bold">
+              Play on this phone too
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** In the phone's Music: playing along with the PC — how close, the Bluetooth slider, stop. */
+export function PhoneListenLine() {
+  const v = usePhoneListen();
+  const [open, setOpen] = useState(false);
+  const [delay, setDelay] = useState(listenTogether.delay());
+  if (!v.here && !v.problem) return null;
+  if (!v.here)
+    return <div className="px-3 py-1.5 text-[12px] text-amber-300">{v.problem}</div>;
+  const st = stepText(v.errMs, v.loading);
+  return (
+    <div data-phone-together-line className="border-t border-white/10 bg-sky-500/15 px-3 py-2 text-white">
+      <div className="flex items-center gap-2 text-[12.5px]">
+        <Headphones className="h-4 w-4 shrink-0 text-sky-300" />
+        <span className="min-w-0 flex-1 truncate">{v.pc ? (v.pc.role === "host" ? "Your music, with your PC" : `With ${v.pc.host_name}, through your PC`) : "Listening together"}</span>
+        <span className={st.good ? "text-emerald-300" : "text-white/60"}>{st.text}</span>
+      </div>
+      <div className="mt-1.5 flex gap-2">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="flex-1 rounded-full bg-white/10 py-1.5 text-[12.5px] font-semibold">
+          Sounds late?
+        </button>
+        <button type="button" data-phone-together-stop onClick={() => void phoneListen.playHere(false)} className="flex-1 rounded-full bg-white/10 py-1.5 text-[12.5px] font-semibold">
+          Stop on this phone
+        </button>
+      </div>
+      {open && (
+        <div className="mt-2">
+          <div className="flex justify-between text-[12px]">
+            <span>Bluetooth earphones or speaker</span>
+            <span className="tabular-nums text-white/60">{delay === 0 ? "no" : `${delay > 0 ? "+" : ""}${delay} ms`}</span>
+          </div>
+          <input
+            type="range"
+            min={-100}
+            max={400}
+            step={10}
+            value={delay}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              setDelay(n);
+              void listenTogether.setDelay(n);
+            }}
+            className="mt-1 w-full accent-sky-400"
+          />
+          <div className="text-[11px] text-white/50">Slide until it sounds like one room (Bluetooth is usually 150–250 ms late).</div>
+        </div>
+      )}
     </div>
   );
 }

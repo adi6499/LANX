@@ -1,4 +1,4 @@
-# LANX — Local Network Messenger (v3.8.0)
+# LANX — Local Network Messenger (v3.9.0)
 
 LANX lets computers on the same office network **chat and send files of any size** to each other —
 no internet, no server, no accounts. Computers find each other automatically. Everything is
@@ -56,6 +56,12 @@ others) and talks to the Windows copies on the same network.
 - **Verify a colleague:** open their contact details (ⓘ) and compare the *Security code* with the one
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
+
+### New in 3.9.0: Together
+- **Wrench menu → Together:** activities with colleagues on all their PCs at once, on one shared layer (src/lib/together.ts): sessions with a host, invites, join/leave, state on the host's clock (each PC compares its clock with the host's over the network, quickest round trips), one-off events, big items in 180 KB parts. Rust: a `Together` packet (3.9.0+ only), `send_together`.
+- **Phones join Listen together:** the PC shares its plan with its paired phones (`music_phone_share`, ws ops `clock` / `music_state` / `music_ask`); the phone lines its clock up with the PC over the WebSocket and plays in step (iPhone: audio session "playback", screen kept on).
+- **Karaoke:** big lyrics (lrclib synced lines), the sung line filling as it goes, following the exact song position every frame — the same line on every PC listening together.
+- **Live quiz**, **Present to everyone** (PDF or pictures, page + pointer), **Watch together** (a video file lent by the host's PC over a small token-protected range server, or a link; plays in step, ±10 ms in tests), **Announcements** (hold to talk; the clip goes to everyone first, then one play moment — same instant ±0.2 ms), **Bells and timers** (same second everywhere, countdowns).
 
 ### New in 3.8.0: Listen together, and the right pictures
 - **Listen together:** Music → Together → pick colleagues. Those who join hear the same moment of the same song on their own PC. Every PC compares its clock with the host's over the network (NTP-style, quickest of many round trips), the host sends plans ("1:02.350 is heard at 12:00:03.250 host time", a third of a second ahead), and each PC hands its sound card the decoded song with a sample-exact start, timed by the sound card's own output clock; four times a second it checks and evens out any drift (±0.4% speed, inaudible). Measured in tests: PCs within 0.1–0.3 ms of each other, even with clocks 1.5 s apart. Songs start from their first 1.5 MB (≈0.3 s to decode) while the rest downloads. A slider covers Bluetooth speakers' hidden delay. Only between LANX 3.8.0 or newer; not on phones yet.

@@ -16,6 +16,8 @@ import { AlertBanner, CalendarScreen, CardsScreen, EmergencyScreen, KudosSheet, 
 import { GamesScreen } from "./GamesScreen";
 import { BroadcastSheet, ChatMenuSheet, LockedScreen, MemesScreen, MusicScreen, PinSheet } from "./extras";
 import { MusicPlayer } from "../components/music/MusicPlayer";
+import { PhoneListen } from "../components/music/ListenTogether";
+import { phoneListen } from "../lib/musicSync";
 import { HelpDeskModal } from "../components/HelpDeskModal";
 import { OfficePanel } from "../components/office/OfficePanel";
 import { type PhoneSettings, installBridge, keptFile, ownWallpaperRecently, transferPath } from "./bridge";
@@ -357,6 +359,20 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
 
   // The PC's own code (games, cards) calls `api`; route it through the PC.
   useMemo(() => installBridge(client, { peers: () => peersRef.current, profiles: () => profilesRef.current }), [client]);
+  // 3.9.0: what the PC listens to together (now, and whenever it changes).
+  useEffect(() => {
+    phoneListen.usePhonePage();
+    const fetchShare = () => client.request<{ share: unknown }>("music_state").then((r) => phoneListen.fromPc(r.share)).catch(() => {});
+    const unPush = client.onPush((p) => {
+      if (p.ev === "music") phoneListen.fromPc(p.share);
+    });
+    const unState = client.onState((s) => s === "open" && void fetchShare());
+    void fetchShare();
+    return () => {
+      unPush();
+      unState();
+    };
+  }, [client]);
 
   const upsertConv = useCallback((c: Conversation) => {
     setConversations((list) => sortConvs(list.some((x) => x.id === c.id) ? list.map((x) => (x.id === c.id ? c : x)) : [...list, c]));
@@ -1348,6 +1364,8 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
       <MeetingScreen manager={meetings} peers={peers} profiles={profiles} />
       {/* 3.3: the song playing stays here while you move around. */}
       {view.page !== "music" && <MusicPlayer onOpenMusic={() => go({ page: "music" })} />}
+      {/* 3.9.0: Listen together through the PC (invites, "play here too"). */}
+      <PhoneListen ask={(action, partyId) => client.request("music_ask", { action, party_id: partyId })} onOpenMusic={() => go({ page: "music" })} />
       {forwardFrom && (
         <ForwardPicker
           conversations={conversations}

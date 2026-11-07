@@ -163,7 +163,7 @@ interface Playing {
  *  over at the same sample (they are the same sound), so nobody hears the change. */
 const PART_BYTES = 1_500_000;
 /** Songs kept decoded: this one, the next, one more (≈100 MB each at most). */
-const KEEP_SONGS = 3;
+let KEEP_SONGS = 3;
 
 /** The first of these to succeed (or the last failure). */
 function firstOf<T>(ps: Promise<T>[]): Promise<T> {
@@ -582,10 +582,151 @@ function refresh() {
     problem: engine.problem ?? p.problem,
   };
   inviteList = [...invites.values()].sort((a, b) => b.at - a.at);
+  if (phone.here) phone.view = { ...phone.view, here: true, song: engine.song, playing: !!engine.anchor?.playing, errMs: engine.errMs(), loading: engine.loading, problem: engine.problem ?? phone.problem };
   for (const l of viewListeners) l();
   // The music app's player shows the party's song and where it is.
-  if (p) musicOutput.update({ song: engine.song ?? p.song, playing: !!engine.anchor?.playing, position: engine.position(), duration: (engine.song ?? p.song)?.duration ?? 0, error: engine.problem });
+  if (p || phone.here) musicOutput.update({ song: engine.song ?? p?.song ?? null, playing: !!engine.anchor?.playing, position: engine.position(), duration: (engine.song ?? p?.song)?.duration ?? 0, error: engine.problem });
+  shareWithPhones();
 }
+
+// ------------------------------------------------------------------ 3.9.0: this PC's phones play along
+
+/** What the PC shares with its phones (whole numbers only, like the wire). */
+interface PcShare {
+  party: null | { id: string; role: "host" | "member"; host_name: string; people: number; song: Song | null; next: Song | null; anchor: ReturnType<typeof wireAnchor>; offset_us: number };
+  invites: { party_id: string; host_name: string; song: Song | null }[];
+}
+let lastShare = "";
+let onPhonePage = false;
+function shareWithPhones() {
+  if (onPhonePage) return;
+  const p = party;
+  const share: PcShare = {
+    party: p && {
+      id: p.id,
+      role: p.role,
+      host_name: p.hostName,
+      people: p.members.size + 1,
+      song: slim(engine.song ?? p.song),
+      next: slim(p.next),
+      anchor: wireAnchor(engine.anchor),
+      offset_us: Math.round(clock.offset * 1000),
+    },
+    invites: inviteList.map((i) => ({ party_id: i.partyId, host_name: i.hostName, song: slim(i.song) })),
+  };
+  const text = JSON.stringify(share);
+  if (text === lastShare) return;
+  lastShare = text;
+  void api.musicPhoneShare(share).catch(() => {});
+}
+
+export interface PhoneView {
+  /** What the PC is doing (null: not listening together). */
+  pc: PcShare["party"];
+  invites: PcShare["invites"];
+  /** Playing on this phone too. */
+  here: boolean;
+  song: Song | null;
+  playing: boolean;
+  errMs: number | null;
+  loading: boolean;
+  problem: string | null;
+}
+const phone = {
+  here: false,
+  share: null as PcShare | null,
+  problem: null as string | null,
+  timers: [] as number[],
+  partyId: "",
+  lock: null as { release(): Promise<void> } | null,
+  view: { pc: null, invites: [], here: false, song: null, playing: false, errMs: null, loading: false, problem: null } as PhoneView,
+};
+function phoneApply() {
+  const s = phone.share?.party;
+  if (!phone.here) return;
+  if (!s) {
+    // Joined from the phone a moment ago: the PC is still joining — wait for it.
+    if (phone.partyId) void playHere(false, "The music together has ended.");
+    else refresh();
+    return;
+  }
+  if (phone.partyId && phone.partyId !== s.id) engine.stop();
+  phone.partyId = s.id;
+  clock.offset = s.offset_us / 1000;
+  const song = asSong(s.song);
+  const anchor = asAnchor(s.anchor);
+  if (!song || !anchor) return refresh();
+  const next = asSong(s.next);
+  void engine.apply(song, anchor).then(() => {
+    if (phone.here && next && !engine.isReady(next.id)) void engine.load(next).catch(() => {});
+  });
+  refresh();
+}
+/** Starts (or stops) playing the PC's music on this phone, in step. Start from a tap. */
+async function playHere(on: boolean, why: string | null = null) {
+  if (on === phone.here) return;
+  phone.timers.forEach((t) => window.clearInterval(t));
+  phone.timers = [];
+  if (on) {
+    engine.wake();
+    // iPhone: play even with the ring/silent switch on silent.
+    const nav = navigator as Navigator & { audioSession?: { type: string }; wakeLock?: { request(t: "screen"): Promise<{ release(): Promise<void> }> } };
+    try {
+      if (nav.audioSession) nav.audioSession.type = "playback";
+    } catch {
+      /* older phones */
+    }
+    // The screen staying on keeps the page (and the music) running.
+    nav.wakeLock?.request("screen").then((l) => (phone.lock = l)).catch(() => {});
+    player.stop();
+    musicOutput.attach(followerOutput);
+    phone.here = true;
+    phone.problem = null;
+    refresh();
+    try {
+      await clock.local();
+    } catch (e) {
+      phone.problem = `Couldn't line up with your PC's clock: ${e instanceof Error ? e.message : String(e)}`;
+    }
+    phone.timers.push(window.setInterval(() => void clock.local().catch(() => {}), CLOCK_EVERY_MS));
+    phone.timers.push(window.setInterval(() => phone.here && refresh(), TICK_MS));
+    // The PC never joined (it was busy, or the host stopped meanwhile).
+    phone.timers.push(
+      window.setTimeout(() => {
+        if (phone.here && !phone.partyId) void playHere(false, "Your PC didn’t join the music. Try again from the PC.");
+      }, 15000),
+    );
+    phoneApply();
+  } else {
+    phone.here = false;
+    phone.partyId = "";
+    phone.problem = why;
+    engine.stop();
+    musicOutput.attach(null);
+    musicOutput.update({ song: null, playing: false, position: 0, duration: 0, queue: [], index: -1, error: null });
+    void phone.lock?.release().catch(() => {});
+    phone.lock = null;
+    phone.view = { ...phone.view, here: false, song: null, playing: false, errMs: null, loading: false, problem: why };
+    refresh();
+  }
+}
+/** The phone page: what its PC is doing, and playing along. */
+export const phoneListen = {
+  /** Called by the phone page (it then never shares with phones itself). */
+  usePhonePage() {
+    onPhonePage = true;
+    KEEP_SONGS = 2; // a phone has less memory
+  },
+  fromPc(share: unknown) {
+    const s = share as PcShare | null;
+    phone.share = s && typeof s === "object" ? { party: s.party ?? null, invites: Array.isArray(s.invites) ? s.invites : [] } : null;
+    phone.view = { ...phone.view, pc: phone.share?.party ?? null, invites: phone.share?.invites ?? [] };
+    if (phone.here) phoneApply();
+    else refresh();
+  },
+  playHere: (on: boolean) => playHere(on),
+  view: () => phone.view,
+};
 engine.onChange = refresh;
 
 function stateData(p: Party, extra: Record<string, unknown> = {}) {
@@ -645,6 +786,7 @@ const hostOutput = {
   seek: (s: number) => hostPlan(!!party?.anchor?.playing, s),
   setVolume: (v: number) => engine.setVolume(v),
   stop: () => hostPlan(false),
+  position: () => engine.position(),
 };
 const followerOutput = {
   follower: true,
@@ -653,7 +795,8 @@ const followerOutput = {
   pause: () => {},
   seek: () => {},
   setVolume: (v: number) => engine.setVolume(v),
-  stop: () => void leave(),
+  stop: () => (phone.here ? void playHere(false) : void leave()),
+  position: () => engine.position(),
 };
 
 async function hostPlay(song: Song, fromS: number) {
@@ -748,7 +891,8 @@ export async function stopListening() {
   const pos = engine.position();
   const playing = !!engine.anchor?.playing;
   const song = engine.song;
-  await Promise.all([...p.members.keys()].map((id) => send(id, "end")));
+  // Those who joined, and those still holding the invite (it disappears from their screen).
+  await Promise.all([...new Set([...p.members.keys(), ...p.invited.keys()])].map((id) => send(id, "end")));
   closeParty();
   musicOutput.attach(null);
   if (song) musicOutput.resumeLocal(song, pos, playing);
@@ -835,8 +979,24 @@ function listen() {
   if (unStep) return;
   unStep = transport.onStep(onStep);
 }
+let unAsk: (() => void) | null = null;
 export function startListeningForInvites() {
   listen();
+  // 3.9.0: a paired phone answers an invite (or leaves) for this PC.
+  if (!unAsk && !onPhonePage) {
+    let gone = false;
+    void events
+      .onMusicPhoneAsk((e) => {
+        const inv = invites.get(e.party_id);
+        if (e.action === "join" && inv) void join(inv);
+        else if (e.action === "decline" && inv) decline(inv);
+        else if (e.action === "leave" && party?.id === e.party_id) void (party.role === "host" ? stopListening() : leave());
+      })
+      .then((u) => (gone ? u() : (unAsk = u)));
+    unAsk = () => {
+      gone = true;
+    };
+  }
 }
 
 function onStep(e: StepEvent) {
@@ -937,7 +1097,7 @@ export const listenTogether = {
   },
 };
 /** For the end-to-end tests (and support): where this PC is against the plan. */
-(window as unknown as { __lanxListen?: unknown }).__lanxListen = { ...listenTogether, start: startListening, join, leave, stop: stopListening, player, searchSongs };
+(window as unknown as { __lanxListen?: unknown }).__lanxListen = { ...listenTogether, start: startListening, join, leave, stop: stopListening, player, searchSongs, phone: phoneListen };
 
 void api
   .getPref(DELAY_PREF)

@@ -14,6 +14,7 @@ pub mod sound;
 pub mod storage;
 pub mod testmode;
 pub mod voice;
+pub mod watch;
 pub mod webview_folder;
 pub mod window_doctor;
 
@@ -666,6 +667,10 @@ pub fn run() {
             commands::music::send_music,
             commands::music::music_clock,
             commands::music::music_now,
+            commands::music::music_phone_share,
+            commands::music::send_together,
+            commands::music::watch_serve,
+            commands::music::watch_stop,
             commands::wallpaper::pick_wallpaper,
             commands::wallpaper::clear_wallpaper_file,
             commands::voice::voice_models,

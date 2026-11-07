@@ -536,6 +536,8 @@ export interface MusicOutput {
   seek(s: number): void;
   setVolume(v: number): void;
   stop(): void;
+  /** 3.9.0: where the song is right now (s), to the millisecond (karaoke). */
+  position?(): number;
 }
 let out: MusicOutput | null = null;
 /** "Only Asha can change the music" (the screen shows it). */
@@ -689,6 +691,11 @@ export const player = {
     emit();
   },
   state: () => ({ ...state }),
+  /** 3.9.0: where the song is right now (s) — exact, not the last tick (karaoke). */
+  positionNow(): number {
+    if (out?.position) return out.position();
+    return audio && state.song ? audio.currentTime : state.position;
+  },
 };
 
 async function playAt(index: number) {

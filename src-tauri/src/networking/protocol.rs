@@ -168,6 +168,28 @@ pub struct MusicPayload {
     pub at: i64,
 }
 
+/// LANX 3.9.0: doing things together (`Together`): a live quiz, bells and
+/// timers, office announcements, presenting, watching a video. Only sent to
+/// 3.9.0 or newer.
+pub const FEATURES_TOGETHER: &str = "3.9.0";
+
+/// LANX 3.9.0: one step of a together session. `kind` says which activity,
+/// `data` is small JSON the UIs agree on (whole numbers for times).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TogetherPayload {
+    pub session_id: String,
+    /// quiz | bell | pa | present | watch
+    pub kind: String,
+    /// invite | join | state | leave | end | decline | answer | ready | status | event | part
+    pub action: String,
+    #[serde(default)]
+    pub seq: u64,
+    #[serde(default)]
+    pub data: serde_json::Value,
+    #[serde(default)]
+    pub at: i64,
+}
+
 /// LANX 3.8.0: a clock question (`t0`, the asker's clock) and its answer (`t1`
 /// when it arrived, `t2` when the answer left, the answerer's clock), in
 /// microseconds since 1970. Whole numbers: a fraction may be read back a hair
@@ -693,6 +715,8 @@ pub enum PacketPayload {
     Music(MusicPayload),
     Clock(ClockPayload),
     ClockReply(ClockPayload),
+    // LANX 3.9.0 (only sent to peers reporting app_version >= 3.9.0)
+    Together(TogetherPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

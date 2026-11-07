@@ -53,6 +53,7 @@ const MemePanel = lazy(() => import("./components/memes/MemePanel").then((m) => 
 const MusicApp = lazy(() => import("./components/music/MusicApp").then((m) => ({ default: m.MusicApp })));
 const MusicPlayer = lazy(() => import("./components/music/MusicPlayer").then((m) => ({ default: m.MusicPlayer })));
 const ListenInvites = lazy(() => import("./components/music/ListenTogether").then((m) => ({ default: m.ListenInvites })));
+const TogetherLayer = lazy(() => import("./components/together/TogetherLayer").then((m) => ({ default: m.TogetherLayer })));
 const GamesPanel = lazy(() => import("./components/games/GamesPanel").then((m) => ({ default: m.GamesPanel })));
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
@@ -1230,6 +1231,12 @@ export default function App() {
 
   // ---- LANX 3.5.0: gestures and spoken commands
   const [showGestures, setShowGestures] = useState(false);
+  // LANX 3.9.0: Together's "Listen together" and "Karaoke" tiles open the music app.
+  useEffect(() => {
+    const open = () => setShowMusic((m) => m ?? { query: "" });
+    window.addEventListener("lanx:open-music", open);
+    return () => window.removeEventListener("lanx:open-music", open);
+  }, []);
   /** LANX 3.7.0: "What's new" after an update (or from Settings → Updates). */
   const [whatsNew, setWhatsNew] = useState<Release[] | null>(null);
   useEffect(() => {
@@ -2095,6 +2102,10 @@ export default function App() {
       <Suspense fallback={null}>
         <ListenInvites onOpenMusic={() => setShowMusic((m) => m ?? { query: "" })} />
       </Suspense>
+      {/* LANX 3.9.0: Together — quiz, presenting, watching, announcements, bells. */}
+      <Suspense fallback={null}>
+        <TogetherLayer />
+      </Suspense>
       {/* LANX 2.17.0: keeps a hosted game going while the host looks elsewhere. */}
       <HostRunner />
       {gamesPresence.mounted && lastGames.current && settings && (
@@ -2203,9 +2214,14 @@ export default function App() {
         <WhatsNewModal
           releases={whatsNew}
           onClose={() => setWhatsNew(null)}
-          tryLabel={whatsNew[0]?.version.startsWith("3.8") ? "Open Music" : "Learn hand gestures"}
+          tryLabel={whatsNew[0]?.version.startsWith("3.9") ? "Open Together" : whatsNew[0]?.version.startsWith("3.8") ? "Open Music" : "Learn hand gestures"}
           onTry={
-            whatsNew[0]?.version.startsWith("3.8")
+            whatsNew[0]?.version.startsWith("3.9")
+              ? () => {
+                  setWhatsNew(null);
+                  window.dispatchEvent(new Event("lanx:together-hub"));
+                }
+              : whatsNew[0]?.version.startsWith("3.8")
               ? () => {
                   setWhatsNew(null);
                   setShowMusic({ query: "" });

@@ -1082,6 +1082,7 @@ impl NetworkService {
                 PacketPayload::Alert(a) => Some(PacketPayload::Ack(self.handle_alert(&peer, a))),
                 PacketPayload::Game(g) => Some(PacketPayload::Ack(self.handle_game(&peer, g, &remote_version))),
                 PacketPayload::Music(m) => Some(PacketPayload::Ack(self.handle_music(&peer, m))),
+                PacketPayload::Together(t) => Some(PacketPayload::Ack(self.handle_together(&peer, t))),
                 PacketPayload::Clock(c) => Some(PacketPayload::ClockReply(music::clock_reply(c, arrived))),
                 PacketPayload::Policy(p) => Some(PacketPayload::Ack(self.handle_policy(&peer, p))),
                 PacketPayload::PolicyAnswer(a) => Some(PacketPayload::Ack(self.handle_policy_answer(&peer, a))),

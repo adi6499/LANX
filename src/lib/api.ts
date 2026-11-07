@@ -1611,6 +1611,23 @@ export const api = {
     if (isTauri) return invoke("music_clock", { peerId, samples });
     return { offset_ms: 0, delay_ms: 0, samples };
   },
+  /** LANX 3.9.0: a step of a together session (quiz, bell, announcement, presenting, watching). */
+  sendTogether: async (peerId: string, step: { session_id: string; kind: string; action: string; seq: number; data: unknown; at: number }): Promise<boolean> => {
+    if (isTauri) return invoke("send_together", { peerId, step });
+    return true;
+  },
+  /** LANX 3.9.0 Watch together: lend a video file to colleagues (served from this PC, behind a code). */
+  watchServe: async (path: string): Promise<{ port: number; token: string; name: string; size: number; mime: string }> => {
+    if (isTauri) return invoke("watch_serve", { path });
+    return { port: 0, token: "", name: path.split(/[\\/]/).pop() ?? "video", size: 0, mime: "video/mp4" };
+  },
+  watchStop: async (): Promise<void> => {
+    if (isTauri) return invoke("watch_stop");
+  },
+  /** LANX 3.9.0: what this PC listens to together, for its phones to play along. */
+  musicPhoneShare: async (share: unknown): Promise<void> => {
+    if (isTauri) return invoke("music_phone_share", { share });
+  },
   /** LANX 3.8.0: this PC's clock, ms since 1970 (with fractions). */
   musicNow: async (): Promise<number> => {
     if (isTauri) return invoke("music_now");
@@ -1983,6 +2000,12 @@ export const events = {
   /** LANX 1.8.0: an intercom message arrived (play it unless quiet). */
   onIntercom: (cb: (e: IntercomEvent) => void) => on<IntercomEvent>("lanx://intercom", cb),
   /** LANX 2.9.0: a colleague's step in a game. */
+  /** LANX 3.9.0: a together step from a colleague. */
+  onTogether: (cb: (e: { from_id: string; from_name: string; session_id: string; kind: string; action: string; seq: number; data: Record<string, unknown>; at: number }) => void) =>
+    on<{ from_id: string; from_name: string; session_id: string; kind: string; action: string; seq: number; data: Record<string, unknown>; at: number }>("lanx://together", cb),
+  /** LANX 3.9.0: a paired phone asks this PC to join (or not) a colleague's music. */
+  onMusicPhoneAsk: (cb: (e: { action: "join" | "decline" | "leave"; party_id: string; device: string }) => void) =>
+    on<{ action: "join" | "decline" | "leave"; party_id: string; device: string }>("lanx://music-phone-ask", cb),
   /** LANX 3.8.0: a Listen together step from a colleague. */
   onMusic: (cb: (e: { from_id: string; from_name: string; party_id: string; action: string; seq: number; data: Record<string, unknown>; at: number }) => void) =>
     on<{ from_id: string; from_name: string; party_id: string; action: string; seq: number; data: Record<string, unknown>; at: number }>("lanx://music", cb),

@@ -83,6 +83,41 @@ pub fn best_offset(trips: &[RoundTrip]) -> Option<ClockSample> {
     Some(ClockSample { offset_ms: best[best.len() / 2], delay_ms: ok[0].delay(), samples: trips.len() as u32 })
 }
 
+pub const TOGETHER_KINDS: [&str; 5] = ["quiz", "bell", "pa", "present", "watch"];
+pub const TOGETHER_ACTIONS: [&str; 11] = ["invite", "join", "state", "leave", "end", "decline", "answer", "ready", "status", "event", "part"];
+/// A page picture or a part of a voice clip (larger things go in parts).
+pub const TOGETHER_DATA_MAX: usize = 240 * 1024;
+
+/// What the window is told (`lanx://together`).
+#[derive(Debug, Clone, Serialize)]
+pub struct TogetherEvent {
+    pub from_id: String,
+    pub from_name: String,
+    pub session_id: String,
+    pub kind: String,
+    pub action: String,
+    pub seq: u64,
+    pub data: serde_json::Value,
+    pub at: i64,
+}
+
+/// A together step is refused when its id, kind, action or size is off.
+pub fn check_together_step(p: &TogetherPayload) -> Result<(), String> {
+    if p.session_id.is_empty() || p.session_id.len() > 64 || !p.session_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err("Bad session id.".to_string());
+    }
+    if !TOGETHER_KINDS.contains(&p.kind.as_str()) {
+        return Err("Unknown activity.".to_string());
+    }
+    if !TOGETHER_ACTIONS.contains(&p.action.as_str()) {
+        return Err("Unknown step.".to_string());
+    }
+    if p.data.to_string().len() > TOGETHER_DATA_MAX {
+        return Err("The step is too big.".to_string());
+    }
+    Ok(())
+}
+
 /// A party step is refused when its id, action or size is off.
 pub fn check_music_step(p: &MusicPayload) -> Result<(), String> {
     if p.party_id.is_empty() || p.party_id.len() > 64 || !p.party_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
@@ -154,6 +189,46 @@ impl NetworkService {
         AckPayload { ok: true, reason: None }
     }
 
+    /// LANX 3.9.0: one step of a together session to a colleague.
+    pub async fn send_together(&self, peer_id: &str, mut p: TogetherPayload) -> Result<bool, String> {
+        self.privacy.guard()?;
+        check_together_step(&p)?;
+        p.at = now_secs();
+        let peer = self.music_peer(peer_id).await?;
+        let mut chan = self.connect_peer(&peer).await.map_err(|_| format!("Could not reach {}'s LANX.", peer.display_name))?;
+        if !version_at_least(&chan.remote.app_version, FEATURES_TOGETHER) {
+            let v = chan.remote.app_version.clone();
+            chan.close().await;
+            return Err(format!("{}'s LANX ({}) needs {} or newer for this. Send them the update from Settings → Updates.", peer.display_name, v, FEATURES_TOGETHER));
+        }
+        let reply = NetworkService::send_acked(&mut chan, PacketPayload::Together(p)).await;
+        chan.close().await;
+        match reply {
+            Ok(a) if a.ok => Ok(true),
+            Ok(a) => Err(a.reason.unwrap_or_else(|| format!("{}'s LANX did not take it.", peer.display_name))),
+            Err(()) => Err(format!("No answer from {}'s LANX.", peer.display_name)),
+        }
+    }
+
+    /// A together step from a colleague: checked, then straight to the window.
+    pub(super) fn handle_together(&self, peer: &Peer, p: TogetherPayload) -> AckPayload {
+        let no = |r: &str| AckPayload { ok: false, reason: Some(r.to_string()) };
+        if peer.trust_state == "blocked" {
+            return no("Not available");
+        }
+        if let Err(e) = check_together_step(&p) {
+            return no(&e);
+        }
+        if self.privacy.is_locked() && (p.action == "invite" || p.kind == "pa") {
+            return no("LANX is locked on that PC right now.");
+        }
+        self.events.emit_json(
+            "lanx://together",
+            TogetherEvent { from_id: peer.id.clone(), from_name: peer.display_name.clone(), session_id: p.session_id, kind: p.kind, action: p.action, seq: p.seq, data: p.data, at: now_secs() },
+        );
+        AckPayload { ok: true, reason: None }
+    }
+
     /// Compares a colleague's clock with ours: `samples` round trips over one
     /// connection (no new connection per question, so no handshake in the timing).
     pub async fn music_clock(&self, peer_id: &str, samples: u32) -> Result<ClockSample, String> {
@@ -186,6 +261,12 @@ pub fn us(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
 
+/// LANX 3.9.0: what this PC is listening to together (and its invites), as the
+/// window last shared it — for this PC's phones, which play along.
+pub static PHONE_SHARE: parking_lot::Mutex<serde_json::Value> = parking_lot::Mutex::new(serde_json::Value::Null);
+/// The most a share may be (two songs, a plan, a few invites).
+pub const PHONE_SHARE_MAX: usize = 64 * 1024;
+
 /// The answer to a clock question that `arrived` at this time (our clock, ms).
 pub fn clock_reply(q: ClockPayload, arrived: f64) -> ClockPayload {
     ClockPayload { t0: q.t0, t1: us(arrived), t2: us(clock_ms()) }
@@ -198,6 +279,21 @@ mod tests {
 
     fn step(action: &str) -> MusicPayload {
         MusicPayload { party_id: "p-1".into(), action: action.into(), seq: 1, data: json!({ "song": { "id": "x" } }), at: 0 }
+    }
+
+    #[test]
+    fn together_steps_are_checked() {
+        let t = |kind: &str, action: &str| TogetherPayload { session_id: "s-1".into(), kind: kind.into(), action: action.into(), seq: 1, data: json!({}), at: 0 };
+        for k in TOGETHER_KINDS {
+            for a in TOGETHER_ACTIONS {
+                assert!(check_together_step(&t(k, a)).is_ok(), "{k} {a}");
+            }
+        }
+        assert!(check_together_step(&t("poker", "state")).is_err());
+        assert!(check_together_step(&t("quiz", "hack")).is_err());
+        let mut big = t("present", "state");
+        big.data = json!("x".repeat(TOGETHER_DATA_MAX));
+        assert!(check_together_step(&big).is_err());
     }
 
     #[test]

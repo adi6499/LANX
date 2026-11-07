@@ -117,6 +117,8 @@ export function installBridge(client: PhoneClient, store: BridgeStore) {
   let wallpaperTimer: number | undefined;
 
   const apiPatch: Partial<typeof api> = {
+    // 3.9.0 Listen together: "the PC's clock now" is a question to the PC (the phone keeps the quickest answers).
+    musicNow: () => client.request<{ t1: number; t2: number }>("clock").then((r) => (r.t1 + r.t2) / 2000),
     sendGame: (peerId, step) => client.request<{ sent: boolean }>("game_send", { peer_id: peerId, step }).then((r) => r.sent),
     getConversations: () => client.request<{ conversations: Conversation[] }>("conversations").then((r) => r.conversations),
     getMessages: (conversationId) => client.request<{ messages: PhoneMessage[] }>("messages", { conv: conversationId, limit: 200 }).then((r) => r.messages as Message[]),

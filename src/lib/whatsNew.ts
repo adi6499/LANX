@@ -19,6 +19,20 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.9.0",
+    title: "Together: quiz, karaoke, bells, announcements, presenting, watching",
+    items: [
+      { icon: "🎉", title: "Together", text: "Wrench menu → Together: everything below, with colleagues, on all your PCs at once — each lined up to the host's clock to the millisecond." },
+      { icon: "📱", title: "Phones join Listen together", text: "When your PC listens together, your phone can play along in step (Music on the phone → Play on this phone too), or join an invite itself." },
+      { icon: "🎤", title: "Karaoke", text: "Big lyrics, the line being sung filling up as it goes. Listening together, every PC shows the same line at the same moment." },
+      { icon: "🧠", title: "Live quiz", text: "Ask questions on everyone's screen; the fastest right answer wins — fair to the millisecond, whatever each PC's clock says." },
+      { icon: "📢", title: "Announcements", text: "Hold to talk, let go: every chosen PC plays it at the same moment, so a room of PCs sounds like one voice." },
+      { icon: "🔔", title: "Bells and timers", text: "Lunch, tea, stand-up: rings on every chosen PC at the same second, with a countdown on screen." },
+      { icon: "🖥️", title: "Present to everyone", text: "Open a PDF or pictures; everyone who joins follows your page and your pointer. No projector needed." },
+      { icon: "🎬", title: "Watch together", text: "A video file from your PC (or a link) plays on every PC in step — you play, pause and jump for everyone." },
+    ],
+  },
+  {
     version: "3.8.0",
     title: "Listen together, and the right pictures",
     items: [

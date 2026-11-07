@@ -135,6 +135,7 @@ export type Push =
   | { ev: "read"; conversation_id: string; conversation: Conversation | null }
   | { ev: "scheduled"; conversation_id: string; problem: string | null }
   | { ev: "reminder"; message: PhoneMessage; conversation_id: string; title: string; text: string }
+  | { ev: "music"; share: unknown }
   | { ev: "game"; from_id: string; from_name: string; match_id: string; game: string; action: string; seq: number; data: unknown; at: number }
   | { ev: "alert"; alert: unknown }
   | { ev: "calendar"; alert: unknown }

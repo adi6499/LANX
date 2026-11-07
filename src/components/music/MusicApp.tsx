@@ -14,6 +14,7 @@ import {
   Maximize2,
   MessageCircle,
   Mic2,
+  MicVocal,
   Minimize2,
   Music2,
   Pause,
@@ -65,7 +66,8 @@ import {
   toggleMusicFavourite,
   toggleSavedAlbum,
 } from "../../lib/music";
-import { TogetherLine, TogetherSheet } from "./ListenTogether";
+import { PhoneListenLine, TogetherLine, TogetherSheet, useListenTogether } from "./ListenTogether";
+import { Karaoke } from "./Karaoke";
 
 type View =
   | { kind: "home" }
@@ -196,11 +198,19 @@ export function MusicApp({
   const [showLyrics, setShowLyrics] = useState(false);
   /** LANX 3.8.0: the Listen together panel. */
   const [together, setTogether] = useState(false);
+  /** LANX 3.9.0: karaoke (big lyrics in step with the song). */
+  const [karaoke, setKaraoke] = useState(false);
+  const { view: party } = useListenTogether();
   const lyricsFor = useRef<string>("");
   useEffect(() => {
     const open = () => setTogether(true);
+    const sing = () => setKaraoke(true);
     window.addEventListener("lanx:together-open", open);
-    return () => window.removeEventListener("lanx:together-open", open);
+    window.addEventListener("lanx:karaoke-open", sing);
+    return () => {
+      window.removeEventListener("lanx:together-open", open);
+      window.removeEventListener("lanx:karaoke-open", sing);
+    };
   }, []);
 
   const go = useCallback((v: View) => {
@@ -237,7 +247,7 @@ export function MusicApp({
     });
     const onKey = (e: KeyboardEvent) => {
       // (The Listen together panel closes itself first.)
-      if (e.key === "Escape" && !document.querySelector("[data-together-sheet]")) {
+      if (e.key === "Escape" && !document.querySelector("[data-together-sheet], [data-karaoke]")) {
         e.stopPropagation();
         if (nowPlaying) setNowPlaying(false);
         else onClose();
@@ -704,8 +714,8 @@ export function MusicApp({
         </div>
 
         {/* ---- bottom: the player bar (slim on the phone) */}
-        {/* (Phones join Listen together in a later version.) */}
-        {!compact && <TogetherLine onOpen={() => setTogether(true)} />}
+        {/* (3.9.0: on the phone, playing along with its PC.) */}
+        {compact ? <PhoneListenLine /> : <TogetherLine onOpen={() => setTogether(true)} />}
         {compact ? (
           <div data-music-bar className="shrink-0 border-t border-white/10 bg-[#0b1020] px-3 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-1.5">
             <div className="mb-1.5 h-0.5 overflow-hidden rounded-full bg-white/15">
@@ -761,6 +771,7 @@ export function MusicApp({
             <button type="button" data-music-together onClick={() => setTogether(true)} title="Listen together: play for colleagues, every PC in step" className="h-8 px-3 rounded-full bg-white/10 hover:bg-white/20 text-[12px] font-semibold inline-flex items-center gap-1.5"><Headphones className="h-4 w-4" /> Together</button>
             <button type="button" onClick={() => go({ kind: "queue" })} title="Up next" className={`h-8 w-8 rounded-full flex items-center justify-center ${view.kind === "queue" ? "text-sky-300" : "text-white/60 hover:text-white"}`}><ListMusic className="h-4 w-4" /></button>
             <button type="button" onClick={() => { setShowLyrics(true); setNowPlaying(true); }} title="Lyrics" disabled={!ps.song} className="h-8 w-8 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-30"><Mic2 className="h-4 w-4" /></button>
+            <button type="button" data-music-karaoke onClick={() => setKaraoke(true)} title="Karaoke: big lyrics in step with the song" disabled={!ps.song} className="h-8 w-8 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-30"><MicVocal className="h-4 w-4" /></button>
             <Volume2 className="h-4 w-4 text-white/60" />
             <input type="range" min={0} max={100} value={Math.round(ps.volume * 100)} onChange={(e) => player.setVolume(Number(e.target.value) / 100)} className="w-24 accent-sky-400" />
             <button type="button" data-music-bar-stop onClick={() => player.stop()} title="Stop and clear the queue" disabled={!ps.song} className="h-8 w-8 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-30"><Square className="h-3.5 w-3.5" fill="currentColor" /></button>
@@ -850,6 +861,7 @@ export function MusicApp({
             <div className="absolute inset-0 bg-black/35" />
             <button type="button" onClick={() => setNowPlaying(false)} className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur flex items-center justify-center"><Minimize2 className="h-4 w-4" /></button>
             <button type="button" onClick={() => setShowLyrics((v) => !v)} className={`absolute top-4 right-16 h-9 px-3 rounded-full backdrop-blur text-[12px] font-semibold inline-flex items-center gap-1.5 ${showLyrics ? "bg-white text-slate-900" : "bg-white/15 hover:bg-white/25"}`}><Mic2 className="h-3.5 w-3.5" /> Lyrics</button>
+            <button type="button" data-music-karaoke onClick={() => setKaraoke(true)} className="absolute top-4 right-[146px] h-9 px-3 rounded-full backdrop-blur text-[12px] font-semibold inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25"><MicVocal className="h-3.5 w-3.5" /> Karaoke</button>
             <div className="absolute inset-x-0 top-0 bottom-28 flex items-center justify-center" style={{ perspective: "1400px" }}>
               {!showLyrics ? (
                 <div className="relative h-[420px] w-full max-w-[1100px]">
@@ -924,6 +936,14 @@ export function MusicApp({
           </div>
         )}
         {together && !compact && <TogetherSheet onClose={() => setTogether(false)} />}
+        {karaoke && ps.song && (
+          <Karaoke
+            song={ps.song}
+            lines={lyrics}
+            together={party ? (party.role === "host" ? `In step with ${party.members.length + 1} people` : `In step with ${party.hostName}`) : null}
+            onClose={() => setKaraoke(false)}
+          />
+        )}
       </div>
     </div>
   );
