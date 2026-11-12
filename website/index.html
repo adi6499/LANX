@@ -37,7 +37,7 @@
     </nav>
     <div class="nav-actions">
       <span class="status"><i></i> ONLINE · NO INTERNET NEEDED</span>
-      <a class="btn btn-sm" href="/files/LANX-Setup-3.6.2.exe" data-v="dlHref" download>Download</a>
+      <a class="btn btn-sm" href="/files/LANX-Setup-3.11.0.exe" data-v="dlHref" download>Download</a>
     </div>
   </header>
 
@@ -53,16 +53,16 @@
           no accounts and no monthly fees</strong>. Computers find each other by themselves.
         </p>
         <div class="cta" id="download">
-          <a class="btn btn-lg" href="/files/LANX-Setup-3.6.2.exe" data-v="dlHref" download id="dlBtn">
+          <a class="btn btn-lg" href="/files/LANX-Setup-3.11.0.exe" data-v="dlHref" download id="dlBtn">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-            <span class="lbl">Download LANX <span data-v="version">3.6.2</span> for Windows</span>
+            <span class="lbl">Download LANX <span data-v="version">3.11.0</span> for Windows</span>
           </a>
           <a class="btn btn-ghost" href="#install">How to install</a>
         </div>
         <p class="meta">
-          <span><b data-v="size">22.4 MB</b> installer</span>
+          <span><b data-v="size">23.9 MB</b> installer</span>
           <span class="sep">|</span>
-          <span>Released <b data-v="date">5 Nov 2026</b></span>
+          <span>Released <b data-v="date">12 Nov 2026</b></span>
           <span class="sep">|</span>
           <span>64-bit</span>
         </p>
@@ -71,11 +71,11 @@
           <summary>Check the file · release signature</summary>
           <div class="verify-body">
             <p><b>SHA-256</b> of the installer (compare it in PowerShell with <code>Get-FileHash</code>):</p>
-            <p class="sha"><code data-v="sha256">58a686630ca26e952aed8a103939b43d90a668271a5d54158198f1500afed7b0</code>
+            <p class="sha"><code data-v="sha256">13189efd2a13a17c3fc92f09aed3b2433e4e207b5ce67c16121911604ec3fb00</code>
               <button type="button" class="copy" data-copy="sha256">Copy</button></p>
             <p>
               Going to share this version with your colleagues through LANX itself (Settings → Updates)?
-              Put the <a href="/files/LANX-Setup-3.6.2.exe.sig" data-v="sigHref" download>release signature (.sig)</a>
+              Put the <a href="/files/LANX-Setup-3.11.0.exe.sig" data-v="sigHref" download>release signature (.sig)</a>
               in the same folder as the installer before you run it. Not needed for a normal install.
             </p>
           </div>
@@ -245,7 +245,7 @@
             <li>About 30 MB of disk space</li>
             <li>All PCs on the same office network</li>
             <li>Microsoft Edge WebView2 (already part of Windows; the installer adds it if missing)</li>
-            <li data-linux-only>Linux: Ubuntu 22.04+, Debian 12+, Mint 21+ (.deb) or any distribution (AppImage)</li>
+            <li data-linux-only>Linux: Ubuntu 22.04+, Debian 12+, Mint 21+ (.deb) or Fedora 39+ (.rpm)</li>
           </ul>
           <h3>Upgrading</h3>
           <p>Just run the new installer. It replaces the old copy and keeps every chat and file. Or install it on one PC and let LANX offer it to the others.</p>
@@ -259,13 +259,24 @@
     <section class="section" id="linux" data-linux-only>
       <p class="kicker">// LINUX</p>
       <h2>LANX for Linux</h2>
-      <p class="sub">The same LANX (version <span data-v="linuxVersion">3.6.2</span>), for Ubuntu, Debian, Mint and most other distributions. It talks to the Windows copies on your network.</p>
+      <p class="sub">The same LANX (version <span data-v="linuxVersion">3.11.0</span>), for Ubuntu, Debian, Mint, Fedora and their relatives. It talks to the Windows copies on your network.</p>
+      <article class="dl-card oneline" data-linux-only>
+        <h3>Easiest: one line in the Terminal</h3>
+        <p>Open <b>Terminal</b> (Ctrl+Alt+T on Ubuntu and Mint), paste this line and press Enter. It finds the right package for your Linux, checks it, installs it (asking your password once) and opens LANX. <b>Run the same line again any time to update.</b></p>
+        <p class="cmd"><code data-v="oneLine">curl -fsSL https://lanx-website.vercel.app/install.sh | sh</code><button type="button" class="copy" data-copy="oneLine">Copy</button></p>
+        <p class="sha small">Works on Ubuntu, Debian, Mint, Pop!_OS, Zorin, elementary and Fedora. No curl? Use <code>wget -qO- https://lanx-website.vercel.app/install.sh | sh</code>. <a href="/install.sh">See what it does</a>.</p>
+      </article>
       <div class="dl-cards">
         <article class="dl-card" data-linux-deb>
           <h3>Ubuntu · Debian · Mint</h3>
-          <p>For Ubuntu 22.04 or newer, Debian 12 or newer and Linux Mint 21 or newer. <b>Open the downloaded file and press Install</b> (it asks your password once) — LANX installs, opens its firewall ports if a firewall is on, and appears in the applications menu. (Or in a terminal: <code>sudo apt install ./LANX-x.y.z-linux-amd64.deb</code>.)</p>
-          <a class="btn" href="/files/LANX-3.6.2-linux-amd64.deb" data-v="debHref" download>Download .deb <span class="dim">(<span data-v="debSize">24.2 MB</span>)</span></a>
-          <p class="sha small">SHA-256 <code data-v="debSha">7f19edc2c317270fedf0ea8c633926bacabf80aa584a64d0c61ec18438130037</code></p>
+          <p>For Ubuntu 22.04 or newer, Debian 12 or newer and Linux Mint 21 or newer. <b>Open the downloaded file and press Install</b> (it asks your password once) — LANX installs, opens its firewall ports if a firewall is on, and appears in the applications menu. If opening the file doesn't offer to install it, use the one line above. (Or in a terminal: <code>sudo apt install ./LANX-x.y.z-linux-amd64.deb</code>.)</p>
+          <a class="btn" href="/files/LANX-3.11.0-linux-amd64.deb" data-v="debHref" download>Download .deb <span class="dim">(<span data-v="debSize">26.7 MB</span>)</span></a>
+          <p class="sha small">SHA-256 <code data-v="debSha">4200497fe4a597d6a676dc1585ec2ae96b8ce082fbf54fab38a34290e8fa8f05</code></p>
+        </article>
+        <article class="dl-card" data-linux-rpm>
+          <h3>Fedora</h3>
+          <p>For Fedora 39 or newer. <b>Open the downloaded file and press Install</b> (it asks your password once), or in a terminal: <code>sudo dnf install ./LANX-x.y.z-linux-x86_64.rpm</code>.</p>
+          <a class="btn" href="/files/LANX-3.11.0-linux-x86_64.rpm" data-v="rpmHref" download>Download .rpm <span class="dim">(<span data-v="rpmSize">26.7 MB</span>)</span></a>
         </article>
         <article class="dl-card" data-linux-appimage hidden>
           <h3>Any other distribution</h3>
@@ -277,7 +288,9 @@
       <p class="note">
         <b>Firewall:</b> nothing to do — if the ufw firewall is on, the installer lets LANX through for your local network.
         <b>What's different on Linux:</b> the screenshot key, "Send to LANX" in the file manager and automatic update sharing are Windows-only;
-        a Linux PC can see and control a colleague's Windows screen during Remote help but cannot itself be controlled yet. New Linux versions come from this page.
+        a Linux PC can see and control a colleague's Windows screen during Remote help but cannot itself be controlled yet.
+        <b>Updating:</b> run the one line again (or download the new package here).
+        <b>LANX doesn't open?</b> Right-click its icon → <b>Restart LANX</b>; a LANX that got stuck is also replaced by itself when you open LANX again.
       </p>
     </section>
 
@@ -287,6 +300,51 @@
       <h2>Version log</h2>
       <p class="sub">Newer versions keep talking to older ones; new features switch on once both sides update.</p>
       <div class="changelog">
+        <article>
+          <h3><span class="tag">3.11.0</span> Faster and smoother, and Linux made easy</h3>
+          <ul>
+            <li>Chats open at once, even ones with years of messages: LANX shows the newest ones and adds older ones as you scroll up. On Windows a long chat took 1.5 seconds to open; now about a tenth of a second.</li>
+            <li>Typing keeps up in long chats, and the window no longer freezes while LANX reads a chat, a picture or a file.</li>
+            <li>On Linux: chats open about ten times faster, scrolling is nearly twice as smooth and typing no longer stutters.</li>
+            <li>LANX always opens on Linux: a stuck LANX is replaced when you open it again, and its icon has <b>Restart LANX</b>. On desktops without a tray, closing LANX keeps it in the taskbar.</li>
+            <li>One line in the Terminal installs or updates LANX on Ubuntu, Debian, Mint and Fedora — and Fedora has its own package now.</li>
+          </ul>
+        </article>
+        <article>
+          <h3><span class="tag">3.10.0</span> Big meetings: up to 100 people</h3>
+          <ul>
+            <li>A group meeting can have up to 100 people (it was 12). Start it in a group as usual: with more than 12 people, LANX makes it a big meeting by itself.</li>
+            <li>Each PC sends its picture and voice once, to the organizer's PC, which passes them on — so every PC stays smooth. Pages of 16 pictures; whoever talks pops up; the six loudest voices are heard.</li>
+            <li>A Together button inside calls: a quiz, a presentation, a video, music or a bell with everyone in the call.</li>
+            <li>Everyone needs 3.10.0 or newer, on a PC; the meeting ends when the organizer leaves.</li>
+          </ul>
+        </article>
+        <article>
+          <h3><span class="tag">3.9.0</span> Together: quiz, karaoke, bells, announcements, presenting, watching</h3>
+          <ul>
+            <li>Wrench menu → Together: activities on all your PCs at once, lined up to the millisecond.</li>
+            <li>Live quiz, karaoke, bells and timers, hold-to-talk announcements, present a PDF to everyone, watch a video together — and phones can join Listen together.</li>
+          </ul>
+        </article>
+        <article>
+          <h3><span class="tag">3.8.0</span> Listen together, and the right pictures</h3>
+          <ul>
+            <li>Play music for colleagues: everyone who joins hears the same moment of the same song on their own PC.</li>
+            <li>Every song shows its own film's or album's cover, sharp, and each recording appears once in search.</li>
+          </ul>
+        </article>
+        <article>
+          <h3><span class="tag">3.7.1</span> Smoother hands, and easy to learn</h3>
+          <ul>
+            <li>Your hand moves the mouse smoothly, and a short hands-on practice teaches every gesture. LANX says what it sees your hand doing.</li>
+          </ul>
+        </article>
+        <article>
+          <h3><span class="tag">3.7.0</span> Your hands, for the whole PC</h3>
+          <ul>
+            <li>Control the whole PC with your hand, type in the air, teach LANX signs of your own, and use your hands in calls and meetings. A "What's new" note now appears after every update.</li>
+          </ul>
+        </article>
         <article>
           <h3><span class="tag">3.6.2</span> No camera on the PC? Use your phone's</h3>
           <ul>
@@ -611,8 +669,8 @@
     <section class="section cta-bottom">
       <p class="kicker">// READY WHEN YOU ARE</p>
       <h2>One small download.<br />Install it on two PCs and say hello.</h2>
-      <a class="btn btn-lg" href="/files/LANX-Setup-3.6.2.exe" data-v="dlHref" download><span class="lbl">Download LANX <span data-v="version">3.6.2</span></span></a>
-      <p class="meta"><span data-v="size">22.4 MB</span> · Windows 10/11 · free</p>
+      <a class="btn btn-lg" href="/files/LANX-Setup-3.11.0.exe" data-v="dlHref" download><span class="lbl">Download LANX <span data-v="version">3.11.0</span></span></a>
+      <p class="meta"><span data-v="size">23.9 MB</span> · Windows 10/11 · free</p>
     </section>
   </main>
 
@@ -622,7 +680,7 @@
     </div>
     <div class="foot-links">
       <a href="https://github.com/adi6499/LANX" rel="noopener">Source code</a>
-      <a href="/files/LANX-Setup-3.6.2.exe.sha256.txt" data-v="shaHref" download>Checksum</a>
+      <a href="/files/LANX-Setup-3.11.0.exe.sha256.txt" data-v="shaHref" download>Checksum</a>
       <a href="/version.json">Version info</a>
     </div>
     <div class="muted">© 2026 LANX · No tracking on this page.</div>

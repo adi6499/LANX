@@ -442,3 +442,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
   .status i { animation: none; }
   .btn, .card { transition: none; }
 }
+
+/* LANX 3.11: the one-line Linux install */
+.dl-card.oneline { margin-bottom: 16px; }
+.dl-card.oneline .cmd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dl-card.oneline .cmd code { flex: 1 1 320px; overflow-x: auto; white-space: nowrap; padding: 10px 12px; background: var(--bg-3); border: 1px solid var(--line-2); font-size: 14px; color: var(--fg); }

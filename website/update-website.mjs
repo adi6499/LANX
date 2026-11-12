@@ -93,9 +93,10 @@ const linuxVersions = fs.readdirSync(path.dirname(src))
   .sort((a, b) => newer(semver("LANX-Setup-" + b + ".exe"), semver("LANX-Setup-" + a + ".exe")));
 const linuxVersion = linuxVersions.includes(version) ? version : linuxVersions[0];
 if (linuxVersion && linuxVersion !== version) console.log(`  note          no Linux files for ${version}; the website keeps Linux ${linuxVersion}`);
-for (const [key, ext] of [["deb", "deb"], ["appimage", "AppImage"]]) {
+// (LANX 3.11: a Fedora .rpm too.)
+for (const [key, suffix] of [["deb", "linux-amd64.deb"], ["rpm", "linux-x86_64.rpm"], ["appimage", "linux-amd64.AppImage"]]) {
   if (!linuxVersion) break;
-  const lname = `LANX-${linuxVersion}-linux-amd64.${ext}`;
+  const lname = `LANX-${linuxVersion}-${suffix}`;
   const lsrc = path.join(path.dirname(src), lname);
   if (!fs.existsSync(lsrc)) continue;
   const lbytes = fs.readFileSync(lsrc);
@@ -161,12 +162,16 @@ if (linux.deb) {
   setText("debSha", linux.deb.sha256);
   html = html.replace(/href="[^"]*"(\s+data-v="debHref")/g, `href="${linux.deb.file}"$1`);
 }
+if (linux.rpm) {
+  setText("rpmSize", linux.rpm.size);
+  html = html.replace(/href="[^"]*"(\s+data-v="rpmHref")/g, `href="${linux.rpm.file}"$1`);
+}
 if (linux.appimage) {
   setText("appSize", linux.appimage.size);
   setText("appSha", linux.appimage.sha256);
   html = html.replace(/href="[^"]*"(\s+data-v="appHref")/g, `href="${linux.appimage.file}"$1`);
 }
-for (const [key, attr] of [["deb", "data-linux-deb"], ["appimage", "data-linux-appimage"]]) {
+for (const [key, attr] of [["deb", "data-linux-deb"], ["rpm", "data-linux-rpm"], ["appimage", "data-linux-appimage"]]) {
   html = linux[key]
     ? html.replace(new RegExp(`(${attr})\\s+hidden`, "g"), "$1")
     : html.replace(new RegExp(`(${attr})(?!\\s+hidden)`, "g"), "$1 hidden");
@@ -177,6 +182,14 @@ html = Object.keys(linux).length
   : html.replace(/(data-linux-only)(?!\s+hidden)/g, "$1 hidden");
 fs.writeFileSync(htmlPath, html);
 console.log(`  updated       index.html`);
+// LANX 3.11: the one-line Linux installer (curl -fsSL <site>/install.sh | sh).
+// (Next to the app's release folder: LANAPPLICATIONlinuxinstall.sh, or this repository's own linux.)
+const installer = [path.join(path.dirname(src), "..", "linux", "install.sh"), path.join(here, "..", "linux", "install.sh")].find((p) => fs.existsSync(p));
+if (installer) {
+  // (Unix line ends: a shell reading "\r" fails.)
+  fs.writeFileSync(path.join(here, "install.sh"), fs.readFileSync(installer, "utf8").replace(/\r\n/g, "\n"));
+  console.log(`  copied        install.sh`);
+}
 
 // 5. vercel.json — the /download and /latest links. There are two copies:
 //    website/vercel.json (used when Vercel's Root Directory is "website") and
