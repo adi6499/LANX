@@ -6,3 +6,5 @@ linux/Dockerfile text eol=lf
 *.sig -text
 *.deb binary
 *.AppImage binary
+*.rpm binary
+*.desktop text eol=lf

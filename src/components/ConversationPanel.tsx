@@ -151,15 +151,40 @@ interface ConversationPanelProps {
 const QUICK_EMOJIS = ["👍", "🙏", "✅", "👋", "😀", "🎉", "🔥", "❤️", "⚡", "📎"];
 const NAME_COLORS = ["text-indigo-600", "text-emerald-600", "text-pink-600", "text-amber-600", "text-sky-600", "text-violet-600"];
 
+/** LANX 3.11: made once. A new date format for every message on every draw was a
+ *  good part of the time a long chat took to open. */
+const TIME_FMT = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
+const DAY_FMT = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const NO_MESSAGES: Message[] = [];
+/** A chat opens on its newest messages; scrolling up shows this many more each time. */
+const SHOW_PAGE = 120;
+const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
 function dayLabel(ts: number): string {
   const d = new Date(ts * 1000);
   const today = new Date();
-  const yesterday = new Date();
+  if (sameDay(d, today)) return "Today";
+  const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return "Today";
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  if (sameDay(d, yesterday)) return "Yesterday";
+  return DAY_FMT.format(d);
 }
+
+/** An object whose functions always call the newest version of `get()`'s (one that is
+ *  missing stays missing): a list kept from an earlier draw never calls an old handler. */
+function delegate<T extends object>(get: () => T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(get())) {
+    out[k] = typeof v === "function" ? (...a: unknown[]) => (get() as Record<string, ((...x: unknown[]) => unknown) | undefined>)[k]?.(...a) : v;
+  }
+  return out as T;
+}
+
+/** The handlers the kept message list calls (always this draw's). */
+type LiveHandlers = Pick<ConversationPanelProps, "transferActions" | "onMessageChanged" | "onError" | "onMeeting" | "onRemoteHelp" | "onRejoinMeeting" | "onRetryMessage" | "onCall"> & {
+  actions: MessageActions;
+  jumpToMessage: (id: string) => boolean;
+};
 
 function countdown(secs: number): string {
   if (secs <= 0) return "now";
@@ -288,6 +313,41 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   }
   const justOpened = () => Date.now() - opened.current.at < 700;
 
+  // LANX 3.11: a chat shows its newest messages; older ones as you scroll up (drawing a
+  // whole long history at once froze LANX for seconds). While the next chat's messages
+  // load, the last chat's aren't drawn under its name.
+  const [more, setMore] = useState({ conv: "", n: 0 });
+  const extra = conversation && more.conv === conversation.id ? more.n : 0;
+  const loadingOther = !!conversation && messages.length > 0 && messages[0].conversation_id !== conversation.id;
+  const list = loadingOther ? NO_MESSAGES : messages;
+  const firstShown = Math.max(0, list.length - (SHOW_PAGE + extra));
+  const listRef = useRef<HTMLDivElement>(null);
+  const keepPlace = useRef<{ height: number; top: number } | null>(null);
+  const pendingJump = useRef<string | null>(null);
+  const jumpRef = useRef<(id: string) => boolean>(() => false);
+  const latest = useRef({ list, conv: "", extra });
+  latest.current = { list, conv: conversation?.id ?? "", extra };
+  const live = useRef<LiveHandlers | null>(null);
+  const listCache = useRef<{ deps: unknown[]; node: React.ReactNode } | null>(null);
+  const showEarlier = () => {
+    const el = listRef.current;
+    if (!conversation || firstShown === 0 || keepPlace.current) return;
+    if (el) keepPlace.current = { height: el.scrollHeight, top: el.scrollTop };
+    setMore({ conv: conversation.id, n: extra + SHOW_PAGE });
+  };
+  // Earlier messages were added above: the view stays where it was (and a pending jump goes).
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    const k = keepPlace.current;
+    keepPlace.current = null;
+    if (el && k) el.scrollTop = k.top + (el.scrollHeight - k.height);
+    const id = pendingJump.current;
+    if (id) {
+      pendingJump.current = null;
+      jumpRef.current(id);
+    }
+  }, [extra]);
+
   // Opening a chat jumps to the newest message; new messages scroll in smoothly.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: justOpened() ? "auto" : "smooth" });
@@ -367,11 +427,21 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   /** Scrolls to a message and makes it glow for a moment. */
   const jumpToMessage = useCallback((id: string) => {
     const el = rootRef.current?.querySelector(`[data-msg="${CSS.escape(id)}"]`) as HTMLElement | null;
-    if (!el) return false;
+    if (!el) {
+      // An older message, not drawn yet: show back to it, then jump (LANX 3.11).
+      const { list: all, conv, extra: now } = latest.current;
+      const idx = all.findIndex((m) => m.id === id);
+      const need = idx < 0 ? 0 : all.length - idx + 20 - SHOW_PAGE;
+      if (idx < 0 || !conv || need <= now) return false;
+      pendingJump.current = id;
+      setMore({ conv, n: need });
+      return true;
+    }
     el.scrollIntoView({ block: "center", behavior: lessMotion() ? "auto" : "smooth" });
     el.animate([{ backgroundColor: "rgba(250, 204, 21, 0.35)" }, { backgroundColor: "rgba(250, 204, 21, 0)" }], { duration: 1800, easing: "ease-out" });
     return true;
   }, []);
+  jumpRef.current = jumpToMessage;
   useEffect(() => {
     if (!jumpTo) return;
     const t = window.setTimeout(() => {
@@ -399,7 +469,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   }, [ringPulse]);
 
   // Secret messages count down once read.
-  const hasTimers = messages.some((m) => m.ttl_secs && m.expire_at);
+  const hasTimers = list.some((m) => m.ttl_secs && m.expire_at);
   useEffect(() => {
     if (!hasTimers) return;
     const t = setInterval(() => setTick((x) => x + 1), 1000);
@@ -644,10 +714,16 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const formatMessageTime = (ts: number) =>
-    new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const formatMessageTime = (ts: number) => TIME_FMT.format(ts * 1000);
 
-  const lastReadId = [...messages].reverse().find((m) => m.is_outgoing && m.status === "read" && m.message_type === "text")?.id;
+  let lastReadId: string | undefined;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (m.is_outgoing && m.status === "read" && m.message_type === "text") {
+      lastReadId = m.id;
+      break;
+    }
+  }
 
   const statusIcon = (msg: Message) => {
     if (isGroup && msg.deliveries) {
@@ -688,7 +764,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         return (
           <button
             type="button"
-            onClick={() => onRetryMessage(msg.id)}
+            onClick={() => live.current?.onRetryMessage(msg.id)}
             title={msg.error_reason || "Not delivered. Click to retry."}
             className="inline-flex items-center gap-1 text-red-100 hover:text-white hover:underline"
           >
@@ -763,7 +839,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           {callBack && !blocked && (
             <button
               type="button"
-              onClick={() => onCall(!!v.video)}
+              onClick={() => live.current?.onCall(!!v.video)}
               className="ml-1 rounded-full bg-sky-500/10 px-2 py-0.5 font-semibold text-sky-600 dark:text-sky-400 hover:bg-sky-500/20"
             >
               Call back
@@ -785,9 +861,6 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     return null;
   };
 
-  let lastDay = "";
-  let lastSender = "";
-
   const toolCls = "lanx-tool p-2 text-slate-600 dark:text-slate-300 transition-colors disabled:opacity-40";
 
   /** How a message enters: yours spring up, theirs pop in (decided once per message). */
@@ -799,6 +872,291 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
     }
     return k;
   };
+
+  // LANX 3.11: the message list, drawn again only when what it shows changes — not for
+  // every key typed, menu opened or second ticked (the main cause of lag in long chats).
+  live.current = { actions, transferActions, onMessageChanged, onError, onMeeting, onRemoteHelp, onRejoinMeeting, onRetryMessage, onCall, jumpToMessage };
+  const renderList = (): React.ReactNode => {
+    if (loadingOther) return null;
+    // (Handlers read when used, so a kept list never calls an old one.)
+    const actions = delegate(() => live.current!.actions);
+    const transferActions = delegate(() => live.current!.transferActions);
+    const onMessageChanged = (m: Message) => live.current?.onMessageChanged?.(m);
+    const onError = (text: string) => live.current?.onError?.(text);
+    const onMeeting = (video: boolean) => live.current?.onMeeting?.(video);
+    const onRemoteHelp = (help: "view" | "show") => live.current?.onRemoteHelp?.(help);
+    const onRejoinMeeting = (id: string) => live.current?.onRejoinMeeting?.(id);
+    const jumpToMessage = (id: string) => live.current?.jumpToMessage(id) ?? false;
+    const byId = new Map(list.map((m) => [m.id, m] as const));
+    const shown = firstShown > 0 ? list.slice(firstShown) : list;
+    let lastDay = "";
+    let lastSender = "";
+    return (
+      <>
+        {firstShown > 0 && (
+          <div className="flex justify-center py-1">
+            <button
+              type="button"
+              data-show-earlier
+              onClick={showEarlier}
+              className="rounded-full lanx-chip px-3 py-1 text-[11px] font-medium text-slate-500 dark:text-slate-300 hover:text-sky-600"
+            >
+              Show earlier messages ({firstShown})
+            </button>
+          </div>
+        )}
+          {list.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 text-xs text-slate-400">
+              <div className="h-14 w-14 rounded-full lanx-card flex items-center justify-center text-slate-400 mb-3 lanx-float">
+                {isGroup ? <Users className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
+              </div>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Say hello to {conversation.peer_name}</p>
+              <p className="mt-1 text-slate-500 dark:text-slate-400 max-w-xs">
+                Messages and files go directly across your office network, encrypted. Drag files here, or paste a screenshot with Ctrl+V.
+              </p>
+            </div>
+          ) : (
+            shown.map((msg) => {
+              const isOut = msg.is_outgoing;
+              const day = dayLabel(msg.timestamp);
+              const showDay = day !== lastDay;
+              lastDay = day;
+              if (msg.message_type === "card" && !msg.deleted) {
+                const out = msg.is_outgoing;
+                const showName = isGroup && !out && (msg.sender_id !== lastSender || showDay);
+                lastSender = out ? "" : msg.sender_id;
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDay && <DaySeparator day={day} />}
+                    <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${out ? "items-end" : "items-start"}`}>
+                      {showName && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
+                      <div className="relative">
+                        <CardView
+                          msg={msg}
+                          myId={myId ?? ""}
+                          nameOf={nameOf}
+                          onChanged={(m) => onMessageChanged?.(m)}
+                          onError={(t) => onError?.(t)}
+                          onStartMeeting={() => onMeeting?.(true)}
+                          onRemoteHelp={() => onRemoteHelp?.("view")}
+                          onJump={(id) => jumpToMessage(id)}
+                          canAct={!blocked && !outOfGroup}
+                        />
+                        <MessageTools msg={msg} isOut={out} actions={actions} canAct={!blocked && !outOfGroup} />
+                      </div>
+                      <div className={`mt-0.5 flex items-center gap-1.5 px-2 text-[10px] text-slate-400 ${out ? "justify-end" : ""}`}>
+                        {msg.pinned_at && <Pin className="h-3 w-3 rotate-45" />}
+                        {msg.starred && <Star className="h-3 w-3 fill-current" />}
+                        {msg.remind_at && (
+                          <span title={`Reminder: ${whenText(msg.remind_at)}`}>
+                            <AlarmClock className="h-3 w-3" />
+                          </span>
+                        )}
+                        <span>{formatMessageTime(msg.timestamp)}</span>
+                        {out && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
+                      </div>
+                      <ReactionChips reactions={msg.reactions ?? []} isOut={out} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
+                    </div>
+                  </React.Fragment>
+                );
+              }
+              if (msg.message_type === "meeting" || msg.message_type === "recording") {
+                lastSender = "";
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDay && <DaySeparator day={day} />}
+                    <div className="flex justify-center lanx-fade py-1">
+                      {msg.message_type === "meeting" ? (
+                        <MeetingCard msg={msg} myId={myId} onRejoin={(id) => onRejoinMeeting?.(id)} />
+                      ) : (
+                        <RecordingCard msg={msg} onError={(t) => onError?.(t)} />
+                      )}
+                    </div>
+                  </React.Fragment>
+                );
+              }
+              if (msg.message_type === "sticker" && !msg.deleted) {
+                const out = msg.is_outgoing;
+                const showName = isGroup && !out && (msg.sender_id !== lastSender || showDay);
+                lastSender = out ? "" : msg.sender_id;
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDay && <DaySeparator day={day} />}
+                    <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${out ? "items-end" : "items-start"}`}>
+                      {showName && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
+                      <div className="relative">
+                        <StickerBubble id={msg.content} isOut={out} />
+                        <MessageTools msg={msg} isOut={out} actions={actions} canAct={!blocked && !outOfGroup} />
+                      </div>
+                      <div className={`mt-0.5 flex items-center gap-1.5 px-2 text-[10px] text-slate-400 ${out ? "justify-end" : ""}`}>
+                        {msg.starred && <Star className="h-3 w-3 fill-current" />}
+                        <span>{formatMessageTime(msg.timestamp)}</span>
+                        {out && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
+                      </div>
+                      <ReactionChips reactions={msg.reactions ?? []} isOut={out} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
+                    </div>
+                  </React.Fragment>
+                );
+              }
+              const line = eventLine(msg);
+              if (line) {
+                lastSender = "";
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDay && <DaySeparator day={day} />}
+                    <div className="flex justify-center lanx-fade">
+                      <span className="max-w-md text-center px-3 py-1 rounded-full lanx-chip text-[11px] text-slate-500 dark:text-slate-300">
+                        {line}
+                      </span>
+                    </div>
+                  </React.Fragment>
+                );
+              }
+              const isFile = msg.message_type === "file";
+              const showSender = isGroup && !isOut && (msg.sender_id !== lastSender || showDay);
+              lastSender = isOut ? "" : msg.sender_id;
+              const transfer = msg.transfer_id ? transfers[msg.transfer_id] : undefined;
+              const groupCopies = isFile && isGroup && isOut && msg.transfer_id ? transfersByParent[msg.transfer_id] ?? [] : null;
+              const isSecret = !!msg.ttl_secs;
+              const left = msg.expire_at ? msg.expire_at - nowSecs : null;
+              const timerRunning = isSecret && left !== null && left <= (msg.ttl_secs ?? 0) + 2;
+              // LANX 1.5.0
+              const isVoice = isFile && (transfer?.kind === "voice" || (groupCopies?.[0]?.kind === "voice") || msg.content.startsWith("🎤 Voice note"));
+              const voiceT = groupCopies?.[0] ?? transfer;
+              const mentionsMe = !isOut && !!myId && !!msg.mentions?.includes(myId);
+              const original = msg.reply_to ? byId.get(msg.reply_to) : undefined;
+              const quote = msg.reply_to ? (original ? `${senderName(original)}: ${previewOf(original)}` : msg.reply_preview || "Original message") : null;
+              const mentionNames = (msg.mentions ?? []).map((id) => (id === myId ? myName : members.find((m) => m.id === id)?.name ?? peerName(id)));
+              if (msg.deleted) {
+                return (
+                  <React.Fragment key={msg.id}>
+                    {showDay && <DaySeparator day={day} />}
+                    <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${isOut ? "items-end" : "items-start"}`}>
+                      {showSender && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
+                      <div data-deleted className="relative rounded-[18px] px-3.5 py-2 text-[12.5px] italic text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700 inline-flex items-center gap-1.5">
+                        <Ban className="h-3.5 w-3.5" /> {isOut ? "You deleted this message" : "This message was deleted"}
+                        <span className="not-italic text-[10px] ml-1">{formatMessageTime(msg.timestamp)}</span>
+                        <button type="button" title="Remove from this computer" onClick={() => actions.deleteMe(msg)} className="opacity-0 group-hover:opacity-100 ml-1 text-slate-400 hover:text-red-500">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </React.Fragment>
+                );
+              }
+              return (
+                <React.Fragment key={msg.id}>
+                  {showDay && <DaySeparator day={day} />}
+                  <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${isOut ? "items-end" : "items-start"}`}>
+                    {showSender && (
+                      <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>
+                    )}
+                    <div
+                      data-bubble
+                      data-mentions-me={mentionsMe ? "1" : undefined}
+                      className={`relative max-w-lg rounded-[18px] px-3.5 py-2 text-[13px] ${mentionsMe ? "ring-2 ring-amber-400/70" : ""} ${
+                        isSecret
+                          ? isOut
+                            ? "bg-violet-600 text-white rounded-br-[6px] shadow-sm"
+                            : "bg-violet-50 dark:bg-violet-950/60 text-slate-900 dark:text-slate-100 border border-violet-200 dark:border-violet-900 rounded-bl-[6px]"
+                          : isOut
+                            ? "bg-sky-500 text-white rounded-br-[6px] shadow-sm shadow-sky-500/20"
+                            : "lanx-bubble-in text-slate-900 dark:text-slate-100 rounded-bl-[6px]"
+                      }`}
+                    >
+                      {quote && (
+                        <button
+                          type="button"
+                          data-reply-quote
+                          onClick={() => msg.reply_to && jumpToMessage(msg.reply_to)}
+                          className={`mb-1.5 block w-full max-w-sm text-left rounded-lg border-l-[3px] px-2 py-1 text-[11.5px] ${
+                            isOut ? "border-white/70 bg-white/15 text-white/90" : "border-sky-500 bg-sky-500/10 text-slate-600 dark:text-slate-300"
+                          }`}
+                        >
+                          <span className="line-clamp-2 break-words">{quote}</span>
+                        </button>
+                      )}
+                      {isVoice ? (
+                        <VoiceNote
+                          transferId={voiceT?.id ?? null}
+                          durationMs={voiceMsFromLabel(msg.content)}
+                          state={
+                            !voiceT
+                              ? "arriving"
+                              : voiceT.direction === "outgoing" || voiceT.status === "completed"
+                                ? "ready"
+                                : ["failed", "cancelled", "declined"].includes(voiceT.status)
+                                  ? "failed"
+                                  : "arriving"
+                          }
+                          progress={voiceT ? (progress[voiceT.id] ? (progress[voiceT.id].transferred_bytes / Math.max(1, progress[voiceT.id].file_size)) * 100 : undefined) : undefined}
+                          onAccent={isOut}
+                        />
+                      ) : groupCopies ? (
+                        <GroupFileCard transfers={groupCopies} fallbackName={msg.content.replace(/^(📎|📁)\s*/u, "")} progress={progress} actions={transferActions} />
+                      ) : isFile ? (
+                        <FileCard
+                          transfer={transfer}
+                          fallbackName={msg.content.replace(/^(📎|📁)\s*/u, "")}
+                          progress={msg.transfer_id ? progress[msg.transfer_id] : undefined}
+                          actions={transferActions}
+                          onAccent={isOut}
+                        />
+                      ) : (
+                        <p className={`whitespace-pre-wrap break-words leading-relaxed ${isSecret ? "select-none" : "select-text"}`}>
+                          {isForwarded(msg.content) && (
+                            <span data-forwarded className={`mb-0.5 flex items-center gap-1 text-[10.5px] italic ${isOut ? "text-white/75" : "text-slate-400"}`}>
+                              <Forward className="h-3 w-3" /> Forwarded
+                            </span>
+                          )}
+                          <MessageText text={withoutForwardMark(msg.content)} names={mentionNames} myName={myName} onAccent={isOut} />
+                        </p>
+                      )}
+  
+                      <div
+                        className={`mt-0.5 flex items-center justify-end gap-1.5 text-[10px] ${
+                          isOut ? (isSecret ? "text-violet-100/90" : "text-white/75") : "text-slate-400"
+                        }`}
+                      >
+                        {isSecret && (
+                          <span className="inline-flex items-center gap-0.5" title={`Disappears ${secretLabel(msg.ttl_secs!)} after it's read`}>
+                            <Timer className="h-3 w-3" />
+                            {timerRunning ? countdown(Math.max(0, left!)) : "secret"}
+                          </span>
+                        )}
+                        {msg.pinned_at && <Pin className="h-3 w-3 rotate-45" aria-label="Pinned" />}
+                        {msg.starred && <Star className="h-3 w-3 fill-current" aria-label="Starred" data-starred-mark />}
+                        {msg.remind_at && (
+                          <span className="inline-flex items-center gap-0.5" title={`Reminder: ${whenText(msg.remind_at)}`} data-reminder-mark>
+                            <AlarmClock className="h-3 w-3" />
+                          </span>
+                        )}
+                        {msg.edited_at && <span data-edited>edited</span>}
+                        <span>{formatMessageTime(msg.timestamp)}</span>
+                        {isOut && !isFile && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
+                      </div>
+  
+                      <MessageTools msg={msg} isOut={isOut} actions={actions} canAct={!blocked && !outOfGroup} />
+                    </div>
+                    <ReactionChips reactions={msg.reactions ?? []} isOut={isOut} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
+                    {isOut && msg.status === "queued" && msg.error_reason && !isFile && !isGroup && (
+                      <span className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{msg.error_reason}</span>
+                    )}
+                    {isOut && msg.status === "failed" && msg.error_reason && !isFile && (
+                      <span className="mt-0.5 text-[10px] text-red-500">{msg.error_reason}</span>
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            })
+          )}
+      </>
+    );
+  };
+  const listDeps: unknown[] = [conversation.id, conversation.peer_name, isGroup, blocked, outOfGroup, list, firstShown, transfers, transfersByParent, progress, peers, rawMembers, myId, myName, hasTimers ? nowSecs : 0, !!onForward, !!onSaveNote, !!onShareWhatsApp];
+  const kept = listCache.current;
+  const listBody = kept && kept.deps.length === listDeps.length && kept.deps.every((d, i) => Object.is(d, listDeps[i])) ? kept.node : renderList();
+  listCache.current = { deps: listDeps, node: listBody };
 
   return (
     <div
@@ -1135,7 +1493,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             {!isGroup && <span className="font-mono text-[10px] opacity-70">TCP :{peer?.tcp_port || 52926}</span>}
           </div>
           <PinnedBar
-            pinned={messages.filter((m) => m.pinned_at && !m.deleted).sort((a, b) => (b.pinned_at ?? 0) - (a.pinned_at ?? 0))}
+            pinned={list.filter((m) => m.pinned_at && !m.deleted).sort((a, b) => (b.pinned_at ?? 0) - (a.pinned_at ?? 0))}
             label={(m) => `${senderName(m)}: ${previewOf(m)}`}
             onJump={(m) => jumpToMessage(m.id)}
             onUnpin={(m) => actions.pin(m, false)}
@@ -1172,6 +1530,10 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 
       {/* Messages: run the full height, under the glass header and message box */}
       <div
+        ref={listRef}
+        onScroll={(e) => {
+          if (e.currentTarget.scrollTop < 400 && firstShown > 0) showEarlier();
+        }}
         className="absolute inset-0 overflow-y-auto px-6 lanx-under"
         style={
           {
@@ -1184,251 +1546,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         onClick={() => setSecretMenu(false)}
       >
         <div key={conversation.id} className="min-h-full space-y-2.5 lanx-chat-in">
-        {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-xs text-slate-400">
-            <div className="h-14 w-14 rounded-full lanx-card flex items-center justify-center text-slate-400 mb-3 lanx-float">
-              {isGroup ? <Users className="h-6 w-6" /> : <Lock className="h-6 w-6" />}
-            </div>
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Say hello to {conversation.peer_name}</p>
-            <p className="mt-1 text-slate-500 dark:text-slate-400 max-w-xs">
-              Messages and files go directly across your office network, encrypted. Drag files here, or paste a screenshot with Ctrl+V.
-            </p>
-          </div>
-        ) : (
-          messages.map((msg) => {
-            const isOut = msg.is_outgoing;
-            const day = dayLabel(msg.timestamp);
-            const showDay = day !== lastDay;
-            lastDay = day;
-            if (msg.message_type === "card" && !msg.deleted) {
-              const out = msg.is_outgoing;
-              const showName = isGroup && !out && (msg.sender_id !== lastSender || showDay);
-              lastSender = out ? "" : msg.sender_id;
-              return (
-                <React.Fragment key={msg.id}>
-                  {showDay && <DaySeparator day={day} />}
-                  <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${out ? "items-end" : "items-start"}`}>
-                    {showName && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
-                    <div className="relative">
-                      <CardView
-                        msg={msg}
-                        myId={myId ?? ""}
-                        nameOf={nameOf}
-                        onChanged={(m) => onMessageChanged?.(m)}
-                        onError={(t) => onError?.(t)}
-                        onStartMeeting={() => onMeeting?.(true)}
-                        onRemoteHelp={() => onRemoteHelp?.("view")}
-                        onJump={(id) => jumpToMessage(id)}
-                        canAct={!blocked && !outOfGroup}
-                      />
-                      <MessageTools msg={msg} isOut={out} actions={actions} canAct={!blocked && !outOfGroup} />
-                    </div>
-                    <div className={`mt-0.5 flex items-center gap-1.5 px-2 text-[10px] text-slate-400 ${out ? "justify-end" : ""}`}>
-                      {msg.pinned_at && <Pin className="h-3 w-3 rotate-45" />}
-                      {msg.starred && <Star className="h-3 w-3 fill-current" />}
-                      {msg.remind_at && (
-                        <span title={`Reminder: ${whenText(msg.remind_at)}`}>
-                          <AlarmClock className="h-3 w-3" />
-                        </span>
-                      )}
-                      <span>{formatMessageTime(msg.timestamp)}</span>
-                      {out && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
-                    </div>
-                    <ReactionChips reactions={msg.reactions ?? []} isOut={out} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
-                  </div>
-                </React.Fragment>
-              );
-            }
-            if (msg.message_type === "meeting" || msg.message_type === "recording") {
-              lastSender = "";
-              return (
-                <React.Fragment key={msg.id}>
-                  {showDay && <DaySeparator day={day} />}
-                  <div className="flex justify-center lanx-fade py-1">
-                    {msg.message_type === "meeting" ? (
-                      <MeetingCard msg={msg} myId={myId} onRejoin={(id) => onRejoinMeeting?.(id)} />
-                    ) : (
-                      <RecordingCard msg={msg} onError={(t) => onError?.(t)} />
-                    )}
-                  </div>
-                </React.Fragment>
-              );
-            }
-            if (msg.message_type === "sticker" && !msg.deleted) {
-              const out = msg.is_outgoing;
-              const showName = isGroup && !out && (msg.sender_id !== lastSender || showDay);
-              lastSender = out ? "" : msg.sender_id;
-              return (
-                <React.Fragment key={msg.id}>
-                  {showDay && <DaySeparator day={day} />}
-                  <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${out ? "items-end" : "items-start"}`}>
-                    {showName && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
-                    <div className="relative">
-                      <StickerBubble id={msg.content} isOut={out} />
-                      <MessageTools msg={msg} isOut={out} actions={actions} canAct={!blocked && !outOfGroup} />
-                    </div>
-                    <div className={`mt-0.5 flex items-center gap-1.5 px-2 text-[10px] text-slate-400 ${out ? "justify-end" : ""}`}>
-                      {msg.starred && <Star className="h-3 w-3 fill-current" />}
-                      <span>{formatMessageTime(msg.timestamp)}</span>
-                      {out && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
-                    </div>
-                    <ReactionChips reactions={msg.reactions ?? []} isOut={out} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
-                  </div>
-                </React.Fragment>
-              );
-            }
-            const line = eventLine(msg);
-            if (line) {
-              lastSender = "";
-              return (
-                <React.Fragment key={msg.id}>
-                  {showDay && <DaySeparator day={day} />}
-                  <div className="flex justify-center lanx-fade">
-                    <span className="max-w-md text-center px-3 py-1 rounded-full lanx-chip text-[11px] text-slate-500 dark:text-slate-300">
-                      {line}
-                    </span>
-                  </div>
-                </React.Fragment>
-              );
-            }
-            const isFile = msg.message_type === "file";
-            const showSender = isGroup && !isOut && (msg.sender_id !== lastSender || showDay);
-            lastSender = isOut ? "" : msg.sender_id;
-            const transfer = msg.transfer_id ? transfers[msg.transfer_id] : undefined;
-            const groupCopies = isFile && isGroup && isOut && msg.transfer_id ? transfersByParent[msg.transfer_id] ?? [] : null;
-            const isSecret = !!msg.ttl_secs;
-            const left = msg.expire_at ? msg.expire_at - nowSecs : null;
-            const timerRunning = isSecret && left !== null && left <= (msg.ttl_secs ?? 0) + 2;
-            // LANX 1.5.0
-            const isVoice = isFile && (transfer?.kind === "voice" || (groupCopies?.[0]?.kind === "voice") || msg.content.startsWith("🎤 Voice note"));
-            const voiceT = groupCopies?.[0] ?? transfer;
-            const mentionsMe = !isOut && !!myId && !!msg.mentions?.includes(myId);
-            const original = msg.reply_to ? messages.find((x) => x.id === msg.reply_to) : undefined;
-            const quote = msg.reply_to ? (original ? `${senderName(original)}: ${previewOf(original)}` : msg.reply_preview || "Original message") : null;
-            const mentionNames = (msg.mentions ?? []).map((id) => (id === myId ? myName : members.find((m) => m.id === id)?.name ?? peerName(id)));
-            if (msg.deleted) {
-              return (
-                <React.Fragment key={msg.id}>
-                  {showDay && <DaySeparator day={day} />}
-                  <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${isOut ? "items-end" : "items-start"}`}>
-                    {showSender && <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>}
-                    <div data-deleted className="relative rounded-[18px] px-3.5 py-2 text-[12.5px] italic text-slate-400 dark:text-slate-500 border border-dashed border-slate-300 dark:border-slate-700 inline-flex items-center gap-1.5">
-                      <Ban className="h-3.5 w-3.5" /> {isOut ? "You deleted this message" : "This message was deleted"}
-                      <span className="not-italic text-[10px] ml-1">{formatMessageTime(msg.timestamp)}</span>
-                      <button type="button" title="Remove from this computer" onClick={() => actions.deleteMe(msg)} className="opacity-0 group-hover:opacity-100 ml-1 text-slate-400 hover:text-red-500">
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                </React.Fragment>
-              );
-            }
-            return (
-              <React.Fragment key={msg.id}>
-                {showDay && <DaySeparator day={day} />}
-                <div data-msg={msg.id} className={`flex flex-col group rounded-xl ${enterClass(msg)} ${isOut ? "items-end" : "items-start"}`}>
-                  {showSender && (
-                    <span className={`ml-3 mb-0.5 text-[11px] font-semibold ${nameColor(msg.sender_id)}`}>{peerName(msg.sender_id)}</span>
-                  )}
-                  <div
-                    data-bubble
-                    data-mentions-me={mentionsMe ? "1" : undefined}
-                    className={`relative max-w-lg rounded-[18px] px-3.5 py-2 text-[13px] ${mentionsMe ? "ring-2 ring-amber-400/70" : ""} ${
-                      isSecret
-                        ? isOut
-                          ? "bg-violet-600 text-white rounded-br-[6px] shadow-sm"
-                          : "bg-violet-50 dark:bg-violet-950/60 text-slate-900 dark:text-slate-100 border border-violet-200 dark:border-violet-900 rounded-bl-[6px]"
-                        : isOut
-                          ? "bg-sky-500 text-white rounded-br-[6px] shadow-sm shadow-sky-500/20"
-                          : "lanx-bubble-in text-slate-900 dark:text-slate-100 rounded-bl-[6px]"
-                    }`}
-                  >
-                    {quote && (
-                      <button
-                        type="button"
-                        data-reply-quote
-                        onClick={() => msg.reply_to && jumpToMessage(msg.reply_to)}
-                        className={`mb-1.5 block w-full max-w-sm text-left rounded-lg border-l-[3px] px-2 py-1 text-[11.5px] ${
-                          isOut ? "border-white/70 bg-white/15 text-white/90" : "border-sky-500 bg-sky-500/10 text-slate-600 dark:text-slate-300"
-                        }`}
-                      >
-                        <span className="line-clamp-2 break-words">{quote}</span>
-                      </button>
-                    )}
-                    {isVoice ? (
-                      <VoiceNote
-                        transferId={voiceT?.id ?? null}
-                        durationMs={voiceMsFromLabel(msg.content)}
-                        state={
-                          !voiceT
-                            ? "arriving"
-                            : voiceT.direction === "outgoing" || voiceT.status === "completed"
-                              ? "ready"
-                              : ["failed", "cancelled", "declined"].includes(voiceT.status)
-                                ? "failed"
-                                : "arriving"
-                        }
-                        progress={voiceT ? (progress[voiceT.id] ? (progress[voiceT.id].transferred_bytes / Math.max(1, progress[voiceT.id].file_size)) * 100 : undefined) : undefined}
-                        onAccent={isOut}
-                      />
-                    ) : groupCopies ? (
-                      <GroupFileCard transfers={groupCopies} fallbackName={msg.content.replace(/^(📎|📁)\s*/u, "")} progress={progress} actions={transferActions} />
-                    ) : isFile ? (
-                      <FileCard
-                        transfer={transfer}
-                        fallbackName={msg.content.replace(/^(📎|📁)\s*/u, "")}
-                        progress={msg.transfer_id ? progress[msg.transfer_id] : undefined}
-                        actions={transferActions}
-                        onAccent={isOut}
-                      />
-                    ) : (
-                      <p className={`whitespace-pre-wrap break-words leading-relaxed ${isSecret ? "select-none" : "select-text"}`}>
-                        {isForwarded(msg.content) && (
-                          <span data-forwarded className={`mb-0.5 flex items-center gap-1 text-[10.5px] italic ${isOut ? "text-white/75" : "text-slate-400"}`}>
-                            <Forward className="h-3 w-3" /> Forwarded
-                          </span>
-                        )}
-                        <MessageText text={withoutForwardMark(msg.content)} names={mentionNames} myName={myName} onAccent={isOut} />
-                      </p>
-                    )}
-
-                    <div
-                      className={`mt-0.5 flex items-center justify-end gap-1.5 text-[10px] ${
-                        isOut ? (isSecret ? "text-violet-100/90" : "text-white/75") : "text-slate-400"
-                      }`}
-                    >
-                      {isSecret && (
-                        <span className="inline-flex items-center gap-0.5" title={`Disappears ${secretLabel(msg.ttl_secs!)} after it's read`}>
-                          <Timer className="h-3 w-3" />
-                          {timerRunning ? countdown(Math.max(0, left!)) : "secret"}
-                        </span>
-                      )}
-                      {msg.pinned_at && <Pin className="h-3 w-3 rotate-45" aria-label="Pinned" />}
-                      {msg.starred && <Star className="h-3 w-3 fill-current" aria-label="Starred" data-starred-mark />}
-                      {msg.remind_at && (
-                        <span className="inline-flex items-center gap-0.5" title={`Reminder: ${whenText(msg.remind_at)}`} data-reminder-mark>
-                          <AlarmClock className="h-3 w-3" />
-                        </span>
-                      )}
-                      {msg.edited_at && <span data-edited>edited</span>}
-                      <span>{formatMessageTime(msg.timestamp)}</span>
-                      {isOut && !isFile && <span className="inline-flex items-center">{statusIcon(msg)}</span>}
-                    </div>
-
-                    <MessageTools msg={msg} isOut={isOut} actions={actions} canAct={!blocked && !outOfGroup} />
-                  </div>
-                  <ReactionChips reactions={msg.reactions ?? []} isOut={isOut} onToggle={blocked || outOfGroup ? undefined : (e) => actions.react(msg, e)} />
-                  {isOut && msg.status === "queued" && msg.error_reason && !isFile && !isGroup && (
-                    <span className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{msg.error_reason}</span>
-                  )}
-                  {isOut && msg.status === "failed" && msg.error_reason && !isFile && (
-                    <span className="mt-0.5 text-[10px] text-red-500">{msg.error_reason}</span>
-                  )}
-                </div>
-              </React.Fragment>
-            );
-          })
-        )}
+        {listBody}
         {typingName && (
           <div className="flex items-start lanx-fade">
             <div className="rounded-[18px] rounded-bl-[6px] lanx-bubble-in px-4 py-3">

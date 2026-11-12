@@ -64,7 +64,7 @@ pub fn star_message(state: State<AppState>, message_id: String, starred: bool) -
 }
 
 /// Starred messages from every chat (hidden chats only when unlocked).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_starred(state: State<AppState>) -> Result<Vec<SearchHit>, String> {
     let privacy = &state.network.privacy;
     privacy.guard()?;
@@ -140,7 +140,7 @@ pub fn cancel_scheduled(state: State<AppState>, id: String, conversation_id: Str
     state.network.cancel_scheduled(&id, &conversation_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_scheduled(state: State<AppState>, conversation_id: String) -> Result<Vec<ScheduledMessage>, String> {
     guard_conversation(&state, &conversation_id)?;
     Ok(state.network.list_scheduled(&conversation_id))
@@ -168,7 +168,7 @@ pub async fn send_voice_note(state: State<'_, AppState>, request: tauri::ipc::Re
 }
 
 /// The sound of a voice note (raw bytes).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_voice_note(state: State<AppState>, transfer_id: String) -> Result<tauri::ipc::Response, String> {
     state.network.privacy.guard()?;
     Ok(tauri::ipc::Response::new(state.network.voice_note_bytes(&transfer_id)?))

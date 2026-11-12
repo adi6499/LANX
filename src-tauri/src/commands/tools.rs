@@ -52,7 +52,7 @@ pub fn set_chat_folders(state: State<AppState>, conversation_id: String, folders
     conversation(&state, &conversation_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn search_messages_ex(state: State<AppState>, query: String, filter: SearchFilter) -> Result<Vec<SearchHit>, String> {
     let privacy = &state.network.privacy;
     privacy.guard()?;
@@ -60,7 +60,7 @@ pub fn search_messages_ex(state: State<AppState>, query: String, filter: SearchF
 }
 
 /// The chat message a file was sent in (file library → "Show in chat").
-#[tauri::command]
+#[tauri::command(async)]
 pub fn message_for_transfer(state: State<AppState>, transfer_id: String) -> Result<Option<Message>, String> {
     let privacy = &state.network.privacy;
     privacy.guard()?;
@@ -77,7 +77,7 @@ pub struct Sticker {
     words: &'static str,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_stickers() -> Vec<Sticker> {
     crate::networking::tools::STICKERS.iter().map(|(id, emoji, words)| Sticker { id, emoji, words }).collect()
 }
@@ -116,7 +116,7 @@ pub fn take_hotkey_capture(state: State<AppState>) -> Result<tauri::ipc::Respons
 }
 
 /// Saves an edited screenshot to Pictures\LANX Screenshots and shows it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_screenshot(state: State<AppState>, data_base64: String) -> Result<String, String> {
     state.network.privacy.guard()?;
     let tmp = state.network.save_pasted_image(&data_base64, "image/png")?;
@@ -134,7 +134,7 @@ pub struct ToolsStatus {
     hotkey_working: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_tools_status() -> ToolsStatus {
     ToolsStatus { hotkey: crate::shell::HOTKEY_LABEL, hotkey_working: crate::shell::hotkey_working() }
 }
@@ -166,7 +166,7 @@ pub struct PdfDefault {
     pub current: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pdf_default_status() -> PdfDefault {
     let prog = pdf_prog_id().unwrap_or_default();
     PdfDefault { is_lanx: prog.eq_ignore_ascii_case("LANX.pdf"), current: prog }
@@ -239,7 +239,7 @@ fn sample_pdf() -> Vec<u8> {
 
 /// Windows' own "How do you want to open .pdf files?" box (with "Always"):
 /// the one way a program may become the default — the person chooses.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn choose_pdf_app(app: AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
@@ -267,7 +267,7 @@ pub fn choose_pdf_app(app: AppHandle) -> Result<(), String> {
 }
 
 /// Windows Settings → Default apps.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_default_apps(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     app.opener().open_url("ms-settings:defaultapps", None::<&str>).map_err(|e| e.to_string())
@@ -323,7 +323,7 @@ pub async fn stop_sharing_folder(state: State<'_, AppState>, share_id: String) -
     state.network.stop_sharing_folder(&share_id).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn resync_folder(state: State<AppState>, share_id: String) -> Result<(), String> {
     state.network.privacy.guard()?;
     state.network.resync_folder(&share_id)
@@ -342,7 +342,7 @@ pub struct SyncOverview {
     subscriptions: Vec<SyncSubscription>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_sync(state: State<AppState>) -> Result<SyncOverview, String> {
     state.network.privacy.guard()?;
     let shares = state
@@ -360,7 +360,7 @@ pub fn list_sync(state: State<AppState>) -> Result<SyncOverview, String> {
 }
 
 /// Opens a shared folder (yours or your copy of a colleague's) in Explorer.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_sync_folder(app: AppHandle, state: State<AppState>, share_id: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     state.network.privacy.guard()?;

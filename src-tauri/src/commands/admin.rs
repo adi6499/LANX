@@ -13,7 +13,7 @@ use tauri_plugin_opener::OpenerExt;
 /// Files this window exported (only these can be opened with `open_exported`).
 static EXPORTED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_admin_state(state: State<AppState>) -> Result<AdminState, String> {
     state.network.privacy.guard()?;
     Ok(state.network.admin_state())
@@ -66,7 +66,7 @@ pub fn set_retention(state: State<AppState>, days: i64) -> Result<AdminState, St
 }
 
 /// Deletes old messages now (by the clean-up setting); returns how many.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn run_retention(state: State<AppState>) -> Result<usize, String> {
     state.network.privacy.guard()?;
     let n = state.db.apply_retention(crate::networking::now_secs());
@@ -87,7 +87,7 @@ pub fn set_my_apps(state: State<AppState>, apps: Vec<AppLink>) -> Result<AdminSt
 }
 
 /// Opens a link from the Apps launcher (web page, file or folder).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_app_link(app: AppHandle, state: State<AppState>, target: String) -> Result<(), String> {
     state.network.privacy.guard()?;
     if !state.db.effective_apps().iter().any(|(a, _)| a.target == target) {
@@ -128,7 +128,7 @@ pub async fn export_excel(app: AppHandle, state: State<'_, AppState>, file_name:
 }
 
 /// Opens a file `export_excel` just saved.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_exported(app: AppHandle, path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !EXPORTED.lock().contains(&p) {
@@ -139,7 +139,7 @@ pub fn open_exported(app: AppHandle, path: String) -> Result<(), String> {
 
 /// LANX 1.9.0 test copies: writes an Excel file without asking (the save
 /// dialog can't be automated). Only works in side-by-side test profiles.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_excel_to(state: State<AppState>, path: String, sheet: String, rows: Vec<Vec<String>>) -> Result<String, String> {
     if crate::testmode::profile().is_none() {
         return Err("Not available".to_string());

@@ -4,7 +4,7 @@ use super::{err, AppState};
 use crate::storage::models::Note;
 use tauri::State;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_notes(state: State<AppState>, deleted: Option<bool>) -> Result<Vec<Note>, String> {
     state.network.privacy.guard()?;
     let _ = state.db.purge_old_deleted_notes();

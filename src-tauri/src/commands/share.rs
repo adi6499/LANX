@@ -105,7 +105,7 @@ pub(crate) fn copy_file_to_clipboard(path: &PathBuf) -> Result<(), String> {
 /// Opens WhatsApp with the text (and number) filled in; a file is copied to
 /// the clipboard first. Returns "copied" when a file was put on the clipboard,
 /// else "opened".
-#[tauri::command]
+#[tauri::command(async)]
 pub fn share_whatsapp(app: AppHandle, state: State<AppState>, req: ShareRequest) -> Result<String, String> {
     state.network.privacy.guard()?;
     let mut copied = false;

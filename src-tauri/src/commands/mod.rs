@@ -112,7 +112,7 @@ pub fn complete_onboarding(
     Ok(current)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_peers(state: State<AppState>) -> Result<Vec<Peer>, String> {
     state.db.list_peers().map_err(err)
 }
@@ -143,7 +143,7 @@ pub fn update_peer_trust(
     state.db.update_peer_trust(&peer_id, &trust_state).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_conversations(state: State<AppState>) -> Result<Vec<Conversation>, String> {
     let privacy = &state.network.privacy;
     privacy.guard()?;
@@ -168,13 +168,13 @@ pub fn get_or_create_conversation(
     state.db.get_or_create_conversation(&peer_id).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_messages(state: State<AppState>, conversation_id: String) -> Result<Vec<Message>, String> {
     guard_conversation(&state, &conversation_id)?;
     state.db.get_messages(&conversation_id).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn search_messages(state: State<AppState>, query: String) -> Result<Vec<SearchHit>, String> {
     let privacy = &state.network.privacy;
     privacy.guard()?;
@@ -203,7 +203,7 @@ pub async fn retry_message(state: State<'_, AppState>, message_id: String) -> Re
 
 /// Marks a chat read (sends "seen", starts secret-message timers) and
 /// returns its messages.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mark_conversation_read(
     state: State<AppState>,
     conversation_id: String,
@@ -212,14 +212,14 @@ pub fn mark_conversation_read(
     state.network.mark_read_and_notify(&conversation_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_conversation(state: State<AppState>, conversation_id: String) -> Result<(), String> {
     state.db.delete_conversation(&conversation_id).map_err(err)?;
     state.network.events.update_tray(&state.db);
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_transfers(state: State<AppState>) -> Result<Vec<TransferRecord>, String> {
     let privacy = &state.network.privacy;
     privacy.guard()?;
@@ -304,19 +304,19 @@ fn transfer_file_path(state: &AppState, transfer_id: &str) -> Result<String, Str
     Ok(path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_transfer_file(state: State<AppState>, transfer_id: String) -> Result<(), String> {
     let path = transfer_file_path(&state, &transfer_id)?;
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_transfer_file(state: State<AppState>, transfer_id: String) -> Result<(), String> {
     let path = transfer_file_path(&state, &transfer_id)?;
     tauri_plugin_opener::reveal_item_in_dir(path).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_download_folder(state: State<AppState>) -> Result<(), String> {
     let s = state.db.get_settings().map_err(err)?;
     let dir = if s.default_download_dir.trim().is_empty() {
@@ -328,7 +328,7 @@ pub fn open_download_folder(state: State<AppState>) -> Result<(), String> {
     tauri_plugin_opener::open_path(dir.to_string_lossy().to_string(), None::<&str>).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_finished_transfers(state: State<AppState>) -> Result<usize, String> {
     state.db.clear_finished_transfers().map_err(err)
 }
@@ -350,7 +350,7 @@ pub async fn pick_download_dir(app: AppHandle) -> Result<Option<String>, String>
         .map(|p| p.to_string_lossy().to_string()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_system_info(app: AppHandle, state: State<AppState>) -> Result<SystemInfo, String> {
     let settings = state.db.get_settings().map_err(err)?;
     let mut local_ips = local_ipv4_addresses();
@@ -455,7 +455,7 @@ pub fn leave_group(state: State<AppState>, group_id: String) -> Result<(), Strin
     state.network.leave_group(&group_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_group(state: State<AppState>, group_id: String) -> Result<Option<GroupInfo>, String> {
     guard_conversation(&state, &group_id)?;
     Ok(state.network.get_group(&group_id))
@@ -509,7 +509,7 @@ pub async fn search_network(state: State<'_, AppState>) -> Result<usize, String>
 // ------------------------------------------------- profiles (1.2.9)
 
 /// Colleagues' profiles (avatar, status, about me), by device id.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_peer_profiles(state: State<AppState>) -> Result<std::collections::HashMap<String, Profile>, String> {
     state.db.peer_profiles().map_err(err)
 }
@@ -670,7 +670,7 @@ pub async fn send_pasted_image(
         .await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_image_preview(state: State<AppState>, transfer_id: String) -> Result<Option<String>, String> {
     state.network.privacy.guard()?;
     Ok(state.network.image_preview(&transfer_id))
@@ -738,7 +738,7 @@ pub async fn pick_files(app: AppHandle) -> Result<Vec<String>, String> {
 
 // ------------------------------------------------------- LANX updates
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_update_status(
     state: State<AppState>,
 ) -> Result<crate::networking::update::UpdateStatus, String> {

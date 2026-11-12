@@ -18,7 +18,7 @@ pub fn card_action(state: State<AppState>, message_id: String, key: String, valu
     state.network.card_action(&message_id, &key, &value)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_cards(state: State<AppState>) -> Result<Vec<SearchHit>, String> {
     let privacy = &state.network.privacy;
     privacy.guard()?;

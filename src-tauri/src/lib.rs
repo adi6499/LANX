@@ -12,6 +12,7 @@ pub mod remote;
 pub mod security;
 pub mod shell;
 pub mod sound;
+pub mod start_guard;
 pub mod storage;
 pub mod testmode;
 pub mod voice;
@@ -38,6 +39,19 @@ static UI_READY: AtomicBool = AtomicBool::new(false);
 static START_HIDDEN: AtomicBool = AtomicBool::new(false);
 /// LANX 2.5.3: the main window has been shown once at start-up.
 static SHOWN_ONCE: AtomicBool = AtomicBool::new(false);
+/// LANX 3.11 (Linux): started with --minimized on a desktop without a tray: the window
+/// opens minimised (in the taskbar) instead of hidden where nobody can find it.
+static START_MINIMIZED: AtomicBool = AtomicBool::new(false);
+
+/// The first time the window comes up at start-up.
+fn first_show(app: &AppHandle) {
+    show_main_window(app);
+    if START_MINIMIZED.load(Ordering::SeqCst) {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.minimize();
+        }
+    }
+}
 
 /// The main window's page calls this once it has drawn itself. LANX 2.5.3:
 /// that is when the window is shown, so start-up never shows a blank white
@@ -47,7 +61,7 @@ fn ui_ready(window: tauri::Window) {
     if window.label() == "main" {
         UI_READY.store(true, Ordering::SeqCst);
         if !START_HIDDEN.load(Ordering::SeqCst) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
-            show_main_window(window.app_handle());
+            first_show(window.app_handle());
         }
     }
 }
@@ -90,6 +104,12 @@ fn show_main_window(app: &AppHandle) {
 }
 
 pub(crate) fn quit_app(app: &AppHandle) {
+    // LANX 3.11: quitting never hangs (a copy stuck on the way out would keep the next
+    // LANX from opening): whatever is still being tidied up, LANX is gone within 5 s.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        std::process::exit(0);
+    });
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Some(state) = app.try_state::<AppState>() {
@@ -230,8 +250,25 @@ pub fn run() {
         // SAFETY: set before any other thread exists (first thing in `run`).
         unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
     }
+    // LANX 3.11: NVIDIA's newer drivers on Wayland close web windows at start ("Error 71
+    // (Protocol error)"): their explicit sync is turned off for LANX's window.
+    #[cfg(target_os = "linux")]
+    if std::path::Path::new("/proc/driver/nvidia/version").exists() && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
+        // SAFETY: still before any other thread exists.
+        unsafe { std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1") };
+    }
     wait_for_previous_instance();
     let profile = testmode::profile();
+    // LANX 3.11 (Linux): a start-up log, and a running copy that stopped answering is
+    // replaced (else this launch would only ask it to show itself, and nothing appears).
+    #[cfg(target_os = "linux")]
+    {
+        let data_dir = storage::data_dir(profile.as_deref());
+        start_guard::log_start(&data_dir, env!("CARGO_PKG_VERSION"));
+        if profile.is_none() {
+            start_guard::replace_stuck_copy(&data_dir, std::env::args().any(|a| a == "--restart"));
+        }
+    }
     if profile.is_none() || testmode::webview_base().is_some() {
         webview_folder::choose();
     }
@@ -422,7 +459,18 @@ pub fn run() {
             }
 
             let start_hidden = std::env::args().any(|a| a == "--minimized");
+            // LANX 3.11 (Linux): no tray to wait in: start minimised in the taskbar instead.
+            #[cfg(target_os = "linux")]
+            let start_hidden = if start_hidden && !start_guard::tray_visible() {
+                START_MINIMIZED.store(true, Ordering::SeqCst);
+                start_guard::log(&data_dir, "no tray on this desktop: starting minimised");
+                false
+            } else {
+                start_hidden
+            };
             START_HIDDEN.store(start_hidden, Ordering::SeqCst);
+            #[cfg(target_os = "linux")]
+            start_guard::start_heartbeat(app.handle(), data_dir.clone());
             if let Some(w) = app.get_webview_window("main") {
                 if profile.is_some() {
                     let _ = w.set_title(&format!("LANX — test profile {}", profile.as_deref().unwrap_or("")));
@@ -437,7 +485,7 @@ pub fn run() {
                     tokio::time::sleep(std::time::Duration::from_secs(6)).await;
                     if !START_HIDDEN.load(Ordering::SeqCst) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
                         eprintln!("[Window] the page did not report in; showing the window anyway");
-                        show_main_window(&app);
+                        first_show(&app);
                     }
                 });
             }
@@ -473,6 +521,12 @@ pub fn run() {
                     .map(|s| s.close_to_tray)
                     .unwrap_or(true);
                 api.prevent_close();
+                // LANX 3.11 (Linux): no tray on this desktop: minimise, so LANX stays findable.
+                #[cfg(target_os = "linux")]
+                if keep_running && !start_guard::tray_visible() {
+                    let _ = window.minimize();
+                    return;
+                }
                 if keep_running {
                     let _ = window.hide();
                     if !TRAY_HINT_SHOWN.swap(true, Ordering::SeqCst) {

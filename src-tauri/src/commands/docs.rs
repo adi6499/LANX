@@ -123,7 +123,7 @@ pub async fn pick_documents(app: AppHandle, state: State<'_, AppState>, kind: St
 }
 
 /// Where a received (or sent) file is on this PC, so the PDF tools can open it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn transfer_file_path(state: State<AppState>, transfer_id: String) -> Result<String, String> {
     state.network.privacy.guard()?;
     let t = state.db.get_transfer(&transfer_id).map_err(err)?.ok_or("File not found")?;
@@ -140,7 +140,7 @@ pub fn transfer_file_path(state: State<AppState>, transfer_id: String) -> Result
 }
 
 /// The bytes of a file the window was given (raw, not JSON).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_file_bytes(state: State<AppState>, path: String) -> Result<tauri::ipc::Response, String> {
     state.network.privacy.guard()?;
     let p = PathBuf::from(&path);
@@ -232,7 +232,7 @@ pub async fn save_file_bytes(app: AppHandle, state: State<'_, AppState>, request
 }
 
 /// Opens a file LANX saved or was given, with the normal program for it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_document(app: AppHandle, state: State<AppState>, path: String) -> Result<(), String> {
     state.network.privacy.guard()?;
     let p = PathBuf::from(&path);
@@ -245,7 +245,7 @@ pub fn open_document(app: AppHandle, state: State<AppState>, path: String) -> Re
 
 /// Saves raw bytes (the body) as `x-file-name` inside `x-folder`, a folder the
 /// user picked (Split, pages → pictures). Returns the path (2.14.0).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_file_in_folder(state: State<AppState>, request: tauri::ipc::Request<'_>) -> Result<String, String> {
     state.network.privacy.guard()?;
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(pct_decode);
@@ -268,7 +268,7 @@ pub fn save_file_in_folder(state: State<AppState>, request: tauri::ipc::Request<
 }
 
 /// Opens a folder the user picked in File Explorer (2.14.0).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_folder(app: AppHandle, state: State<AppState>, path: String) -> Result<(), String> {
     state.network.privacy.guard()?;
     let p = PathBuf::from(&path);

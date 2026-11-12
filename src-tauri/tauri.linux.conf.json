@@ -2,7 +2,7 @@
   "bundle": {
     "targets": [
       "deb",
-      "appimage"
+      "rpm"
     ],
     "linux": {
       "deb": {
@@ -13,10 +13,17 @@
         ],
         "section": "net",
         "priority": "optional",
-        "postInstallScript": "deb/postinst.sh"
+        "postInstallScript": "deb/postinst.sh",
+        "desktopTemplate": "deb/lanx.desktop"
       },
-      "appimage": {
-        "bundleMediaFramework": false
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "libayatana-appindicator-gtk3"
+        ],
+        "release": "1",
+        "desktopTemplate": "deb/lanx.desktop"
       }
     }
   }

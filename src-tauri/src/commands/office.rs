@@ -24,7 +24,7 @@ pub async fn clear_alert(state: State<'_, AppState>, alert_id: String) -> Result
     state.network.clear_alert(&alert_id).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_alerts(state: State<AppState>) -> Vec<AlertInfo> {
     state.network.recent_alerts()
 }

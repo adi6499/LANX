@@ -75,7 +75,7 @@ pub async fn pick_wallpaper(app: AppHandle, state: State<'_, AppState>) -> Resul
 }
 
 /// Removes the kept copy (when the wallpaper is switched off or changed).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_wallpaper_file() -> Result<(), String> {
     let dir = wallpaper_dir();
     if let Ok(rd) = std::fs::read_dir(&dir) {

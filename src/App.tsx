@@ -122,6 +122,37 @@ function upsertMessage(list: Message[], msg: Message): Message[] {
   return [...list, msg].sort((a, b) => a.timestamp - b.timestamp);
 }
 
+/** LANX 3.11: a chat's messages read again: the ones that didn't change stay the very same
+ *  objects (and the list too, when nothing changed), so nothing is drawn again for them. */
+function keepUnchanged(prev: Message[], next: Message[]): Message[] {
+  if (!prev.length || prev[0].conversation_id !== next[0]?.conversation_id) return next;
+  const old = new Map(prev.map((m) => [m.id, m] as const));
+  let changed = prev.length !== next.length;
+  const out = next.map((m, i) => {
+    const o = old.get(m.id);
+    if (o && sameMessage(o, m)) {
+      if (prev[i] !== o) changed = true;
+      return o;
+    }
+    changed = true;
+    return m;
+  });
+  return changed ? out : prev;
+}
+
+function sameMessage(a: Message, b: Message): boolean {
+  const ka = Object.keys(a) as (keyof Message)[];
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) {
+    const x = a[k];
+    const y = b[k];
+    if (x === y) continue;
+    if (x && y && typeof x === "object" && typeof y === "object" && JSON.stringify(x) === JSON.stringify(y)) continue;
+    return false;
+  }
+  return true;
+}
+
 function upsertTransfer(list: TransferRecord[], t: TransferRecord): TransferRecord[] {
   const idx = list.findIndex((x) => x.id === t.id);
   if (idx >= 0) {
@@ -368,7 +399,10 @@ export default function App() {
     if (active && !c.some((x) => x.id === active)) {
       setActiveConversationId(c.length > 0 ? c[0].id : null);
     } else if (active) {
-      api.getMessages(active).then(setMessages).catch(() => {});
+      api
+        .getMessages(active)
+        .then((m) => setMessages((prev) => keepUnchanged(prev, m)))
+        .catch(() => {});
     }
     return c;
   }, [loadUpdateStatus, applyTheme]);
@@ -593,7 +627,7 @@ export default function App() {
           api
             .markConversationRead(message.conversation_id)
             .then((m) => {
-              if (activeConversationIdRef.current === message.conversation_id) setMessages(m);
+              if (activeConversationIdRef.current === message.conversation_id) setMessages((prev) => keepUnchanged(prev, m));
             })
             .catch(() => {});
         } else if (

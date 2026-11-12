@@ -24,7 +24,7 @@ pub struct SavedMeme {
 
 /// Saves a picture or GIF the picker made or fetched (raw body; `x-ext` =
 /// png | jpg | gif | webp | mp4, `x-name` = a word or two for the file name).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_meme_file(state: State<AppState>, request: tauri::ipc::Request<'_>) -> Result<SavedMeme, String> {
     state.network.privacy.guard()?;
     let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
@@ -155,7 +155,7 @@ fn fetch_to_file(url: &str, target: &std::path::Path) -> Result<(), String> {
 /// Puts a file LANX chose, received or saved on the clipboard: as the file
 /// itself (WhatsApp Desktop, Explorer, Outlook paste it) and, for a picture,
 /// also as a picture (WhatsApp Web in a browser, Word, Paint).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn copy_file_to_clipboard(state: State<AppState>, path: String) -> Result<(), String> {
     state.network.privacy.guard()?;
     let p = PathBuf::from(&path);

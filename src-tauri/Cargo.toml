@@ -1,6 +1,6 @@
 [package]
 name = "lanx"
-version = "3.10.0"
+version = "3.11.0"
 description = "LANX Desktop - Local Network Messenger"
 authors = ["LANX Team"]
 edition = "2024"

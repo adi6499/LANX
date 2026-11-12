@@ -5,7 +5,7 @@ use crate::phone::PhoneStatus;
 use serde::Serialize;
 use tauri::State;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn phone_status(state: State<AppState>) -> PhoneStatus {
     state.phone.status()
 }
@@ -52,7 +52,7 @@ pub fn phone_forget(state: State<AppState>, device_id: String) -> Result<PhoneSt
 
 /// LANX 3.2: where this PC's certificate authority (`ca.pem`) is, for
 /// "Reveal" in Settings.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn phone_cert_path(state: State<AppState>) -> String {
     state.phone.cert_path()
 }
@@ -64,7 +64,7 @@ pub struct QrData {
     pub modules: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn phone_qr(text: String) -> Result<QrData, String> {
     let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M).map_err(|e| e.to_string())?;
     let size = code.width();

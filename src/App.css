@@ -882,3 +882,19 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+
+/* LANX 3.11 (Linux): more of what WebKitGTK paints on the processor at every step —
+   the chat's whole-list entrance, each chat row's entrance, the soft edge of incoming
+   bubbles, and a blurred wallpaper (blurred again at every frame). */
+:root.lanx-linux .lanx-chat-in,
+:root.lanx-linux .lanx-item-in {
+  animation: none !important;
+}
+:root.lanx-linux .lanx-bubble-in {
+  box-shadow: 0 0 0 1px var(--lanx-line);
+}
+:root.lanx-linux [data-wallpaper] canvas,
+:root.lanx-linux [data-wallpaper] img,
+:root.lanx-linux [data-wallpaper] video {
+  filter: none !important;
+}

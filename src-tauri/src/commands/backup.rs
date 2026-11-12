@@ -10,7 +10,7 @@ fn version(app: &AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_backups(state: State<AppState>) -> Result<BackupOverview, String> {
     state.network.privacy.guard()?;
     Ok(backup::overview(&state.db))
@@ -62,7 +62,7 @@ pub fn set_auto_backup(state: State<AppState>, enabled: bool) -> Result<BackupOv
 }
 
 /// Restores one of the backups in the Backups folder, then restarts LANX.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn restore_backup(app: AppHandle, state: State<AppState>, file_name: String) -> Result<(), String> {
     state.network.privacy.guard()?;
     let path = backup::backup_path(&state.db, &file_name)?;
@@ -154,7 +154,7 @@ pub async fn restore_backup_file(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_backups_folder(state: State<AppState>) -> Result<(), String> {
     let dir = backup::backups_dir(&state.db);
     std::fs::create_dir_all(&dir).map_err(err)?;

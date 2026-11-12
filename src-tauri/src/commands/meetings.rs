@@ -26,7 +26,7 @@ pub async fn meeting_relay_offer(state: State<'_, AppState>, meeting_id: String,
 }
 
 /// LANX 3.10.0: who is connected to this PC's relay, and who is in whose slots (support, tests).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn meeting_relay_stats() -> serde_json::Value {
     crate::relay::stats()
 }
@@ -167,19 +167,19 @@ pub fn recording_cancel(id: String) {
     crate::recordings::cancel(&id);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_recording(path: String) -> Result<(), String> {
     let p = crate::recordings::inside_folder(&path).ok_or("This recording was moved or deleted.")?;
     tauri_plugin_opener::open_path(p.to_string_lossy().to_string(), None::<&str>).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_recording(path: String) -> Result<(), String> {
     let p = crate::recordings::inside_folder(&path).ok_or("This recording was moved or deleted.")?;
     tauri_plugin_opener::reveal_item_in_dir(p).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_recordings_folder() -> Result<String, String> {
     let dir = crate::recordings::folder();
     std::fs::create_dir_all(&dir).map_err(err)?;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Build LANX for Linux from this Windows PC.
 //
-//   node linux/build.mjs            → release/LANX-<version>-linux-amd64.deb + .AppImage (+ .sha256.txt)
+//   node linux/build.mjs            → release/LANX-<version>-linux-amd64.deb + -linux-x86_64.rpm (+ .sha256.txt)
 //   node linux/build.mjs --check    → only "cargo check" (fast: does the Rust code compile on Linux?)
 //   node linux/build.mjs --test     → the Rust unit tests on Linux
 //
@@ -82,6 +82,7 @@ if (mode === "build") {
   const ver = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
   console.log(`\nDone. Linux files in release\\:
   LANX-${ver}-linux-amd64.deb       (Ubuntu / Debian / Mint: double-click or "sudo apt install ./LANX-${ver}-linux-amd64.deb")
-  LANX-${ver}-linux-amd64.AppImage  (any distribution: make it executable and run it)
+  LANX-${ver}-linux-x86_64.rpm     (Fedora: double-click, or "sudo dnf install ./LANX-${ver}-linux-x86_64.rpm")
+  (or for any of them, one line:  curl -fsSL https://lanx-website.vercel.app/install.sh | sh)
 Then put them on the website:  node website/update-website.mjs`);
 }

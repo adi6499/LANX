@@ -5,7 +5,7 @@ use crate::voice::{self, ModelStatus, Transcript};
 use std::path::PathBuf;
 use tauri::{AppHandle, State};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn voice_models() -> Vec<ModelStatus> {
     voice::status()
 }
@@ -22,12 +22,12 @@ pub fn voice_model_chunk(request: tauri::ipc::Request<'_>) -> Result<u64, String
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn voice_model_finish(id: String) -> Result<ModelStatus, String> {
     voice::finish_model(&id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn voice_model_delete(id: String) -> Result<(), String> {
     voice::delete_model(&id)
 }
@@ -146,7 +146,7 @@ pub struct SavedAudio {
 }
 
 /// Saves a voice recording for a note (raw body, header `x-ext` webm|ogg|wav).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_note_audio(state: State<AppState>, request: tauri::ipc::Request<'_>) -> Result<SavedAudio, String> {
     state.network.privacy.guard()?;
     let ext = request
@@ -174,7 +174,7 @@ pub fn save_note_audio(state: State<AppState>, request: tauri::ipc::Request<'_>)
     Ok(SavedAudio { file: path.to_string_lossy().to_string(), bytes: bytes.len() as u64 })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_note_audio(state: State<AppState>, file: String) -> Result<(), String> {
     state.network.privacy.guard()?;
     let p = PathBuf::from(&file);

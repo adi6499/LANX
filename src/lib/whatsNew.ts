@@ -19,6 +19,18 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.11.0",
+    title: "Faster and smoother, and Linux made easy",
+    items: [
+      { icon: "⚡", title: "Chats open at once", text: "Even a chat with years of messages opens straight away: it shows the newest ones, and older ones appear as you scroll up. Measured on Windows: 1.5 seconds before, about a tenth of a second now." },
+      { icon: "⌨️", title: "Typing keeps up", text: "Typing in a long chat no longer slows LANX down: each key appears at once instead of the whole conversation being redrawn." },
+      { icon: "🪟", title: "No more freezing while LANX works", text: "Reading a long chat, a picture or a file now happens in the background, so the window keeps moving." },
+      { icon: "🐧", title: "Smoother on Linux", text: "On Linux, chats open about ten times faster, scrolling runs nearly twice as smooth, and typing no longer stutters." },
+      { icon: "✅", title: "LANX always opens on Linux", text: "If an earlier LANX got stuck, opening LANX replaces it. Right-click the LANX icon → Restart LANX does the same. On desktops without a tray, closing LANX keeps it in the taskbar." },
+      { icon: "📦", title: "Easy to install on Linux", text: "One line in the Terminal installs (or updates) LANX on Ubuntu, Debian, Mint and Fedora: see the download page. Fedora gets its own package now." },
+    ],
+  },
+  {
     version: "3.10.0",
     title: "Big meetings: up to 100 people",
     items: [

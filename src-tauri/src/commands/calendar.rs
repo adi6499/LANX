@@ -5,7 +5,7 @@ use super::{err, AppState};
 use crate::storage::models::{CalendarEvent, Occurrence};
 use tauri::State;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_events(state: State<AppState>, from: i64, to: i64) -> Result<Vec<Occurrence>, String> {
     state.network.privacy.guard()?;
     if to <= from || to - from > 400 * 86_400 {
@@ -14,7 +14,7 @@ pub fn list_events(state: State<AppState>, from: i64, to: i64) -> Result<Vec<Occ
     state.db.list_events(from, to).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_all_events(state: State<AppState>) -> Result<Vec<CalendarEvent>, String> {
     state.network.privacy.guard()?;
     state.db.list_all_events().map_err(err)
@@ -33,7 +33,7 @@ pub fn delete_event(state: State<AppState>, id: String) -> Result<bool, String> 
 }
 
 /// The whole calendar as .ics text (the window saves it as a file).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_events_ics(state: State<AppState>) -> Result<String, String> {
     state.network.privacy.guard()?;
     let all = state.db.list_all_events().map_err(err)?;
