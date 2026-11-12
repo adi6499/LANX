@@ -135,6 +135,14 @@ pub fn hand_input(screen: usize, ops: Vec<remote::HandInput>) -> Result<(), Stri
     remote::hand_input(screen, &ops)
 }
 
+/// LANX 3.11.2: two hands resize the window between them, in any program
+/// ("Control the whole PC"). `phase`: begin (at x, y — 0..1 across `screen`),
+/// set (`scale` = the hands' distance now ÷ at the start), end.
+#[tauri::command]
+pub fn hand_window(phase: String, screen: usize, x: f64, y: f64, scale: f64) -> Result<Option<remote::FramedWindow>, String> {
+    remote::window_frame(&phase, screen, x, y, scale)
+}
+
 /// The screens hands can drive, in real pixels (the main one is marked).
 #[tauri::command]
 pub fn hand_screens() -> Vec<remote::Screen> {

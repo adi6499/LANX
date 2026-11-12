@@ -19,6 +19,15 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.11.2",
+    title: "Resize any window with your hands, and a real Snakes & Ladders",
+    items: [
+      { icon: "👐", title: "Resize any window with two hands", text: "With “Control the whole PC” on, hold both open hands up around a window — Excel, a browser, anything. Hands apart make it bigger, together smaller; keep going past the screen and it fills it. Lower a hand and it stays that size." },
+      { icon: "🐍", title: "Snakes & Ladders, drawn properly", text: "A bright board in a wooden frame, wooden ladders, striped snakes with heads, and real pawns that wait at the start. After each roll the die tumbles, then your pawn hops square by square, climbs the ladder or slides down the snake." },
+      { icon: "💡", title: "Good to know", text: "Snakes & Ladders still plays with colleagues on older LANX — only the look is new. Gestures: Settings → Gestures lists every move, including the new two-hand resize." },
+    ],
+  },
+  {
     version: "3.11.1",
     title: "Online means online",
     items: [

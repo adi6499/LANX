@@ -14,6 +14,7 @@ const GUIDE: { sign: string; name: string; does: string }[] = [
   { sign: "🤏", name: "Pinch and move", does: "Drag a slider or a game piece, or scroll a list like a phone." },
   { sign: "✊", name: "Fist", does: "Grab the page and move it. Let go while moving to fling it." },
   { sign: "🙌", name: "Two hands pinching", does: "Pull apart to zoom in, together to zoom out, turn to rotate." },
+  { sign: "👐", name: "Two open hands held up", does: "Resize the window between them: apart makes it bigger, together smaller; past the screen it fills it. Controlling the whole PC: any program's window." },
   { sign: "👋", name: "Flick sideways", does: "Next or previous: song, photo, PDF page. Flick up: close." },
   { sign: "👍", name: "Thumbs up (hold)", does: "Answer a call or join a meeting. In a call: a 👍 for everyone. Over a message: like it." },
   { sign: "👎", name: "Thumbs down (hold)", does: "Decline a call, or close what is open." },

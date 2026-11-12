@@ -34,7 +34,8 @@ export type GEvent =
   | { type: "swipe"; dir: SwipeDir }
   /** LANX 3.6.1: both hands open and held up — the window follows the space between
    *  them. `scale` is the distance now ÷ the distance when it started. */
-  | { type: "frame-start" }
+  /** (3.11.2: `cx`, `cy` — the middle between the hands, so "Control the whole PC" knows which window.) */
+  | { type: "frame-start"; cx: number; cy: number }
   | { type: "frame"; scale: number }
   | { type: "frame-end" }
   | { type: "sign"; sign: Sign };
@@ -383,7 +384,7 @@ export class GestureInterpreter {
         fr.d0 = d;
         if (this.press) events.push({ type: "cancel" });
         this.press = null;
-        events.push({ type: "frame-start" });
+        events.push({ type: "frame-start", cx: (prim.screen.x + other.screen.x) / 2, cy: (prim.screen.y + other.screen.y) / 2 });
       } else if (fr.on) events.push({ type: "frame", scale: d / fr.d0 });
       if (fr.on) {
         return { cursor: { x: prim.screen.x, y: prim.screen.y, mode: "frame", hold: null }, second: { x: other.screen.x, y: other.screen.y }, events, tracking: live.length };

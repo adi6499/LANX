@@ -16,6 +16,13 @@ export type HandInput =
   | { op: "wheel"; dx: number; dy: number }
   | { op: "key"; code: string; down: boolean }
   | { op: "text"; text: string };
+/** LANX 3.11.2: the window two hands are resizing (real pixels). */
+export interface FramedWindow {
+  title: string;
+  width: number;
+  height: number;
+  filled: boolean;
+}
 /** One screen of this PC, in real pixels. */
 export interface HandScreen {
   left: number;
@@ -43,6 +50,8 @@ const FLING_DECAY = 4;
 const FLING_STOP = 60;
 const ERROR_EVERY = 4000;
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+/** A window's title, short enough for a note ("Report.xlsx - Excel" stays whole). */
+const shortTitle = (t: string) => (t.length > 42 ? `${t.slice(0, 40).trimEnd()}…` : t);
 
 export class OsDriver {
   /** The screen the hand covers (its number for Windows, and its real pixels). */
@@ -233,6 +242,66 @@ export class OsDriver {
       this.push({ op: "key", code: "ControlLeft", down: true }, { op: "wheel", dx: 0, dy: 120 * s }, { op: "key", code: "ControlLeft", down: false });
       this.zoomAcc -= s * ZOOM_STEP;
     }
+  }
+
+  // ---- LANX 3.11.2: both hands held up resize the window between them, in any program.
+  private frameBegun: Promise<void> | null = null;
+  private framedNow: FramedWindow | null = null;
+  private frameWant: number | null = null;
+  private framePumping: Promise<void> | null = null;
+
+  /** Both hands up around (x, y): that window is the one to resize. */
+  frameStart(x: number, y: number, note: (text: string) => void) {
+    this.frameWant = null;
+    this.framedNow = null;
+    this.frameBegun = api
+      .handWindow("begin", this.screen, clamp01(x / this.w), clamp01(y / this.h), 1)
+      .then((w) => {
+        this.framedNow = w;
+        if (w) note(`↔ ${shortTitle(w.title)} — hands apart: bigger, together: smaller`);
+      })
+      .catch((e) => note(errorText(e)));
+  }
+
+  /** The hands are `scale` times as far apart as at the start. Only the newest size goes. */
+  frameSet(scale: number) {
+    this.frameWant = scale;
+    this.framePumping ??= this.framePump().finally(() => {
+      this.framePumping = null;
+    });
+  }
+
+  private async framePump() {
+    await this.frameBegun;
+    while (this.frameWant !== null && this.framedNow) {
+      const s = this.frameWant;
+      this.frameWant = null;
+      try {
+        this.framedNow = (await api.handWindow("set", this.screen, 0, 0, s)) ?? this.framedNow;
+      } catch (e) {
+        const now = performance.now();
+        if (now - this.errAt > ERROR_EVERY) {
+          this.errAt = now;
+          this.onError(errorText(e));
+        }
+        return;
+      }
+    }
+  }
+
+  /** A hand went down: the window stays as it is now. */
+  frameEnd(note: (text: string) => void) {
+    const begun = this.frameBegun;
+    this.frameBegun = null;
+    void (async () => {
+      await begun;
+      await this.framePumping;
+      const w = this.framedNow;
+      this.framedNow = null;
+      this.frameWant = null;
+      await api.handWindow("end", this.screen, 0, 0, 1).catch(() => {});
+      if (w) note(w.filled ? `${shortTitle(w.title)} fills the screen` : `${shortTitle(w.title)}: ${w.width} × ${w.height}`);
+    })();
   }
 
   /** A key by its place ("Enter", "ArrowLeft", "Escape"…). */

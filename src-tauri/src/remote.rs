@@ -959,6 +959,231 @@ pub fn hand_input(screen: usize, ops: &[HandInput]) -> Result<(), String> {
     }
 }
 
+// ------------------------------------------------------------------ resizing any window
+
+/// LANX 3.11.2: with "Control the whole PC", both hands resize the window
+/// between them in any program — the same rules as LANX's own window: its shape
+/// kept, from its middle, on its screen; past the screen it fills it.
+#[derive(Debug, Clone, Serialize)]
+pub struct FramedWindow {
+    pub title: String,
+    pub width: i32,
+    pub height: i32,
+    pub filled: bool,
+}
+
+#[derive(Debug, Clone)]
+struct Framing {
+    hwnd: isize,
+    title: String,
+    w: i32,
+    h: i32,
+    cx: i32,
+    cy: i32,
+    /// The screen's usable part (no taskbar): x, y, width, height.
+    area: (i32, i32, i32, i32),
+    min_w: i32,
+    min_h: i32,
+    filled: bool,
+}
+
+static FRAMING: Mutex<Option<Framing>> = Mutex::new(None);
+/// Past the screen's size by this much, the window fills the screen.
+const FRAME_FILL_PAST: f64 = 1.08;
+/// Never made smaller than this (real pixels) — unless it started smaller.
+const FRAME_MIN: (i32, i32) = (420, 300);
+
+/// Where the window goes for `scale` (the hands' distance now ÷ at the start); None: fill the screen.
+fn frame_rect(f: &Framing, scale: f64) -> Option<(i32, i32, i32, i32)> {
+    let (ax, ay, aw, ah) = f.area;
+    let (w, h) = (f.w.max(1) as f64, f.h.max(1) as f64);
+    let max_k = (aw as f64 / w).min(ah as f64 / h).max(1.0);
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    if scale > max_k * FRAME_FILL_PAST {
+        return None;
+    }
+    let min_k = (f.min_w as f64 / w).max(f.min_h as f64 / h).min(1.0);
+    let k = scale.clamp(min_k, max_k);
+    let (nw, nh) = ((w * k).round() as i32, (h * k).round() as i32);
+    let x = (f.cx - nw / 2).clamp(ax, (ax + aw - nw).max(ax));
+    let y = (f.cy - nh / 2).clamp(ay, (ay + ah - nh).max(ay));
+    Some((x, y, nw, nh))
+}
+
+fn framed(f: &Framing, size: (i32, i32)) -> FramedWindow {
+    FramedWindow { title: f.title.clone(), width: size.0, height: size.1, filled: f.filled }
+}
+
+/// `phase`: "begin" (the window under the point x, y — 0..1 across screen
+/// `screen` — or else the one in front), "set" (the hands are `scale` times as
+/// far apart as at the start), "end".
+pub fn window_frame(phase: &str, screen: usize, x: f64, y: f64, scale: f64) -> Result<Option<FramedWindow>, String> {
+    if !cfg!(windows) && !dry_run() {
+        return Err("Resizing other programs with your hands works on Windows for now.".to_string());
+    }
+    match phase {
+        "begin" => {
+            let all = screens();
+            let s = all.get(screen).or_else(|| all.iter().find(|s| s.primary)).or(all.first()).copied().unwrap_or(PRETEND_SCREEN);
+            let (px, py) = to_pixel(&s, x, y);
+            let f = if dry_run() {
+                // Test copies only pretend: a window in the middle of the screen.
+                DRY_LOG.lock().push(format!("frame-begin {},{}", px, py));
+                let area = (s.work_left, s.work_top, s.work_width, s.work_height);
+                Framing { hwnd: 0, title: "Test window".to_string(), w: area.2 / 2, h: area.3 / 2, cx: area.0 + area.2 / 2, cy: area.1 + area.3 / 2, area, min_w: FRAME_MIN.0.min(area.2 / 2), min_h: FRAME_MIN.1.min(area.3 / 2), filled: false }
+            } else {
+                frame_begin_real(px, py)?
+            };
+            let out = framed(&f, (f.w, f.h));
+            *FRAMING.lock() = Some(f);
+            Ok(Some(out))
+        }
+        "set" => {
+            let mut guard = FRAMING.lock();
+            let Some(f) = guard.as_mut() else { return Ok(None) };
+            let want = frame_rect(f, scale);
+            if dry_run() {
+                DRY_LOG.lock().push(match want {
+                    None => "frame-fill".to_string(),
+                    Some((x, y, w, h)) => format!("frame-set {}x{} at {},{}", w, h, x, y),
+                });
+                f.filled = want.is_none();
+            } else if !frame_place_real(f, want) {
+                return Err(format!("Windows didn't let LANX resize “{}” (it may be running as administrator).", f.title));
+            }
+            let size = want.map(|r| (r.2, r.3)).unwrap_or((f.area.2, f.area.3));
+            Ok(Some(framed(f, size)))
+        }
+        "end" => {
+            if dry_run() {
+                DRY_LOG.lock().push("frame-end".to_string());
+            }
+            *FRAMING.lock() = None;
+            Ok(None)
+        }
+        _ => Err("Unknown step".to_string()),
+    }
+}
+
+#[cfg(not(windows))]
+fn frame_begin_real(_px: i32, _py: i32) -> Result<Framing, String> {
+    Err("Resizing other programs with your hands works on Windows for now.".to_string())
+}
+#[cfg(not(windows))]
+fn frame_place_real(_f: &mut Framing, _want: Option<(i32, i32, i32, i32)>) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn frame_begin_real(px: i32, py: i32) -> Result<Framing, String> {
+    use windows_sys::Win32::Foundation::{POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    // SAFETY: plain window queries on handles Windows just gave us.
+    unsafe {
+        let under = WindowFromPoint(POINT { x: px, y: py });
+        let root = if under.is_null() { under } else { GetAncestor(under, GA_ROOT) };
+        let h = if frame_usable(root) { root } else { GetForegroundWindow() };
+        if !frame_usable(h) {
+            return Err("There's no window there to resize — hold your hands up around one.".to_string());
+        }
+        let title = {
+            let mut buf = [0u16; 256];
+            let n = GetWindowTextW(h, buf.as_mut_ptr(), buf.len() as i32);
+            let t = String::from_utf16_lossy(&buf[..n.max(0) as usize]).trim().to_string();
+            if t.is_empty() { "this window".to_string() } else { t }
+        };
+        if IsIconic(h) != 0 {
+            return Err(format!("“{title}” is minimised."));
+        }
+        let zoomed = IsZoomed(h) != 0;
+        let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
+        if style & WS_THICKFRAME == 0 && !zoomed {
+            return Err(format!("“{title}” can't be resized."));
+        }
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mut mi) == 0 {
+            return Err("LANX couldn't tell which screen that window is on.".to_string());
+        }
+        let a = mi.rcWork;
+        let area = (a.left, a.top, a.right - a.left, a.bottom - a.top);
+        let mut r: RECT = std::mem::zeroed();
+        GetWindowRect(h, &mut r);
+        let (w, hh, cx, cy) = if zoomed {
+            (area.2, area.3, area.0 + area.2 / 2, area.1 + area.3 / 2)
+        } else {
+            (r.right - r.left, r.bottom - r.top, (r.left + r.right) / 2, (r.top + r.bottom) / 2)
+        };
+        Ok(Framing {
+            hwnd: h as isize,
+            title,
+            w,
+            h: hh,
+            cx,
+            cy,
+            area,
+            min_w: GetSystemMetrics(SM_CXMINTRACK).max(FRAME_MIN.0),
+            min_h: GetSystemMetrics(SM_CYMINTRACK).max(FRAME_MIN.1),
+            filled: zoomed,
+        })
+    }
+}
+
+/// A program's own window — not the desktop, the taskbar, the Start menu or a see-through
+/// window (such as LANX's hands window, which clicks go straight through).
+#[cfg(windows)]
+fn frame_usable(h: windows_sys::Win32::Foundation::HWND) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    if h.is_null() {
+        return false;
+    }
+    // SAFETY: plain window queries.
+    unsafe {
+        if IsWindowVisible(h) == 0 || h == GetShellWindow() || h == GetDesktopWindow() {
+            return false;
+        }
+        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
+        if ex & (WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW) != 0 {
+            return false;
+        }
+        let mut buf = [0u16; 96];
+        let n = GetClassNameW(h, buf.as_mut_ptr(), buf.len() as i32);
+        let class = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+        !matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd" | "Windows.UI.Core.CoreWindow" | "XamlExplorerHostIslandWindow")
+    }
+}
+
+/// Puts the window there (or fills the screen with it). Never waits for the other
+/// program: a busy one catches up when it can.
+#[cfg(windows)]
+fn frame_place_real(f: &mut Framing, want: Option<(i32, i32, i32, i32)>) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    let h = f.hwnd as windows_sys::Win32::Foundation::HWND;
+    // SAFETY: the handle is checked with IsWindow first; the calls only post requests.
+    unsafe {
+        if IsWindow(h) == 0 {
+            return false;
+        }
+        match want {
+            None => {
+                if !f.filled {
+                    ShowWindowAsync(h, SW_MAXIMIZE);
+                    f.filled = true;
+                }
+                true
+            }
+            Some((x, y, w, hh)) => {
+                if f.filled || IsZoomed(h) != 0 {
+                    ShowWindowAsync(h, SW_RESTORE);
+                    f.filled = false;
+                }
+                SetWindowPos(h, std::ptr::null_mut(), x, y, w, hh, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS) != 0
+            }
+        }
+    }
+}
+
 /// LANX 3.7.0 ("lock this PC" by a sign or a spoken command).
 pub fn lock_pc() -> Result<(), String> {
     if dry_run() {
@@ -1450,6 +1675,39 @@ mod tests {
 
     fn scr(left: i32, top: i32, width: i32, height: i32, primary: bool) -> Screen {
         Screen { left, top, width, height, work_left: left, work_top: top, work_width: width, work_height: height - 48, primary }
+    }
+
+    #[test]
+    fn two_hands_resize_any_window_by_the_same_rules() {
+        let f = Framing { hwnd: 0, title: "Report.xlsx - Excel".into(), w: 1000, h: 700, cx: 960, cy: 516, area: (0, 0, 1920, 1032), min_w: 420, min_h: 300, filled: false };
+        assert_eq!(frame_rect(&f, 1.0), Some((460, 166, 1000, 700)), "no change at the start");
+        let (_, _, w, h) = frame_rect(&f, 1.3).unwrap();
+        assert_eq!((w, h), (1300, 910), "apart: bigger, same shape");
+        let (_, _, w, h) = frame_rect(&f, 0.1).unwrap();
+        assert_eq!((w, h), (429, 300), "together: smaller, but never below the smallest (same shape)");
+        let (x, y, w, h) = frame_rect(&f, 1.45).unwrap();
+        assert!(h <= 1032 && y >= 0 && x >= 0 && x + w <= 1920 && y + h <= 1032, "kept on the screen: {x},{y} {w}x{h}");
+        assert_eq!(frame_rect(&f, 1.6), None, "past the screen: fills it");
+        // A window near the edge grows inwards, not off the screen.
+        let edge = Framing { cx: 1700, cy: 900, ..f.clone() };
+        let (x, y, w, h) = frame_rect(&edge, 1.3).unwrap();
+        assert!(x + w <= 1920 && y + h <= 1032, "{x},{y} {w}x{h}");
+        // A small window is never made bigger just by starting.
+        let small = Framing { w: 300, h: 200, ..f.clone() };
+        assert_eq!(frame_rect(&small, 1.0).map(|r| (r.2, r.3)), Some((300, 200)));
+
+        // Test copies only write it down.
+        take_dry_log();
+        // (The pretend window is half this PC's screen.)
+        let w0 = window_frame("begin", 0, 0.5, 0.5, 1.0).unwrap().unwrap();
+        assert_eq!((w0.title.as_str(), w0.filled), ("Test window", false));
+        let w = window_frame("set", 0, 0.0, 0.0, 1.2).unwrap().unwrap();
+        assert_eq!((w.width, w.height), ((w0.width as f64 * 1.2).round() as i32, (w0.height as f64 * 1.2).round() as i32));
+        assert!(window_frame("set", 0, 0.0, 0.0, 5.0).unwrap().unwrap().filled);
+        assert!(window_frame("end", 0, 0.0, 0.0, 1.0).unwrap().is_none());
+        assert!(window_frame("set", 0, 0.0, 0.0, 1.2).unwrap().is_none(), "nothing after the end");
+        let log = take_dry_log();
+        assert!(log[0].starts_with("frame-begin") && log[1].starts_with(&format!("frame-set {}x{}", w.width, w.height)) && log[2] == "frame-fill" && log[3] == "frame-end", "{log:?}");
     }
 
     #[test]

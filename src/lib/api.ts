@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import type { PairRequestInfo, PhoneStatus, QrData } from "../types";
 import type { RemoteInput } from "./remote";
-import type { HandInput, HandScreen } from "./gestures/os";
+import type { FramedWindow, HandInput, HandScreen } from "./gestures/os";
 import {
   UserSettings,
   Profile,
@@ -1306,6 +1306,12 @@ export const api = {
   handInput: async (screen: number, ops: HandInput[]): Promise<void> => {
     if (isTauri) return invoke("hand_input", { screen, ops });
     throw new Error("Controlling the whole PC needs the LANX app.");
+  },
+  /** LANX 3.11.2: two hands resize the window between them, in any program. `begin` at x, y (0..1 across
+   *  the screen), `set` with `scale` (the hands' distance now ÷ at the start), `end`. */
+  handWindow: async (phase: "begin" | "set" | "end", screen: number, x: number, y: number, scale: number): Promise<FramedWindow | null> => {
+    if (isTauri) return invoke("hand_window", { phase, screen, x, y, scale });
+    throw new Error("Resizing other programs needs the LANX app.");
   },
   /** The screens, in real pixels. */
   handScreens: async (): Promise<HandScreen[]> => (isTauri ? invoke("hand_screens") : []),

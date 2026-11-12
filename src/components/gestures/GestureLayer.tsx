@@ -641,10 +641,13 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       case "zoom": return o.zoom(e.scale);
       case "swipe": return onSwipe(e.dir);
       case "sign": return onSign(e.sign);
-      // (Two hands resizing a window: LANX's own only.)
+      // 3.11.2: both hands held up resize the window between them, in any program.
+      case "frame-start": return o.frameStart(e.cx, e.cy, (t) => say(t, 2600));
+      case "frame": return o.frameSet(e.scale);
+      case "frame-end": return o.frameEnd((t) => say(t, 2600));
       default: return;
     }
-  }, [onSwipe, onSign]);
+  }, [onSwipe, onSign, say]);
   const handle = useCallback((e: GEvent) => {
     if (kbTakes(e)) return;
     if (pcRef.current && os.current) return handleOs(e, os.current);

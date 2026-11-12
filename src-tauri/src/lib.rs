@@ -635,6 +635,7 @@ pub fn run() {
             commands::remote::remote_test_log,
             commands::remote::remote_test_copy,
             commands::remote::hand_input,
+            commands::remote::hand_window,
             commands::remote::hand_screens,
             commands::remote::lock_pc,
             commands::remote::hand_hud,
