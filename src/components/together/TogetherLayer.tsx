@@ -2,9 +2,10 @@
  *  colleagues get, and the screens of the sessions this PC is in. Each activity
  *  lives in its own file; this only puts them on the screen. */
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { BellRing, Brain, Check, Clapperboard, Headphones, Loader2, Megaphone, MicVocal, Presentation, Users } from "lucide-react";
 import { type Invite, type Kind, type Session, decline, join, leave } from "../../lib/together";
-import { InviteStack, Sheet, useTogether } from "./common";
+import { InviteStack, Sheet, presetPeople, useTogether } from "./common";
 import { QuizScreen, QuizSetup } from "./Quiz";
 import { PresentScreen, PresentSetup } from "./Present";
 import { WatchScreen, WatchSetup } from "./Watch";
@@ -97,7 +98,11 @@ export function TogetherLayer() {
   const { sessions, invites } = useTogether();
   const [open, setOpen] = useState<Open>(null);
   useEffect(() => {
-    const hub = () => setOpen("hub");
+    const hub = (e: Event) => {
+      const ids = (e as CustomEvent<{ people?: string[] }>).detail?.people;
+      if (Array.isArray(ids)) presetPeople(ids);
+      setOpen("hub");
+    };
     window.addEventListener("lanx:together-hub", hub);
     return () => window.removeEventListener("lanx:together-hub", hub);
   }, []);
@@ -105,6 +110,8 @@ export function TogetherLayer() {
   const pick = (k: Open | "music" | "karaoke") => {
     if (k === "music" || k === "karaoke") {
       setOpen(null);
+      // (Music opens in the main window: a meeting on screen steps aside to its small window.)
+      window.dispatchEvent(new Event("lanx:meeting-mini"));
       window.dispatchEvent(new Event("lanx:open-music"));
       window.setTimeout(() => window.dispatchEvent(new Event(k === "music" ? "lanx:together-open" : "lanx:karaoke-open")), 350);
       return;
@@ -118,7 +125,9 @@ export function TogetherLayer() {
     if (s.kind === "watch") return <WatchScreen key={s.id} session={s} onClose={done} />;
     return null;
   };
-  return (
+  // On the page itself (not inside the app window's layer), so these sheets and
+  // screens open above a meeting too (LANX 3.10.0: Together from inside a call).
+  return createPortal(
     <>
       {open === "hub" && <Hub onPick={pick} onClose={close} />}
       {open === "quiz" && <QuizSetup onClose={close} onStarted={close} />}
@@ -130,6 +139,7 @@ export function TogetherLayer() {
       <Invites invites={invites} />
       <BellLayer />
       <AnnounceLayer />
-    </>
+    </>,
+    document.body
   );
 }

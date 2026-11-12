@@ -389,6 +389,29 @@ let mockMessages: Record<string, Message[]> = {
 };
 
 // Preview: Marcus passed on 1.2.1 and it is downloaded; Sarah and Elena are behind.
+/** Browser preview with `?seed=N` (speed tests): N more chats with long histories,
+ *  like an office's LANX after some months — every 5th one a busy chat of 2,000
+ *  messages, the others 300. */
+(() => {
+  if (isTauri || typeof location === "undefined") return;
+  const n = Math.min(200, Number(new URLSearchParams(location.search).get("seed") || 0));
+  if (!n) return;
+  const words = "please send the sheet by Friday the dispatch is ready check the invoice for Dolvi site meeting at three call me when free thanks noted will do 👍 ok sure".split(" ");
+  const line = (i: number) => Array.from({ length: 3 + ((i * 7) % 22) }, (_, k) => words[(i * 13 + k * 5) % words.length]).join(" ");
+  const colours = ["#6366f1", "#10b981", "#ec4899", "#f97316", "#0ea5e9", "#a855f7"];
+  for (let c = 0; c < n; c++) {
+    const id = `seed-${c}`;
+    const t0 = now() - c * 600;
+    const count = c % 5 === 0 ? 2000 : 300;
+    mockConversations.push(
+      conv({ id, peer_id: `peer-seed-${c}`, peer_name: `Colleague ${c + 1}`, peer_avatar_color: colours[c % colours.length], peer_ip: `192.168.1.${20 + (c % 200)}`, last_message_preview: line(c), last_message_time: t0, unread_count: c % 4 === 0 ? (c % 7) + 1 : 0 })
+    );
+    mockMessages[id] = Array.from({ length: count }, (_, i) =>
+      msg({ id: `${id}-${i}`, conversation_id: id, content: line(c * 3000 + i), is_outgoing: i % 3 !== 0, sender_id: i % 3 === 0 ? `peer-seed-${c}` : ME, timestamp: t0 - (count - i) * 90, status: "read" })
+    );
+  }
+})();
+
 let mockUpdate: UpdateStatus = {
   current_version: "1.2.0",
   latest_version: "1.2.1",
@@ -1158,8 +1181,10 @@ export const api = {
   },
 
   // ------------------------------------------------------ 1.4.0: meetings
-  meetingStart: async (conversationId: string, video: boolean, title?: string): Promise<MeetingInfo> => {
-    if (isTauri) return invoke("meeting_start", { conversationId, video, title: title ?? null });
+  /** LANX 3.10.0 `big`: a big meeting (this PC relays; up to 100 people). More than 11
+   *  people online in the group makes it one anyway. */
+  meetingStart: async (conversationId: string, video: boolean, title?: string, big?: boolean): Promise<MeetingInfo> => {
+    if (isTauri) return invoke("meeting_start", { conversationId, video, title: title ?? null, big: big ?? null });
     return mockMeeting(conversationId, video);
   },
   /** Returns who couldn't be invited and why. */
@@ -1181,6 +1206,13 @@ export const api = {
   meetingLeave: async (meetingId: string): Promise<void> => {
     if (isTauri) return invoke("meeting_leave", { meetingId });
   },
+  /** LANX 3.10.0: this window's connection to a big meeting's relay (offer → answer). */
+  meetingRelayOffer: async (meetingId: string, sdp: string): Promise<string> => {
+    if (isTauri) return invoke("meeting_relay_offer", { meetingId, sdp });
+    throw new Error("Big meetings need the LANX app.");
+  },
+  /** LANX 3.10.0: who is connected to this PC's relay (support, tests). */
+  meetingRelayStats: async (): Promise<unknown> => (isTauri ? invoke("meeting_relay_stats") : null),
   meetingSignal: async (meetingId: string, to: string, kind: "offer" | "answer", sdp: string): Promise<void> => {
     if (isTauri) return invoke("meeting_signal", { meetingId, to, kind, sdp });
   },

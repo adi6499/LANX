@@ -31,7 +31,7 @@ import {
   readState,
   startQuiz,
 } from "../../lib/quiz";
-import { PeoplePicker, Sheet, chosen, initials, primaryBtn, secondaryBtn, useMyName, useOnline, useTogether } from "./common";
+import { PeoplePicker, Sheet, chosen, initials, primaryBtn, secondaryBtn, useMyName, useOnline, useTogether, presetPicked } from "./common";
 
 // ------------------------------------------------------------------ small pieces
 
@@ -222,7 +222,7 @@ function QuestionEditor({ q, i, count, onChange, onMove, onRemove }: { q: Questi
 
 export function QuizSetup({ onClose, onStarted }: { onClose: () => void; onStarted: (sessionId: string) => void }) {
   const [def, setDef] = useState<QuizDef>(() => loadDraft() ?? clone(READY[0].quiz));
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [picked, setPicked] = useState<Record<string, boolean>>(presetPicked);
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");

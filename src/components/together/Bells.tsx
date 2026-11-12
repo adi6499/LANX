@@ -5,7 +5,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { BellRing, Loader2, Play, X } from "lucide-react";
 import { announce, clockWith, myClock, perfAt, rand, together } from "../../lib/together";
-import { PeoplePicker, Sheet, chosen, primaryBtn, secondaryBtn, useMyName, useOnline } from "./common";
+import { PeoplePicker, Sheet, chosen, primaryBtn, secondaryBtn, useMyName, useOnline, presetPicked } from "./common";
 
 type Sound = "bell" | "chime" | "gong";
 interface Bell {
@@ -146,7 +146,7 @@ const QUICK = ["🍛 Lunch break", "☕ Tea break", "🧍 Stand-up", "📅 Meeti
 export function BellSetup({ onClose }: { onClose: () => void }) {
   const myName = useMyName();
   const online = useOnline();
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [picked, setPicked] = useState<Record<string, boolean>>(presetPicked);
   const [label, setLabel] = useState("");
   const [when, setWhen] = useState<"now" | "in" | "at">("in");
   const [mins, setMins] = useState(10);

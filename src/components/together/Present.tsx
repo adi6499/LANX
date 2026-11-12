@@ -11,7 +11,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { ChevronLeft, ChevronRight, FileText, Images, Loader2, LogOut, Presentation, Undo2, UserPlus, Users, X } from "lucide-react";
 import { type Session, host, invite, leave, tell, together } from "../../lib/together";
 import { type Pic, type PresentState, type Presenter, type Watcher, Deck, attach, onPresenters, presenterOf, watcherOf } from "../../lib/present";
-import { PeoplePicker, Sheet, chosen, initials, primaryBtn, secondaryBtn, useMyName, useOnline, useTogether } from "./common";
+import { PeoplePicker, Sheet, chosen, initials, primaryBtn, secondaryBtn, useMyName, useOnline, useTogether, presetPicked } from "./common";
 import type { Peer } from "../../types";
 
 const isTyping = (t: EventTarget | null) => {
@@ -24,7 +24,7 @@ const isTyping = (t: EventTarget | null) => {
 export function PresentSetup({ onClose, onStarted }: { onClose: () => void; onStarted: (sessionId: string) => void }) {
   const peers = useOnline();
   const myName = useMyName();
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [picked, setPicked] = useState<Record<string, boolean>>(presetPicked);
   const [deck, setDeck] = useState<Deck | null>(null);
   const [title, setTitle] = useState("");
   const [cover, setCover] = useState<string | null>(null);

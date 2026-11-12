@@ -53,6 +53,8 @@ pub const FEATURES_PROFILE: &str = "1.2.9";
 /// Oldest app version with group meetings and recording notices (`Meeting`,
 /// `CallPayload.recording`).
 pub const FEATURES_MEETINGS: &str = "1.4.0";
+/// LANX 3.10.0: big meetings (the organizer's PC relays; up to 100 people).
+pub const FEATURES_BIG_MEETINGS: &str = "3.10.0";
 
 /// Oldest app version with the 1.5.0 chat features: replies and @mentions on
 /// messages (`MessagePayload.reply_to / reply_preview / mentions`), voice notes
@@ -341,6 +343,14 @@ pub struct MeetingPersonPayload {
     pub reaction: Option<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub reaction_at: i64,
+    /// LANX 3.10.0, big meetings: which change of theirs this is (their clock,
+    /// ms), so a list of people that arrives late can't undo a newer change.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub seq: u64,
+}
+
+fn is_zero_u64(v: &u64) -> bool {
+    *v == 0
 }
 
 /// LANX 1.4.0: group meetings. Everyone in a meeting talks to everyone else
@@ -383,6 +393,10 @@ pub struct MeetingPayload {
     /// never overwrites a newer one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seq: Option<u64>,
+    /// LANX 3.10.0: a big meeting — the organizer's PC (host_id) relays sound and
+    /// pictures and passes on joins, changes and chat. Only sent to 3.10.0 or newer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay: Option<bool>,
 }
 
 impl MeetingPayload {
@@ -393,6 +407,11 @@ impl MeetingPayload {
             for p in self.people.iter_mut().chain(self.person.iter_mut()) {
                 p.reaction = None;
                 p.reaction_at = 0;
+            }
+        }
+        if !version_at_least(version, FEATURES_BIG_MEETINGS) {
+            for p in self.people.iter_mut().chain(self.person.iter_mut()) {
+                p.seq = 0;
             }
         }
         self

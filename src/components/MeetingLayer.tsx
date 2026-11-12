@@ -4,6 +4,7 @@ import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
 import { VOICE_BITRATE, clock, getMeetingCam, getMic, getScreen, iceGathered, preferCodecs, tuneSdp, tuneSender, videoBudget, watchQuality } from "../lib/webrtc";
 import { Recorder, recordingSupported, type RecTile } from "../lib/recorder";
+import { RelayConnection, VIDEO_SLOTS } from "../lib/relayMeeting";
 import {
   Check,
   Circle,
@@ -15,6 +16,7 @@ import {
   Minimize2,
   MonitorUp,
   MonitorX,
+  PartyPopper,
   Phone,
   PhoneOff,
   Send,
@@ -33,7 +35,7 @@ import { FloatingReactions, cleanReaction, useReactionBursts, type ReactionBurst
 
 export interface MeetingLayerHandle {
   /** Start a meeting in this chat (group: everyone online is invited). */
-  start: (conversation: Conversation, video: boolean) => void;
+  start: (conversation: Conversation, video: boolean, big?: boolean) => void;
   /** Answer the invitation. */
   join: (video: boolean) => void;
   decline: () => void;
@@ -117,6 +119,8 @@ const REACTION_FRESH_MS = 5_000;
 function gridCols(n: number) {
   return n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
 }
+/** LANX 3.10.0: a big meeting shows this many tiles a page. */
+const PAGE = 16;
 
 export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
   ({ onError, onNotice, onOpenChat, onIslandChange, profiles = {}, peers }, ref) => {
@@ -137,6 +141,9 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     const [unread, setUnread] = useState(0);
     const [draft, setDraft] = useState("");
     const [pinned, setPinned] = useState<string | null>(null);
+    /** LANX 3.10.0: a big meeting's connection to the organizer's relay, and the tile page shown. */
+    const relayRef = useRef<RelayConnection | null>(null);
+    const [page, setPage] = useState(0);
     const [recording, setRecording] = useState<{ since: number } | null>(null);
     const recorderRef = useRef<Recorder | null>(null);
     const [confirmRec, setConfirmRec] = useState(false);
@@ -148,6 +155,27 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
      *  handled for each person (their `reaction_at`). */
     const [reactions, addReaction] = useReactionBursts();
     const reactionSeenRef = useRef(new Map<string, number>());
+    // LANX 3.10.0: tell the relay whom this PC shows (it dedups), and reconnect if the connection failed.
+    useEffect(() => {
+      const w = wantedRef.current;
+      if (w && relayRef.current) relayRef.current.setWanted(w.ids, w.big);
+    });
+    useEffect(() => {
+      const t = window.setInterval(() => {
+        const m = meetingRef.current;
+        const st = relayRef.current?.pc?.connectionState;
+        if (m?.relay && statusRef.current === "active" && relayRef.current && (st === "failed" || st === "closed" || relayRef.current.failed)) void connectRelayRef.current(m, true);
+      }, 3000);
+      return () => window.clearInterval(t);
+    }, []);
+    // Something that opens in the main window (music, from Together) asks the meeting to step aside.
+    useEffect(() => {
+      const small = () => {
+        if (statusRef.current === "active") setMini(true);
+      };
+      window.addEventListener("lanx:meeting-mini", small);
+      return () => window.removeEventListener("lanx:meeting-mini", small);
+    }, []);
 
     const connsRef = useRef(new Map<string, Conn>());
     const micRef = useRef<MediaStreamTrack | null>(null);
@@ -176,6 +204,12 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     /** For each pair, the smaller id makes the offer. */
     const shouldOffer = (id: string) => myId() !== "" && myId() < id;
     const currentVideo = () => screenRef.current ?? camRef.current;
+    /** The others' sound and pictures: per connection, or (LANX 3.10.0, a big meeting) from the relay. */
+    const streamOf = (id: string): MediaStream | null => (meetingRef.current?.relay ? (relayRef.current?.streams.get(id) ?? null) : (connsRef.current.get(id)?.stream ?? null));
+    const remoteStreams = (): [string, MediaStream][] =>
+      meetingRef.current?.relay ? [...(relayRef.current?.streams ?? new Map<string, MediaStream>()).entries()] : [...connsRef.current.entries()].map(([id, c]) => [id, c.stream] as [string, MediaStream]);
+    /** LANX 3.10.0: whom this PC shows (worked out while drawing), for the relay. */
+    const wantedRef = useRef<{ ids: string[]; big: string | null } | null>(null);
 
     // ------------------------------------------------------------ connections
     const clearTimers = (c: Conn) => {
@@ -306,7 +340,26 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       }
     };
 
+    // LANX 3.10.0: a big meeting: one connection, to the organizer's relay.
+    /** `retry`: trying again after a failure (said once, not every few seconds). */
+    const connectRelay = async (m: MeetingInfo, retry = false) => {
+      relayRef.current?.close();
+      const r = new RelayConnection(bump);
+      relayRef.current = r;
+      try {
+        await r.connect(m.meeting_id, micRef.current, currentVideo(), !!screenRef.current);
+      } catch (e) {
+        if (relayRef.current !== r) return;
+        r.failed = true;
+        if (!retry) onErrorRef.current(`Couldn't connect to the big meeting (trying again): ${errorText(e)}`);
+      }
+    };
+
+    const connectRelayRef = useRef(connectRelay);
+    connectRelayRef.current = connectRelay;
+
     const maybeOffer = (id: string) => {
+      if (meetingRef.current?.relay) return;
       if (id && id !== myId() && shouldOffer(id) && !connsRef.current.has(id)) void offerTo(id);
     };
 
@@ -349,6 +402,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       await Promise.all(
         [...connsRef.current.values()].map((c) => (kind === "audio" ? c.audio : c.video)?.sender.replaceTrack(track).catch(() => {}))
       );
+      await relayRef.current?.replace(kind, track, !!screenRef.current);
     };
 
     // --------------------------------------------------------------- media
@@ -359,6 +413,9 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
 
     const cleanup = useCallback(() => {
       for (const id of [...connsRef.current.keys()]) closeConn(id);
+      relayRef.current?.close();
+      relayRef.current = null;
+      setPage(0);
       releaseMedia();
       recorderRef.current = null;
       setRecording(null);
@@ -377,11 +434,25 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       joinedAtRef.current = null;
     }, [closeConn, setMeeting, setStatus, setMe]);
 
+    /** LANX 3.10.0: the camera stopped by itself (unplugged, or another program took it):
+     *  turned off as the camera button would, and said — the others would see a frozen picture. */
+    const watchCam = (cam: MediaStreamTrack) => {
+      cam.addEventListener("ended", () => {
+        if (camRef.current !== cam) return;
+        camRef.current = null;
+        if (!screenRef.current) void replaceAll("video", null);
+        setMe({ camera: false });
+        if (statusRef.current === "active") sendMedia({ camera: false });
+        onNoticeRef.current("Your camera stopped (unplugged, or another program is using it). Press the camera button to try again.");
+      });
+    };
+
     const grabMedia = async (video: boolean) => {
       const mic = await getMic();
       if (!mic) onNoticeRef.current("No microphone found — the others won't hear you.");
       const cam = video ? await getMeetingCam() : null;
       if (video && !cam) onNoticeRef.current("No camera found — you join without video.");
+      if (cam) watchCam(cam);
       micRef.current = mic;
       camRef.current = cam;
       setMe({ muted: !mic, camera: !!cam, screen: false, hand: false });
@@ -394,11 +465,12 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       joinedAtRef.current = Date.now();
       setMini(false);
       api.meetingMedia(m.meeting_id, { muted: meRef.current.muted, camera: meRef.current.camera }).catch(() => {});
-      for (const p of m.people) if (!p.is_me) maybeOffer(p.device_id);
+      if (m.relay) void connectRelay(m);
+      else for (const p of m.people) if (!p.is_me) maybeOffer(p.device_id);
     };
 
     // ------------------------------------------------------------ actions
-    const start = async (conv: Conversation, video: boolean) => {
+    const start = async (conv: Conversation, video: boolean, big = false) => {
       if (statusRef.current) {
         onErrorRef.current("You're already in a meeting.");
         return;
@@ -406,7 +478,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       setStatus("joining");
       await grabMedia(video);
       try {
-        becameActive(await api.meetingStart(conv.id, video));
+        becameActive(await api.meetingStart(conv.id, video, undefined, big));
       } catch (e) {
         releaseMedia();
         cleanup();
@@ -475,8 +547,22 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
       await api.meetingLeave(m.meeting_id).catch(() => {});
     };
 
+    // For the end-to-end tests: start a (big) meeting, join it, look at the relay connection.
+    useEffect(() => {
+      (window as unknown as { __lanxMeetingTest?: unknown }).__lanxMeetingTest = {
+        start: async (convId: string, video: boolean, big: boolean) => {
+          const c = (await api.getConversations()).find((x) => x.id === convId);
+          if (c) await start(c, video, big);
+        },
+        join: (video: boolean) => join(video),
+        leave: () => leave(),
+        relay: () => relayRef.current?.probe() ?? null,
+        status: () => ({ status: statusRef.current, people: meetingRef.current?.people.length ?? 0, relay: !!meetingRef.current?.relay, chat: meetingRef.current?.chat.map((l) => l.text) ?? [] }),
+      };
+    });
+
     useImperativeHandle(ref, () => ({
-      start: (c, v) => void start(c, v),
+      start: (c, v, big) => void start(c, v, big),
       join: (v) => void join(v),
       decline: () => void decline(),
       leave: () => void leave(),
@@ -547,6 +633,19 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         return;
       }
       if (e.action === "ended") {
+        // LANX 3.10.0: a big meeting ended with its organizer (or their PC went away).
+        if (cur && e.meeting && e.meeting.meeting_id === cur.meeting_id && statusRef.current === "active" && (e.reason === "host-left" || e.reason === "gone" || e.reason === "dropped")) {
+          void stopRecording();
+          cleanup();
+          onNoticeRef.current(
+            e.reason === "gone"
+              ? `${cur.host_name}'s PC, which ran the big meeting, left the network.`
+              : e.reason === "dropped"
+                ? "This PC lost its connection to the big meeting for a while. Join it again from the chat."
+                : `${cur.host_name} ended the big meeting.`
+          );
+          return;
+        }
         if (cur && e.meeting && e.meeting.meeting_id === cur.meeting_id && statusRef.current === "invited") {
           cleanup();
           if (e.reason === "timeout") onNoticeRef.current(`You missed a meeting with ${cur.private ? "a colleague" : cur.inviter_name}.`);
@@ -631,8 +730,8 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         const mine = meetingRef.current?.my_id ?? "";
         const want: [string, MediaStreamTrack][] = [];
         if (micRef.current && mine && !meRef.current.muted) want.push([mine, micRef.current]);
-        for (const [id, c] of connsRef.current) {
-          const t = c.stream.getAudioTracks()[0];
+        for (const [id, s] of remoteStreams()) {
+          const t = s.getAudioTracks()[0];
           if (t) want.push([id, t]);
         }
         for (const [id, a] of analysers) {
@@ -766,6 +865,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
         onErrorRef.current("No camera found on this computer.");
         return;
       }
+      watchCam(cam);
       camRef.current = cam;
       if (!screenRef.current) await replaceAll("video", cam);
       setMe({ camera: true });
@@ -821,14 +921,14 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
             muted: meRef.current.muted,
           };
         }
-        const c = connsRef.current.get(p.device_id);
-        const v = c?.stream.getVideoTracks()[0] ?? null;
+        const st = streamOf(p.device_id);
+        const v = st?.getVideoTracks()[0] ?? null;
         return {
           id: p.device_id,
           name: p.name,
           color: p.avatar_color,
           video: p.camera || p.screen ? v : null,
-          audio: c?.stream.getAudioTracks()[0] ?? null,
+          audio: st?.getAudioTracks()[0] ?? null,
           screen: p.screen,
           muted: p.muted,
         };
@@ -913,8 +1013,23 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     const people = meeting?.people ?? [];
     // One speaker per person, made once their sound has arrived (a player
     // started on a stream without sound doesn't pick it up later).
+    const relayVoices = meeting?.relay ? (relayRef.current?.voices ?? []) : [];
     const audioEls = (
       <>
+        {/* LANX 3.10.0: a big meeting plays its six voice slots. */}
+        {relayVoices.map((s, i) => (
+          <audio
+            key={`relay-voice-${i}`}
+            autoPlay
+            data-meeting-audio={`slot-${i}`}
+            ref={(el) => {
+              if (el && el.srcObject !== s) {
+                el.srcObject = s;
+                el.play().catch(() => {});
+              }
+            }}
+          />
+        ))}
         {[...connsRef.current.entries()].map(([id, c]) => {
           const track = c.stream.getAudioTracks()[0];
           if (!track) return null;
@@ -1035,14 +1150,20 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     /** `everyone`: the small meeting window shows one tile, so every reaction
      *  floats over it (with the name of whoever made it, when it's someone else). */
     const tileFor = (p: MeetingPerson, big = false, everyone = false) => {
-      const c = connsRef.current.get(p.device_id);
+      const relay = meeting?.relay ? relayRef.current : null;
+      const c = relay ? undefined : connsRef.current.get(p.device_id);
+      const rs = relay ? (relay.streams.get(p.device_id) ?? null) : null;
       const floating: ReactionBurst[] = everyone
         ? reactions.map((b) => (b.from === p.device_id ? { ...b, name: undefined } : { ...b, name: b.name ?? "You" }))
         : reactions.filter((b) => b.from === p.device_id).map((b) => ({ ...b, name: undefined }));
       const local = p.is_me;
       const state = local
         ? null
-        : !c
+        : relay
+          ? relay.connected
+            ? null
+            : "Connecting to the meeting…"
+          : !c
           ? shouldOffer(p.device_id) ? "Connecting…" : "Waiting for their picture…"
           : c.connected
             ? null
@@ -1050,12 +1171,13 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
               ? "Reconnecting…"
               : "Connecting…";
       const person = local ? { ...p, muted: me.muted, camera: me.camera, screen: me.screen, hand: me.hand, recording: !!recording } : p;
-      const videoOn = local ? !!localStream : (p.camera || p.screen) && !!c?.stream.getVideoTracks().length;
+      const remote = relay ? rs : (c?.stream ?? null);
+      const videoOn = local ? !!localStream : (p.camera || p.screen) && !!remote?.getVideoTracks().length;
       return (
         <Tile
           key={p.device_id}
           person={person}
-          stream={local ? localStream : (c?.stream ?? null)}
+          stream={local ? localStream : remote}
           videoOn={videoOn}
           mirror={local && me.camera && !me.screen}
           speaking={speaking.has(p.device_id)}
@@ -1111,7 +1233,20 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
     }
 
     const sharer = pinned ? people.find((p) => p.device_id === pinned) : people.find((p) => p.screen && (p.is_me ? me.screen : true));
-    const cols = gridCols(ordered.length);
+    // LANX 3.10.0: a big meeting shows a page of tiles (cameras first), and whoever is
+    // talking in a small extra tile when they're on another page.
+    const big = !!meeting.relay;
+    const bigOrder = big ? [...others.filter((p) => p.camera || p.screen), ...others.filter((p) => !(p.camera || p.screen)), ...(mine ? [mine] : [])] : ordered;
+    const pages = Math.max(1, Math.ceil(bigOrder.length / PAGE));
+    const pageNo = Math.min(page, pages - 1);
+    const shown = big ? bigOrder.slice(pageNo * PAGE, pageNo * PAGE + PAGE) : ordered;
+    const talker = big ? (relayRef.current?.speaker ?? null) : null;
+    const talkerTile = talker && !shown.some((p) => p.device_id === talker) && talker !== sharer?.device_id ? others.find((p) => p.device_id === talker) : undefined;
+    if (big) {
+      const ids = [...(sharer && !sharer.is_me ? [sharer.device_id] : []), ...(talkerTile ? [talkerTile.device_id] : []), ...shown.filter((p) => !p.is_me && (p.camera || p.screen)).map((p) => p.device_id)];
+      wantedRef.current = { ids: [...new Set(ids)].slice(0, VIDEO_SLOTS), big: sharer && !sharer.is_me ? sharer.device_id : null };
+    }
+    const cols = gridCols(shown.length);
     const inviteable = peers.filter(
       (p) => p.status === "online" && p.trust_state !== "blocked" && !p.id.startsWith("manual-") && !people.some((x) => x.device_id === p.id)
     );
@@ -1139,6 +1274,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 <span className="tabular-nums">{elapsed}</span> · <span data-meeting-count>{people.length}</span>{" "}
                 {people.length === 1 ? "person (waiting for others…)" : "people"}
+                {big && <span data-meeting-big> · big meeting</span>}
               </div>
             </div>
             <button
@@ -1149,6 +1285,15 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
             >
               <MessageSquare className="h-4 w-4" /> Group chat
             </button>
+            {big && pages > 1 && (
+              <div data-meeting-pager className="flex items-center gap-1 rounded-full bg-white/10 px-1.5 py-1 text-[12px]">
+                <button type="button" aria-label="Previous page" disabled={pageNo === 0} onClick={() => setPage(pageNo - 1)} className="h-7 w-7 rounded-full hover:bg-white/15 disabled:opacity-30">‹</button>
+                <span className="tabular-nums px-1">
+                  {pageNo + 1} / {pages}
+                </span>
+                <button type="button" aria-label="Next page" disabled={pageNo >= pages - 1} onClick={() => setPage(pageNo + 1)} className="h-7 w-7 rounded-full hover:bg-white/15 disabled:opacity-30">›</button>
+              </div>
+            )}
             <Ctl id="size" label="Make smaller (keep the meeting going)" onClick={() => setMini(true)} small>
               <Minimize2 className="h-4 w-4" />
             </Ctl>
@@ -1161,7 +1306,7 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
                 <div className="h-full flex gap-3">
                   <div className="flex-1 min-w-0">{tileFor(sharer, true)}</div>
                   <div className="w-52 shrink-0 flex flex-col gap-3 overflow-y-auto">
-                    {ordered
+                    {shown
                       .filter((p) => p.device_id !== sharer.device_id)
                       .map((p) => (
                         <div key={p.device_id} className="aspect-video shrink-0">
@@ -1175,7 +1320,12 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
                   className="grid h-full w-full gap-3"
                   style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }}
                 >
-                  {ordered.map((p) => tileFor(p))}
+                  {shown.map((p) => tileFor(p))}
+                </div>
+              )}
+              {talkerTile && (
+                <div data-meeting-talker className="absolute bottom-4 right-6 z-10 aspect-video w-64 overflow-hidden rounded-2xl shadow-2xl ring-2 ring-emerald-400/70">
+                  {tileFor(talkerTile)}
                 </div>
               )}
             </div>
@@ -1364,6 +1514,10 @@ export const MeetingLayer = forwardRef<MeetingLayerHandle, MeetingLayerProps>(
                 </span>
               )}
             </div>
+            {/* LANX 3.10.0: a quiz, presenting, a video, music, a bell — with everyone in the meeting. */}
+            <Ctl id="together" label="Together: a quiz, a presentation, a video or music with everyone here" onClick={() => window.dispatchEvent(new CustomEvent("lanx:together-hub", { detail: { people: others.map((p) => p.device_id) } }))} accent>
+              <PartyPopper className="h-5 w-5" />
+            </Ctl>
             <Ctl id="people" label="People and invitations" onClick={() => setPanel((p) => (p === "people" ? null : "people"))} on={panel === "people"} accent>
               <Users className="h-5 w-5" />
             </Ctl>

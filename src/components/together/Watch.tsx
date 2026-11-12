@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Clapperboard, FileVideo, Link2, Loader2, Maximize, Pause, Play, Volume2, X } from "lucide-react";
 import { api, errorText } from "../../lib/api";
 import { type Session, host as hostSession, hostNow, msUntil, publish, tell } from "../../lib/together";
-import { PeoplePicker, Sheet, chosen, primaryBtn, secondaryBtn, useMyName, useOnline, useTogether } from "./common";
+import { PeoplePicker, Sheet, chosen, primaryBtn, secondaryBtn, useMyName, useOnline, useTogether, presetPicked } from "./common";
 
 interface WatchState {
   title: string;
@@ -27,7 +27,7 @@ const fmt = (s: number) => {
 export function WatchSetup({ onClose, onStarted }: { onClose: () => void; onStarted: (sessionId: string) => void }) {
   const myName = useMyName();
   const online = useOnline();
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [picked, setPicked] = useState<Record<string, boolean>>(presetPicked);
   const [src, setSrc] = useState<WatchState["src"] | null>(null);
   const [title, setTitle] = useState("");
   const [link, setLink] = useState("");

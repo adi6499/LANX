@@ -874,3 +874,11 @@
   .ludo-bob, .ludo-glow, .gt-art, .gt-pop { animation: none !important; }
   [data-gesture-tutorial] * { transition-duration: 0.01ms !important; }
 }
+
+/* LANX 3.10.0: Together's sheets opened over a meeting sit on moving pictures:
+   solid there (glass over video is hard to read). */
+.lanx-sheet.lanx-sheet-solid {
+  background-color: var(--lanx-surface-c);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

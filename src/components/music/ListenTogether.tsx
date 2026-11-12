@@ -6,7 +6,7 @@ import { Check, Headphones, Loader2, Radio, Users, X } from "lucide-react";
 import { api, errorText } from "../../lib/api";
 import { type Invite, type PartyView, type PhoneView, decline, join, leave, listenTogether, phoneListen, startListening, startListeningForInvites, stopListening } from "../../lib/musicSync";
 import type { Peer } from "../../types";
-import { InviteStack } from "../together/common";
+import { InviteStack, presetPicked } from "../together/common";
 
 export function useListenTogether(): { view: PartyView; invites: Invite[] } {
   const view = useSyncExternalStore(listenTogether.subscribe, listenTogether.view, listenTogether.view);
@@ -34,7 +34,7 @@ const initials = (n: string) =>
 export function TogetherSheet({ onClose }: { onClose: () => void }) {
   const { view } = useListenTogether();
   const [peers, setPeers] = useState<Peer[] | null>(null);
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [picked, setPicked] = useState<Record<string, boolean>>(presetPicked);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);

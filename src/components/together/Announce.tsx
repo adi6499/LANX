@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Loader2, Megaphone, Mic, Volume2, VolumeX, X } from "lucide-react";
 import { announce, clockWith, myClock, perfAt, rand, sendBlob, together } from "../../lib/together";
-import { PeoplePicker, Sheet, chosen, useOnline } from "./common";
+import { PeoplePicker, Sheet, chosen, useOnline, presetPicked } from "./common";
 
 const MAX_MS = 60000;
 /** The play moment is this far ahead of "everyone has it". */
@@ -184,7 +184,7 @@ export function AnnounceLayer() {
 
 export function AnnounceSetup({ onClose }: { onClose: () => void }) {
   const online = useOnline();
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [picked, setPicked] = useState<Record<string, boolean>>(presetPicked);
   const [phase, setPhase] = useState<"idle" | "recording" | "sending" | "sent">("idle");
   const [problem, setProblem] = useState<string | null>(null);
   const [failed, setFailed] = useState<Record<string, string>>({});

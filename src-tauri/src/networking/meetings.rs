@@ -26,6 +26,8 @@ use std::time::Duration;
 
 /// Most people in one meeting (everyone sends to everyone).
 pub const MAX_PEOPLE: usize = 12;
+/// LANX 3.10.0: most people in a big meeting (the organizer's PC relays them).
+pub const MAX_BIG: usize = crate::relay::MAX_CLIENTS;
 const MAX_CHAT_LEN: usize = 2000;
 const MAX_TITLE_LEN: usize = 80;
 const MAX_SDP_LEN: usize = 64 * 1024;
@@ -94,17 +96,39 @@ pub struct MeetingInfo {
     /// LANX 3.4: the phone (device id) that carries the meeting's sound and
     /// picture; none = this PC's window.
     pub on_phone: Option<String>,
+    /// LANX 3.10.0: a big meeting: the organizer's PC (host_id) relays everyone's
+    /// sound and picture, and passes on joins, changes and chat.
+    pub relay: bool,
     /// Who the invitation said was in the meeting (asked when joining).
     #[serde(skip)]
     contacts: Vec<MeetingPersonPayload>,
     /// Everyone who was in the meeting while we were (id, name).
     #[serde(skip)]
     attendees: Vec<(String, String)>,
+    /// LANX 3.10.0: changes the organizer passed on for people who aren't in our
+    /// list yet (the list and the change travel separately and can swap places).
+    #[serde(skip)]
+    pending: Vec<MeetingPersonPayload>,
 }
 
 impl MeetingInfo {
     fn joined(&self) -> bool {
         self.phase == "joined"
+    }
+
+    /// Most people this meeting can have.
+    fn max(&self) -> usize {
+        if self.relay { MAX_BIG } else { MAX_PEOPLE }
+    }
+
+    /// This PC organizes (and, in a big meeting, relays) it.
+    fn i_host(&self) -> bool {
+        self.host_id == self.my_id
+    }
+
+    /// Where changes and chat go: everyone, or (a big meeting) the organizer.
+    fn targets(&self) -> Vec<String> {
+        if self.relay && !self.i_host() { vec![self.host_id.clone()] } else { self.others() }
     }
 
     fn person_mut(&mut self, id: &str) -> Option<&mut MeetingPerson> {
@@ -321,9 +345,49 @@ impl NetworkService {
             host_name: Some(m.host_name.clone()),
             started_at: Some(m.started_at),
             video: Some(m.video),
-            people: m.people.iter().map(|p| self.person_payload(p)).collect(),
+            people: m
+                .people
+                .iter()
+                .map(|p| {
+                    let mut x = self.person_payload(p);
+                    if m.relay {
+                        x.seq = p.seq;
+                    }
+                    x
+                })
+                .collect(),
+            relay: m.relay.then_some(true),
             ..Default::default()
         }
+    }
+
+    /// LANX 3.10.0: the organizer of a big meeting tells everyone (but `except`) who is in it.
+    fn push_roster(&self, meeting_id: &str, except: Option<&str>) {
+        let Some(m) = self.current_meeting().filter(|m| m.meeting_id == meeting_id && m.joined() && m.relay && m.i_host()) else { return };
+        let to: Vec<String> = m.others().into_iter().filter(|id| Some(id.as_str()) != except).collect();
+        self.send_to_all(to, self.roster(&m, "roster"));
+    }
+
+    /// LANX 3.10.0: a big meeting ended for this PC (the organizer left, or their PC went away).
+    fn end_relay_meeting(&self, meeting_id: &str, reason: &str) {
+        let m = {
+            let mut cur = self.meeting.lock();
+            if cur.as_ref().is_some_and(|m| m.meeting_id == meeting_id) { cur.take() } else { None }
+        };
+        let Some(m) = m else { return };
+        crate::sound::stop_loop();
+        if m.joined() {
+            self.record_meeting(&m, "attended");
+        }
+        self.events.emit_json(
+            "lanx://meeting",
+            MeetingEvent {
+                action: "ended".to_string(),
+                meeting: Some(m),
+                reason: Some(reason.to_string()),
+                ..Default::default()
+            },
+        );
     }
 
     fn bare(meeting_id: &str, action: &str) -> MeetingPayload {
@@ -351,6 +415,10 @@ impl NetworkService {
 
     async fn send_meeting(&self, peer: &Peer, p: MeetingPayload) -> Result<(), String> {
         let mut chan = self.meeting_channel(peer).await?;
+        if p.relay == Some(true) && !version_at_least(&chan.remote.app_version, FEATURES_BIG_MEETINGS) {
+            chan.close().await;
+            return Err(format!("{} needs LANX {} or newer for big meetings. Ask them to update.", peer.display_name, FEATURES_BIG_MEETINGS));
+        }
         let p = p.for_version(&chan.remote.app_version);
         let reply = NetworkService::send_acked(&mut chan, PacketPayload::Meeting(p)).await;
         chan.close().await;
@@ -417,7 +485,7 @@ impl NetworkService {
 
     /// Starts a meeting in a group chat (everyone online in it is invited) or
     /// a one-to-one chat (that colleague is invited; more can be added).
-    pub async fn start_meeting(&self, conversation_id: &str, video: bool, title: Option<String>) -> Result<MeetingInfo, String> {
+    pub async fn start_meeting(&self, conversation_id: &str, video: bool, title: Option<String>, big: bool) -> Result<MeetingInfo, String> {
         let conv = self
             .db
             .get_conversation(conversation_id)
@@ -449,6 +517,10 @@ impl NetworkService {
         if self.call.lock().is_some() {
             return Err("You're in a call. Hang up first.".to_string());
         }
+        // LANX 3.10.0: more people than a meeting can have: a big meeting (this PC relays).
+        let big = big || online.len() + 1 > MAX_PEOPLE;
+        let mut online = online;
+        online.truncate(if big { MAX_BIG - 1 } else { MAX_PEOPLE - 1 });
         let me = self.my_person();
         let now = now_secs();
         let title = title.map(|t| clean_title(&t)).filter(|t| !t.is_empty()).unwrap_or_else(|| clean_title(&default_title));
@@ -472,7 +544,9 @@ impl NetworkService {
             my_id: me.device_id.clone(),
             contacts: Vec::new(),
             attendees: vec![(me.device_id.clone(), me.name.clone())],
+            pending: Vec::new(),
             on_phone: None,
+            relay: big,
         };
         {
             let mut cur = self.meeting.lock();
@@ -480,6 +554,12 @@ impl NetworkService {
                 return Err("You're already in a meeting.".to_string());
             }
             *cur = Some(info.clone());
+        }
+        if big {
+            if let Err(e) = crate::relay::start(&info.meeting_id) {
+                self.meeting.lock().take();
+                return Err(e);
+            }
         }
         self.spawn_watch(info.meeting_id.clone());
         let this = self.clone();
@@ -536,8 +616,12 @@ impl NetworkService {
                 None => {}
             }
         }
-        if m.people.len() + ids.len() > MAX_PEOPLE {
-            return Err(format!("A meeting can have at most {} people.", MAX_PEOPLE));
+        if m.people.len() + ids.len() > m.max() {
+            return Err(if m.relay {
+                format!("A big meeting can have at most {} people.", MAX_BIG)
+            } else {
+                format!("This meeting can have at most {} people. Start it with more people and it runs as a big meeting (up to {}).", MAX_PEOPLE, MAX_BIG)
+            });
         }
         problems.extend(self.send_invites(meeting_id, ids).await);
         Ok(problems)
@@ -556,15 +640,21 @@ impl NetworkService {
                     m.joined_at = Some(now_secs());
                     m.people = vec![me.clone()];
                     m.attendees = vec![(me.device_id.clone(), me.name.clone())];
-                    let mut c = vec![m.inviter_id.clone()];
-                    c.extend(m.contacts.iter().map(|p| p.device_id.clone()));
-                    c
+                    if m.relay {
+                        // A big meeting: everything goes through the organizer.
+                        vec![m.host_id.clone()]
+                    } else {
+                        let mut c = vec![m.inviter_id.clone()];
+                        c.extend(m.contacts.iter().map(|p| p.device_id.clone()));
+                        c
+                    }
                 }
                 Some(m) if m.meeting_id == meeting_id => return Ok(m.clone()),
                 _ => return Err("This meeting invitation has ended.".to_string()),
             }
         };
         crate::sound::stop_loop();
+        let relay = self.with_meeting(meeting_id, |m| m.relay).unwrap_or(false);
         let mut asked: HashSet<String> = HashSet::new();
         let mut queue: VecDeque<String> = contacts.into();
         let mut reached = 0;
@@ -589,7 +679,7 @@ impl NetworkService {
                     continue;
                 }
                 self.learn_person(p);
-                if !asked.contains(&p.device_id) {
+                if !relay && !asked.contains(&p.device_id) {
                     queue.push_back(p.device_id.clone());
                 }
             }
@@ -624,7 +714,7 @@ impl NetworkService {
                             continue;
                         }
                     }
-                    if m.people.len() >= MAX_PEOPLE {
+                    if m.people.len() >= m.max() {
                         continue;
                     }
                     let mut person = person_from_payload(p);
@@ -708,7 +798,9 @@ impl NetworkService {
             my_id: self.identity.device_id.clone(),
             contacts,
             attendees: Vec::new(),
+            pending: Vec::new(),
             on_phone: None,
+            relay: v["relay"].as_bool().unwrap_or(false),
         };
         {
             let mut cur = self.meeting.lock();
@@ -764,7 +856,12 @@ impl NetworkService {
         let Some(m) = m else { return Ok(()) };
         crate::sound::stop_loop();
         self.record_meeting(&m, "attended");
-        self.send_to_all(m.others(), Self::bare(meeting_id, "leave"));
+        // (A big meeting: a guest tells the organizer, who tells the others; the
+        // organizer leaving ends it for everyone, and their PC stops relaying.)
+        self.send_to_all(m.targets(), Self::bare(meeting_id, "leave"));
+        if m.relay && m.i_host() {
+            crate::relay::stop(meeting_id);
+        }
         let ev = MeetingEvent {
             action: "ended".to_string(),
             meeting: Some(m),
@@ -841,7 +938,7 @@ impl NetworkService {
             if me.recording != was_recording {
                 m.note(if me.recording { "● You started recording" } else { "You stopped recording" });
             }
-            Some((me, m.others()))
+            Some((me, m.targets()))
         });
         let Some(Some((me, others))) = update else {
             return Err("You're not in this meeting.".to_string());
@@ -863,7 +960,7 @@ impl NetworkService {
             return Err(format!("Meeting chat messages can be at most {} characters.", MAX_CHAT_LEN));
         }
         let me = self.my_person();
-        let r = self.with_meeting(meeting_id, |m| m.joined().then(|| (m.push_chat(&me.device_id, &me.name, text), m.others())));
+        let r = self.with_meeting(meeting_id, |m| m.joined().then(|| (m.push_chat(&me.device_id, &me.name, text), m.targets())));
         let Some(Some((line, others))) = r else {
             return Err("You're not in this meeting.".to_string());
         };
@@ -871,6 +968,45 @@ impl NetworkService {
         p.text = Some(text.to_string());
         self.send_to_all(others, p);
         Ok(line)
+    }
+
+    /// LANX 3.10.0: this window's one connection to a big meeting's relay — its
+    /// offer, the relay's answer (this PC's own relay, or the organizer's).
+    pub async fn meeting_relay_offer(&self, meeting_id: &str, sdp: String) -> Result<String, String> {
+        if sdp.len() > MAX_SDP_LEN {
+            return Err("Signal too large".to_string());
+        }
+        let (host, i_host) = self
+            .with_meeting(meeting_id, |m| (m.joined() && m.relay).then(|| (m.host_id.clone(), m.i_host())))
+            .flatten()
+            .ok_or("You're not in this big meeting.")?;
+        if i_host {
+            return crate::relay::join(meeting_id, &self.identity.device_id, &sdp);
+        }
+        let peer = self.db.get_peer(&host).map_err(|e| e.to_string())?.ok_or("The organizer's PC isn't known here.")?;
+        let mut p = Self::bare(meeting_id, "signal");
+        p.kind = Some("relay-offer".to_string());
+        p.sdp = Some(sdp);
+        let unreachable = || format!("Could not reach {}'s PC.", peer.display_name);
+        let mut chan = self.meeting_channel(&peer).await?;
+        let sent = match chan.send(PacketPayload::Meeting(p), None).await {
+            Ok(s) => s,
+            Err(_) => {
+                chan.close().await;
+                return Err(unreachable());
+            }
+        };
+        let reply = chan.recv_packet_timeout(ACK_TIMEOUT).await;
+        chan.close().await;
+        let reply = reply.map_err(|_| unreachable())?;
+        if reply.correlation_id.as_deref() != Some(sent.packet_id.as_str()) {
+            return Err(unreachable());
+        }
+        match reply.payload {
+            PacketPayload::Meeting(r) if r.kind.as_deref() == Some("relay-answer") => r.sdp.ok_or_else(unreachable),
+            PacketPayload::Ack(a) => Err(a.reason.unwrap_or_else(unreachable)),
+            _ => Err(unreachable()),
+        }
     }
 
     /// The window lost its connection to someone for good: show them as gone.
@@ -890,7 +1026,7 @@ impl NetworkService {
         tauri::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(WATCH_EVERY).await;
-                let Some(Some(others)) = this.with_meeting(&meeting_id, |m| m.joined().then(|| m.others())) else {
+                let Some(Some((others, relay, i_host))) = this.with_meeting(&meeting_id, |m| m.joined().then(|| (m.targets(), m.relay, m.i_host()))) else {
                     return;
                 };
                 for id in others {
@@ -898,7 +1034,26 @@ impl NetworkService {
                     if !offline {
                         continue;
                     }
-                    if let Some(Some(p)) = this.with_meeting(&meeting_id, |m| m.remove(&id)) {
+                    // A big meeting's organizer went away: it has ended.
+                    if relay && !i_host {
+                        this.end_relay_meeting(&meeting_id, "gone");
+                        return;
+                    }
+                    // LANX 3.10.0: their connection to this PC's relay is still up: still here
+                    // (beacons over Wi-Fi can go missing for a while).
+                    if relay && crate::relay::alive(&meeting_id, &id) {
+                        continue;
+                    }
+                    let removed = this.with_meeting(&meeting_id, |m| m.remove(&id)).flatten();
+                    if relay {
+                        crate::relay::leave(&meeting_id, &id);
+                        this.push_roster(&meeting_id, None);
+                        // …and if their PC can still be reached, it hears it isn't in the meeting any more.
+                        if let Some(r) = this.current_meeting().filter(|m| m.meeting_id == meeting_id).map(|m| this.roster(&m, "roster")) {
+                            this.send_to_all(vec![id.clone()], r);
+                        }
+                    }
+                    if let Some(p) = removed {
                         this.emit_meeting("person-left", |e| {
                             e.from = Some(p.device_id.clone());
                             e.person = Some(p);
@@ -972,6 +1127,7 @@ impl NetworkService {
             "outcome": outcome,
             "secs": secs,
             "video": m.video,
+            "relay": m.relay,
             "group_id": m.group_id,
             "host_id": m.host_id,
             "host_name": m.host_name,
@@ -1026,10 +1182,13 @@ impl NetworkService {
                     if !m.joined() {
                         return Err("This meeting has ended.".to_string());
                     }
+                    if m.relay && !m.i_host() {
+                        return Err(format!("{}'s PC runs this big meeting: join through them.", m.host_name));
+                    }
                     let mut added = None;
                     if !m.has(&peer.id) {
-                        if m.people.len() >= MAX_PEOPLE {
-                            return Err(format!("The meeting is full ({} people).", MAX_PEOPLE));
+                        if m.people.len() >= m.max() {
+                            return Err(format!("The meeting is full ({} people).", m.max()));
                         }
                         let mut person = p.person.as_ref().map(person_from_payload).unwrap_or_else(|| person_from_payload(&MeetingPersonPayload::default()));
                         person.device_id = peer.id.clone();
@@ -1047,11 +1206,34 @@ impl NetworkService {
                                 e.from = Some(person.device_id.clone());
                                 e.person = Some(person);
                             });
+                            // A big meeting: the organizer tells everyone else.
+                            if m.relay {
+                                self.push_roster(&p.meeting_id, Some(&peer.id));
+                            }
                         }
                         PacketPayload::Meeting(self.roster(&m, "roster"))
                     }
                     Some(Err(reason)) => ack(false, Some(reason)),
                     None => ended(),
+                }
+            }
+            "signal" if p.kind.as_deref() == Some("relay-offer") => {
+                // LANX 3.10.0: a guest's connection to this PC's relay.
+                let ok = self.with_meeting(&p.meeting_id, |m| m.joined() && m.relay && m.i_host() && m.has(&peer.id)) == Some(true);
+                if !ok {
+                    return ack(false, Some("Not in this big meeting.".to_string()));
+                }
+                let Some(sdp) = p.sdp.clone().filter(|s| s.len() <= MAX_SDP_LEN) else {
+                    return ack(false, Some("Bad signal".to_string()));
+                };
+                match crate::relay::join(&p.meeting_id, &peer.id, &sdp) {
+                    Ok(answer) => {
+                        let mut r = Self::bare(&p.meeting_id, "signal");
+                        r.kind = Some("relay-answer".to_string());
+                        r.sdp = Some(answer);
+                        PacketPayload::Meeting(r)
+                    }
+                    Err(e) => ack(false, Some(e)),
                 }
             }
             "signal" => {
@@ -1068,7 +1250,7 @@ impl NetworkService {
                 // whose "join" hasn't reached us yet is added now.
                 let added = self
                     .with_meeting(&p.meeting_id, |m| {
-                        if m.has(&peer.id) || m.people.len() >= MAX_PEOPLE {
+                        if m.has(&peer.id) || m.people.len() >= m.max() {
                             return None;
                         }
                         let person = MeetingPerson {
@@ -1105,13 +1287,105 @@ impl NetworkService {
                 ack(true, None)
             }
             "leave" => {
+                // LANX 3.10.0: the organizer of a big meeting left: it ends for everyone.
+                let big = self.with_meeting(&p.meeting_id, |m| (m.relay, m.host_id == peer.id, m.i_host()));
+                if let Some((true, true, false)) = big {
+                    self.end_relay_meeting(&p.meeting_id, "host-left");
+                    return ack(true, None);
+                }
+                if let Some((true, _, true)) = big {
+                    crate::relay::leave(&p.meeting_id, &peer.id);
+                }
                 if let Some(Some(person)) = self.with_meeting(&p.meeting_id, |m| m.remove(&peer.id)) {
                     self.emit_meeting("person-left", |e| {
                         e.from = Some(person.device_id.clone());
                         e.person = Some(person);
                         e.reason = Some("left".to_string());
                     });
+                    if big == Some((true, false, true)) {
+                        self.push_roster(&p.meeting_id, None);
+                    }
                 }
+                ack(true, None)
+            }
+            "roster" => {
+                // LANX 3.10.0: the organizer of a big meeting says who is in it now.
+                let dropped = self
+                    .with_meeting(&p.meeting_id, |m| m.joined() && m.relay && peer.id == m.host_id && !p.people.iter().any(|x| x.device_id == m.my_id))
+                    .unwrap_or(false);
+                if dropped {
+                    self.end_relay_meeting(&p.meeting_id, "dropped");
+                    return ack(true, None);
+                }
+                let r = self.with_meeting(&p.meeting_id, |m| {
+                    if !(m.joined() && m.relay && peer.id == m.host_id) {
+                        return None;
+                    }
+                    let mut joined = Vec::new();
+                    let mut left = Vec::new();
+                    for x in &p.people {
+                        if x.device_id == m.my_id {
+                            continue;
+                        }
+                        if let Some(who) = m.person_mut(&x.device_id) {
+                            if x.seq < who.seq {
+                                continue; // we already have a newer change of theirs
+                            }
+                            who.seq = x.seq;
+                            who.muted = x.muted;
+                            who.camera = x.camera;
+                            who.screen = x.screen;
+                            who.hand = x.hand;
+                            who.recording = x.recording;
+                            (who.reaction, who.reaction_at) = received_reaction(x);
+                        } else if m.people.len() < m.max() {
+                            self.learn_person(x);
+                            let mut person = person_from_payload(x);
+                            person.seq = x.seq;
+                            if let Some(i) = m.pending.iter().position(|q| q.device_id == x.device_id) {
+                                let q = m.pending.remove(i);
+                                if q.seq >= person.seq {
+                                    person.muted = q.muted;
+                                    person.camera = q.camera;
+                                    person.screen = q.screen;
+                                    person.hand = q.hand;
+                                    person.recording = q.recording;
+                                    (person.reaction, person.reaction_at) = received_reaction(&q);
+                                    person.seq = q.seq;
+                                }
+                            }
+                            if let Ok(Some(known)) = self.db.get_peer(&x.device_id) {
+                                person.name = known.display_name;
+                                person.avatar_color = known.avatar_color;
+                            }
+                            if m.add(person.clone()) {
+                                joined.push(person);
+                            }
+                        }
+                    }
+                    let gone: Vec<String> = m.people.iter().filter(|q| !q.is_me && !p.people.iter().any(|x| x.device_id == q.device_id)).map(|q| q.device_id.clone()).collect();
+                    for g in gone {
+                        if let Some(q) = m.remove(&g) {
+                            left.push(q);
+                        }
+                    }
+                    Some((joined, left))
+                });
+                let Some(Some((joined, left))) = r else { return ended() };
+                for person in joined {
+                    self.emit_meeting("person-joined", |e| {
+                        e.from = Some(person.device_id.clone());
+                        e.person = Some(person);
+                    });
+                }
+                for person in left {
+                    self.emit_meeting("person-left", |e| {
+                        e.from = Some(person.device_id.clone());
+                        e.person = Some(person);
+                        e.reason = Some("left".to_string());
+                    });
+                }
+                self.emit_meeting("media", |_| {});
                 ack(true, None)
             }
             "media" => {
@@ -1119,11 +1393,28 @@ impl NetworkService {
                     return ack(false, Some("Empty change".to_string()));
                 };
                 let seq = p.seq.unwrap_or(0);
+                // LANX 3.10.0: in a big meeting the organizer passes on others' changes.
+                let target = self
+                    .with_meeting(&p.meeting_id, |m| {
+                        if m.relay && peer.id == m.host_id && !state.device_id.is_empty() && state.device_id != m.my_id { state.device_id.clone() } else { peer.id.clone() }
+                    })
+                    .unwrap_or_else(|| peer.id.clone());
+                let pass_on = self.with_meeting(&p.meeting_id, |m| m.relay && m.i_host() && peer.id != m.my_id).unwrap_or(false);
                 let r = self.with_meeting(&p.meeting_id, |m| {
                     if !m.joined() {
                         return None;
                     }
-                    let who = m.person_mut(&peer.id)?;
+                    if m.relay && peer.id == m.host_id && m.person_mut(&target).is_none() {
+                        if m.pending.len() < MAX_BIG {
+                            m.pending.retain(|q| q.device_id != target);
+                            let mut q = state.clone();
+                            q.device_id = target.clone();
+                            q.seq = seq;
+                            m.pending.push(q);
+                        }
+                        return Some(None);
+                    }
+                    let who = m.person_mut(&target)?;
                     if seq != 0 && seq < who.seq {
                         return Some(None); // an older change arrived late
                     }
@@ -1148,6 +1439,14 @@ impl NetworkService {
                 });
                 match r {
                     Some(Some(Some((who, was_recording)))) => {
+                        if pass_on {
+                            let mut f = p.clone();
+                            let mut pp = self.person_payload(&who);
+                            pp.seq = who.seq;
+                            f.person = Some(pp);
+                            let to = self.with_meeting(&p.meeting_id, |m| m.others()).unwrap_or_default().into_iter().filter(|id| *id != peer.id).collect();
+                            self.send_to_all(to, f);
+                        }
                         let started = who.recording && !was_recording;
                         let name = who.name.clone();
                         self.emit_meeting("media", |e| {
@@ -1171,16 +1470,32 @@ impl NetworkService {
                 if text.is_empty() || text.chars().count() > MAX_CHAT_LEN {
                     return ack(false, Some("Message rejected (empty or too long)".to_string()));
                 }
+                // LANX 3.10.0: in a big meeting the organizer passes on everyone's chat.
+                let from = self
+                    .with_meeting(&p.meeting_id, |m| match &p.person {
+                        Some(x) if m.relay && peer.id == m.host_id && !x.device_id.is_empty() && x.device_id != m.my_id => x.device_id.clone(),
+                        _ => peer.id.clone(),
+                    })
+                    .unwrap_or_else(|| peer.id.clone());
+                let pass_on = self.with_meeting(&p.meeting_id, |m| m.relay && m.i_host()).unwrap_or(false);
                 let r = self.with_meeting(&p.meeting_id, |m| {
-                    (m.joined() && m.has(&peer.id)).then(|| {
-                        let name = m.people.iter().find(|x| x.device_id == peer.id).map(|x| x.name.clone()).unwrap_or_default();
-                        m.push_chat(&peer.id, &name, text)
+                    (m.joined() && m.has(&from)).then(|| {
+                        let name = m.people.iter().find(|x| x.device_id == from).map(|x| x.name.clone()).unwrap_or_default();
+                        m.push_chat(&from, &name, text)
                     })
                 });
                 match r {
                     Some(Some(line)) => {
+                        if pass_on {
+                            let mut f = p.clone();
+                            if let Some(who) = self.with_meeting(&p.meeting_id, |m| m.people.iter().find(|x| x.device_id == from).cloned()).flatten() {
+                                f.person = Some(self.person_payload(&who));
+                            }
+                            let to = self.with_meeting(&p.meeting_id, |m| m.others()).unwrap_or_default().into_iter().filter(|id| *id != peer.id).collect();
+                            self.send_to_all(to, f);
+                        }
                         self.emit_meeting("chat", |e| {
-                            e.from = Some(peer.id.clone());
+                            e.from = Some(from.clone());
                             e.text = Some(line.text.clone());
                         });
                         ack(true, None)
@@ -1228,11 +1543,12 @@ impl NetworkService {
         };
         let hidden = self.db.is_conversation_hidden(&conv_id);
         let private = hidden && !self.privacy.hidden_unlocked() || self.privacy.is_locked();
+        let relay = p.relay == Some(true);
         let contacts: Vec<MeetingPersonPayload> = p
             .people
             .iter()
             .filter(|x| x.device_id != self.identity.device_id)
-            .take(MAX_PEOPLE)
+            .take(if relay { MAX_BIG } else { MAX_PEOPLE })
             .cloned()
             .collect();
         for c in &contacts {
@@ -1259,7 +1575,9 @@ impl NetworkService {
             my_id: self.identity.device_id.clone(),
             contacts,
             attendees: Vec::new(),
+            pending: Vec::new(),
             on_phone: None,
+            relay,
         };
         {
             let mut cur = self.meeting.lock();

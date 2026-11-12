@@ -1218,7 +1218,12 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             }
             let video = v["video"].as_bool().unwrap_or(true);
             let title = v["title"].as_str().map(|s| s.to_string());
-            match svc.network.start_meeting(conv, video, title).await {
+            match svc.network.start_meeting(conv, video, title, false).await {
+                // LANX 3.10.0: more than 12 people makes a big meeting, which runs on the PC.
+                Ok(m) if m.relay => {
+                    let _ = svc.network.leave_meeting(&m.meeting_id).await;
+                    fail(&id, "With more than 12 people it’s a big meeting: start it on your PC (phones join small meetings for now).")
+                }
                 Ok(m) => {
                     let m = svc.network.set_meeting_phone(&m.meeting_id, Some(client.device.id.clone())).unwrap_or(m);
                     ok(&id, obj(json!({ "meeting": m })))
@@ -1231,6 +1236,9 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             let Some(m) = svc.network.current_meeting().filter(|m| m.meeting_id == mid && m.phase == "invited") else {
                 return fail(&id, "This meeting has ended.");
             };
+            if m.relay {
+                return fail(&id, "This is a big meeting: join it on your PC (phones join small meetings for now).");
+            }
             if let Err(e) = conversation_allowed(svc, &m.conversation_id) {
                 return fail(&id, e);
             }

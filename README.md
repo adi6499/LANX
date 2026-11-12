@@ -57,6 +57,12 @@ others) and talks to the Windows copies on the same network.
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 3.10.0: big meetings (up to 100 people), and Together inside calls
+- **Big meetings:** a group meeting with more than 12 people (groups hold up to 100) becomes a *big meeting*. Instead of every PC connecting to every other PC, each PC opens one connection to the organizer's PC, which runs a small media relay (an SFU, `src-tauri/src/relay.rs`, built on str0m): it forwards each person's camera and microphone without decoding them. Each PC sends its camera in two sizes (simulcast: a small one for tiles, a sharp one for whoever is shown large) and receives fixed slots — the 6 loudest voices (by the audio level each PC reports) and up to 16 pictures (the people it shows; it tells the relay over a data channel). Messages (join, leave, chat, mute, reactions) go through the organizer's PC too. The meeting ends when the organizer leaves.
+- **On screen:** pages of 16 tiles (cameras first), a pager at the top, and whoever is talking pops up in a small floating tile when they are on another page.
+- **Together inside calls:** the meeting's Together button opens Together with everyone in the call ticked; quizzes, presentations and videos open over the meeting, music makes the meeting step aside to its small window.
+- **Limits:** PCs only (phones keep joining meetings of up to 12); everyone needs 3.10.0.
+
 ### New in 3.9.0: Together
 - **Wrench menu → Together:** activities with colleagues on all their PCs at once, on one shared layer (src/lib/together.ts): sessions with a host, invites, join/leave, state on the host's clock (each PC compares its clock with the host's over the network, quickest round trips), one-off events, big items in 180 KB parts. Rust: a `Together` packet (3.9.0+ only), `send_together`.
 - **Phones join Listen together:** the PC shares its plan with its paired phones (`music_phone_share`, ws ops `clock` / `music_state` / `music_ask`); the phone lines its clock up with the PC over the WebSocket and plays in step (iPhone: audio session "playback", screen kept on).

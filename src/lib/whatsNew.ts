@@ -19,6 +19,17 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.10.0",
+    title: "Big meetings: up to 100 people",
+    items: [
+      { icon: "👥", title: "Meetings for the whole office", text: "A group meeting can now have up to 100 people (it was 12). Start a meeting in a group as usual: with more than 12 people, LANX makes it a big meeting by itself." },
+      { icon: "🛰️", title: "The organizer's PC passes it on", text: "In a big meeting each PC sends its picture and voice once, to the organizer's PC, which passes them to everyone. So 100 people don't need 100 connections each, and every PC stays smooth." },
+      { icon: "🗣️", title: "You see who's talking", text: "Up to 16 pictures a page (cameras first; flip pages at the top). Whoever is talking pops up in a small window, even when they're on another page, and the six loudest voices are heard." },
+      { icon: "🎉", title: "Together, inside a call", text: "The new Together button in a meeting starts a quiz, a presentation, a video, music or a bell with everyone in the call, already ticked." },
+      { icon: "💡", title: "Good to know", text: "Everyone needs LANX 3.10.0 or newer, joining from a PC (phones join meetings of up to 12). The meeting ends when the organizer leaves, so the organizer's PC should stay on and plugged in." },
+    ],
+  },
+  {
     version: "3.9.0",
     title: "Together: quiz, karaoke, bells, announcements, presenting, watching",
     items: [

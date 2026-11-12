@@ -1790,9 +1790,9 @@ async fn group_meeting_invites_joins_shares_and_leaves() {
     let gid = conv.id.clone();
     assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
 
-    let m = a.svc.start_meeting(&gid, true, Some("  Quarter close ".into())).await.unwrap();
+    let m = a.svc.start_meeting(&gid, true, Some("  Quarter close ".into()), false).await.unwrap();
     assert_eq!((m.phase.as_str(), m.title.as_str(), m.people.len()), ("joined", "Quarter close", 1));
-    assert!(a.svc.start_meeting(&gid, true, None).await.unwrap_err().contains("already in a meeting"));
+    assert!(a.svc.start_meeting(&gid, true, None, false).await.unwrap_err().contains("already in a meeting"));
     assert!(wait_for(|| invited(&b) && invited(&c), 10).await);
     let inv = b.svc.current_meeting().unwrap();
     assert_eq!(inv.title, "Quarter close");
@@ -1876,7 +1876,7 @@ async fn meeting_invites_can_be_declined_found_busy_or_over() {
     let ba = b.db().get_or_create_conversation(&a.id()).unwrap().id;
 
     // Declined.
-    let m = a.svc.start_meeting(&ab, false, None).await.unwrap();
+    let m = a.svc.start_meeting(&ab, false, None, false).await.unwrap();
     assert_eq!(m.title, "Meeting with Bharat");
     assert!(wait_for(|| invited(&b), 5).await);
     assert_eq!(b.svc.current_meeting().unwrap().conversation_id, ba, "personal invites go to the chat with the inviter");
@@ -1892,7 +1892,7 @@ async fn meeting_invites_can_be_declined_found_busy_or_over() {
     let cb = link(&c, &b).await;
     let call = c.svc.start_call(&cb, false, "offer".into(), None).await.unwrap();
     assert!(wait_for(|| b.svc.current_call().is_some(), 5).await);
-    let m2 = a.svc.start_meeting(&ab, true, None).await.unwrap();
+    let m2 = a.svc.start_meeting(&ab, true, None, false).await.unwrap();
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert!(b.svc.current_meeting().is_none(), "a busy colleague isn't invited");
     a.svc.leave_meeting(&m2.meeting_id).await.unwrap();
@@ -1900,7 +1900,7 @@ async fn meeting_invites_can_be_declined_found_busy_or_over() {
     assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
 
     // Over before joining: Asha leaves while Bharat's invitation rings.
-    let m3 = a.svc.start_meeting(&ab, true, None).await.unwrap();
+    let m3 = a.svc.start_meeting(&ab, true, None, false).await.unwrap();
     assert!(wait_for(|| invited(&b), 5).await);
     a.svc.leave_meeting(&m3.meeting_id).await.unwrap();
     let err = b.svc.join_meeting(&m3.meeting_id).await.unwrap_err();
@@ -1908,7 +1908,7 @@ async fn meeting_invites_can_be_declined_found_busy_or_over() {
     assert!(b.svc.current_meeting().is_none());
 
     // Strangers can't push into a meeting they weren't told about.
-    let m4 = a.svc.start_meeting(&ab, true, None).await.unwrap();
+    let m4 = a.svc.start_meeting(&ab, true, None, false).await.unwrap();
     let chetan = a.db().get_peer(&c.id()).unwrap().unwrap();
     let forged = MeetingPayload {
         meeting_id: "not-the-id".into(),
@@ -2126,7 +2126,7 @@ async fn meeting_reactions_reach_3_7_0_and_older_copies_get_the_rest() {
     let conv = a.svc.create_group("Site Team", &[b.id(), c.id()]).unwrap();
     let gid = conv.id.clone();
     assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
-    let m = a.svc.start_meeting(&gid, true, None).await.unwrap();
+    let m = a.svc.start_meeting(&gid, true, None, false).await.unwrap();
     assert!(wait_for(|| invited(&b) && invited(&c), 10).await);
     b.svc.join_meeting(&m.meeting_id).await.unwrap();
     c.svc.join_meeting(&m.meeting_id).await.unwrap();
@@ -2778,4 +2778,87 @@ async fn together_steps_reach_3_9_0_only() {
     assert_eq!(ev["from_name"], "Asha");
     let e = a.svc.send_together(&old.id(), step).await.unwrap_err();
     assert!(e.contains("3.9.0"), "{e}");
+}
+
+// ------------------------------------------------ big meetings (LANX 3.10.0)
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn big_meetings_go_through_the_organizer() {
+    let a = watched("Asha", "3.10.0").await;
+    let b = watched("Bharat", "3.10.0").await;
+    let c = watched("Chetan", "3.10.0").await;
+    let old = watched("Dev", "3.9.0").await;
+    // Bharat and Chetan don't know each other: they meet through the organizer.
+    link(&a, &b).await;
+    link(&a, &c).await;
+    link(&a, &old).await;
+    let conv = a.svc.create_group("All hands", &[b.id(), c.id(), old.id()]).unwrap();
+    let gid = conv.id.clone();
+    assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
+
+    let m = a.svc.start_meeting(&gid, true, Some("All hands".into()), true).await.unwrap();
+    assert!(m.relay, "a big meeting");
+    assert!(wait_for(|| invited(&b) && invited(&c), 10).await);
+    assert!(b.svc.current_meeting().unwrap().relay);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!invited(&old), "a 3.9.0 copy is never invited to a big meeting");
+
+    b.svc.join_meeting(&m.meeting_id).await.unwrap();
+    c.svc.join_meeting(&m.meeting_id).await.unwrap();
+    assert!(
+        wait_for(|| [&a, &b, &c].iter().all(|n| n.svc.current_meeting().is_some_and(|m| m.people.len() == 3)), 10).await,
+        "everyone knows everyone, through the organizer"
+    );
+
+    // Bharat mutes and raises his hand: Chetan hears it from the organizer.
+    b.svc.meeting_media(&m.meeting_id, Some(true), None, None, Some(true), None, None).await.unwrap();
+    assert!(wait_for(|| c.svc.current_meeting().is_some_and(|m| person(&m, "Bharat").muted && person(&m, "Bharat").hand), 10).await);
+    // Bharat's chat reaches Chetan, as Bharat's.
+    b.svc.meeting_chat(&m.meeting_id, "hello all").await.unwrap();
+    assert!(wait_for(|| c.svc.current_meeting().is_some_and(|m| m.chat.iter().any(|l| l.text == "hello all" && l.name == "Bharat")), 10).await);
+    // Only the organizer runs it: a guest can't be joined through.
+    let e = c.svc.handle_meeting(&b.db().get_peer(&a.id()).unwrap().unwrap(), MeetingPayload { meeting_id: m.meeting_id.clone(), action: "join".into(), ..Default::default() });
+    assert!(matches!(e, PacketPayload::Ack(AckPayload { ok: false, .. })));
+
+    // The organizer's list of people and the changes it passes on travel separately and can
+    // swap places: a change for someone not in the list yet waits for them, and an older
+    // list can't undo a newer change (seen with five real copies: a camera that was on
+    // showed as off).
+    let host = c.db().get_peer(&a.id()).unwrap().unwrap();
+    let roster = |zara_camera: bool, zara_seq: u64| {
+        let mut people: Vec<MeetingPersonPayload> = c
+            .svc
+            .current_meeting()
+            .unwrap()
+            .people
+            .iter()
+            // (Everyone, Chetan too: a list without him would mean he was dropped.)
+            .filter(|p| p.device_id != "zara")
+            .map(|p| MeetingPersonPayload { device_id: p.device_id.clone(), name: p.name.clone(), muted: p.muted, hand: p.hand, ..Default::default() })
+            .collect();
+        people.push(MeetingPersonPayload { device_id: "zara".into(), name: "Zara".into(), camera: zara_camera, seq: zara_seq, ..Default::default() });
+        MeetingPayload { meeting_id: m.meeting_id.clone(), action: "roster".into(), people, relay: Some(true), ..Default::default() }
+    };
+    let camera_on = MeetingPayload {
+        meeting_id: m.meeting_id.clone(),
+        action: "media".into(),
+        seq: Some(100),
+        person: Some(MeetingPersonPayload { device_id: "zara".into(), name: "Zara".into(), camera: true, ..Default::default() }),
+        ..Default::default()
+    };
+    assert!(matches!(c.svc.handle_meeting(&host, camera_on), PacketPayload::Ack(AckPayload { ok: true, .. })));
+    c.svc.handle_meeting(&host, roster(false, 0));
+    assert!(person(&c.svc.current_meeting().unwrap(), "Zara").camera, "the change that came first still counts");
+    c.svc.handle_meeting(&host, roster(false, 50));
+    assert!(person(&c.svc.current_meeting().unwrap(), "Zara").camera, "an older list doesn't undo it");
+    c.svc.handle_meeting(&host, roster(false, 200));
+    assert!(!person(&c.svc.current_meeting().unwrap(), "Zara").camera, "a newer one does");
+    assert!(person(&c.svc.current_meeting().unwrap(), "Bharat").hand, "a list without Bharat's newest change keeps it");
+
+    // Bharat leaves: Chetan sees it.
+    b.svc.leave_meeting(&m.meeting_id).await.unwrap();
+    assert!(wait_for(|| c.svc.current_meeting().is_some_and(|m| m.people.len() == 2), 10).await);
+    // The organizer leaves: the meeting ends for Chetan too.
+    a.svc.leave_meeting(&m.meeting_id).await.unwrap();
+    assert!(wait_for(|| c.svc.current_meeting().is_none(), 10).await, "the big meeting ended with its organizer");
 }

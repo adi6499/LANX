@@ -13,9 +13,22 @@ pub async fn meeting_start(
     conversation_id: String,
     video: bool,
     title: Option<String>,
+    big: Option<bool>,
 ) -> Result<MeetingInfo, String> {
     guard_conversation(&state, &conversation_id)?;
-    state.network.start_meeting(&conversation_id, video, title).await
+    state.network.start_meeting(&conversation_id, video, title, big.unwrap_or(false)).await
+}
+
+/// LANX 3.10.0: this window's connection to a big meeting's relay (offer → answer).
+#[tauri::command]
+pub async fn meeting_relay_offer(state: State<'_, AppState>, meeting_id: String, sdp: String) -> Result<String, String> {
+    state.network.meeting_relay_offer(&meeting_id, sdp).await
+}
+
+/// LANX 3.10.0: who is connected to this PC's relay, and who is in whose slots (support, tests).
+#[tauri::command]
+pub fn meeting_relay_stats() -> serde_json::Value {
+    crate::relay::stats()
 }
 
 /// Invites more colleagues; returns who couldn't be invited and why.

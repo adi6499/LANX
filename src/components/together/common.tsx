@@ -93,9 +93,11 @@ export function Sheet({ title, subtitle, icon, onClose, children, wide = false, 
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
+  // LANX 3.10.0: opened from inside a meeting, it sits over moving pictures — solid there.
+  const [overMeeting] = useState(() => !!document.querySelector('[data-meeting-status="active"]:not([data-meeting-mini])'));
   return (
     <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/30 p-3 lanx-fade" onMouseDown={onClose}>
-      <div data-together-sheet={tag} className={`${wide ? "w-[860px]" : "w-[460px]"} max-h-[90vh] max-w-[96vw] overflow-y-auto rounded-[22px] lanx-sheet p-5 lanx-rise`} onMouseDown={(e) => e.stopPropagation()}>
+      <div data-together-sheet={tag} className={`${wide ? "w-[860px]" : "w-[460px]"} max-h-[90vh] max-w-[96vw] overflow-y-auto rounded-[22px] lanx-sheet ${overMeeting ? "lanx-sheet-solid" : ""} p-5 lanx-rise`} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             {icon && <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-600 dark:text-sky-400">{icon}</span>}
@@ -130,4 +132,13 @@ export function InviteStack({ children }: { children: React.ReactNode }) {
     return d;
   });
   return createPortal(children, el);
+}
+
+/** LANX 3.10.0: the Together button in a meeting ticks everyone in it (for a minute). */
+let preset: { ids: string[]; at: number } | null = null;
+export function presetPeople(ids: string[]) {
+  preset = { ids, at: Date.now() };
+}
+export function presetPicked(): Record<string, boolean> {
+  return preset && Date.now() - preset.at < 60000 ? Object.fromEntries(preset.ids.map((i) => [i, true])) : {};
 }

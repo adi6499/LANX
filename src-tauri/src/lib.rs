@@ -7,6 +7,7 @@ pub mod networking;
 pub mod phone;
 pub mod privacy;
 pub mod recordings;
+pub mod relay;
 pub mod remote;
 pub mod security;
 pub mod shell;
@@ -604,6 +605,8 @@ pub fn run() {
             commands::calls::call_media,
             commands::calls::get_call,
             commands::meetings::meeting_start,
+            commands::meetings::meeting_relay_offer,
+            commands::meetings::meeting_relay_stats,
             commands::meetings::meeting_invite,
             commands::meetings::meeting_join,
             commands::meetings::meeting_rejoin,

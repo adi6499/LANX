@@ -696,6 +696,8 @@ export interface MeetingChatLine {
 
 export interface MeetingInfo {
   meeting_id: string;
+  /** LANX 3.10.0: a big meeting (the organizer's PC relays everyone; up to 100). */
+  relay?: boolean;
   title: string;
   conversation_id: string;
   group_id: string | null;
