@@ -183,8 +183,9 @@ html = Object.keys(linux).length
 fs.writeFileSync(htmlPath, html);
 console.log(`  updated       index.html`);
 // LANX 3.11: the one-line Linux installer (curl -fsSL <site>/install.sh | sh).
-const installer = path.join(here, "..", "linux", "install.sh");
-if (fs.existsSync(installer)) {
+// (Next to the app's release folder: LANAPPLICATIONlinuxinstall.sh, or this repository's own linux.)
+const installer = [path.join(path.dirname(src), "..", "linux", "install.sh"), path.join(here, "..", "linux", "install.sh")].find((p) => fs.existsSync(p));
+if (installer) {
   // (Unix line ends: a shell reading "\r" fails.)
   fs.writeFileSync(path.join(here, "install.sh"), fs.readFileSync(installer, "utf8").replace(/\r\n/g, "\n"));
   console.log(`  copied        install.sh`);
