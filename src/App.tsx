@@ -153,6 +153,35 @@ function sameMessage(a: Message, b: Message): boolean {
   return true;
 }
 
+/** LANX 3.11.1: what of a colleague the screen shows (not last_seen, which changes every few seconds). */
+const SHOWN_PEER_KEYS = ["status", "display_name", "hostname", "last_ip", "tcp_port", "avatar_color", "trust_state"] as const;
+
+/** Colleagues read again: unchanged ones stay the same objects, and the list too when nothing changed. */
+function mergePeers(prev: Peer[], next: Peer[]): Peer[] {
+  const old = new Map(prev.map((p) => [p.id, p] as const));
+  let changed = prev.length !== next.length;
+  const out = next.map((p) => {
+    const o = old.get(p.id);
+    if (o && SHOWN_PEER_KEYS.every((k) => o[k] === p[k])) return o;
+    changed = true;
+    return p;
+  });
+  return changed ? out : prev;
+}
+
+/** Only the online dots of the chats change; everything else stays as it is. */
+function mergeChatPresence(prev: Conversation[], next: Conversation[]): Conversation[] {
+  const status = new Map(next.map((c) => [c.id, c.peer_status] as const));
+  let changed = false;
+  const out = prev.map((c) => {
+    const s = status.get(c.id);
+    if (s === undefined || s === c.peer_status) return c;
+    changed = true;
+    return { ...c, peer_status: s };
+  });
+  return changed ? out : prev;
+}
+
 function upsertTransfer(list: TransferRecord[], t: TransferRecord): TransferRecord[] {
   const idx = list.findIndex((x) => x.id === t.id);
   if (idx >= 0) {
@@ -527,6 +556,39 @@ export default function App() {
       clearInterval(timer);
     };
   }, [settings?.pin_enabled, settings?.auto_lock_minutes, locked]);
+
+  // LANX 3.11.1: who is online, read again every 15 seconds and whenever the
+  // window comes back. A change that arrived while the lists were being
+  // reloaded used to leave a colleague who was there showing "offline" until
+  // something else about them changed; groups' dots only changed on a reload.
+  useEffect(() => {
+    let busy = false;
+    const sync = async () => {
+      if (busy || lockedRef.current || document.visibilityState === "hidden") return;
+      busy = true;
+      try {
+        const [p, c] = await Promise.all([api.listPeers(), api.getConversations()]);
+        if (lockedRef.current) return;
+        setPeers((prev) => mergePeers(prev, p));
+        setConversations((prev) => mergeChatPresence(prev, c));
+      } catch {
+        // next round
+      } finally {
+        busy = false;
+      }
+    };
+    const t = setInterval(() => void sync(), 15_000);
+    const onShow = () => {
+      if (document.visibilityState === "visible") void sync();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    window.addEventListener("focus", onShow);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onShow);
+      window.removeEventListener("focus", onShow);
+    };
+  }, []);
 
   // Expire "typing…" labels.
   useEffect(() => {

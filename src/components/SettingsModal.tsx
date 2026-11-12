@@ -782,7 +782,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <div className="p-3 rounded-xl lanx-group">
                     <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Finding colleagues</div>
-                    {status(systemInfo?.udp_listening, `Listening on UDP ${settings.udp_discovery_port}`, `UDP port ${settings.udp_discovery_port} is in use`)}
+                    {status(
+                      systemInfo?.udp_listening,
+                      systemInfo?.udp_port && systemInfo.udp_port !== settings.udp_discovery_port
+                        ? `Listening on UDP ${systemInfo.udp_port} (Windows has reserved port ${settings.udp_discovery_port} on this PC, so LANX uses the next free one — colleagues still find this PC)`
+                        : `Listening on UDP ${settings.udp_discovery_port}`,
+                      `UDP port ${settings.udp_discovery_port} is in use or reserved by Windows — LANX keeps trying and will move to the next free port`
+                    )}
                   </div>
                 </div>
 

@@ -19,6 +19,16 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.11.1",
+    title: "Online means online",
+    items: [
+      { icon: "🟢", title: "Colleagues who are there show online", text: "Some PCs could not find anyone all day, and nobody could find them, when Windows had set aside the port LANX uses for this (it happens on PCs with Hyper-V, WSL or Docker, and changes after each restart). LANX now keeps trying and moves to a free port, and colleagues still find that PC." },
+      { icon: "🔄", title: "The list puts itself right", text: "The online dots are checked again every 15 seconds and whenever you come back to LANX, so a colleague who is there never stays grey. Group dots follow too." },
+      { icon: "⏳", title: "No more flicking to offline", text: "A colleague whose PC answered slowly could flick to offline and back. LANX now waits for the answer, and gives colleagues who announce themselves less often as long as they need." },
+      { icon: "💡", title: "Good to know", text: "Each PC needs 3.11.1 for its own part of the fix: send the update to everyone from Settings → Updates. Settings → Diagnostics shows which port this PC finds colleagues on." },
+    ],
+  },
+  {
     version: "3.11.0",
     title: "Faster and smoother, and Linux made easy",
     items: [

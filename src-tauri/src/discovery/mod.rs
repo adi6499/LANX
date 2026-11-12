@@ -43,6 +43,15 @@ pub struct DiscoveryBeacon {
     /// Only a hint: each PC proves who it is with its own signed beacon.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seen: Vec<String>,
+    /// LANX 3.11.1: how often (seconds) the sender announces itself, so a
+    /// colleague who set a slower pace isn't taken for gone between two
+    /// beacons. Not signed: it only makes the receiver more patient.
+    #[serde(default, skip_serializing_if = "is_zero_u16")]
+    pub every: u16,
+}
+
+fn is_zero_u16(n: &u16) -> bool {
+    *n == 0
 }
 
 /// LANX 1.3.0: how many colleagues' addresses a beacon passes on.
@@ -57,6 +66,17 @@ const PROBE_EVERY: Duration = Duration::from_secs(60);
 const ANSWER_EVERY: Duration = Duration::from_secs(4);
 /// Check a quiet colleague over the encrypted connection at most this often.
 const CHECK_EVERY: Duration = Duration::from_secs(20);
+/// A direct check that hasn't answered after this long counts as failed.
+const CHECK_GIVE_UP: Duration = Duration::from_secs(15);
+
+/// LANX 3.11.1: the last direct check of a quiet colleague.
+#[derive(Clone, Copy)]
+struct Check {
+    at: Instant,
+    /// Still waiting for the answer: never "offline" while it may yet come.
+    running: bool,
+    failed: bool,
+}
 
 fn is_false(b: &bool) -> bool {
     !*b
@@ -165,7 +185,11 @@ pub struct DiscoveryService {
     search_now: tokio::sync::Notify,
     /// Last direct check (encrypted connection) of colleagues whose beacons
     /// stopped arriving, by device id.
-    checked: Mutex<HashMap<String, Instant>>,
+    checked: Mutex<HashMap<String, Check>>,
+    /// LANX 3.11.1: each colleague's announce pace (seconds), from its beacons.
+    paces: Mutex<HashMap<String, i64>>,
+    /// LANX 3.11.1: the UDP port this PC really listens on (0 = not yet).
+    bound_port: std::sync::atomic::AtomicU16,
 }
 
 /// Broadcast addresses of every active IPv4 adapter, plus the global
@@ -240,6 +264,8 @@ impl DiscoveryService {
             answered: Mutex::new(HashMap::new()),
             search_now: tokio::sync::Notify::new(),
             checked: Mutex::new(HashMap::new()),
+            paces: Mutex::new(HashMap::new()),
+            bound_port: std::sync::atomic::AtomicU16::new(0),
         }
     }
 
@@ -247,24 +273,47 @@ impl DiscoveryService {
     /// we were introduced to). Ask over the encrypted connection: if it
     /// answers it stays online (and its name and colour are refreshed);
     /// otherwise, once it has been silent too long, it goes offline.
+    /// LANX 3.11.1: never offline while that question is still out — a slow
+    /// answer (busy PC, Wi-Fi waking up) used to flip a colleague who was
+    /// there to "offline" and back.
     fn check_directly(self: &Arc<Self>, peer: crate::storage::models::Peer, overdue: bool) {
         {
             let mut checked = self.checked.lock();
-            if checked.get(&peer.id).is_some_and(|t| t.elapsed() < CHECK_EVERY) {
-                if overdue {
-                    drop(checked);
-                    self.network.peer_went_offline(&peer.id);
+            if let Some(c) = checked.get(&peer.id).copied() {
+                if c.running && c.at.elapsed() < CHECK_GIVE_UP {
+                    return; // still waiting for the answer
                 }
-                return;
+                if !c.running && c.at.elapsed() < CHECK_EVERY {
+                    if overdue && c.failed {
+                        drop(checked);
+                        self.network.peer_went_offline(&peer.id);
+                    }
+                    return;
+                }
             }
-            checked.insert(peer.id.clone(), Instant::now());
+            checked.insert(peer.id.clone(), Check { at: Instant::now(), running: true, failed: false });
         }
         let this = self.clone();
         tokio::spawn(async move {
-            match this.network.connect_peer(&peer).await {
-                Ok(chan) => chan.close().await,
-                Err(_) if overdue => this.network.peer_went_offline(&peer.id),
-                Err(_) => {}
+            let answered = match tokio::time::timeout(CHECK_GIVE_UP, this.network.connect_peer(&peer)).await {
+                Ok(Ok(chan)) => {
+                    chan.close().await;
+                    true
+                }
+                _ => false,
+            };
+            if let Some(c) = this.checked.lock().get_mut(&peer.id) {
+                c.running = false;
+                c.failed = !answered;
+            }
+            // Offline only if it is still silent now (a beacon may have
+            // arrived while we were asking).
+            if !answered {
+                if let Ok(Some(p)) = this.network.db.get_peer(&peer.id) {
+                    if now_secs() - p.last_seen > this.offline_after_for(&peer.id) {
+                        this.network.peer_went_offline(&peer.id);
+                    }
+                }
             }
         });
     }
@@ -272,6 +321,27 @@ impl DiscoveryService {
     /// Seconds without any sign of a colleague before they count as offline.
     fn offline_after(&self) -> i64 {
         (self.interval().as_secs() as i64 * 6 + 2).max(30)
+    }
+
+    /// LANX 3.11.1: a colleague who announces itself less often than we do
+    /// gets as much patience as its own pace needs.
+    fn pace_of(&self, device_id: &str) -> i64 {
+        self.paces.lock().get(device_id).copied().unwrap_or(0)
+    }
+
+    fn offline_after_for(&self, device_id: &str) -> i64 {
+        self.offline_after().max(self.pace_of(device_id) * 6 + 2)
+    }
+
+    /// Quiet this long: ask it directly whether it is still there.
+    fn quiet_after_for(&self, device_id: &str) -> i64 {
+        let own = self.interval().as_secs() as i64;
+        (own * 2 + 2).max(self.pace_of(device_id) * 2 + 2)
+    }
+
+    /// The UDP port this PC listens on for colleagues (0 while it has none).
+    pub fn bound_port(&self) -> u16 {
+        self.bound_port.load(Ordering::SeqCst)
     }
 
     /// Searches the local network now ("Search the network" in Peers).
@@ -377,6 +447,7 @@ impl DiscoveryService {
             profile_rev: Some(self.network.local_profile_rev()),
             probe,
             seen: if status == "online" { self.seen_hints() } else { Vec::new() },
+            every: self.interval().as_secs().min(u16::MAX as u64) as u16,
         };
         beacon.signature = identity.sign_bytes(&beacon.signing_bytes());
         let mut bytes = serde_json::to_vec(&beacon).ok()?;
@@ -411,11 +482,37 @@ impl DiscoveryService {
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
             let port = this.port();
-            let socket = match bind_discovery_socket(port) {
-                Ok(s) => Arc::new(s),
-                Err(e) => {
-                    eprintln!("[Discovery] Cannot bind UDP port {}: {}", port, e);
-                    return;
+            // LANX 3.11.1: LANX used to give up here when the port couldn't be
+            // opened — Windows reserves whole port ranges for Hyper-V / WSL /
+            // Docker (netsh … show excludedportrange protocol=udp), differently
+            // after each restart — and then that PC saw nobody and nobody saw
+            // it, all day. Now it keeps trying and, after a few tries, listens
+            // on a nearby free port: its beacons still go to everyone's usual
+            // port, and colleagues answer to where they came from.
+            let mut tries = 0u32;
+            let socket = 'bind: loop {
+                for candidate in crate::networking::port_candidates(port, tries) {
+                    match bind_discovery_socket(candidate) {
+                        Ok(s) => {
+                            if candidate != port {
+                                eprintln!("[Discovery] UDP port {} is not available on this PC; listening on {} instead", port, candidate);
+                            } else if tries > 0 {
+                                eprintln!("[Discovery] UDP port {} is free now (after {} tries)", port, tries);
+                            }
+                            this.bound_port.store(candidate, Ordering::SeqCst);
+                            break 'bind Arc::new(s);
+                        }
+                        Err(e) => {
+                            if tries == 0 && candidate == port {
+                                eprintln!("[Discovery] Cannot listen on UDP port {} ({}); trying again", port, e);
+                            }
+                        }
+                    }
+                }
+                tries += 1;
+                tokio::select! {
+                    _ = this.cancel_token.cancelled() => return,
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
                 }
             };
             *this.socket.lock() = Some(socket.clone());
@@ -471,14 +568,13 @@ impl DiscoveryService {
                         _ = expiry.cancel_token.cancelled() => break,
                         _ = tokio::time::sleep(Duration::from_secs(2)) => {}
                     }
-                    let timeout = expiry.offline_after();
-                    let quiet = expiry.interval().as_secs() as i64 * 2 + 2;
                     let now = now_secs();
                     if let Ok(peers) = expiry.network.db.list_peers() {
                         for p in peers {
                             let age = now - p.last_seen;
-                            if p.status == "online" && age > quiet {
-                                expiry.check_directly(p, age > timeout);
+                            if p.status == "online" && age > expiry.quiet_after_for(&p.id) {
+                                let overdue = age > expiry.offline_after_for(&p.id);
+                                expiry.check_directly(p, overdue);
                             }
                         }
                     }
@@ -529,6 +625,9 @@ impl DiscoveryService {
         let probe = beacon.probe;
         let hints = beacon.seen.clone();
         self.heard.lock().insert(beacon.device_id.clone(), (src, now_secs()));
+        if beacon.every > 0 {
+            self.paces.lock().insert(beacon.device_id.clone(), i64::from(beacon.every.min(600)));
+        }
         let seen = SeenPeer {
             device_id: beacon.device_id,
             display_name: beacon.display_name,
@@ -752,6 +851,65 @@ mod tests {
         let reply: DiscoveryBeacon = serde_json::from_slice(&buf[..len]).unwrap();
         assert_eq!(reply.display_name, "Alice");
         assert!(a.heard.lock().contains_key(&b.network.identity.device_id));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_slow_colleague_gets_patience_and_a_pending_check_keeps_it_online() {
+        let a = service("Alice");
+        let b = service("Bob");
+        let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let src: SocketAddr = "192.168.1.77:52925".parse().unwrap();
+        // Bob announces itself every 60 seconds, Alice every 5.
+        let mut s = b.network.db.get_settings().unwrap();
+        s.discovery_interval_secs = 60;
+        b.network.db.save_settings(&s).unwrap();
+        let bytes = b.build_beacon("online").unwrap();
+        let beacon: DiscoveryBeacon = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(beacon.every, 60);
+        assert!(beacon.verify(), "the pace is not part of the signature");
+        a.handle_beacon(&bytes, src, &sock).await;
+        let bob_id = b.network.identity.device_id.clone();
+        assert_eq!(a.offline_after(), 32);
+        assert_eq!(a.offline_after_for(&bob_id), 362, "six of Bob's own beats");
+        assert_eq!(a.quiet_after_for(&bob_id), 122);
+        assert_eq!(a.offline_after_for("someone-else"), 32);
+
+        // A direct check still waiting for its answer: Bob stays online.
+        let bob = a.network.db.get_peer(&bob_id).unwrap().unwrap();
+        a.checked.lock().insert(bob_id.clone(), Check { at: Instant::now(), running: true, failed: false });
+        a.check_directly(bob.clone(), true);
+        assert_eq!(a.network.db.get_peer(&bob_id).unwrap().unwrap().status, "online");
+        // A check that answered: still online.
+        a.checked.lock().insert(bob_id.clone(), Check { at: Instant::now(), running: false, failed: false });
+        a.check_directly(bob.clone(), true);
+        assert_eq!(a.network.db.get_peer(&bob_id).unwrap().unwrap().status, "online");
+        // The check came back unanswered and Bob is overdue: offline.
+        a.checked.lock().insert(bob_id.clone(), Check { at: Instant::now(), running: false, failed: true });
+        a.check_directly(bob, true);
+        assert_eq!(a.network.db.get_peer(&bob_id).unwrap().unwrap().status, "offline");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_check_leaves_a_colleague_who_spoke_meanwhile_online() {
+        let a = service("Alice");
+        let b = service("Bob");
+        let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        // Bob is "at" a port where nothing answers, so the check fails.
+        let src: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        a.handle_beacon(&b.build_beacon("online").unwrap(), src, &sock).await;
+        let bob_id = b.network.identity.device_id.clone();
+        let bob = a.network.db.get_peer(&bob_id).unwrap().unwrap();
+        // Overdue when asked, but a beacon arrives while the question is out.
+        a.check_directly(bob, true);
+        a.handle_beacon(&b.build_beacon("online").unwrap(), src, &sock).await;
+        for _ in 0..50 {
+            if a.checked.lock().get(&bob_id).is_some_and(|c| !c.running) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(a.checked.lock().get(&bob_id).is_some_and(|c| !c.running && c.failed));
+        assert_eq!(a.network.db.get_peer(&bob_id).unwrap().unwrap().status, "online");
     }
 
     #[test]

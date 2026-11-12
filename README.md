@@ -57,6 +57,12 @@ others) and talks to the Windows copies on the same network.
   in *their* **Settings → Diagnostics**. If it matches, press **Mark as trusted**.
 - **Search:** the **History** tab searches every message on this PC.
 
+### New in 3.11.1: online means online
+- **Discovery port never given up:** when UDP 52925 can't be opened (Windows reserves ~100-port ranges for Hyper-V / WSL / Docker, `netsh int ipv4 show excludedportrange protocol=udp`, differently after each restart), LANX used to stop looking for colleagues until it was restarted — that PC saw nobody and nobody saw it. Now it retries every 2 s and from the third try also uses a nearby port (the same candidates as the TCP port, `port_candidates`). Beacons still go to everyone's usual port; colleagues answer to the address they came from, so 1.3.0 and newer find it. Settings → Diagnostics shows the port in use.
+- **Each colleague's own pace:** beacons carry `every` (the sender's announce interval, unsigned, ignored by older versions); a colleague is asked directly after 2 of *its* intervals and counted offline after 6 (at least 32 s, as before).
+- **No offline while asking:** a direct check (encrypted connection) that is still waiting for its answer no longer lets the peer go offline; a check that fails marks it offline only if nothing was heard from it meanwhile; a check that hangs counts as failed after 15 s.
+- **The window re-reads presence** every 15 s and when it comes back to the front (people + chat dots, groups included), keeping unchanged objects, so a status change that arrived during a list reload can't leave someone grey.
+
 ### New in 3.11.0: faster and smoother, LANX always opens on Linux, easy Linux install
 - **Chats open at once:** the chat screen draws the newest 120 messages and adds older ones as you scroll up (or jump to one), keeping your place. Before, every message of a chat was drawn when it opened (1.5–2.3 s frozen for a 2,000-message chat; now ~0.1–0.2 s).
 - **The message list is kept between draws:** it is drawn again only when what it shows changes (messages, files, people), not for every key typed, menu opened or second ticked; dates and times use formatters made once; reply quotes are looked up in a map. Typing: 74 → 10 ms from key to screen (Windows engine), and no freezes on Linux.

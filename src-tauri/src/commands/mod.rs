@@ -375,6 +375,7 @@ pub fn get_system_info(app: AppHandle, state: State<AppState>) -> Result<SystemI
         tcp_listening: state.network.is_listening(),
         udp_listening: state.discovery.is_listening(),
         tcp_port: state.network.bound_port(),
+        udp_port: state.discovery.bound_port(),
     })
 }
 

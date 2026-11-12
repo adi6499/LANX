@@ -813,6 +813,9 @@ pub struct SystemInfo {
     pub udp_listening: bool,
     /// LANX 2.5.2: the TCP port actually in use (0 while none is).
     pub tcp_port: u16,
+    /// LANX 3.11.1: the UDP port colleagues are found on (0 while none is).
+    #[serde(default)]
+    pub udp_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

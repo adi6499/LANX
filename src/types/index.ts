@@ -340,6 +340,8 @@ export interface SystemInfo {
   udp_listening: boolean;
   /** LANX 2.5.2: the TCP port actually in use (0 while none is). */
   tcp_port: number;
+  /** LANX 3.11.1: the UDP port colleagues are found on (0 while none is). */
+  udp_port?: number;
 }
 
 export interface ConnectionTestResult {
