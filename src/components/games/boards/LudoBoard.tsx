@@ -3,9 +3,21 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { seatFor, type BoardProps } from "../boardProps";
 import { FINISH, TRACK, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
 import { sfx } from "../../../lib/gameSounds";
+import { paperTexture, woodTexture } from "../../../lib/games/texture";
 
 const C = 30; // cell size
 const SIZE = 15 * C;
+/** LANX 3.12.0: the wooden frame round the printed board. */
+const FRAME = 14;
+
+/** A colour made lighter (amt > 0) or darker (amt < 0). */
+function shade(hex: string, amt: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const v = parseInt(m[1], 16);
+  const ch = [(v >> 16) & 255, (v >> 8) & 255, v & 255].map((c) => Math.round(amt >= 0 ? c + (255 - c) * amt : c * (1 + amt)));
+  return `#${ch.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
 
 /** The 52 squares of the loop, clockwise from red's start, as [row, col]. */
 export const LOOP: [number, number][] = [
@@ -97,7 +109,7 @@ function useFitSide(ref: RefObject<HTMLDivElement | null>): number {
       const cs = getComputedStyle(box);
       const pw = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
       const ph = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-      setSide(Math.max(240, Math.min(SIZE, box.clientWidth - pw - 8, box.clientHeight - ph - CHROME)));
+      setSide(Math.max(240, Math.min(SIZE * 2, box.clientWidth - pw - 8, box.clientHeight - ph - CHROME)));
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -345,40 +357,81 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
         {plate(0)}
         {plate(1)}
       </div>
-      <svg width={side} height={side} viewBox={`0 0 ${SIZE} ${SIZE}`} className="select-none rounded-[14px] shadow-lg" style={{ background: "#ffffff" }} data-ludo-classic>
+      {/* LANX 3.12.0: a printed cardboard board in a wooden frame, its colours a little shaded,
+          the token spots pressed in, and glossy pins standing on a base. */}
+      <svg width={side} height={side} viewBox={`${-FRAME} ${-FRAME} ${SIZE + 2 * FRAME} ${SIZE + 2 * FRAME}`} className="select-none" data-ludo-classic>
         <defs>
           <clipPath id="ludoRound">
-            <rect width={SIZE} height={SIZE} rx={14} />
+            <rect width={SIZE} height={SIZE} rx={6} />
           </clipPath>
+          <pattern id="ludo-wood" patternUnits="userSpaceOnUse" width={512} height={256}>
+            <image href={woodTexture("walnut")} width={512} height={256} />
+          </pattern>
+          <pattern id="ludo-paper" patternUnits="userSpaceOnUse" width={256} height={256}>
+            <image href={paperTexture()} width={256} height={256} />
+          </pattern>
+          <radialGradient id="ludo-hole" cx="0.5" cy="0.42" r="0.6">
+            <stop offset="0" stopColor="#000" stopOpacity="0.32" />
+            <stop offset="0.7" stopColor="#000" stopOpacity="0.12" />
+            <stop offset="1" stopColor="#000" stopOpacity="0" />
+          </radialGradient>
+          {LUDO_COLOURS.map((col, c) => (
+            <g key={c}>
+              <linearGradient id={`ludo-yard-${c}`} x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stopColor={shade(col, 0.16)} />
+                <stop offset="0.55" stopColor={col} />
+                <stop offset="1" stopColor={shade(col, -0.14)} />
+              </linearGradient>
+              <radialGradient id={`ludo-pin-${c}`} cx="0.36" cy="0.28" r="0.85">
+                <stop offset="0" stopColor={shade(col, 0.55)} />
+                <stop offset="0.45" stopColor={col} />
+                <stop offset="1" stopColor={shade(col, -0.32)} />
+              </radialGradient>
+            </g>
+          ))}
         </defs>
+        {/* The frame, and the board's own little shadow inside it. */}
+        <rect x={-FRAME} y={-FRAME} width={SIZE + 2 * FRAME} height={SIZE + 2 * FRAME} rx={16} fill="url(#ludo-wood)" />
+        <rect x={-FRAME + 1} y={-FRAME + 1} width={SIZE + 2 * FRAME - 2} height={SIZE + 2 * FRAME - 2} rx={15} fill="none" stroke="#fff" strokeOpacity={0.18} strokeWidth={1.5} />
+        <rect x={-3} y={-2} width={SIZE + 6} height={SIZE + 6} rx={8} fill="#000" opacity={0.35} />
         <g clipPath="url(#ludoRound)">
+          <rect width={SIZE} height={SIZE} fill="#fffaf0" />
           <g transform={`rotate(${k * 90} ${SIZE / 2} ${SIZE / 2})`}>
             {/* yards: a strong coloured corner, a white court, four coloured token spots */}
             {YARD.map(([yr, yc], c) => {
               const active = ludoPlayerAt(c, n) === turn && state.winner === null;
               return (
                 <g key={c}>
-                  <rect x={yc * C} y={yr * C} width={6 * C} height={6 * C} fill={LUDO_COLOURS[c]} />
-                  <rect x={yc * C + C * 0.7} y={yr * C + C * 0.7} width={C * 4.6} height={C * 4.6} fill="#fff" rx={C * 0.5} />
+                  <rect x={yc * C} y={yr * C} width={6 * C} height={6 * C} fill={`url(#ludo-yard-${c})`} />
+                  <rect x={yc * C + C * 0.7} y={yr * C + C * 0.7} width={C * 4.6} height={C * 4.6} fill="#fffdf7" rx={C * 0.5} />
+                  <rect x={yc * C + C * 0.7 + 1.5} y={yr * C + C * 0.7 + 1.5} width={C * 4.6 - 3} height={C * 4.6 - 3} fill="none" rx={C * 0.45} stroke="#000" strokeOpacity={0.08} strokeWidth={3} />
                   {active && <rect className="ludo-glow" x={yc * C + C * 0.45} y={yr * C + C * 0.45} width={C * 5.1} height={C * 5.1} rx={C * 0.65} fill="none" stroke="#fff" strokeWidth={C * 0.16} />}
-                  {SPOT.map(([dr, dc], s) => (
-                    <circle key={s} cx={(yc + dc) * C + C / 2} cy={(yr + dr) * C + C / 2} r={C * 0.62} fill={LUDO_COLOURS[c]} stroke={LUDO_DARK[c]} strokeWidth={1.5} />
-                  ))}
+                  {SPOT.map(([dr, dc], s) => {
+                    const cx = (yc + dc) * C + C / 2;
+                    const cy = (yr + dr) * C + C / 2;
+                    return (
+                      <g key={s}>
+                        <circle cx={cx} cy={cy} r={C * 0.62} fill={LUDO_COLOURS[c]} stroke={LUDO_DARK[c]} strokeWidth={1.5} />
+                        <circle cx={cx} cy={cy} r={C * 0.6} fill="url(#ludo-hole)" />
+                        <path d={`M ${cx - C * 0.42} ${cy + C * 0.36} A ${C * 0.56} ${C * 0.56} 0 0 0 ${cx + C * 0.42} ${cy + C * 0.36}`} fill="none" stroke="#fff" strokeOpacity={0.35} strokeWidth={1.4} />
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}
-            {/* the track: white squares; each start square in its colour with a star; grey stars on the safe squares */}
+            {/* the track: cream squares; each start square in its colour with a star; grey stars on the safe squares */}
             {LOOP.map(([rr, cc], i) => {
               const sc = startCorner(i);
               return (
                 <g key={i}>
-                  <rect data-ludo-square={i} x={cc * C} y={rr * C} width={C} height={C} fill={sc >= 0 ? LUDO_COLOURS[sc] : "#fff"} stroke="#c9d1d9" strokeWidth={1} />
-                  {SAFE.has(i) && <polygon points={star(cc * C + C / 2, rr * C + C / 2, C * 0.36)} fill={sc >= 0 ? "#fff" : "none"} stroke={sc >= 0 ? "none" : "#9aa5b1"} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none" />}
+                  <rect data-ludo-square={i} x={cc * C} y={rr * C} width={C} height={C} fill={sc >= 0 ? `url(#ludo-yard-${sc})` : "#fffdf8"} stroke="#d6cbb6" strokeWidth={1} />
+                  {SAFE.has(i) && <polygon points={star(cc * C + C / 2, rr * C + C / 2, C * 0.36)} fill={sc >= 0 ? "#fff" : "none"} stroke={sc >= 0 ? "none" : "#a99c86"} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none" />}
                 </g>
               );
             })}
             {/* home lanes in full colour, with an arrow where each colour turns in */}
-            {HOME.map((cells, c) => cells.slice(0, 5).map(([rr, cc], j) => <rect key={`${c}-${j}`} x={cc * C} y={rr * C} width={C} height={C} fill={LUDO_COLOURS[c]} stroke="#c9d1d9" />))}
+            {HOME.map((cells, c) => cells.slice(0, 5).map(([rr, cc], j) => <rect key={`${c}-${j}`} x={cc * C} y={rr * C} width={C} height={C} fill={`url(#ludo-yard-${c})`} stroke="#d6cbb6" />))}
             {[0, 1, 2, 3].map((c) => {
               const [er, ec] = LOOP[(startOf(c) + 50) % TRACK];
               const [hr, hc] = HOME[c][0];
@@ -388,11 +441,14 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
               return <polygon key={c} points={`${cx + C * 0.3},${cy} ${cx - C * 0.18},${cy - C * 0.26} ${cx - C * 0.18},${cy + C * 0.26}`} transform={`rotate(${ang} ${cx} ${cy})`} fill={LUDO_COLOURS[c]} pointerEvents="none" />;
             })}
             {/* the centre: four triangles pointing home */}
-            <polygon points={`${6 * C},${6 * C} ${9 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[1]} />
-            <polygon points={`${9 * C},${6 * C} ${9 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[2]} />
-            <polygon points={`${9 * C},${9 * C} ${6 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[3]} />
-            <polygon points={`${6 * C},${9 * C} ${6 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={LUDO_COLOURS[0]} />
+            <polygon points={`${6 * C},${6 * C} ${9 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-1)`} />
+            <polygon points={`${9 * C},${6 * C} ${9 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-2)`} />
+            <polygon points={`${9 * C},${9 * C} ${6 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-3)`} />
+            <polygon points={`${6 * C},${9 * C} ${6 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-0)`} />
+            <path d={`M ${6 * C} ${6 * C} L ${9 * C} ${9 * C} M ${9 * C} ${6 * C} L ${6 * C} ${9 * C}`} stroke="#fff" strokeOpacity={0.35} strokeWidth={1.2} />
           </g>
+          {/* The print sits on cardboard: its grain over everything printed. */}
+          <rect width={SIZE} height={SIZE} fill="url(#ludo-paper)" pointerEvents="none" />
         </g>
         {/* tokens: pins that stand upright whichever way the board is turned */}
         {tokens.map(({ p, t, rel, x, y, lift, can, off }) => {
@@ -405,10 +461,14 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
                 <ellipse cx={0} cy={tip + lift * 8} rx={C * 0.28 * (1 - lift * 0.3)} ry={C * 0.09} fill="#0f172a" opacity={0.28 - lift * 0.12} />
                 {can && <ellipse className="ludo-glow" cx={0} cy={tip} rx={C * 0.42} ry={C * 0.16} fill="none" stroke={col} strokeWidth={2.5} />}
                 <g className={can ? "ludo-bob" : ""}>
-                  <path d={PIN} fill={col} stroke={dark} strokeWidth={1.3} strokeLinejoin="round" />
+                  {/* A round foot the pin stands on, then the glossy pin. */}
+                  <ellipse cx={0} cy={tip - 1} rx={r * 0.78} ry={r * 0.3} fill={dark} />
+                  <ellipse cx={0} cy={tip - 2.2} rx={r * 0.7} ry={r * 0.24} fill={shade(col, -0.1)} />
+                  <path d={PIN} fill={`url(#ludo-pin-${ludoCorner(p, n)})`} stroke={dark} strokeWidth={1.2} strokeLinejoin="round" />
                   <circle cx={0} cy={-h} r={C * 0.15} fill="#fff" />
                   <circle cx={0} cy={-h} r={C * 0.085} fill={col} />
-                  <ellipse cx={-r * 0.45} cy={-h - r * 0.45} rx={r * 0.18} ry={r * 0.3} fill="#fff" opacity={0.55} transform={`rotate(-30 ${-r * 0.45} ${-h - r * 0.45})`} />
+                  <ellipse cx={-r * 0.45} cy={-h - r * 0.45} rx={r * 0.2} ry={r * 0.32} fill="#fff" opacity={0.7} transform={`rotate(-30 ${-r * 0.45} ${-h - r * 0.45})`} />
+                  <path d={`M ${r * 0.55} ${-h + r * 0.2} Q ${r * 0.62} ${-h + r * 0.9} ${r * 0.15} ${tip - r * 0.55}`} fill="none" stroke="#fff" strokeOpacity={0.25} strokeWidth={1.2} strokeLinecap="round" />
                 </g>
               </g>
             </g>

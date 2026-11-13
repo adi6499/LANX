@@ -5,7 +5,7 @@
 // live in lib/games.ts, so closing this window never loses a game.
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
-import { ArrowLeft, Box, Check, Flag, Gamepad2, Loader2, LogOut, Monitor, Play, RefreshCw, Swords, Trophy, Users, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, Box, Check, Flag, Gamepad2, Loader2, LogOut, Maximize2, Minimize2, Monitor, Play, RefreshCw, Swords, Trophy, Users, Volume2, VolumeX, X } from "lucide-react";
 import type { Peer } from "../../types";
 import { Avatar } from "../Avatar";
 import * as games from "../../lib/games";
@@ -21,6 +21,7 @@ import "./games3d.css";
 import { BOARDS3D, SOLO3D } from "./three/index";
 import { Fallback } from "./three/Board3D";
 import { canWebGL } from "./three/support";
+import { WinCelebration } from "./Fireworks";
 
 /** The five oldest boards live in Boards.tsx (the 3D fallback needs them by id). */
 const CLASSIC: Record<string, ComponentType<BoardProps>> = { tictactoe: TicTacToeBoard, connect4: ConnectFourBoard, reversi: ReversiBoard, chess: ChessBoard, chainreaction: ChainReactionBoard };
@@ -100,16 +101,34 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
     if (match) games.markSeen(match.id);
   }, [match, match?.lastAt]);
 
+  // LANX 3.12.0: full screen while playing — the games window fills the screen (LANX's own
+  // window goes full screen too), so boards are big. Esc leaves full screen first.
+  const [full, setFull] = useState(false);
+  const fullRef = useRef(false);
+  const setFullScreen = useCallback((v: boolean) => {
+    fullRef.current = v;
+    setFull(v);
+    if ("__TAURI_INTERNALS__" in window) {
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setFullscreen(v)).catch(() => {});
+    }
+  }, []);
+  useEffect(() => () => {
+    if (fullRef.current && "__TAURI_INTERNALS__" in window) {
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setFullscreen(false)).catch(() => {});
+    }
+  }, []);
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        if (fullRef.current) setFullScreen(false);
+        else onClose();
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  }, [onClose, setFullScreen]);
 
   const live = games.allMatches();
   const sortedPeers = useMemo(() => {
@@ -184,7 +203,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
 
   return (
     <div className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm ${closing ? "lanx-closing" : "lanx-fade"}`} onMouseDown={onClose}>
-      <div data-games-panel data-games-view={view} data-games-3d={three ? "1" : undefined} className="w-[1180px] max-w-[96vw] h-[780px] max-h-[94vh] flex flex-col rounded-[22px] lanx-sheet p-4 lanx-rise" onMouseDown={(e) => e.stopPropagation()}>
+      <div data-games-panel data-games-view={view} data-games-3d={three ? "1" : undefined} data-games-full={full ? "1" : undefined} className={`${full ? "w-screen h-screen rounded-none" : "w-[1180px] max-w-[96vw] h-[780px] max-h-[94vh] rounded-[22px]"} flex flex-col lanx-sheet p-4 lanx-rise`} onMouseDown={(e) => e.stopPropagation()}>
         {/* ---- header */}
         <div className="flex items-center gap-3 px-1">
           <div className="h-9 w-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
@@ -221,6 +240,15 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
           >
             {sound ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} {sound ? "Sound" : "Muted"}
           </button>
+          <button
+            type="button"
+            data-games-fullscreen={full ? "on" : "off"}
+            title={full ? "Leave full screen (Esc)" : "Play full screen — the board as big as your screen"}
+            onClick={() => setFullScreen(!full)}
+            className={`${btn} ${full ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-500/20" : "bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20"}`}
+          >
+            {full ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />} {full ? "Exit full screen" : "Full screen"}
+          </button>
           <button type="button" data-games-close onClick={onClose} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200 hover:bg-slate-500/20`}>
             <X className="h-4 w-4" /> Close
           </button>
@@ -228,7 +256,8 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
 
         <div className="mt-3 flex min-h-0 flex-1 gap-3">
           {/* ---- left: live matches + the games */}
-          <aside className="w-[232px] shrink-0 flex flex-col gap-2 overflow-y-auto pr-1" data-games-list>
+          {/* (Full screen while playing: the list makes way for the board.) */}
+          <aside className={`w-[232px] shrink-0 ${full && view !== "lobby" ? "hidden" : "flex"} flex-col gap-2 overflow-y-auto pr-1`} data-games-list>
             {live.length > 0 && (
               <div className="rounded-2xl lanx-group p-2">
                 <div className="px-2 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">Your games</div>
@@ -564,7 +593,9 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
         </div>
         {m.round > 1 && <span className="rounded-full bg-slate-500/10 px-2 py-0.5 text-[11px] font-semibold">Round {m.round}</span>}
       </div>
-      <div className="flex-1 min-h-0 flex items-stretch gap-4 p-4">
+      <div className="relative flex-1 min-h-0 flex items-stretch gap-4 p-4">
+        {/* LANX 3.12.0: fireworks and a banner when someone wins. */}
+        <WinCelebration match={m} />
         {/* A board taller or wider than the room scrolls from its top-left edge (centred with margins, not flex). */}
         <div className="flex-1 min-w-0 overflow-auto flex [&>*]:m-auto">
           <Stage on={showBoard && tilt}>

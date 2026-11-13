@@ -10,6 +10,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefOb
 import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { LADDERS, SNAKES, snakes, type SnakesState } from "../../../lib/games/snakes.ts";
 import { sfx } from "../../../lib/gameSounds";
+import { paperTexture, woodTexture } from "../../../lib/games/texture";
 
 type Pt = [number, number]; // [x, y] in board units
 
@@ -156,11 +157,29 @@ const BoardArt = memo(function BoardArt() {
         <clipPath id="snk-squares">
           <rect x={FRAME} y={FRAME} width={10 * C} height={10 * C} rx={8} />
         </clipPath>
+        {/* LANX 3.12.0: real wood and printed cardboard (pictures painted once; see texture.ts). */}
+        <pattern id="snk-wood-grain" patternUnits="userSpaceOnUse" width={512} height={256}>
+          <image href={woodTexture("walnut")} width={512} height={256} />
+        </pattern>
+        <pattern id="snk-maple" patternUnits="userSpaceOnUse" width={512} height={256}>
+          <image href={woodTexture("maple")} width={512} height={256} />
+        </pattern>
+        <pattern id="snk-paper" patternUnits="userSpaceOnUse" width={256} height={256}>
+          <image href={paperTexture()} width={256} height={256} />
+        </pattern>
+        {/* Scales: little overlapping arcs, laid over each snake's body. */}
+        <pattern id="snk-scales" patternUnits="userSpaceOnUse" width={7} height={6}>
+          <path d="M 0 6 A 3.5 3.5 0 0 1 7 6" fill="none" stroke="#000" strokeOpacity={0.18} strokeWidth={0.8} />
+          <path d="M -3.5 3 A 3.5 3.5 0 0 1 3.5 3 M 3.5 3 A 3.5 3.5 0 0 1 10.5 3" fill="none" stroke="#000" strokeOpacity={0.18} strokeWidth={0.8} />
+        </pattern>
       </defs>
       {/* Frame, and the start lane. */}
-      <rect x={0} y={0} width={W} height={H} rx={20} fill="url(#snk-wood)" />
-      <rect x={FRAME - 3} y={FRAME - 3} width={10 * C + 6} height={10 * C + 6} rx={10} fill="#4a2a0f" opacity={0.45} />
+      <rect x={0} y={0} width={W} height={H} rx={20} fill="url(#snk-wood-grain)" />
+      <rect x={0} y={0} width={W} height={H} rx={20} fill="url(#snk-wood)" opacity={0.35} />
+      <rect x={1} y={1} width={W - 2} height={H - 2} rx={19} fill="none" stroke="#fff" strokeOpacity={0.16} strokeWidth={1.5} />
+      <rect x={FRAME - 3} y={FRAME - 3} width={10 * C + 6} height={10 * C + 6} rx={10} fill="#2c1606" opacity={0.5} />
       <rect x={FRAME} y={FRAME + 10 * C + 9} width={10 * C} height={LANE - 18} rx={12} fill="#f7e3bd" />
+      <rect x={FRAME} y={FRAME + 10 * C + 9} width={10 * C} height={LANE - 18} rx={12} fill="url(#snk-paper)" />
       <text x={FRAME + 16} y={FRAME + 10 * C + LANE / 2 + 5} fontSize={14} fontWeight={800} letterSpacing={1.5} fill="#7a4a1d">
         START
       </text>
@@ -184,6 +203,8 @@ const BoardArt = memo(function BoardArt() {
             </g>
           );
         })}
+        {/* The print sits on cardboard. */}
+        <rect x={FRAME} y={FRAME} width={10 * C} height={10 * C} fill="url(#snk-paper)" />
       </g>
 
       {/* Ladders: shadow, rungs, rails. */}
@@ -201,7 +222,9 @@ const BoardArt = memo(function BoardArt() {
           {l.rails.map((r, i) => (
             <g key={i}>
               <path d={r} stroke="#5e3713" strokeWidth={7.5} strokeLinecap="round" />
-              <path d={r} stroke="url(#snk-rail)" strokeWidth={4.6} strokeLinecap="round" />
+              <path d={r} stroke="url(#snk-maple)" strokeWidth={4.6} strokeLinecap="round" />
+              <path d={r} stroke="url(#snk-rail)" strokeOpacity={0.45} strokeWidth={4.6} strokeLinecap="round" />
+              <path d={r} transform="translate(-0.8 -0.8)" stroke="#fff" strokeOpacity={0.25} strokeWidth={1} strokeLinecap="round" />
             </g>
           ))}
         </g>
@@ -224,7 +247,10 @@ const BoardArt = memo(function BoardArt() {
           <path d={s.body} fill={s.look.base} />
           <g clipPath={`url(#snk-body-${s.head})`}>
             <path d={line(s.spine)} stroke={s.look.band} strokeWidth={C * 0.42} strokeDasharray="6 9" fill="none" />
-            <path d={line(s.spine)} transform="translate(-1.6 -1.6)" stroke="#fff" strokeOpacity={0.3} strokeWidth={C * 0.07} strokeLinecap="round" fill="none" />
+            {/* A round body: its far side in shade, its scales, a shine along the near side. */}
+            <path d={line(s.spine)} transform="translate(2.4 2.4)" stroke="#000" strokeOpacity={0.22} strokeWidth={C * 0.16} strokeLinecap="round" fill="none" />
+            <path d={s.body} fill="url(#snk-scales)" />
+            <path d={line(s.spine)} transform="translate(-1.6 -1.6)" stroke="#fff" strokeOpacity={0.38} strokeWidth={C * 0.07} strokeLinecap="round" fill="none" />
           </g>
           <path d={s.body} fill="none" stroke={s.look.line} strokeWidth={1.4} strokeLinejoin="round" />
           <g transform={`translate(${f1(s.hx)} ${f1(s.hy)}) rotate(${f1(s.angle)})`}>
@@ -421,7 +447,7 @@ function useFitScale(ref: RefObject<HTMLDivElement | null>): number {
       const ph = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
       const byW = (box.clientWidth - pw - 8) / W;
       const byH = (box.clientHeight - ph - CHROME) / H;
-      setScale(Math.max(0.46, Math.min(1.12, byW, byH)));
+      setScale(Math.max(0.46, Math.min(1.7, byW, byH)));
     };
     fit();
     const ro = new ResizeObserver(fit);
