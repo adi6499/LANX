@@ -14,6 +14,7 @@ set -eu
 SITE="${LANX_SITE:-https://lanx-website.vercel.app}"
 
 say() { printf '\033[1;36m%s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m%s\033[0m\n' "$*"; }
 fail() {
   printf '\033[1;31m%s\033[0m\n' "$*" >&2
   exit 1
@@ -91,16 +92,45 @@ install_package() {
   fi
 }
 
+# Is this LANX fully installed now? The system's installer also ends with an error when some
+# OTHER package on the computer is broken (a driver that can't be built for a new kernel,
+# say), even though LANX itself went in fine. That must not be reported as LANX failing.
+lanx_ready() {
+  [ "$KIND" = deb ] || return 1
+  case "$(dpkg-query -W -f='${Status} ${Version}' lanx 2>/dev/null || true)" in
+    "install ok installed $VERSION"*) return 0 ;;
+  esac
+  return 1
+}
+
 say "Installing. If it asks for your password, type it and press Enter (on some computers nothing shows while you type)…"
+OTHERS=no
 if ! install_package; then
-  [ "$KIND" = deb ] || fail "Installing didn't work. The messages above say why."
-  # Most often the computer's list of system packages is out of date, so the parts LANX
-  # needs can't be fetched: bring the list up to date and try once more.
-  say "That didn't work. Bringing the system's package list up to date and trying once more…"
-  $SUDO apt-get update || true
-  install_package || fail "Installing didn't work. The messages above say why."
+  if lanx_ready; then
+    OTHERS=yes
+  else
+    [ "$KIND" = deb ] || fail "Installing didn't work. The messages above say why."
+    # Most often the computer's list of system packages is out of date, so the parts LANX
+    # needs can't be fetched: bring the list up to date and try once more.
+    say "That didn't work. Bringing the system's package list up to date and trying once more…"
+    $SUDO apt-get update || true
+    if ! install_package; then
+      lanx_ready || fail "Installing didn't work. The messages above say why."
+      OTHERS=yes
+    fi
+  fi
 fi
 
+if [ "$OTHERS" = yes ]; then
+  # The packages that are unpacked but could not finish installing (never LANX here).
+  BROKEN=$(dpkg-query -W -f='${db:Status-Abbrev}${Package}\n' 2>/dev/null | sed -n 's/^i[FUH][ R]//p' | grep -v '^lanx$' | tr '\n' ' ' | sed 's/ *$//' || true)
+  if [ -n "$BROKEN" ]; then
+    warn "The errors above are not about LANX. Another package on this computer could not finish installing: $BROKEN"
+    warn "It shows the same errors whenever anything is installed here, until it is repaired or removed."
+  else
+    warn "The system's installer reported a problem (see above), but LANX itself is installed."
+  fi
+fi
 say "LANX $VERSION is installed. It is in your applications menu."
 # Open it (a LANX already running is replaced by the new one), unless this is a session
 # without a screen (over SSH, say).
