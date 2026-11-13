@@ -16,6 +16,7 @@ import {
   Mic2,
   MicVocal,
   Minimize2,
+  MoreVertical,
   Music2,
   Pause,
   Play,
@@ -192,6 +193,8 @@ export function MusicApp({
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [addMenu, setAddMenu] = useState<string | null>(null);
+  /** LANX 3.12.0 (phone): the song whose ⋯ sheet is open, and how to take it off the list it is on. */
+  const [sheet, setSheet] = useState<{ song: Song; onRemove?: (s: Song) => void; lists?: boolean } | null>(null);
   const [newName, setNewName] = useState("");
   const [nowPlaying, setNowPlaying] = useState(false);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
@@ -342,7 +345,41 @@ export function MusicApp({
 
 
   // Called as functions, not <Components>: the rows stay the same elements between refreshes.
-  const songList = ({ songs, numbered = true, showAlbum = true, onRemove }: { songs: Song[]; numbered?: boolean; showAlbum?: boolean; onRemove?: (s: Song) => void }) => (
+  const songList = ({ songs, numbered = true, showAlbum = true, onRemove }: { songs: Song[]; numbered?: boolean; showAlbum?: boolean; onRemove?: (s: Song) => void }) =>
+    compact ? (
+      // LANX 3.12.0 (phone): a tap on the song plays it (a phone has no hover to show a
+      // play button); everything else is behind one ⋯ — big enough for a thumb.
+      <div className="space-y-0.5">
+        {songs.map((s, i) => {
+          const current = ps.song?.id === s.id;
+          return (
+            <div key={`${s.id}-${i}`} data-music-item={s.id} className={`flex items-center gap-1 rounded-xl ${current ? "bg-white/10" : ""}`}>
+              <button type="button" data-music-play onClick={() => (current ? player.toggle() : void player.play(s, songs))} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1.5 py-1.5 text-left active:bg-white/10">
+                <span className="relative shrink-0">
+                  <Cover src={s.cover} className="h-12 w-12 rounded-lg" />
+                  {current && (
+                    <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/45">
+                      {ps.playing ? <Pause className="h-5 w-5" fill="currentColor" /> : <Play className="ml-0.5 h-5 w-5" fill="currentColor" />}
+                    </span>
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate text-[14.5px] font-semibold ${current ? "text-sky-200" : "text-white"}`}>{s.title}</span>
+                  <span className="block truncate text-[12.5px] text-white/60">
+                    {isFav(s) && <Heart className="mr-1 inline h-3 w-3 -translate-y-px text-rose-400" fill="currentColor" />}
+                    {s.artist}
+                    {showAlbum && s.album ? ` · ${s.album}` : ""}
+                  </span>
+                </span>
+              </button>
+              <button type="button" data-music-more aria-label={`More for ${s.title}`} onClick={() => setSheet({ song: s, onRemove })} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white/70 active:bg-white/10">
+                <MoreVertical className="h-5 w-5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    ) : (
     <div className="space-y-0.5">
       {songs.map((s, i) => {
         const current = ps.song?.id === s.id;
@@ -385,7 +422,74 @@ export function MusicApp({
         );
       })}
     </div>
-  );
+    );
+
+  /** LANX 3.12.0 (phone): what the ⋯ next to a song offers, as a sheet from the bottom. */
+  const songSheet = () => {
+    if (!sheet) return null;
+    const s = sheet.song;
+    const close = () => setSheet(null);
+    const row = "flex w-full items-center gap-3.5 rounded-xl px-3 py-3 text-left text-[15px] font-medium active:bg-white/10";
+    return (
+      <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/50 lanx-fade" onClick={close} data-music-sheet>
+        <div className="rounded-t-[22px] border-t border-white/10 bg-[#141a33] px-2 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 lanx-rise" onClick={(e) => e.stopPropagation()}>
+          <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/25" />
+          <div className="flex items-center gap-3 px-3 pb-2">
+            <Cover src={s.cover} className="h-12 w-12 shrink-0 rounded-lg" />
+            <div className="min-w-0">
+              <div className="truncate text-[15px] font-bold">{s.title}</div>
+              <div className="truncate text-[12.5px] text-white/60">{s.artist}</div>
+            </div>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto border-t border-white/10 pt-1">
+            {sheet.lists ? (
+              <>
+                {playlists.map((p) => (
+                  <button key={p.id} type="button" className={row} onClick={async () => { setPlaylists(await addToPlaylist(p.id, s)); close(); onError(`Added to ${p.name}.`); }}>
+                    <ListMusic className="h-5 w-5 text-white/70" /> <span className="truncate">{p.name}</span>
+                  </button>
+                ))}
+                <button type="button" className={`${row} text-sky-300`} onClick={async () => { setPlaylists(await createPlaylist("My playlist", [s])); close(); onError("New playlist made."); }}>
+                  <Plus className="h-5 w-5" /> New playlist with this song
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" data-music-sheet-play className={row} onClick={() => { void player.play(s); close(); }}>
+                  <Play className="h-5 w-5 text-white/70" /> Play now
+                </button>
+                <button type="button" data-music-sheet-next className={row} onClick={() => { player.enqueue(s); close(); onError("Plays next."); }}>
+                  <ListPlus className="h-5 w-5 text-white/70" /> Play next
+                </button>
+                <button type="button" data-music-sheet-fav className={row} onClick={() => { void fav(s); close(); }}>
+                  <Heart className={`h-5 w-5 ${isFav(s) ? "text-rose-400" : "text-white/70"}`} fill={isFav(s) ? "currentColor" : "none"} /> {isFav(s) ? "Remove from my songs" : "Add to my songs"}
+                </button>
+                <button type="button" className={row} onClick={() => setSheet({ ...sheet, lists: true })}>
+                  <Plus className="h-5 w-5 text-white/70" /> Add to a playlist
+                </button>
+                <button type="button" data-music-sheet-send className={row} disabled={!!busy} onClick={() => { close(); void send(s); }}>
+                  <Send className="h-5 w-5 text-white/70" /> {chatName ? `Send to ${chatName}` : "Send to a chat…"}
+                </button>
+                <button type="button" className={row} disabled={!!busy} onClick={() => { close(); void whatsapp(s); }}>
+                  <MessageCircle className="h-5 w-5 text-white/70" /> Share on WhatsApp
+                </button>
+                {s.artistIds.length > 0 && (
+                  <button type="button" className={row} onClick={() => { close(); openArtist({ id: s.artistIds[0], type: "artist", title: s.artist.split(",")[0], subtitle: "", image: "", language: s.language, url: "", year: "", songCount: 0 }); }}>
+                    <Users className="h-5 w-5 text-white/70" /> Go to {s.artist.split(",")[0]}
+                  </button>
+                )}
+                {sheet.onRemove && (
+                  <button type="button" className={`${row} text-rose-300`} onClick={() => { sheet.onRemove?.(s); close(); }}>
+                    <X className="h-5 w-5" /> Remove from this list
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const grid = ({ items, round = false }: { items: Collection[]; round?: boolean }) => (
     <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))" }}>
@@ -663,9 +767,12 @@ export function MusicApp({
 
           {/* ---- middle: the page */}
           <main className={`flex-1 min-w-0 overflow-y-auto lanx-music-scroll ${compact ? "px-3 py-3" : "px-6 py-5"}`}>
-            <div className="flex items-center gap-2 mb-4">
-              <button type="button" onClick={back} disabled={!stack.length} className="h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"><ArrowLeft className="h-4 w-4" /></button>
-              <h2 className="text-[20px] font-extrabold tracking-tight truncate">{title}</h2>
+            <div className={`flex items-center gap-2 ${compact ? "mb-3" : "mb-4"}`}>
+              {/* (Phone: the top bar already has a back arrow — this one only once there is somewhere to go back to.) */}
+              {(!compact || stack.length > 0) && (
+                <button type="button" data-music-back onClick={back} disabled={!stack.length} aria-label="Back" className={`${compact ? "h-10 w-10" : "h-8 w-8"} shrink-0 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center`}><ArrowLeft className="h-4 w-4" /></button>
+              )}
+              <h2 className={`${compact ? "text-[19px]" : "text-[20px]"} font-extrabold tracking-tight truncate`}>{title}</h2>
               {loading && <Loader2 className="h-4 w-4 animate-spin text-white/60" />}
               <div className={`ml-auto items-center gap-1.5 ${compact ? "hidden" : "flex"}`}>
                 <button type="button" title="Now playing (full screen)" disabled={!ps.song} onClick={() => setNowPlaying(true)} className="h-8 px-3 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 text-[12px] font-semibold inline-flex items-center gap-1.5"><Maximize2 className="h-3.5 w-3.5" /> Now playing</button>
@@ -717,6 +824,8 @@ export function MusicApp({
         {/* (3.9.0: on the phone, playing along with its PC.) */}
         {compact ? <PhoneListenLine /> : <TogetherLine onOpen={() => setTogether(true)} />}
         {compact ? (
+          // (Phone: no bar until something plays — the screen is small.)
+          ps.song && (
           <div data-music-bar className="shrink-0 border-t border-white/10 bg-[#0b1020] px-3 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-1.5">
             <div className="mb-1.5 h-0.5 overflow-hidden rounded-full bg-white/15">
               <div className="h-full bg-white" style={{ width: `${pct}%` }} />
@@ -742,6 +851,7 @@ export function MusicApp({
               </button>
             </div>
           </div>
+          )
         ) : (
         <div data-music-bar className="shrink-0 border-t border-white/10 bg-black/30 backdrop-blur px-4 py-2.5 grid grid-cols-[1fr_minmax(320px,2fr)_1fr] items-center gap-4">
           <div className="flex items-center gap-3 min-w-0">
@@ -936,6 +1046,7 @@ export function MusicApp({
           </div>
         )}
         {together && !compact && <TogetherSheet onClose={() => setTogether(false)} />}
+        {compact && songSheet()}
         {karaoke && ps.song && (
           <Karaoke
             song={ps.song}
