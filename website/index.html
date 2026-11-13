@@ -262,9 +262,9 @@
       <p class="sub">The same LANX (version <span data-v="linuxVersion">3.13.0</span>), for Ubuntu, Debian, Mint, Fedora and their relatives. It talks to the Windows copies on your network.</p>
       <article class="dl-card oneline" data-linux-only>
         <h3>Easiest: one line in the Terminal</h3>
-        <p>Open <b>Terminal</b> (Ctrl+Alt+T on Ubuntu and Mint), paste this line and press Enter. It finds the right package for your Linux, checks it, installs it (asking your password once) and opens LANX. <b>Run the same line again any time to update.</b></p>
-        <p class="cmd"><code data-v="oneLine">curl -fsSL https://lanx-website.vercel.app/install.sh | sh</code><button type="button" class="copy" data-copy="oneLine">Copy</button></p>
-        <p class="sha small">Works on Ubuntu, Debian, Mint, Pop!_OS, Zorin, elementary and Fedora. No curl? Use <code>wget -qO- https://lanx-website.vercel.app/install.sh | sh</code>. <a href="/install.sh">See what it does</a>.</p>
+        <p>Open <b>Terminal</b> (Ctrl+Alt+T on Ubuntu and Mint), paste this line (right-click and choose Paste, or press Ctrl+Shift+V &mdash; plain Ctrl+V does not paste in a terminal) and press Enter. It finds the right package for your Linux, checks it, installs it and opens LANX. When it asks for your password, type it and press Enter; on some computers nothing shows while you type. <b>Run the same line again any time to update.</b></p>
+        <p class="cmd"><code data-v="oneLine">(wget -qO- https://lanx-website.vercel.app/install.sh 2&gt;/dev/null || curl -fsSL https://lanx-website.vercel.app/install.sh) | sh</code><button type="button" class="copy" data-copy="oneLine">Copy</button></p>
+        <p class="sha small">Works on Ubuntu, Debian, Mint, Pop!_OS, Zorin, elementary and Fedora, with nothing to install first. Typing it by hand? This shorter line does the same on Ubuntu and Mint: <code>wget -qO- https://lanx-website.vercel.app/install.sh | sh</code>. <a href="/install.sh">See what it does</a>.</p>
       </article>
       <div class="dl-cards">
         <article class="dl-card" data-linux-deb>
