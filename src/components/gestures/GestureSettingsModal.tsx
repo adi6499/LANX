@@ -3,6 +3,7 @@ import { Hand, X } from "lucide-react";
 import { EXAMPLES } from "../../lib/gestures/commands";
 import { type GesturePrefs, useGesturePrefs } from "../../lib/gestures/prefs";
 import { IS_LINUX } from "../../lib/platform";
+import { usePcSupport } from "../../lib/gestures/os";
 import { YourSigns } from "./YourSigns";
 
 /** LANX 3.5.0: Gesture settings — on/off, which camera, pointer speed,
@@ -40,6 +41,7 @@ function Segmented<T extends string>({ value, options, onChange, name }: { value
 
 export function GestureSettingsModal({ onClose }: { onClose: () => void }) {
   const [prefs, setPrefs] = useGesturePrefs();
+  const pcWhy = usePcSupport().why;
   const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
   useEffect(() => {
     navigator.mediaDevices
@@ -100,15 +102,17 @@ export function GestureSettingsModal({ onClose }: { onClose: () => void }) {
             <span className={label}>Flick to skip, go back or close</span>
             <input type="checkbox" checked={prefs.swipes} onChange={(e) => set({ swipes: e.target.checked })} className="h-4 w-4" />
           </label>
-          {!IS_LINUX && (
-            <label className={row}>
-              <span className={label}>
-                <b className="font-semibold text-slate-900 dark:text-white">Control the whole PC</b>
-                <span className="block text-[11px] text-slate-400">Your hand moves the real mouse in every program — Chrome, Excel, File Explorer. Pinch clicks, a fist scrolls, 🤟 brings up a keyboard. It keeps working while LANX is minimised.</span>
+          {/* LANX 3.12.0: Linux too, on an X11 desktop (Linux Mint, Ubuntu on Xorg); otherwise it says why. */}
+          <label className={row}>
+            <span className={label}>
+              <b className="font-semibold text-slate-900 dark:text-white">Control the whole PC</b>
+              <span className="block text-[11px] text-slate-400">
+                Your hand moves the real mouse in every program — {IS_LINUX ? "Firefox, LibreOffice, Files" : "Chrome, Excel, File Explorer"}. Pinch clicks, a fist scrolls, 🤟 brings up a keyboard, two open hands resize a window. It keeps working while LANX is minimised.
               </span>
-              <input type="checkbox" data-gesture-pc checked={!!prefs.pc} onChange={(e) => set({ pc: e.target.checked })} className="h-4 w-4" />
-            </label>
-          )}
+              {pcWhy && <span data-gesture-pc-why className="mt-1 block text-[11px] font-medium text-amber-600 dark:text-amber-400">{pcWhy}</span>}
+            </span>
+            <input type="checkbox" data-gesture-pc checked={!!prefs.pc && !pcWhy} disabled={!!pcWhy} onChange={(e) => set({ pc: e.target.checked })} className="h-4 w-4" />
+          </label>
           <label className={row}>
             <span className={label}>Show what my hand is doing<span className="block text-[11px] text-slate-400">A few words by the hand button: “✋ Moving · pinch to click”, “✊ Scrolling”.</span></span>
             <input type="checkbox" data-gesture-hints checked={prefs.hints !== false} onChange={(e) => set({ hints: e.target.checked })} className="h-4 w-4" />

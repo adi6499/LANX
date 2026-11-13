@@ -1307,6 +1307,14 @@ export const api = {
     if (isTauri) return invoke("hand_input", { screen, ops });
     throw new Error("Controlling the whole PC needs the LANX app.");
   },
+  /** LANX 3.12.0: null when hands can drive this PC (Windows; Linux on X11), else why not, in plain words. */
+  handSupport: async (): Promise<string | null> => {
+    if (!isTauri) return "Controlling the whole PC needs the LANX app.";
+    return invoke("hand_support").then(
+      () => null,
+      (e) => errorText(e),
+    );
+  },
   /** LANX 3.11.2: two hands resize the window between them, in any program. `begin` at x, y (0..1 across
    *  the screen), `set` with `scale` (the hands' distance now ÷ at the start), `end`. */
   handWindow: async (phase: "begin" | "set" | "end", screen: number, x: number, y: number, scale: number): Promise<FramedWindow | null> => {

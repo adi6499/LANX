@@ -3,12 +3,16 @@ pub mod commands;
 pub mod discovery;
 pub mod events;
 pub mod export;
+#[cfg(target_os = "linux")]
+pub mod linux_media;
 pub mod networking;
 pub mod phone;
 pub mod privacy;
 pub mod recordings;
 pub mod relay;
 pub mod remote;
+#[cfg(target_os = "linux")]
+pub mod remote_x11;
 pub mod security;
 pub mod shell;
 pub mod sound;
@@ -410,39 +414,16 @@ pub fn run() {
                 });
             }
 
-            // LANX 1.2.7: the desktop Dynamic Island, a small see-through window
-            // at the top of the screen for alerts while LANX is hidden.
-            match tauri::WebviewWindowBuilder::new(app, "island", tauri::WebviewUrl::App("index.html".into()))
-                .title("LANX alerts")
-                .inner_size(events::ISLAND_W, events::ISLAND_H)
-                .decorations(false)
-                .transparent(true)
-                .shadow(false)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .resizable(false)
-                .maximizable(false)
-                .minimizable(false)
-                .focused(false)
-                // Like a Windows notification: showing or clicking it never
-                // takes the keyboard away from what the user is typing in.
-                .focusable(false)
-                .visible(false)
-                .disable_drag_drop_handler()
-                .build()
-            {
-                Ok(w) => {
-                    let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
-                    events::place_island(app.handle(), &w);
-                }
-                Err(e) => eprintln!("[Island] Could not create the alert window: {}", e),
-            }
+            // LANX 1.2.7: the desktop Dynamic Island (alerts while LANX is hidden).
+            // LANX 3.12.0: made when the first alert comes, not at start-up
+            // (events::island_window), and closed again when unused for a while.
 
             // LANX 1.9.1: if WebView2 stops (a laptop waking up, a busy
             // start-up), reload the page or restart LANX instead of staying white.
             window_doctor::watch(app.handle(), "main");
-            window_doctor::watch(app.handle(), "island");
             window_doctor::start_checks(app.handle());
+            // LANX 3.12.0: less memory while LANX is out of sight.
+            window_doctor::start_memory_checks(app.handle());
 
             // LANX 1.7.0: "Send to → LANX" while LANX wasn't running, the
             // screenshot key and the Explorer menu entry (never for test copies).
@@ -475,6 +456,9 @@ pub fn run() {
                 if profile.is_some() {
                     let _ = w.set_title(&format!("LANX — test profile {}", profile.as_deref().unwrap_or("")));
                 }
+                // LANX 3.12.0: the camera and microphone on Linux (hand gestures, voice notes).
+                #[cfg(target_os = "linux")]
+                linux_media::enable(&w);
             }
             // LANX 2.5.3: the window is shown by ui_ready, once its page has
             // drawn. If the page never reports in, show it after 6 seconds
@@ -636,6 +620,7 @@ pub fn run() {
             commands::remote::remote_test_copy,
             commands::remote::hand_input,
             commands::remote::hand_window,
+            commands::remote::hand_support,
             commands::remote::hand_screens,
             commands::remote::lock_pc,
             commands::remote::hand_hud,

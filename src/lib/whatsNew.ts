@@ -19,6 +19,17 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.12.0",
+    title: "Linux as good as Windows, and light on 4 GB",
+    items: [
+      { icon: "📷", title: "The camera works on Linux", text: "LANX for Linux never answered the camera's “may I?”, so it was always refused. Now hand gestures start on Linux too." },
+      { icon: "🖐️", title: "Hands control the whole PC on Linux Mint", text: "Settings → Gestures → Control the whole PC now works on Linux Mint (and other Linux desktops that use X11): move the mouse, click, scroll, type with the air keyboard and resize any window with two hands — like on Windows." },
+      { icon: "🪶", title: "Lighter on memory", text: "LANX's small windows (alerts, the hands bar) used to load the whole app; now they load only their own part, are made only when needed and put away when unused. While LANX sits in the tray on Windows it gives memory back." },
+      { icon: "⚡", title: "Smoother on 4 GB PCs", text: "On PCs with 4 GB of memory or less, LANX draws the light look Linux uses: no frosted glass, soft shadows or ever-moving decorations — the same LANX, just quicker." },
+      { icon: "💡", title: "Good to know", text: "Calls and meetings on Linux Mint aren't here yet: Mint's web engine has no video-calling part, so LANX needs its own — that is the next big step." },
+    ],
+  },
+  {
     version: "3.11.2",
     title: "Resize any window with your hands, and a real Snakes & Ladders",
     items: [

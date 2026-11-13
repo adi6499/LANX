@@ -787,17 +787,17 @@
    every frame of the moving wallpaper: that was the stutter. There panels are
    see-through but not frosted, and a little more solid so text stays easy to
    read; the resize glow keeps its colours without the blurred halo. */
-:root.lanx-linux *,
-:root.lanx-linux *::before,
-:root.lanx-linux *::after {
+:root:is(.lanx-linux, .lanx-lite) *,
+:root:is(.lanx-linux, .lanx-lite) *::before,
+:root:is(.lanx-linux, .lanx-lite) *::after {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-:root.lanx-linux,
-:root.lanx-linux[data-wall-tone] {
+:root:is(.lanx-linux, .lanx-lite),
+:root:is(.lanx-linux, .lanx-lite)[data-wall-tone] {
   --lanx-glass-floor: 0.86;
 }
-:root.lanx-linux .lanx-glow::after { display: none; }
+:root:is(.lanx-linux, .lanx-lite) .lanx-glow::after { display: none; }
 
 /* …and more of it. Measured in Linux's WebKit without a graphics chip, scrolling
    the chat list over Crystal glass: 1.4 frames a second; 11 with no soft shadows,
@@ -805,43 +805,43 @@
    WebKitGTK paints each of these on the processor, again at every scroll step.
    So on Linux: thin edges instead of soft shadows, no drop or text shadows, and
    the little decorations that never stop moving hold still. */
-:root.lanx-linux *,
-:root.lanx-linux *::before,
-:root.lanx-linux *::after {
+:root:is(.lanx-linux, .lanx-lite) *,
+:root:is(.lanx-linux, .lanx-lite) *::before,
+:root:is(.lanx-linux, .lanx-lite) *::after {
   --tw-shadow: 0 0 #0000 !important;
   --tw-inset-shadow: 0 0 #0000 !important;
   --tw-drop-shadow: initial !important;
   text-shadow: none !important;
 }
-:root.lanx-linux {
+:root:is(.lanx-linux, .lanx-lite) {
   --lanx-shadow: 0 0 0 0.5px var(--lanx-line);
 }
-:root.lanx-linux .lanx-sheet,
-:root.lanx-linux .lanx-menu,
-:root.lanx-linux .lanx-card,
-:root.lanx-linux .lanx-glass {
+:root:is(.lanx-linux, .lanx-lite) .lanx-sheet,
+:root:is(.lanx-linux, .lanx-lite) .lanx-menu,
+:root:is(.lanx-linux, .lanx-lite) .lanx-card,
+:root:is(.lanx-linux, .lanx-lite) .lanx-glass {
   box-shadow: var(--lanx-rim-shadow), 0 0 0 1px var(--lanx-line) !important;
 }
-:root.lanx-linux .lanx-cat-svg,
-:root.lanx-linux [style*="drop-shadow"],
-:root.lanx-linux [data-games-3d] .g3-stage[data-g3] > *,
-:root.lanx-linux [data-games-3d] .g3-stage[data-g3] svg circle {
+:root:is(.lanx-linux, .lanx-lite) .lanx-cat-svg,
+:root:is(.lanx-linux, .lanx-lite) [style*="drop-shadow"],
+:root:is(.lanx-linux, .lanx-lite) [data-games-3d] .g3-stage[data-g3] > *,
+:root:is(.lanx-linux, .lanx-lite) [data-games-3d] .g3-stage[data-g3] svg circle {
   filter: none !important;
 }
 /* The music player's blurred cover: plain and dimmed instead (white text stays readable). */
-:root.lanx-linux .lanx-cover-blur {
+:root:is(.lanx-linux, .lanx-lite) .lanx-cover-blur {
   filter: brightness(0.45) !important;
   animation: none !important;
 }
-:root.lanx-linux .online-pulse,
-:root.lanx-linux .lanx-orb,
-:root.lanx-linux .lanx-float,
-:root.lanx-linux .lanx-cat-swing,
-:root.lanx-linux .lanx-cat-eyes,
-:root.lanx-linux .lanx-cat-look,
-:root.lanx-linux .lanx-cat-wave,
-:root.lanx-linux .lanx-cat-tail,
-:root.lanx-linux .lanx-cat-head {
+:root:is(.lanx-linux, .lanx-lite) .online-pulse,
+:root:is(.lanx-linux, .lanx-lite) .lanx-orb,
+:root:is(.lanx-linux, .lanx-lite) .lanx-float,
+:root:is(.lanx-linux, .lanx-lite) .lanx-cat-swing,
+:root:is(.lanx-linux, .lanx-lite) .lanx-cat-eyes,
+:root:is(.lanx-linux, .lanx-lite) .lanx-cat-look,
+:root:is(.lanx-linux, .lanx-lite) .lanx-cat-wave,
+:root:is(.lanx-linux, .lanx-lite) .lanx-cat-tail,
+:root:is(.lanx-linux, .lanx-lite) .lanx-cat-head {
   animation: none !important;
 }
 
@@ -886,15 +886,15 @@
 /* LANX 3.11 (Linux): more of what WebKitGTK paints on the processor at every step —
    the chat's whole-list entrance, each chat row's entrance, the soft edge of incoming
    bubbles, and a blurred wallpaper (blurred again at every frame). */
-:root.lanx-linux .lanx-chat-in,
-:root.lanx-linux .lanx-item-in {
+:root:is(.lanx-linux, .lanx-lite) .lanx-chat-in,
+:root:is(.lanx-linux, .lanx-lite) .lanx-item-in {
   animation: none !important;
 }
-:root.lanx-linux .lanx-bubble-in {
+:root:is(.lanx-linux, .lanx-lite) .lanx-bubble-in {
   box-shadow: 0 0 0 1px var(--lanx-line);
 }
-:root.lanx-linux [data-wallpaper] canvas,
-:root.lanx-linux [data-wallpaper] img,
-:root.lanx-linux [data-wallpaper] video {
+:root:is(.lanx-linux, .lanx-lite) [data-wallpaper] canvas,
+:root:is(.lanx-linux, .lanx-lite) [data-wallpaper] img,
+:root:is(.lanx-linux, .lanx-lite) [data-wallpaper] video {
   filter: none !important;
 }

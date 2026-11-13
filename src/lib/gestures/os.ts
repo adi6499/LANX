@@ -4,7 +4,24 @@
  *  held still is a right-click, a fist scrolls (and flings), two hands zoom
  *  (Ctrl + wheel), a flick presses ← or →. What happens in a frame goes to
  *  Windows in one call. */
+import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
+
+let support: Promise<string | null> | null = null;
+/** LANX 3.12.0: can hands drive this PC? `why` is null when they can (Windows; Linux on an
+ *  X11 desktop), else the reason in plain words (a Wayland desktop, the browser preview). */
+export function usePcSupport(): { ready: boolean; why: string | null } {
+  const [why, setWhy] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    support ??= api.handSupport();
+    void support.then((w) => alive && setWhy(w));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return { ready: why !== undefined, why: why ?? null };
+}
 
 export type HandInput =
   | { op: "move"; x: number; y: number }

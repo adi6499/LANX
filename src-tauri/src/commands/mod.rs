@@ -534,6 +534,7 @@ pub fn island_take(state: State<AppState>) -> Vec<crate::events::IslandAlert> {
 pub fn island_hide(app: AppHandle) {
     if let Some(w) = app.get_webview_window("island") {
         let _ = w.hide();
+        crate::events::close_island_later(&app);
     }
 }
 
@@ -542,6 +543,7 @@ pub fn island_hide(app: AppHandle) {
 pub fn island_open(app: AppHandle, state: State<AppState>, conversation_id: Option<String>) {
     if let Some(w) = app.get_webview_window("island") {
         let _ = w.hide();
+        crate::events::close_island_later(&app);
     }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();

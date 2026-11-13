@@ -144,6 +144,53 @@ pub fn has_child_named(_parent: u32, _name: &str) -> bool {
     true
 }
 
+/// LANX 3.12.0: while the main window is out of sight (in the tray or minimised) its
+/// web page is asked to use less memory — WebView2 lets go of caches and spare
+/// pages — and back to normal when it shows. A 4 GB PC feels the difference.
+#[cfg(windows)]
+pub fn set_memory_low(app: &AppHandle, low: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::*;
+    use windows::core::Interface;
+    let Some(w) = app.get_webview_window("main") else { return };
+    let _ = w.with_webview(move |pw| {
+        // SAFETY: WebView2 COM calls on the window's own thread (with_webview).
+        unsafe {
+            let Ok(core) = pw.controller().CoreWebView2() else { return };
+            if let Ok(c) = core.cast::<ICoreWebView2_19>() {
+                let level = if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+                let _ = c.SetMemoryUsageTargetLevel(level);
+            }
+        }
+    });
+}
+
+/// Every 15 seconds: out of sight → less memory (unless hands are driving the PC,
+/// which keeps working while LANX is hidden and needs its speed).
+#[cfg(windows)]
+pub fn start_memory_checks(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut low = false;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(15));
+            let Some(w) = app.get_webview_window("main") else { continue };
+            let hidden = !w.is_visible().unwrap_or(true) || w.is_minimized().unwrap_or(false);
+            let hands = app
+                .try_state::<crate::commands::AppState>()
+                .and_then(|s| s.db.get_setting("pref_gestures"))
+                .and_then(|v| serde_json::from_str::<serde_json::Value>(&v).ok())
+                .is_some_and(|p| p["enabled"].as_bool() == Some(true) && p["pc"].as_bool() == Some(true));
+            let want = hidden && !hands;
+            if want != low {
+                low = want;
+                set_memory_low(&app, low);
+            }
+        }
+    });
+}
+#[cfg(not(windows))]
+pub fn start_memory_checks(_app: &AppHandle) {}
+
 /// Every 10 seconds: is WebView2's main helper still running? Missing twice
 /// in a row (after it had started) means the window can't draw any more.
 pub fn start_checks(app: &AppHandle) {

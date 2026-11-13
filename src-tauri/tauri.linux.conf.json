@@ -9,7 +9,8 @@
         "depends": [
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0",
-          "libayatana-appindicator3-1"
+          "libayatana-appindicator3-1",
+          "gstreamer1.0-plugins-good"
         ],
         "section": "net",
         "priority": "optional",
@@ -20,7 +21,8 @@
         "depends": [
           "webkit2gtk4.1",
           "gtk3",
-          "libayatana-appindicator-gtk3"
+          "libayatana-appindicator-gtk3",
+          "gstreamer1-plugins-good"
         ],
         "release": "1",
         "desktopTemplate": "deb/lanx.desktop"

@@ -22,6 +22,7 @@
 //!   far ahead (Listen together must still play in step)
 //! - `LANX_PHONE=1` / `LANX_PHONE_PORT=52960` (LANX 3.0) start with "Use on
 //!   your phone" switched on, on that port
+//! - `LANX_FAKE_CAMERA=1` (LANX 3.12.0, Linux) WebKit's pretend camera and microphone
 
 use std::net::{Ipv4Addr, SocketAddr};
 
@@ -61,6 +62,12 @@ pub fn clock_skew_ms() -> f64 {
 
 pub fn quiet() -> bool {
     var("LANX_QUIET").is_some()
+}
+
+/// LANX 3.12.0: test copies on Linux without a camera use WebKit's pretend camera and microphone.
+#[allow(dead_code)]
+pub fn fake_camera() -> bool {
+    var("LANX_FAKE_CAMERA").is_some()
 }
 
 pub fn install_dry_run() -> bool {

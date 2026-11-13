@@ -7,18 +7,18 @@ import "@fontsource/plus-jakarta-sans/600.css";
 import "@fontsource/plus-jakarta-sans/700.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
-import App from "./App";
-import IslandApp from "./IslandApp";
-import RemoteBar from "./RemoteBar";
-import HudApp from "./HudApp";
 import "./App.css";
 import { applyColorStyle, colorStyle } from "./lib/storybook";
 import { IS_LINUX } from "./lib/platform";
-import { installPhoneCamera } from "./lib/phoneCamera";
 
 // LANX 3.6.2: Linux draws a lighter LANX (App.css .lanx-linux): its web engine
 // blurs and filters on the processor, which made LANX stutter there.
 if (IS_LINUX) document.documentElement.classList.add("lanx-linux");
+// LANX 3.12.0: a PC with 4 GB of memory or less draws the same light LANX (App.css
+// :is(.lanx-linux, .lanx-lite)): no frosted glass, soft shadows or ever-moving decorations.
+// (The window's engine reports the memory, rounded; WebKitGTK doesn't, and Linux is light anyway.)
+const memoryGb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+if (typeof memoryGb === "number" && memoryGb > 0 && memoryGb <= 4) document.documentElement.classList.add("lanx-lite");
 
 // LANX 3.6.0: the last Storybook look straight away (settings load a moment later).
 let lastLook: string | null = null;
@@ -51,19 +51,48 @@ const isIsland = windowLabel === "island" || location.hash === "#island";
 const isRemoteBar = windowLabel === "remote" || location.hash === "#remote";
 // LANX 3.7.0: and in the hands window (air keyboard over other programs).
 const isHud = windowLabel === "hud" || location.hash === "#hud";
-// LANX 3.6.2: the paired phone's camera for calls, meetings and gestures (main window).
-if (!isIsland && !isRemoteBar && !isHud) installPhoneCamera();
+const isMain = !isIsland && !isRemoteBar && !isHud;
+
+// LANX 3.12.0: each window loads only its own part. The alert, hands and Stop-bar windows
+// used to load (and keep in memory) the whole app — over a megabyte of code each — to show
+// one small thing; now they load a few kilobytes.
+const Root = React.lazy(
+  isIsland
+    ? () => import("./IslandApp")
+    : isRemoteBar
+      ? () => import("./RemoteBar")
+      : isHud
+        ? () => import("./HudApp")
+        : () =>
+            // LANX 3.6.2: the paired phone's camera for calls, meetings and gestures (main window only).
+            import("./lib/phoneCamera").then((m) => {
+              m.installPhoneCamera();
+              return import("./App");
+            }),
+);
+
+/** Runs once the window's own part has drawn. */
+function Drawn({ children }: { children: React.ReactNode }) {
+  React.useEffect(() => {
+    // LANX 2.5.3: the start-up logo (index.html) goes once the app has drawn.
+    requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("lanx-splash")?.remove()));
+    // LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
+    // WebView2 folder if a window stays blank).
+    if (isMain && "__TAURI_INTERNALS__" in window) {
+      requestAnimationFrame(() => {
+        void import("@tauri-apps/api/core").then(({ invoke }) => invoke("ui_ready")).catch(() => {});
+      });
+    }
+  }, []);
+  return <>{children}</>;
+}
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{isIsland ? <IslandApp /> : isRemoteBar ? <RemoteBar /> : isHud ? <HudApp /> : <App />}</React.StrictMode>,
+  <React.StrictMode>
+    <React.Suspense fallback={null}>
+      <Drawn>
+        <Root />
+      </Drawn>
+    </React.Suspense>
+  </React.StrictMode>,
 );
-// LANX 2.5.3: the start-up logo (index.html) goes once the app has drawn.
-requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("lanx-splash")?.remove()));
-
-// LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
-// WebView2 folder if a window stays blank).
-if (!isIsland && !isRemoteBar && !isHud && "__TAURI_INTERNALS__" in window) {
-  requestAnimationFrame(() => {
-    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("ui_ready")).catch(() => {});
-  });
-}

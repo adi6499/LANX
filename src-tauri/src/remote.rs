@@ -432,7 +432,28 @@ pub fn screens() -> Vec<Screen> {
 
 #[cfg(not(windows))]
 pub fn screens() -> Vec<Screen> {
+    // LANX 3.12.0: Linux on X11 (empty on Wayland, where hands can't drive the PC).
+    #[cfg(target_os = "linux")]
+    return crate::remote_x11::screens();
+    #[cfg(not(target_os = "linux"))]
     Vec::new()
+}
+
+/// LANX 3.12.0: can hands drive this PC's own mouse and keyboard? Windows always;
+/// Linux on an X11 desktop (Linux Mint, Ubuntu on Xorg…).
+pub fn os_can_drive() -> Result<(), String> {
+    #[cfg(windows)]
+    return Ok(());
+    #[cfg(target_os = "linux")]
+    return if crate::remote_x11::available() {
+        Ok(())
+    } else if crate::remote_x11::wayland() {
+        Err(crate::remote_x11::WAYLAND_NOTE.to_string())
+    } else {
+        Err("Controlling the whole PC needs the X11 desktop's XTest part, which this PC doesn't have.".to_string())
+    };
+    #[cfg(not(any(windows, target_os = "linux")))]
+    Err("Controlling the whole PC with your hands works on Windows and Linux.".to_string())
 }
 
 // ---------------------------------------------------------------- the session
@@ -668,6 +689,12 @@ fn inject_move(px: i32, py: i32) -> bool {
             return win::move_to(ax, ay);
         }
     }
+    #[cfg(target_os = "linux")]
+    {
+        if !dry_run() {
+            return crate::remote_x11::move_to(px, py);
+        }
+    }
     DRY_LOG.lock().push(format!("move {},{}", px, py));
     !TEST_BLOCKED.load(Ordering::SeqCst)
 }
@@ -677,6 +704,12 @@ fn inject_button(b: u8, down: bool) -> bool {
     {
         if !dry_run() {
             return win::button(b, down);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if !dry_run() {
+            return crate::remote_x11::button(b, down);
         }
     }
     DRY_LOG.lock().push(format!("button {} {}", b, if down { "down" } else { "up" }));
@@ -690,6 +723,12 @@ fn inject_wheel(dx: i32, dy: i32) -> bool {
             return win::wheel(dx, dy);
         }
     }
+    #[cfg(target_os = "linux")]
+    {
+        if !dry_run() {
+            return crate::remote_x11::wheel(dx, dy);
+        }
+    }
     DRY_LOG.lock().push(format!("wheel {},{}", dx, dy));
     !TEST_BLOCKED.load(Ordering::SeqCst)
 }
@@ -701,7 +740,13 @@ fn inject_key(scan: u16, ext: bool, down: bool, name: &str) -> bool {
             return win::key(scan, ext, down);
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        if !dry_run() {
+            return crate::remote_x11::key(scan, ext, down);
+        }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     let _ = (scan, ext);
     DRY_LOG.lock().push(format!("key {} {}", name, if down { "down" } else { "up" }));
     !TEST_BLOCKED.load(Ordering::SeqCst)
@@ -771,7 +816,11 @@ mod glide {
         {
             super::win::cursor()
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            crate::remote_x11::cursor()
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             None
         }
@@ -910,6 +959,12 @@ fn inject_text(text: &str) -> bool {
             return win::text(text);
         }
     }
+    #[cfg(target_os = "linux")]
+    {
+        if !dry_run() {
+            return crate::remote_x11::text(text);
+        }
+    }
     DRY_LOG.lock().push(format!("text {}", text));
     !TEST_BLOCKED.load(Ordering::SeqCst)
 }
@@ -917,8 +972,8 @@ fn inject_text(text: &str) -> bool {
 /// Does `ops` in order on screen number `screen` (of `screens()`; the main one
 /// when there is no such screen).
 pub fn hand_input(screen: usize, ops: &[HandInput]) -> Result<(), String> {
-    if !cfg!(windows) && !dry_run() {
-        return Err("Controlling the whole PC with your hands works on Windows for now.".to_string());
+    if !dry_run() {
+        os_can_drive()?;
     }
     let all = screens();
     let s = all.get(screen).or_else(|| all.iter().find(|s| s.primary)).or(all.first()).copied().unwrap_or(PRETEND_SCREEN);
@@ -985,6 +1040,9 @@ struct Framing {
     min_w: i32,
     min_h: i32,
     filled: bool,
+    /// LANX 3.12.0 (Linux): the frame round the window — left, right, top, bottom.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    frame: (i32, i32, i32, i32),
 }
 
 static FRAMING: Mutex<Option<Framing>> = Mutex::new(None);
@@ -1018,8 +1076,8 @@ fn framed(f: &Framing, size: (i32, i32)) -> FramedWindow {
 /// `screen` — or else the one in front), "set" (the hands are `scale` times as
 /// far apart as at the start), "end".
 pub fn window_frame(phase: &str, screen: usize, x: f64, y: f64, scale: f64) -> Result<Option<FramedWindow>, String> {
-    if !cfg!(windows) && !dry_run() {
-        return Err("Resizing other programs with your hands works on Windows for now.".to_string());
+    if !dry_run() {
+        os_can_drive()?;
     }
     match phase {
         "begin" => {
@@ -1030,7 +1088,7 @@ pub fn window_frame(phase: &str, screen: usize, x: f64, y: f64, scale: f64) -> R
                 // Test copies only pretend: a window in the middle of the screen.
                 DRY_LOG.lock().push(format!("frame-begin {},{}", px, py));
                 let area = (s.work_left, s.work_top, s.work_width, s.work_height);
-                Framing { hwnd: 0, title: "Test window".to_string(), w: area.2 / 2, h: area.3 / 2, cx: area.0 + area.2 / 2, cy: area.1 + area.3 / 2, area, min_w: FRAME_MIN.0.min(area.2 / 2), min_h: FRAME_MIN.1.min(area.3 / 2), filled: false }
+                Framing { hwnd: 0, title: "Test window".to_string(), w: area.2 / 2, h: area.3 / 2, cx: area.0 + area.2 / 2, cy: area.1 + area.3 / 2, area, min_w: FRAME_MIN.0.min(area.2 / 2), min_h: FRAME_MIN.1.min(area.3 / 2), filled: false, frame: (0, 0, 0, 0) }
             } else {
                 frame_begin_real(px, py)?
             };
@@ -1065,11 +1123,47 @@ pub fn window_frame(phase: &str, screen: usize, x: f64, y: f64, scale: f64) -> R
     }
 }
 
-#[cfg(not(windows))]
-fn frame_begin_real(_px: i32, _py: i32) -> Result<Framing, String> {
-    Err("Resizing other programs with your hands works on Windows for now.".to_string())
+/// LANX 3.12.0: Linux (X11) — the window under the point, through the window manager.
+#[cfg(target_os = "linux")]
+fn frame_begin_real(px: i32, py: i32) -> Result<Framing, String> {
+    let w = crate::remote_x11::window_at(px, py)?;
+    if !w.resizable && !w.maximised {
+        return Err(format!("“{}” can't be resized.", w.title));
+    }
+    let (ox, oy, ow, oh) = w.outer;
+    let (cx, cy) = (ox + ow / 2, oy + oh / 2);
+    // The screen it is on (its middle), less the panels.
+    let all = screens();
+    let s = all.iter().find(|s| cx >= s.left && cx < s.left + s.width && cy >= s.top && cy < s.top + s.height).or_else(|| all.iter().find(|s| s.primary)).copied().unwrap_or(PRETEND_SCREEN);
+    let area = (s.work_left, s.work_top, s.work_width, s.work_height);
+    let (w0, h0, cx, cy) = if w.maximised { (area.2, area.3, area.0 + area.2 / 2, area.1 + area.3 / 2) } else { (ow, oh, cx, cy) };
+    Ok(Framing { hwnd: w.id as isize, title: w.title, w: w0, h: h0, cx, cy, area, min_w: FRAME_MIN.0, min_h: FRAME_MIN.1, filled: w.maximised, frame: w.frame })
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn frame_place_real(f: &mut Framing, want: Option<(i32, i32, i32, i32)>) -> bool {
+    let id = f.hwnd as u32;
+    match want {
+        None => {
+            if !f.filled {
+                f.filled = crate::remote_x11::maximise(id, true);
+                return f.filled;
+            }
+            true
+        }
+        Some((x, y, w, h)) => {
+            if f.filled {
+                crate::remote_x11::maximise(id, false);
+                f.filled = false;
+            }
+            crate::remote_x11::place(id, f.frame, x, y, w, h)
+        }
+    }
+}
+#[cfg(not(any(windows, target_os = "linux")))]
+fn frame_begin_real(_px: i32, _py: i32) -> Result<Framing, String> {
+    Err("Resizing other programs with your hands works on Windows and Linux.".to_string())
+}
+#[cfg(not(any(windows, target_os = "linux")))]
 fn frame_place_real(_f: &mut Framing, _want: Option<(i32, i32, i32, i32)>) -> bool {
     false
 }
@@ -1126,6 +1220,7 @@ fn frame_begin_real(px: i32, py: i32) -> Result<Framing, String> {
             min_w: GetSystemMetrics(SM_CXMINTRACK).max(FRAME_MIN.0),
             min_h: GetSystemMetrics(SM_CYMINTRACK).max(FRAME_MIN.1),
             filled: zoomed,
+            frame: (0, 0, 0, 0),
         })
     }
 }
@@ -1679,7 +1774,7 @@ mod tests {
 
     #[test]
     fn two_hands_resize_any_window_by_the_same_rules() {
-        let f = Framing { hwnd: 0, title: "Report.xlsx - Excel".into(), w: 1000, h: 700, cx: 960, cy: 516, area: (0, 0, 1920, 1032), min_w: 420, min_h: 300, filled: false };
+        let f = Framing { hwnd: 0, title: "Report.xlsx - Excel".into(), w: 1000, h: 700, cx: 960, cy: 516, area: (0, 0, 1920, 1032), min_w: 420, min_h: 300, filled: false, frame: (0, 0, 0, 0) };
         assert_eq!(frame_rect(&f, 1.0), Some((460, 166, 1000, 700)), "no change at the start");
         let (_, _, w, h) = frame_rect(&f, 1.3).unwrap();
         assert_eq!((w, h), (1300, 910), "apart: bigger, same shape");

@@ -143,6 +143,16 @@ pub fn hand_window(phase: String, screen: usize, x: f64, y: f64, scale: f64) -> 
     remote::window_frame(&phase, screen, x, y, scale)
 }
 
+/// LANX 3.12.0: can hands drive this PC? (Windows; Linux on an X11 desktop.)
+/// The error says why not, in plain words.
+#[tauri::command]
+pub fn hand_support() -> Result<(), String> {
+    if crate::testmode::profile().is_some() {
+        return Ok(()); // test copies only pretend
+    }
+    remote::os_can_drive()
+}
+
 /// The screens hands can drive, in real pixels (the main one is marked).
 #[tauri::command]
 pub fn hand_screens() -> Vec<remote::Screen> {
@@ -165,6 +175,9 @@ pub struct HudRect {
     pub scale: f64,
 }
 
+/// LANX 3.12.0: bumped on every hands-window change; a pending close checks it.
+static HUD_SHOWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// LANX 3.7.0: the small always-on-top window while hands control the whole PC
 /// (the air keyboard and short notes), at the bottom of `screen`. `width` and
 /// `height` are CSS pixels; 0 hides it. It never takes the keyboard (typing
@@ -173,9 +186,24 @@ pub struct HudRect {
 #[tauri::command]
 pub async fn hand_hud(app: AppHandle, screen: usize, width: f64, height: f64) -> Result<Option<HudRect>, String> {
     let existing = app.get_webview_window("hud");
+    HUD_SHOWN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     if !(width > 0.0 && height > 0.0) {
         if let Some(w) = existing {
             let _ = w.hide();
+            // LANX 3.12.0: still hidden in a few minutes (hands off, or LANX in front
+            // all along): closed, to give its memory back. Made again when needed.
+            let shown = HUD_SHOWN.load(std::sync::atomic::Ordering::SeqCst);
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(180));
+                if HUD_SHOWN.load(std::sync::atomic::Ordering::SeqCst) == shown {
+                    if let Some(w) = app.get_webview_window("hud") {
+                        if !w.is_visible().unwrap_or(true) {
+                            let _ = w.destroy();
+                        }
+                    }
+                }
+            });
         }
         return Ok(None);
     }

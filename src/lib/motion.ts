@@ -29,7 +29,7 @@ type ViewTransitionDoc = Document & {
 export function revealChange(change: () => void, origin: Origin = null) {
   const doc = document as ViewTransitionDoc;
   // Linux (3.6.2): no snapshot cross-fade — WebKitGTK blurs the whole window for it.
-  if (!doc.startViewTransition || lessMotion() || document.documentElement.classList.contains("lanx-linux")) {
+  if (!doc.startViewTransition || lessMotion() || (document.documentElement.classList.contains("lanx-linux") || document.documentElement.classList.contains("lanx-lite"))) {
     change();
     return;
   }

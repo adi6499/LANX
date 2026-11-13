@@ -11,7 +11,7 @@ import { DomDriver, type Target, elementAt } from "../../lib/gestures/dom";
 import { type Intent, parseCommand, restoreCase, splitWho } from "../../lib/gestures/commands";
 import { type GesturePrefs, useGesturePrefs } from "../../lib/gestures/prefs";
 import { WindowFrame } from "../../lib/gestures/windowFrame";
-import { OsDriver } from "../../lib/gestures/os";
+import { OsDriver, usePcSupport } from "../../lib/gestures/os";
 import { type CustomSign, SignWatcher } from "../../lib/gestures/signs";
 import { type CallMove, CallWatcher } from "../../lib/gestures/calls";
 import { EMPTY_KB, KB_SIZE, type KbOut, type KbState, type KeyRect, applyKey, keyAt, layoutKeyboard, loadDictionary, suggest } from "../../lib/gestures/keyboard";
@@ -19,7 +19,6 @@ import { HUD_EVENT, HUD_NOTE_H, HUD_NOTE_W, type HudState } from "../../lib/gest
 import { AirKeyboard } from "./AirKeyboard";
 import { setGestureLive, useGestureHint } from "../../lib/gestures/live";
 import { GestureTutorial } from "./GestureTutorial";
-import { IS_LINUX } from "../../lib/platform";
 
 /** 3.7.1: the practice guide opens by itself once, the first time the camera comes on. */
 const LEARNED_KEY = "lanx.gestures.learned";
@@ -205,6 +204,8 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
   const grabLeft = useRef({ dx: 0, dy: 0 });
   const hint = useGestureHint();
   const [learn, setLearn] = useState(false);
+  // LANX 3.12.0: Linux too, on an X11 desktop.
+  const pcSupported = usePcSupport().why === null;
 
   const say = useCallback((t: string, ms = 2200) => {
     window.clearTimeout(toastTimer.current);
@@ -1289,7 +1290,7 @@ export function GestureLayer({ actions, locked, onError, onOpenSettings, onOpenV
       )}
 
       {/* 3.7.1: Learn hand gestures. */}
-      {learn && on && <GestureTutorial onClose={closeLearn} pcAvailable={!IS_LINUX} pcOn={!!prefs.pc} onTurnOnPc={() => set({ pc: true })} />}
+      {learn && on && <GestureTutorial onClose={closeLearn} pcAvailable={pcSupported} pcOn={!!prefs.pc} onTurnOnPc={() => set({ pc: true })} />}
 
       {/* 3.7.0: the air keyboard inside LANX (over other programs it is in the hands window). */}
       {kb && !pc && (

@@ -1,6 +1,6 @@
 [package]
 name = "lanx"
-version = "3.11.2"
+version = "3.12.0"
 description = "LANX Desktop - Local Network Messenger"
 authors = ["LANX Team"]
 edition = "2024"
@@ -67,6 +67,12 @@ time = "0.3"
 p256 = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh", "std"] }
 aes-gcm = "0.10"
 webpki-roots = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# LANX 3.12.0: the camera and microphone in WebKitGTK (see linux_media.rs); the same version Tauri uses.
+webkit2gtk = { version = "2.0.2", features = ["v2_40"] }
+# LANX 3.12.0: hands drive the whole PC on X11 (XTest, RandR, EWMH; see remote_x11.rs). Pure Rust.
+x11rb = { version = "0.13", features = ["xtest", "randr"] }
 
 [target.'cfg(windows)'.dependencies]
 # LANX 1.2.7: move the desktop island to the virtual desktop in use (COM).

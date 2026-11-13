@@ -247,7 +247,7 @@ export function startBuiltin(canvas: HTMLCanvasElement, id: string, still = fals
       canvas.height = h;
     }
   };
-  const linux = document.documentElement.classList.contains("lanx-linux");
+  const linux = (document.documentElement.classList.contains("lanx-linux") || document.documentElement.classList.contains("lanx-lite"));
   // On Linux it holds still while you scroll: each of its frames repaints the whole
   // window there, and the list you're moving matters more (3.6.2).
   let busyUntil = 0;

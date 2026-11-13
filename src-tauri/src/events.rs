@@ -280,7 +280,6 @@ impl Events {
     /// Queues the alert and shows the island window at the top centre of the
     /// screen without taking the keyboard away from what the user is doing.
     fn show_island(&self, app: &AppHandle, alert: IslandAlert) -> bool {
-        let Some(w) = app.get_webview_window("island") else { return false };
         {
             let mut q = self.island.lock();
             q.retain(|a| a.id != alert.id);
@@ -288,10 +287,28 @@ impl Events {
             let extra = q.len().saturating_sub(6);
             q.drain(0..extra);
         }
-        place_island(app, &w);
-        show_without_focus(&w);
-        move_to_current_desktop(&w);
-        let _ = app.emit_to("island", "lanx://island-alert", ());
+        ISLAND_SHOWN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        match app.get_webview_window("island") {
+            Some(w) => {
+                place_island(app, &w);
+                show_without_focus(&w);
+                move_to_current_desktop(&w);
+                let _ = app.emit_to("island", "lanx://island-alert", ());
+            }
+            // LANX 3.12.0: the first alert since start-up (or since it was put away):
+            // the window is made now; its page collects the waiting alerts as it opens.
+            // (On its own thread: a window made on the window thread can hang on Windows.)
+            None => {
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if let Some(w) = island_window(&app) {
+                        place_island(&app, &w);
+                        show_without_focus(&w);
+                        move_to_current_desktop(&w);
+                    }
+                });
+            }
+        }
         true
     }
 
@@ -363,6 +380,67 @@ fn active_monitor(app: &AppHandle) -> Option<tauri::Monitor> {
     app.get_webview_window("main")
         .and_then(|m| m.current_monitor().ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten())
+}
+
+/// LANX 3.12.0: bumped whenever the island shows; a pending close checks it.
+static ISLAND_SHOWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Hidden and unused this long, the island window is closed to give its memory back.
+const ISLAND_KEEP: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// LANX 3.12.0: the island window (alerts while LANX is hidden), made when first
+/// needed instead of at start-up — every window is a web page holding memory.
+pub fn island_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    if let Some(w) = app.get_webview_window("island") {
+        return Some(w);
+    }
+    match tauri::WebviewWindowBuilder::new(app, "island", tauri::WebviewUrl::App("index.html".into()))
+        .title("LANX alerts")
+        .inner_size(ISLAND_W, ISLAND_H)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .focused(false)
+        // Like a Windows notification: showing or clicking it never
+        // takes the keyboard away from what the user is typing in.
+        .focusable(false)
+        .visible(false)
+        .disable_drag_drop_handler()
+        .build()
+    {
+        Ok(w) => {
+            let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+            place_island(app, &w);
+            crate::window_doctor::watch(app, "island");
+            Some(w)
+        }
+        Err(e) => {
+            eprintln!("[Island] Could not create the alert window: {}", e);
+            None
+        }
+    }
+}
+
+/// LANX 3.12.0: the island went away. If it stays hidden and no alert comes for a
+/// while, its window is closed (it is made again for the next alert).
+pub fn close_island_later(app: &AppHandle) {
+    let shown = ISLAND_SHOWN.load(std::sync::atomic::Ordering::SeqCst);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(ISLAND_KEEP);
+        if ISLAND_SHOWN.load(std::sync::atomic::Ordering::SeqCst) != shown {
+            return;
+        }
+        if let Some(w) = app.get_webview_window("island") {
+            if !w.is_visible().unwrap_or(true) {
+                let _ = w.destroy();
+            }
+        }
+    });
 }
 
 /// Puts the island window at the top centre of the screen in use.
