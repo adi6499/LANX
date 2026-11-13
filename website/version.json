@@ -1,28 +1,28 @@
 {
-  "version": "3.12.0",
-  "file": "/files/LANX-Setup-3.12.0.exe",
-  "sig": "/files/LANX-Setup-3.12.0.exe.sig",
-  "sha256File": "/files/LANX-Setup-3.12.0.exe.sha256.txt",
-  "sha256": "b37698d091ab10d88457e6071255444942be33727f0730dbe35e54dd0689d15f",
-  "bytes": 25121317,
+  "version": "3.13.0",
+  "file": "/files/LANX-Setup-3.13.0.exe",
+  "sig": "/files/LANX-Setup-3.13.0.exe.sig",
+  "sha256File": "/files/LANX-Setup-3.13.0.exe.sha256.txt",
+  "sha256": "8a5a0f7985a459e0ec1962bcdf43c0a4ee5f90df9eb504002db5ca7e46ef3653",
+  "bytes": 25189916,
   "size": "24.0 MB",
   "date": "2026-11-13",
   "dateText": "13 Nov 2026",
   "windows": "Windows 10 / 11, 64-bit",
   "linux": {
     "deb": {
-      "file": "/files/LANX-3.12.0-linux-amd64.deb",
-      "bytes": 28093068,
-      "size": "26.8 MB",
-      "sha256": "777ed1f791d98aac882b4b3f4ca307d33e2b080fc6ee068d596f0a8dd6b55c57",
-      "version": "3.12.0"
+      "file": "/files/LANX-3.13.0-linux-amd64.deb",
+      "bytes": 28202640,
+      "size": "26.9 MB",
+      "sha256": "4b2f13b22c9aebc055af670f9375bbf8a9c4eec712c921936f08388ea3d5b210",
+      "version": "3.13.0"
     },
     "rpm": {
-      "file": "/files/LANX-3.12.0-linux-x86_64.rpm",
-      "bytes": 28098248,
-      "size": "26.8 MB",
-      "sha256": "496822965e9f980a8a2fe5b78e18571e60d26d8e909f4c257efe5ffd6475463f",
-      "version": "3.12.0"
+      "file": "/files/LANX-3.13.0-linux-x86_64.rpm",
+      "bytes": 28207933,
+      "size": "26.9 MB",
+      "sha256": "87537ca82bb85f27c313a2244703096846c8770b805de315ea58d5238e5f2417",
+      "version": "3.13.0"
     }
   }
 }
