@@ -83,6 +83,6 @@ if (mode === "build") {
   console.log(`\nDone. Linux files in release\\:
   LANX-${ver}-linux-amd64.deb       (Ubuntu / Debian / Mint: double-click or "sudo apt install ./LANX-${ver}-linux-amd64.deb")
   LANX-${ver}-linux-x86_64.rpm     (Fedora: double-click, or "sudo dnf install ./LANX-${ver}-linux-x86_64.rpm")
-  (or for any of them, one line:  curl -fsSL https://lanx-website.vercel.app/install.sh | sh)
+  (or for any of them, one line:  (wget -qO- https://lanx-website.vercel.app/install.sh 2>/dev/null || curl -fsSL https://lanx-website.vercel.app/install.sh) | sh)
 Then put them on the website:  node website/update-website.mjs`);
 }

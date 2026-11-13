@@ -1,9 +1,10 @@
 #!/bin/sh
 # LANX for Linux — install or update in one line (Ubuntu, Debian, Mint, Pop!_OS, Zorin, Fedora):
 #
-#     curl -fsSL https://lanx-website.vercel.app/install.sh | sh
+#     (wget -qO- https://lanx-website.vercel.app/install.sh 2>/dev/null || curl -fsSL https://lanx-website.vercel.app/install.sh) | sh
 #
-# (or: wget -qO- https://lanx-website.vercel.app/install.sh | sh)
+# (That line uses wget or curl, whichever this computer has: many Mint and Ubuntu computers
+# have wget but no curl. Shorter, to type by hand: wget -qO- https://lanx-website.vercel.app/install.sh | sh)
 #
 # It downloads the newest LANX package from the LANX website, checks it, installs it with
 # your system's own installer (asking your password once) and opens LANX. Run it again
@@ -30,7 +31,7 @@ fetch() { # url file
   elif command -v wget >/dev/null 2>&1; then
     wget -q --tries=3 -O "$2" "$1"
   else
-    fail "Please install curl or wget first (sudo apt install curl)."
+    fail "This computer has neither wget nor curl. Install one first (sudo apt install wget), then run this again."
   fi
 }
 
@@ -52,6 +53,9 @@ fi
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT INT TERM
+# (The system's installer reads the package as its own user. Let it, or it ends with a
+# worrying "Permission denied" note even though everything worked.)
+chmod 755 "$TMP" 2>/dev/null || true
 
 say "Finding the newest LANX…"
 fetch "$SITE/version.json" "$TMP/version.json" || fail "Couldn't reach $SITE — is this computer online?"
@@ -71,17 +75,30 @@ fi
 
 say "Downloading LANX $VERSION ($NAME)…"
 fetch "$SITE$FILE" "$TMP/$NAME" || fail "The download didn't finish. Please try again."
+chmod 644 "$TMP/$NAME" 2>/dev/null || true
 if fetch "$SITE$FILE.sha256.txt" "$TMP/sum.txt" 2>/dev/null && command -v sha256sum >/dev/null 2>&1; then
   WANT=$(cut -d' ' -f1 "$TMP/sum.txt")
   GOT=$(sha256sum "$TMP/$NAME" | cut -d' ' -f1)
   [ "$WANT" = "$GOT" ] || fail "The downloaded file is damaged (its fingerprint doesn't match). Please try again."
 fi
 
-say "Installing (your password may be asked once)…"
-if [ "$KIND" = deb ]; then
-  $SUDO apt-get install -y "$TMP/$NAME" || fail "Installing didn't work. The messages above say why."
-else
-  $SUDO dnf install -y "$TMP/$NAME" || fail "Installing didn't work. The messages above say why."
+install_package() {
+  if [ "$KIND" = deb ]; then
+    # (If the system's own updater is busy, wait for it for up to two minutes instead of failing.)
+    $SUDO apt-get install -y -o DPkg::Lock::Timeout=120 "$TMP/$NAME"
+  else
+    $SUDO dnf install -y "$TMP/$NAME"
+  fi
+}
+
+say "Installing. If it asks for your password, type it and press Enter (on some computers nothing shows while you type)…"
+if ! install_package; then
+  [ "$KIND" = deb ] || fail "Installing didn't work. The messages above say why."
+  # Most often the computer's list of system packages is out of date, so the parts LANX
+  # needs can't be fetched: bring the list up to date and try once more.
+  say "That didn't work. Bringing the system's package list up to date and trying once more…"
+  $SUDO apt-get update || true
+  install_package || fail "Installing didn't work. The messages above say why."
 fi
 
 say "LANX $VERSION is installed. It is in your applications menu."
