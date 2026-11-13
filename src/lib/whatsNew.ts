@@ -19,6 +19,16 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.13.0",
+    title: "Calls and meetings on Linux Mint",
+    items: [
+      { icon: "📞", title: "Voice and video calls on Linux", text: "LANX for Linux can now call and be called — voice and video, with Windows PCs, phones and other Linux PCs. Mint’s web engine has no calling part, so LANX now brings its own." },
+      { icon: "👥", title: "Meetings on Linux", text: "Join or start a meeting from Linux Mint like on Windows: cameras, microphones and screen pictures from everyone." },
+      { icon: "🎲", title: "Live games and the phone camera on Linux", text: "Games that play live with a colleague and using your phone as the PC’s camera now work on Linux too — they use the same new calling part." },
+      { icon: "💡", title: "Good to know", text: "Nothing changes on Windows. On Linux the picture is a little smaller (up to 960 × 540) to stay smooth on older PCs. Everyone on the call needs LANX 3.0 or newer, as before." },
+    ],
+  },
+  {
     version: "3.12.0",
     title: "Linux as good as Windows, and light on 4 GB",
     items: [

@@ -10,6 +10,7 @@ pub mod phone;
 pub mod privacy;
 pub mod recordings;
 pub mod relay;
+pub mod ownrtc;
 pub mod remote;
 #[cfg(target_os = "linux")]
 pub mod remote_x11;
@@ -659,6 +660,18 @@ pub fn run() {
             commands::meetings::get_meeting,
             commands::meetings::recording_begin,
             commands::meetings::recording_chunk,
+            commands::ownrtc::ownrtc_forced,
+            commands::ownrtc::ownrtc_open,
+            commands::ownrtc::ownrtc_offer,
+            commands::ownrtc::ownrtc_accept_answer,
+            commands::ownrtc::ownrtc_accept_offer,
+            commands::ownrtc::ownrtc_new_channel,
+            commands::ownrtc::ownrtc_stats,
+            commands::ownrtc::ownrtc_write,
+            commands::ownrtc::ownrtc_send,
+            commands::ownrtc::ownrtc_close_channel,
+            commands::ownrtc::ownrtc_keyframe,
+            commands::ownrtc::ownrtc_close,
             commands::meetings::recording_end,
             commands::meetings::recording_cancel,
             commands::meetings::open_recording,

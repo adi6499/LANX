@@ -450,8 +450,12 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       if (ev.action === "accepted" && ev.sdp && pcRef.current) {
         try {
           await pcRef.current.setRemoteDescription({ type: "answer", sdp: tuneSdp(ev.sdp) });
-          patch({ status: "connecting", remoteVideo: !!ev.video });
-          armConnectTimeout();
+          // (Never put a call that is already through back to "Connecting…".)
+          if (pcRef.current?.connectionState === "connected") patch({ remoteVideo: !!ev.video });
+          else {
+            patch({ status: "connecting", remoteVideo: !!ev.video });
+            armConnectTimeout();
+          }
         } catch (err) {
           onErrorRef.current(`Call setup failed: ${errorText(err)}`);
           hangup();

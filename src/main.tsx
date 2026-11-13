@@ -64,11 +64,17 @@ const Root = React.lazy(
       : isHud
         ? () => import("./HudApp")
         : () =>
-            // LANX 3.6.2: the paired phone's camera for calls, meetings and gestures (main window only).
-            import("./lib/phoneCamera").then((m) => {
-              m.installPhoneCamera();
-              return import("./App");
-            }),
+            // LANX 3.13.0: calls on web engines without RTCPeerConnection (Linux) use LANX's own
+            // engine — put in place before anything (the phone camera too) looks for it.
+            import("./lib/ownrtc")
+              .then((m) => m.installOwnRtc())
+              .catch(() => false)
+              // LANX 3.6.2: the paired phone's camera for calls, meetings and gestures (main window only).
+              .then(() => import("./lib/phoneCamera"))
+              .then((m) => {
+                m.installPhoneCamera();
+                return import("./App");
+              }),
 );
 
 /** Runs once the window's own part has drawn. */

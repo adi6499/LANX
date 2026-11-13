@@ -548,9 +548,15 @@ struct Running {
 static RELAY: Mutex<Option<Running>> = Mutex::new(None);
 static CRYPTO: Once = Once::new();
 
+/// The engine's cryptography, set up once for the whole app (the relay and, LANX
+/// 3.13.0, the Linux call engine in ownrtc.rs).
+pub(crate) fn crypto_ready() {
+    CRYPTO.call_once(|| str0m::crypto::from_feature_flags().install_process_default());
+}
+
 /// The addresses colleagues can reach this PC on (the test copies: loopback, so
 /// no firewall question pops up; their windows are told they may use it).
-fn relay_addresses() -> Vec<IpAddr> {
+pub(crate) fn relay_addresses() -> Vec<IpAddr> {
     let bind = crate::testmode::bind_addr();
     if !bind.is_unspecified() {
         return vec![IpAddr::V4(bind)];
@@ -571,7 +577,7 @@ pub fn start(meeting_id: &str) -> Result<(), String> {
         }
         r.running.store(false, Ordering::SeqCst);
     }
-    CRYPTO.call_once(|| str0m::crypto::from_feature_flags().install_process_default());
+    crypto_ready();
     let mut sockets = Vec::new();
     for ip in relay_addresses() {
         if let Ok(s) = UdpSocket::bind(SocketAddr::new(ip, 0)) {

@@ -22,6 +22,8 @@
 //!   far ahead (Listen together must still play in step)
 //! - `LANX_PHONE=1` / `LANX_PHONE_PORT=52960` (LANX 3.0) start with "Use on
 //!   your phone" switched on, on that port
+//! - `LANX_OWN_RTC=1` (LANX 3.13.0) calls use LANX's own engine even where the web
+//!   engine has calls (so Windows test copies can test the Linux way)
 //! - `LANX_FAKE_CAMERA=1` (LANX 3.12.0, Linux) WebKit's pretend camera and microphone
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -68,6 +70,10 @@ pub fn quiet() -> bool {
 #[allow(dead_code)]
 pub fn fake_camera() -> bool {
     var("LANX_FAKE_CAMERA").is_some()
+}
+
+pub fn own_rtc() -> bool {
+    var("LANX_OWN_RTC").is_some()
 }
 
 pub fn install_dry_run() -> bool {

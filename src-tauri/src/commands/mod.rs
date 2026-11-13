@@ -17,6 +17,7 @@ pub mod memes;
 pub mod games;
 pub mod music;
 pub mod phone;
+pub mod ownrtc;
 
 use crate::discovery::{DiscoveryService, local_ipv4_addresses};
 use crate::networking::NetworkService;
