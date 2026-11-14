@@ -816,6 +816,9 @@ pub struct SystemInfo {
     /// LANX 3.11.1: the UDP port colleagues are found on (0 while none is).
     #[serde(default)]
     pub udp_port: u16,
+    /// LANX 3.13.1 (Linux): how the window is drawn, in plain words ("" elsewhere).
+    #[serde(default)]
+    pub graphics: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

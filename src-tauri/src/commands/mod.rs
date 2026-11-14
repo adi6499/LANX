@@ -377,6 +377,7 @@ pub fn get_system_info(app: AppHandle, state: State<AppState>) -> Result<SystemI
         udp_listening: state.discovery.is_listening(),
         tcp_port: state.network.bound_port(),
         udp_port: state.discovery.bound_port(),
+        graphics: crate::linux_graphics::summary(),
     })
 }
 

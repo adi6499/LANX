@@ -85,9 +85,17 @@ function Drawn({ children }: { children: React.ReactNode }) {
     // LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
     // WebView2 folder if a window stays blank).
     if (isMain && "__TAURI_INTERNALS__" in window) {
-      requestAnimationFrame(() => {
+      let told = false;
+      const tell = () => {
+        if (told) return;
+        told = true;
         void import("@tauri-apps/api/core").then(({ invoke }) => invoke("ui_ready")).catch(() => {});
-      });
+      };
+      requestAnimationFrame(tell);
+      // LANX 3.13.1: Linux's web engine gives a window that is still hidden no animation
+      // frames, so this never ran there and LANX sat out the 6-second "show it anyway"
+      // wait at every start. On Linux a short timer tells LANX too (Windows is unchanged).
+      if (IS_LINUX) setTimeout(tell, 100);
     }
   }, []);
   return <>{children}</>;

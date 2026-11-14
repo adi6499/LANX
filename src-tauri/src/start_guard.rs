@@ -23,7 +23,7 @@ fn beat_file(data_dir: &Path) -> PathBuf {
 }
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn read_beat(data_dir: &Path) -> Option<(u32, u64)> {
+pub(crate) fn read_beat(data_dir: &Path) -> Option<(u32, u64)> {
     let text = std::fs::read_to_string(beat_file(data_dir)).ok()?;
     let mut it = text.split_whitespace();
     Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
@@ -139,7 +139,7 @@ fn other_copies() -> Vec<u32> {
 
 /// The process is this user's LANX (same program; another user's can't even be read).
 #[cfg(target_os = "linux")]
-fn is_my_lanx(pid: u32) -> bool {
+pub(crate) fn is_my_lanx(pid: u32) -> bool {
     let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) else { return false };
     let me = std::env::current_exe().ok();
     let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().trim_end_matches(" (deleted)").to_string());

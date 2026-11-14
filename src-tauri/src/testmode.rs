@@ -25,12 +25,20 @@
 //! - `LANX_OWN_RTC=1` (LANX 3.13.0) calls use LANX's own engine even where the web
 //!   engine has calls (so Windows test copies can test the Linux way)
 //! - `LANX_FAKE_CAMERA=1` (LANX 3.12.0, Linux) WebKit's pretend camera and microphone
+//! - `LANX_TEST_GRAPHICS=i915` (LANX 3.13.1, Linux) pretend this PC is a real one with
+//!   these graphics drivers (comma-separated), so the choice of how the window is drawn
+//!   can be tested inside a virtual machine (see linux_graphics.rs)
 
 use std::net::{Ipv4Addr, SocketAddr};
 
 fn var(name: &str) -> Option<String> {
     std::env::var("LANX_PROFILE").ok().filter(|p| !p.trim().is_empty())?;
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+/// LANX 3.13.1 (Linux): the graphics drivers a test copy pretends this PC has.
+pub fn graphics_drivers() -> Option<Vec<String>> {
+    var("LANX_TEST_GRAPHICS").map(|v| v.split(',').map(|d| d.trim().to_string()).filter(|d| !d.is_empty()).collect())
 }
 
 pub fn profile() -> Option<String> {

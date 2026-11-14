@@ -3,6 +3,8 @@ pub mod commands;
 pub mod discovery;
 pub mod events;
 pub mod export;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub mod linux_graphics;
 #[cfg(target_os = "linux")]
 pub mod linux_media;
 pub mod networking;
@@ -50,6 +52,9 @@ static START_MINIMIZED: AtomicBool = AtomicBool::new(false);
 
 /// The first time the window comes up at start-up.
 fn first_show(app: &AppHandle) {
+    // LANX 3.13.1 (Linux): from here the graphics chip really draws (see linux_graphics.rs).
+    #[cfg(target_os = "linux")]
+    linux_graphics::shown();
     show_main_window(app);
     if START_MINIMIZED.load(Ordering::SeqCst) {
         if let Some(w) = app.get_webview_window("main") {
@@ -109,6 +114,9 @@ fn show_main_window(app: &AppHandle) {
 }
 
 pub(crate) fn quit_app(app: &AppHandle) {
+    // LANX 3.13.1 (Linux): closing on purpose is not a failed start with the graphics chip.
+    #[cfg(target_os = "linux")]
+    linux_graphics::leaving();
     // LANX 3.11: quitting never hangs (a copy stuck on the way out would keep the next
     // LANX from opening): whatever is still being tidied up, LANX is gone within 5 s.
     std::thread::spawn(|| {
@@ -138,6 +146,8 @@ pub fn relaunch(app: &AppHandle) {
 
 /// Restarts LANX; `hidden`: the new LANX starts in the tray (LANX 1.9.1).
 pub fn relaunch_with(app: &AppHandle, hidden: bool) {
+    #[cfg(target_os = "linux")]
+    linux_graphics::leaving();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -247,29 +257,28 @@ fn fatal_startup_error(app: &tauri::App, message: String) -> ! {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // LANX for Linux: WebKitGTK's DMA-BUF renderer shows a blank window on some
-    // PCs (virtual machines, some NVIDIA drivers). The older renderer works
-    // everywhere; people who know better can set the variable themselves.
-    #[cfg(target_os = "linux")]
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        // SAFETY: set before any other thread exists (first thing in `run`).
-        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
-    }
+    let profile = testmode::profile();
     // LANX 3.11: NVIDIA's newer drivers on Wayland close web windows at start ("Error 71
     // (Protocol error)"): their explicit sync is turned off for LANX's window.
     #[cfg(target_os = "linux")]
     if std::path::Path::new("/proc/driver/nvidia/version").exists() && std::env::var_os("__NV_DISABLE_EXPLICIT_SYNC").is_none() {
-        // SAFETY: still before any other thread exists.
+        // SAFETY: set before any other thread exists (first thing in `run`).
         unsafe { std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1") };
     }
+    // LANX 3.13.1 (Linux): the window is drawn with the graphics chip where that is safe,
+    // and the careful way (the processor paints every frame) everywhere else — until now
+    // every Linux PC got the careful way, which made LANX stutter. See linux_graphics.rs.
+    // (Still before any other thread exists: it may set the web engine's switch.)
+    #[cfg(target_os = "linux")]
+    let graphics_note = linux_graphics::choose(&storage::data_dir(profile.as_deref()), env!("CARGO_PKG_VERSION"));
     wait_for_previous_instance();
-    let profile = testmode::profile();
     // LANX 3.11 (Linux): a start-up log, and a running copy that stopped answering is
     // replaced (else this launch would only ask it to show itself, and nothing appears).
     #[cfg(target_os = "linux")]
     {
         let data_dir = storage::data_dir(profile.as_deref());
         start_guard::log_start(&data_dir, env!("CARGO_PKG_VERSION"));
+        start_guard::log(&data_dir, &graphics_note);
         if profile.is_none() {
             start_guard::replace_stuck_copy(&data_dir, std::env::args().any(|a| a == "--restart"));
         }

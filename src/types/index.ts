@@ -342,6 +342,8 @@ export interface SystemInfo {
   tcp_port: number;
   /** LANX 3.11.1: the UDP port colleagues are found on (0 while none is). */
   udp_port?: number;
+  /** LANX 3.13.1 (Linux): how the window is drawn, in plain words ("" elsewhere). */
+  graphics?: string;
 }
 
 export interface ConnectionTestResult {

@@ -13,8 +13,16 @@ Type=Application
 MimeType={{mime_type}}
 {{/if}}
 Keywords=chat;messenger;LAN;office;files;
-Actions=restart;
+Actions=restart;fastgraphics;safegraphics;
 
 [Desktop Action restart]
 Name=Restart LANX
 Exec={{exec}} --restart
+
+[Desktop Action fastgraphics]
+Name=Open with the graphics chip (smoother)
+Exec={{exec}} --restart --fast-graphics
+
+[Desktop Action safegraphics]
+Name=Open without the graphics chip (if the window stays blank)
+Exec={{exec}} --restart --safe-graphics

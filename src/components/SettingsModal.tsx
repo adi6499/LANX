@@ -792,6 +792,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
+                {/* LANX 3.13.1 (Linux): how the window is drawn. */}
+                {systemInfo?.graphics ? (
+                  <div className="p-3 rounded-xl lanx-group text-xs" data-graphics-note>
+                    <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Drawing the window</div>
+                    <div className="text-slate-700 dark:text-slate-200">{systemInfo.graphics}</div>
+                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      To change it, right-click the LANX icon in the applications menu: “Open with the graphics chip” or “Open without the graphics chip”.
+                    </p>
+                  </div>
+                ) : null}
+
                 <div className="p-3 rounded-xl lanx-group">
                   <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                     <KeyRound className="h-3 w-3" /> Your security code

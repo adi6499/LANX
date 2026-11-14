@@ -19,6 +19,16 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.13.1",
+    title: "Smooth on Linux",
+    items: [
+      { icon: "⚡", title: "LANX on Linux uses the graphics chip", text: "Until now LANX on Linux drew every picture with the processor alone, to be safe on every PC. That made it stutter and seem to hang. Now it draws with the PC’s graphics chip, like on Windows: scrolling, typing and opening chats are smooth." },
+      { icon: "🚀", title: "Opens right away on Linux", text: "On Linux, LANX used to wait six seconds before it showed its window, every time it started. Now the window appears as soon as it is ready." },
+      { icon: "🛟", title: "Still careful where it must be", text: "PCs with NVIDIA’s own driver, virtual machines and PCs without a known graphics driver keep the careful way. If LANX ever fails to open with the graphics chip, it goes back to the careful way by itself." },
+      { icon: "💡", title: "Good to know", text: "Nothing changes on Windows. On Linux you can choose by hand: right-click the LANX icon in the applications menu → “Open with the graphics chip” or “Open without the graphics chip”. Settings → Diagnostics shows which one is in use." },
+    ],
+  },
+  {
     version: "3.13.0",
     title: "Calls and meetings on Linux Mint",
     items: [
