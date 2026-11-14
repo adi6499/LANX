@@ -32,15 +32,18 @@ class LanxCapture extends AudioWorkletProcessor {
 }
 
 class LanxPlay extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
     this.queue = [];
     this.head = 0; // read position in queue[0]
     this.queued = 0; // samples waiting
     this.started = false;
     // Start once 40 ms are here; never let more than 160 ms pile up.
-    this.startAt = 1920;
-    this.maxQueued = 7680;
+    // (LANX 3.15.0: the walkie-talkie asks for a little more of both: its voice comes
+    // in small bursts over the ordinary encrypted connection, not as a call does.)
+    const o = (options && options.processorOptions) || {};
+    this.startAt = o.startAt > 0 ? o.startAt : 1920;
+    this.maxQueued = o.maxQueued > 0 ? o.maxQueued : 7680;
     this.port.onmessage = (e) => {
       const d = e.data;
       if (!(d instanceof Float32Array) || !d.length) return;

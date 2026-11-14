@@ -7,6 +7,7 @@
  *  It works by standing in for the browser's camera (getUserMedia /
  *  enumerateDevices), so every feature gets it without changes. */
 import { api, events, type PhoneCamEvent } from "./api";
+import { endTracks } from "./endTracks";
 import { iceGathered } from "./webrtc";
 
 export const PHONE_CAMERA_ID = "lanx-phone-camera";
@@ -119,16 +120,14 @@ function close(tellPhone: boolean, stopped?: string) {
   const l = link;
   link = null;
   // Everything using the picture hears it ended (a call turns its camera off, gestures
-  // say so): stopping a copy alone doesn't tell its user.
-  for (const t of users) {
-    if (t.readyState === "live") {
-      t.stop();
-      t.dispatchEvent(new Event("ended"));
-    }
-  }
+  // say so): stopping a copy alone doesn't tell its user. (Off the page first, ended a
+  // moment later: the order the Linux web engine survives, see endTracks.)
+  const copies = [...users].filter((t) => t.readyState === "live");
   users.clear();
+  endTracks(l ? [...copies, l.track] : copies, () => {
+    for (const t of copies) t.dispatchEvent(new Event("ended"));
+  });
   if (!l) return;
-  l.track.stop();
   l.pc.close();
   if (tellPhone) void api.phoneCamSend({ action: "stop", cam_id: l.id }).catch(() => {});
   setState({ phase: "off" });
@@ -244,23 +243,35 @@ const first = (v: unknown): string | undefined => {
 };
 const noCamera = (e: unknown) => e instanceof DOMException && (e.name === "NotFoundError" || e.name === "OverconstrainedError" || e.name === "DevicesNotFoundError");
 
+let installed = false;
+/** Whether the phone stands in for the camera in this window (for LANX's own tests). */
+export const phoneCameraInstalled = () => installed;
+
 /** Puts the phone in the browser's camera list and requests (desktop window only). */
 export function installPhoneCamera() {
-  const md = navigator.mediaDevices as (MediaDevices & { __lanxPhone?: boolean }) | undefined;
-  if (!md || md.__lanxPhone || typeof RTCPeerConnection === "undefined") return;
-  md.__lanxPhone = true;
-  const realGum = md.getUserMedia.bind(md);
-  const realList = md.enumerateDevices.bind(md);
+  const md = navigator.mediaDevices as MediaDevices | undefined;
+  if (!md || installed || typeof RTCPeerConnection === "undefined") return;
+  installed = true;
+  (window as unknown as { __lanxPhoneCamera?: () => boolean }).__lanxPhoneCamera = phoneCameraInstalled;
+  // LANX 3.15.0: on what all camera objects share (the prototype), not on
+  // `navigator.mediaDevices` itself. The Linux web engine (WebKitGTK) makes that object
+  // anew now and then, and what LANX had put on the old one was gone with it: a few
+  // seconds after LANX started the phone's camera was no longer offered on Linux.
+  const proto = Object.getPrototypeOf(md) as MediaDevices;
+  const gum = proto.getUserMedia;
+  const list = proto.enumerateDevices;
+  const realGum = (c?: MediaStreamConstraints) => gum.call(navigator.mediaDevices, c);
+  const realList = () => list.call(navigator.mediaDevices);
   const ownCamera = async () => (await realList().catch(() => [] as MediaDeviceInfo[])).some((d) => d.kind === "videoinput");
 
-  md.enumerateDevices = async () => {
+  proto.enumerateDevices = async () => {
     const list = await realList();
     if (mode === "never" || !(await phones()).paired) return list;
     const phone = { deviceId: PHONE_CAMERA_ID, groupId: PHONE_CAMERA_ID, kind: "videoinput", label: "Phone camera (LANX on your phone)", toJSON() { return this; } };
     return [...list, phone as unknown as MediaDeviceInfo];
   };
 
-  md.getUserMedia = async (c?: MediaStreamConstraints) => {
+  proto.getUserMedia = async (c?: MediaStreamConstraints) => {
     if (!c?.video || mode === "never") return realGum(c);
     const v = typeof c.video === "object" ? c.video : {};
     const asked = first(v.deviceId);

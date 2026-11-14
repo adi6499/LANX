@@ -445,6 +445,9 @@ pub fn run() {
                 // LANX 2.5.0: the dictation hotkey follows its preference (on unless turned off).
                 let (dict_on, mods, vk) = commands::voice::dictation_startup(db.get_setting("pref_dictation").as_deref());
                 shell::set_dictation_hotkey(dict_on, mods, vk);
+                // LANX 3.15.0: the walkie-talkie key (hold to talk from any program).
+                let (talk_on, mods, vk) = commands::talk::key_startup(db.get_setting("pref_talk").as_deref());
+                shell::set_talk_hotkey(talk_on, mods, vk);
                 shell::start_hotkey(app.handle().clone(), s.as_ref().map(|s| s.screenshot_hotkey).unwrap_or(true));
                 shell::apply_send_to(s.as_ref().map(|s| s.send_to_menu).unwrap_or(true));
             }
@@ -734,6 +737,11 @@ pub fn run() {
             commands::music::music_now,
             commands::music::music_phone_share,
             commands::music::send_together,
+            commands::talk::talk_start,
+            commands::talk::talk_audio,
+            commands::talk::talk_end,
+            commands::talk::talk_key_state,
+            commands::talk::set_talk_key,
             commands::music::watch_serve,
             commands::music::watch_stop,
             commands::wallpaper::pick_wallpaper,

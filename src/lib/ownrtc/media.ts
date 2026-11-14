@@ -6,6 +6,7 @@
  *  One encoder per camera (or microphone) and setting: in a meeting, the same
  *  squeezed picture goes to everyone who gets that setting. */
 import { invoke } from "@tauri-apps/api/core";
+import { endTracks } from "../endTracks";
 
 /** Who gets a picture or a piece of sound: a connection and its media line. */
 export interface Target {
@@ -541,6 +542,8 @@ export class VideoSink {
   private waitingKey = true;
   private askedAt = 0;
   private setMuted: (m: boolean) => void;
+  /** Hands the picture just drawn on to the track (when the stream gives pictures on request). */
+  private handOn: (() => void) | null = null;
   framesIn = 0;
   decodeMs = 0;
   private fpsMark = { at: now(), n: 0, fps: 0 };
@@ -548,8 +551,21 @@ export class VideoSink {
     this.canvas.width = 2;
     this.canvas.height = 2;
     this.g = this.canvas.getContext("2d", { alpha: false });
-    const stream = (this.canvas as HTMLCanvasElement & { captureStream(fps?: number): MediaStream }).captureStream();
-    this.track = stream.getVideoTracks()[0];
+    // LANX 3.15.0: the stream gives a picture when asked (rate 0 + requestFrame), once per
+    // decoded picture. Left to notice the canvas changing by itself (captureStream() with no
+    // rate), the Linux web engine (WebKitGTK) handed on the first picture only: incoming
+    // video in calls and meetings, and the phone's camera, stood still.
+    const canvas = this.canvas as HTMLCanvasElement & { captureStream(fps?: number): MediaStream };
+    let track = canvas.captureStream(0).getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
+    if (typeof track.requestFrame === "function") {
+      const t = track;
+      this.handOn = () => t.requestFrame?.();
+    } else {
+      // (No such request here: a steady 30 pictures a second does it too.)
+      track.stop();
+      track = canvas.captureStream(30).getVideoTracks()[0];
+    }
+    this.track = track;
     this.setMuted = markMutable(this.track);
   }
   fps(): number {
@@ -615,6 +631,7 @@ export class VideoSink {
         this.canvas.height = h;
       }
       this.g?.drawImage(f, 0, 0, w, h);
+      this.handOn?.();
     } finally {
       f.close();
     }
@@ -630,8 +647,10 @@ export class VideoSink {
     }
   }
   close() {
+    // No more pictures, then off the page, then (a moment later) the track ends: see endTracks.
+    this.handOn = null;
     this.reset();
-    this.track.stop();
+    endTracks([this.track]);
   }
 }
 
@@ -739,6 +758,7 @@ export class AudioSink {
     } catch {
       /* closed */
     }
-    this.track.stop();
+    // (With the pictures: a <video> often plays both, and ending either rearranges it.)
+    endTracks([this.track]);
   }
 }

@@ -18,6 +18,7 @@ pub mod transfer;
 pub mod update;
 pub mod games;
 pub mod music;
+pub mod talk;
 #[cfg(test)]
 mod tests;
 
@@ -122,6 +123,8 @@ pub struct Inner {
     pub(crate) profile_tries: Mutex<HashMap<String, Instant>>,
     /// LANX 1.8.0: intercom / out-of-office / alert bookkeeping.
     pub(crate) office: office::OfficeState,
+    /// LANX 3.15.0: the walkie-talkie (who is talking to us, whom we are talking to).
+    pub(crate) talk: talk::TalkState,
     /// "Share LANX update" settings and state (see update.rs).
     pub(crate) update_cfg: Mutex<update::UpdateConfig>,
     pub(crate) updates: Mutex<update::UpdateRuntime>,
@@ -162,6 +165,7 @@ impl NetworkService {
                 last_failure: Mutex::new(HashMap::new()),
                 profile_tries: Mutex::new(HashMap::new()),
                 office: Default::default(),
+                talk: Default::default(),
                 update_cfg: Mutex::new(update::UpdateConfig::default()),
                 updates: Mutex::new(update::UpdateRuntime::default()),
             }),
@@ -1029,6 +1033,8 @@ impl NetworkService {
             return;
         };
         let remote_version = chan.remote.app_version.clone();
+        // LANX 3.15.0: the walkie-talkie transmission that came in on this connection.
+        let mut talk_here: Option<String> = None;
 
         loop {
             let pkt = match chan.recv_packet_timeout(IDLE_TIMEOUT).await {
@@ -1083,6 +1089,14 @@ impl NetworkService {
                 PacketPayload::Game(g) => Some(PacketPayload::Ack(self.handle_game(&peer, g, &remote_version))),
                 PacketPayload::Music(m) => Some(PacketPayload::Ack(self.handle_music(&peer, m))),
                 PacketPayload::Together(t) => Some(PacketPayload::Ack(self.handle_together(&peer, t))),
+                PacketPayload::Talk(t) => {
+                    let (id, start) = (t.talk_id.clone(), t.action == "start");
+                    let answer = self.handle_talk(&peer, t);
+                    if start && answer.as_ref().is_some_and(|a| a.ok) {
+                        talk_here = Some(id);
+                    }
+                    answer.map(PacketPayload::Ack)
+                }
                 PacketPayload::Clock(c) => Some(PacketPayload::ClockReply(music::clock_reply(c, arrived))),
                 PacketPayload::Policy(p) => Some(PacketPayload::Ack(self.handle_policy(&peer, p))),
                 PacketPayload::PolicyAnswer(a) => Some(PacketPayload::Ack(self.handle_policy_answer(&peer, a))),
@@ -1107,6 +1121,10 @@ impl NetworkService {
                     break;
                 }
             }
+        }
+        // The connection is gone: so is the transmission that came over it.
+        if let Some(id) = talk_here {
+            self.talk_end_in(&peer.id, &id);
         }
     }
 

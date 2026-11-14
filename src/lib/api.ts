@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import type { PairRequestInfo, PhoneStatus, QrData } from "../types";
 import type { RemoteInput } from "./remote";
+import type { TalkEvent, TalkStarted } from "./talk/types";
 import type { FramedWindow, HandInput, HandScreen } from "./gestures/os";
 import {
   UserSettings,
@@ -1662,6 +1663,35 @@ export const api = {
     if (isTauri) return invoke("send_together", { peerId, step });
     return true;
   },
+  /** LANX 3.15.0: the walkie-talkie. Starts a transmission on a channel ("direct", "all",
+   *  "group:<id>") to these colleagues: who hears it, and who does not and why. */
+  talkStart: async (channel: string, peers: string[]): Promise<TalkStarted> => {
+    if (isTauri) return invoke("talk_start", { channel, peers });
+    // Browser preview: everyone hears it.
+    return { talk_id: `preview-${Date.now()}`, listeners: peers, refused: [] };
+  },
+  /** The next voice pieces (Opus, 20 ms each, base64). Returns how many colleagues hear it. */
+  talkAudio: async (talkId: string, frames: string[]): Promise<number> => {
+    if (isTauri) return invoke("talk_audio", { talkId, frames });
+    // Browser preview: kept, so a test can play it back as a colleague would hear it.
+    ((window as unknown as { __lanxTalkSent?: string[] }).__lanxTalkSent ??= []).push(...frames);
+    return 1;
+  },
+  talkEnd: async (talkId: string): Promise<void> => {
+    if (isTauri) return invoke("talk_end", { talkId });
+  },
+  /** The walkie-talkie key (hold to talk from any program): can this LANX have one, and does Windows give it the keys? */
+  talkKeyState: async (): Promise<{ available: boolean; working: boolean; label: string }> => {
+    if (isTauri) return invoke("talk_key_state");
+    // Browser preview: as on a Windows PC.
+    return { available: true, working: true, label: "Ctrl + Alt + T" };
+  },
+  /** Turns the walkie-talkie key on or off and picks its keys. False when Windows refused them. */
+  setTalkKey: async (enabled: boolean, keys?: { ctrl: boolean; alt: boolean; shift: boolean; win: boolean; key: string }): Promise<boolean> => {
+    if (isTauri) return invoke("set_talk_key", { enabled, keys: keys ?? null });
+    // Browser preview: Ctrl + Alt + S is "taken" (LANX's own screenshot key), to show what that looks like.
+    return !(keys && keys.ctrl && keys.alt && !keys.shift && !keys.win && keys.key === "KeyS");
+  },
   /** LANX 3.9.0 Watch together: lend a video file to colleagues (served from this PC, behind a code). */
   watchServe: async (path: string): Promise<{ port: number; token: string; name: string; size: number; mime: string }> => {
     if (isTauri) return invoke("watch_serve", { path });
@@ -2062,6 +2092,10 @@ export const events = {
   /** LANX 1.8.0: an intercom message arrived (play it unless quiet). */
   onIntercom: (cb: (e: IntercomEvent) => void) => on<IntercomEvent>("lanx://intercom", cb),
   /** LANX 2.9.0: a colleague's step in a game. */
+  /** LANX 3.15.0: the walkie-talkie (a colleague's voice, and news about our own transmission). */
+  onTalk: (cb: (e: TalkEvent) => void) => on<TalkEvent>("lanx://talk", cb),
+  /** The walkie-talkie key went down (true) or was let go (false), in whatever program. */
+  onTalkKey: (cb: (down: boolean) => void) => on<boolean>("lanx://talk-key", cb),
   /** LANX 3.9.0: a together step from a colleague. */
   onTogether: (cb: (e: { from_id: string; from_name: string; session_id: string; kind: string; action: string; seq: number; data: Record<string, unknown>; at: number }) => void) =>
     on<{ from_id: string; from_name: string; session_id: string; kind: string; action: string; seq: number; data: Record<string, unknown>; at: number }>("lanx://together", cb),

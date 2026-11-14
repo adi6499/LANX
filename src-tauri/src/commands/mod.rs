@@ -17,6 +17,7 @@ pub mod tools;
 pub mod memes;
 pub mod games;
 pub mod music;
+pub mod talk;
 pub mod phone;
 pub mod ownrtc;
 

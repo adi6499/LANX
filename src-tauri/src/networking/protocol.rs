@@ -192,6 +192,28 @@ pub struct TogetherPayload {
     pub at: i64,
 }
 
+/// LANX 3.15.0: the walkie-talkie (`Talk`). Only sent to 3.15.0 or newer.
+pub const FEATURES_TALK: &str = "3.15.0";
+
+/// LANX 3.15.0: one step of a walkie-talkie transmission: `start` (answered: taken, or
+/// why not), then `audio` steps with the voice in order (never answered, so nothing
+/// waits), then `end` — all on one connection that stays open for the transmission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TalkPayload {
+    pub talk_id: String,
+    /// direct | all | group:<group id>
+    pub channel: String,
+    /// start | audio | end
+    pub action: String,
+    #[serde(default)]
+    pub seq: u64,
+    /// The voice: Opus pieces of 20 ms each, base64, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frames: Vec<String>,
+    #[serde(default)]
+    pub at: i64,
+}
+
 /// LANX 3.8.0: a clock question (`t0`, the asker's clock) and its answer (`t1`
 /// when it arrived, `t2` when the answer left, the answerer's clock), in
 /// microseconds since 1970. Whole numbers: a fraction may be read back a hair
@@ -736,6 +758,8 @@ pub enum PacketPayload {
     ClockReply(ClockPayload),
     // LANX 3.9.0 (only sent to peers reporting app_version >= 3.9.0)
     Together(TogetherPayload),
+    /// LANX 3.15.0
+    Talk(TalkPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

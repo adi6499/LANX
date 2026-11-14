@@ -31,6 +31,18 @@ static DICTATE_ON: AtomicBool = AtomicBool::new(true);
 static DICTATE_OK: AtomicBool = AtomicBool::new(false);
 /// The window that was in front when dictation started (where the text goes).
 static DICTATE_TARGET: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+/// LANX 3.15.0: the walkie-talkie key. Hold it to talk, also while LANX is in the
+/// background; let go to stop. The user's choice (the walkie-talkie's screen); the
+/// default is Ctrl + Alt + T.
+pub const DEFAULT_TALK_MODS: u32 = 2 | 1;
+pub const DEFAULT_TALK_VK: u32 = b'T' as u32;
+static TALK_MODS: AtomicU32 = AtomicU32::new(DEFAULT_TALK_MODS);
+static TALK_VK: AtomicU32 = AtomicU32::new(DEFAULT_TALK_VK);
+static TALK_ON: AtomicBool = AtomicBool::new(true);
+static TALK_OK: AtomicBool = AtomicBool::new(false);
+/// The key is down right now (one "down" and one "up" per hold).
+#[cfg(windows)]
+static TALK_HELD: AtomicBool = AtomicBool::new(false);
 
 /// The whole desktop (every screen).
 #[cfg(windows)]
@@ -141,11 +153,24 @@ pub fn start_hotkey(app: AppHandle, enabled: bool) {
                 eprintln!("[Dictation] {} is already used by another app", dictate_label());
             }
         };
+        // LANX 3.15.0: the walkie-talkie key (hold to talk).
+        let set_talk = |on: bool| {
+            UnregisterHotKey(std::ptr::null_mut(), 3);
+            let (mods, vk) = (TALK_MODS.load(Ordering::SeqCst), TALK_VK.load(Ordering::SeqCst));
+            let ok = on && vk != 0 && RegisterHotKey(std::ptr::null_mut(), 3, mods | MOD_NOREPEAT, vk) != 0;
+            TALK_OK.store(ok, Ordering::SeqCst);
+            if on && !ok {
+                eprintln!("[Walkie-talkie] {} is already used by another app", talk_label());
+            }
+        };
         set(enabled);
         set_dictate(DICTATE_ON.load(Ordering::SeqCst));
+        set_talk(TALK_ON.load(Ordering::SeqCst));
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             if msg.message == WM_HOTKEY {
-                if msg.wParam == 2 {
+                if msg.wParam == 3 {
+                    on_talk_hotkey(&app);
+                } else if msg.wParam == 2 {
                     on_dictate_hotkey(&app);
                 } else {
                     on_hotkey(&app);
@@ -154,6 +179,8 @@ pub fn start_hotkey(app: AppHandle, enabled: bool) {
                 set(msg.wParam != 0);
             } else if msg.message == WM_APP + 2 {
                 set_dictate(msg.wParam != 0);
+            } else if msg.message == WM_APP + 3 {
+                set_talk(msg.wParam != 0);
             }
         }
     });
@@ -173,6 +200,60 @@ fn on_dictate_hotkey(app: &AppHandle) {
     let ours = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0);
     DICTATE_TARGET.store(if fg == ours { 0 } else { fg }, Ordering::SeqCst);
     let _ = app.emit_to("main", "lanx://dictate", fg != ours);
+}
+
+/// LANX 3.15.0: the walkie-talkie key went down. The window is told once ("down"), then
+/// once more when the key is let go ("up"). Windows only reports the press of a
+/// shortcut, so until the release this asks about that one key, and no other, a few
+/// times a second.
+#[cfg(windows)]
+fn on_talk_hotkey(app: &AppHandle) {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    if TALK_HELD.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _ = app.emit_to("main", "lanx://talk-key", true);
+    let app = app.clone();
+    let vk = TALK_VK.load(Ordering::SeqCst) as i32;
+    std::thread::spawn(move || {
+        let since = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            // SAFETY: a plain query of one key's state.
+            let down = unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0;
+            // (A transmission is a minute at most; the window ends it by itself then.)
+            if !down || since.elapsed() > std::time::Duration::from_secs(75) {
+                break;
+            }
+        }
+        TALK_HELD.store(false, Ordering::SeqCst);
+        let _ = app.emit_to("main", "lanx://talk-key", false);
+    });
+}
+
+/// Turns the walkie-talkie key on or off and sets its keys (after a change in the
+/// walkie-talkie's screen, and at start-up from the saved preference).
+pub fn set_talk_hotkey(enabled: bool, mods: u32, vk: u32) {
+    TALK_MODS.store(mods, Ordering::SeqCst);
+    TALK_VK.store(vk, Ordering::SeqCst);
+    TALK_ON.store(enabled, Ordering::SeqCst);
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_APP};
+        let tid = HOTKEY_THREAD.load(Ordering::SeqCst);
+        if tid != 0 {
+            PostThreadMessageW(tid, WM_APP + 3, enabled as usize, 0);
+        }
+    }
+}
+
+pub fn talk_hotkey_working() -> bool {
+    TALK_OK.load(Ordering::SeqCst)
+}
+
+/// "Ctrl + Alt + T" for the current walkie-talkie keys.
+pub fn talk_label() -> String {
+    combo_label(TALK_MODS.load(Ordering::SeqCst), TALK_VK.load(Ordering::SeqCst))
 }
 
 /// Turns the dictation shortcut on or off and sets its keys (after a
@@ -263,7 +344,11 @@ pub fn vk_for_code(code: &str) -> Option<u32> {
 
 /// "Ctrl + Alt + D" for the current dictation keys.
 pub fn dictate_label() -> String {
-    let (mods, vk) = (DICTATE_MODS.load(Ordering::SeqCst), DICTATE_VK.load(Ordering::SeqCst));
+    combo_label(DICTATE_MODS.load(Ordering::SeqCst), DICTATE_VK.load(Ordering::SeqCst))
+}
+
+/// A shortcut in words, from Windows modifier flags and a virtual-key code.
+fn combo_label(mods: u32, vk: u32) -> String {
     let mut parts: Vec<String> = Vec::new();
     if mods & 2 != 0 {
         parts.push("Ctrl".to_string());

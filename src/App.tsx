@@ -56,6 +56,9 @@ const ListenInvites = lazy(() => import("./components/music/ListenTogether").the
 const TogetherLayer = lazy(() => import("./components/together/TogetherLayer").then((m) => ({ default: m.TogetherLayer })));
 const GamesPanel = lazy(() => import("./components/games/GamesPanel").then((m) => ({ default: m.GamesPanel })));
 const WallScreen = lazy(() => import("./components/WallScreen").then((m) => ({ default: m.WallScreen })));
+const TalkPanel = lazy(() => import("./components/talk/TalkPanel").then((m) => ({ default: m.TalkPanel })));
+import { TalkPill } from "./components/talk/TalkPill";
+import { initTalk } from "./lib/talk";
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
@@ -310,6 +313,14 @@ export default function App() {
       games.onNudge(null);
       window.removeEventListener("lanx:game-open", open);
     };
+  }, []);
+  /** LANX 3.15.0: the walkie-talkie (it listens from the start; its screen opens on demand). */
+  const [showTalk, setShowTalk] = useState<{ channel?: string } | null>(null);
+  useEffect(() => initTalk(), []);
+  useEffect(() => {
+    const open = (e: Event) => setShowTalk({ channel: ((e as CustomEvent).detail ?? {}).channel });
+    window.addEventListener("lanx:talk-open", open);
+    return () => window.removeEventListener("lanx:talk-open", open);
   }, []);
   /** LANX 3.14.0: the wallpaper screen (a live wallpaper over the whole screen, with a clock). */
   const [showWallScreen, setShowWallScreen] = useState(false);
@@ -2212,6 +2223,13 @@ export default function App() {
       </Suspense>
       {/* LANX 2.17.0: keeps a hosted game going while the host looks elsewhere. */}
       <HostRunner />
+      {/* LANX 3.15.0: the walkie-talkie. */}
+      {showTalk && settings && (
+        <Suspense fallback={null}>
+          <TalkPanel peers={peers} conversations={conversations} initialChannel={showTalk.channel} onClose={() => setShowTalk(null)} />
+        </Suspense>
+      )}
+      {!showTalk && <TalkPill onOpen={(channel) => setShowTalk({ channel })} />}
       {/* LANX 3.14.0: the wallpaper screen. */}
       {showWallScreen && settings && (
         <Suspense fallback={null}>

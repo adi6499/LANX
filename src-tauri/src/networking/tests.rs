@@ -2862,3 +2862,276 @@ async fn big_meetings_go_through_the_organizer() {
     a.svc.leave_meeting(&m.meeting_id).await.unwrap();
     assert!(wait_for(|| c.svc.current_meeting().is_none(), 10).await, "the big meeting ended with its organizer");
 }
+
+// ---------------------------------------------------------------- LANX 3.15.0: the walkie-talkie
+
+/// The next `lanx://talk` event with this action (within `secs`).
+async fn next_talk_event(
+    tap: &mut tokio::sync::broadcast::Receiver<Arc<crate::events::TapEvent>>,
+    action: &str,
+    secs: u64,
+) -> serde_json::Value {
+    tokio::time::timeout(Duration::from_secs(secs), async {
+        loop {
+            let ev = tap.recv().await.expect("event tap");
+            if ev.0 == "lanx://talk" && ev.1["action"] == action {
+                break ev.1.clone();
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("no '{action}' walkie-talkie event"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn walkie_talkie_voice_arrives_live_and_in_order() {
+    let a = watched("Asha", "3.15.0").await;
+    let b = watched("Bharat", "3.15.0").await;
+    link(&a, &b).await;
+    let mut tap = b.svc.events.subscribe().expect("Bharat's events");
+
+    let started = a.svc.talk_start("direct", vec![b.id()]).await.unwrap();
+    assert_eq!(started.listeners, vec![b.id()]);
+    assert!(started.refused.is_empty(), "{:?}", started.refused);
+    let ev = next_talk_event(&mut tap, "start", 5).await;
+    assert_eq!((ev["from_id"].as_str(), ev["from_name"].as_str(), ev["channel"].as_str()), (Some(a.id().as_str()), Some("Asha"), Some("direct")));
+    assert_eq!(ev["talk_id"], started.talk_id.as_str());
+
+    // The voice: every step arrives, in the order it was said.
+    for n in 1..=6u64 {
+        assert_eq!(a.svc.talk_audio(&started.talk_id, vec![format!("AAEC{n}A=="), "T3B1cw==".into()]).unwrap(), 1, "Bharat still hears it");
+    }
+    for n in 1..=6u64 {
+        let ev = next_talk_event(&mut tap, "audio", 5).await;
+        assert_eq!(ev["seq"], n);
+        assert_eq!(ev["frames"], serde_json::json!([format!("AAEC{n}A=="), "T3B1cw=="]));
+    }
+    // Something that is not voice is not passed on.
+    assert!(a.svc.talk_audio(&started.talk_id, vec!["<not voice>".into()]).is_err());
+
+    a.svc.talk_end(&started.talk_id);
+    let ev = next_talk_event(&mut tap, "end", 5).await;
+    assert_eq!(ev["talk_id"], started.talk_id.as_str());
+    assert!(a.svc.talk_audio(&started.talk_id, vec!["AAEC".into()]).is_err(), "after the end the voice goes nowhere");
+    // …and the next one starts fresh.
+    let again = a.svc.talk_start("direct", vec![b.id()]).await.unwrap();
+    assert_ne!(again.talk_id, started.talk_id);
+    assert_eq!(next_talk_event(&mut tap, "start", 5).await["talk_id"], again.talk_id.as_str());
+    a.svc.talk_end(&again.talk_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn walkie_talkie_says_why_a_colleague_does_not_hear_it() {
+    let a = watched("Asha", "3.15.0").await;
+    let old = watched("Omar", "3.14.0").await;
+    let off = watched("Farah", "3.15.0").await;
+    let muted = watched("Meera", "3.15.0").await;
+    let away = watched("Vikram", "3.15.0").await;
+    for n in [&old, &off, &muted, &away] {
+        link(&a, n).await;
+    }
+    off.db().set_setting("pref_talk", r#"{"on":false}"#).unwrap();
+    muted.db().set_setting("pref_talk", &format!(r#"{{"on":true,"muted":["peer:{}"]}}"#, a.id())).unwrap();
+    // Vikram's PC is switched off: nothing answers at his address any more.
+    away.svc.stop();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let started = a.svc.talk_start("direct", vec![old.id(), off.id(), muted.id(), away.id(), "nobody-we-know".into(), a.id()]).await.unwrap();
+    assert!(started.listeners.is_empty(), "{:?}", started.listeners);
+    let why = |id: &str| started.refused.iter().find(|r| r.peer_id == id).map(|r| r.why.clone());
+    assert_eq!(why(&old.id()).as_deref(), Some("old"));
+    assert_eq!(started.refused.iter().find(|r| r.peer_id == old.id()).unwrap().version.as_deref(), Some("3.14.0"));
+    assert_eq!(why(&off.id()).as_deref(), Some("off"));
+    assert_eq!(why(&muted.id()).as_deref(), Some("muted"));
+    assert_eq!(why(&away.id()).as_deref(), Some("unreachable"));
+    assert_eq!(started.refused.len(), 4, "strangers and ourselves are simply left out: {:?}", started.refused);
+    a.svc.talk_end(&started.talk_id);
+
+    // Meera muted only Asha's own channel: on "everyone" she hears her.
+    let all = a.svc.talk_start("all", vec![muted.id()]).await.unwrap();
+    assert_eq!(all.listeners, vec![muted.id()]);
+    a.svc.talk_end(&all.talk_id);
+
+    // A locked LANX plays nothing.
+    muted.svc.privacy.lock();
+    if muted.svc.privacy.is_locked() {
+        let locked = a.svc.talk_start("all", vec![muted.id()]).await.unwrap();
+        assert_eq!(locked.refused.first().map(|r| r.why.as_str()), Some("locked"));
+        a.svc.talk_end(&locked.talk_id);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn walkie_talkie_is_one_voice_at_a_time() {
+    let a = watched("Asha", "3.15.0").await;
+    let b = watched("Bharat", "3.15.0").await;
+    let c = watched("Chetan", "3.15.0").await;
+    link(&a, &c).await;
+    link(&b, &c).await;
+    link(&c, &a).await;
+    let mut tap = c.svc.events.subscribe().expect("Chetan's events");
+
+    let first = a.svc.talk_start("all", vec![c.id()]).await.unwrap();
+    assert_eq!(first.listeners, vec![c.id()]);
+    next_talk_event(&mut tap, "start", 5).await;
+    // Bharat presses while Chetan is hearing Asha: Chetan's PC says who has the word.
+    let second = b.svc.talk_start("all", vec![c.id()]).await.unwrap();
+    assert!(second.listeners.is_empty());
+    assert_eq!((second.refused[0].why.as_str(), second.refused[0].who.as_deref()), ("busy", Some("Asha")));
+    b.svc.talk_end(&second.talk_id);
+    // Chetan himself can't talk over her either.
+    let err = c.svc.talk_start("direct", vec![a.id()]).await.unwrap_err();
+    assert!(err.contains("Asha is talking"), "{err}");
+
+    a.svc.talk_end(&first.talk_id);
+    next_talk_event(&mut tap, "end", 5).await;
+    // The word is free again.
+    let third = b.svc.talk_start("all", vec![c.id()]).await.unwrap();
+    assert_eq!(third.listeners, vec![c.id()]);
+    assert_eq!(next_talk_event(&mut tap, "start", 5).await["from_name"], "Bharat");
+    // While Bharat talks, his own PC takes no other voice. (Not within the same half
+    // second as his press: then the two would have pressed "at once", which is the next test.)
+    link(&a, &b).await;
+    tokio::time::sleep(Duration::from_millis(650)).await;
+    let fourth = a.svc.talk_start("direct", vec![b.id()]).await.unwrap();
+    assert!(fourth.listeners.is_empty(), "{:?}", fourth.listeners);
+    assert_eq!((fourth.refused[0].why.as_str(), fourth.refused[0].who.as_deref()), ("busy", Some("Bharat")));
+    a.svc.talk_end(&fourth.talk_id);
+    b.svc.talk_end(&third.talk_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_people_pressing_at_once_agree_who_talks() {
+    let a = watched("Asha", "3.15.0").await;
+    let b = watched("Bharat", "3.15.0").await;
+    link(&a, &b).await;
+    link(&b, &a).await;
+    let (ra, rb) = tokio::join!(a.svc.talk_start("direct", vec![b.id()]), b.svc.talk_start("direct", vec![a.id()]));
+    // The PC with the smaller device id keeps the word; the other gives way.
+    let (keeps, yields, kept, gave) = if a.id() < b.id() { (&a, &b, ra, rb) } else { (&b, &a, rb, ra) };
+    let kept = kept.expect("the smaller id talks");
+    assert_eq!(kept.listeners, vec![yields.id()]);
+    let err = gave.expect_err("the other gives way");
+    assert!(err.contains("is talking"), "{err}");
+    assert_eq!(keeps.svc.talk_audio(&kept.talk_id, vec!["AAEC".into()]).unwrap(), 1);
+    keeps.svc.talk_end(&kept.talk_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn walkie_talkie_group_channel_is_for_its_members() {
+    let a = watched("Asha", "3.15.0").await;
+    let b = watched("Bharat", "3.15.0").await;
+    let c = watched("Chetan", "3.15.0").await;
+    let d = watched("Divya", "3.15.0").await;
+    link(&a, &b).await;
+    link(&a, &c).await;
+    link(&d, &b).await;
+    let gid = a.svc.create_group("Accounts Team", &[b.id(), c.id()]).unwrap().id;
+    assert!(wait_for(|| conv_of(b.db(), &gid).is_some() && conv_of(c.db(), &gid).is_some(), 10).await);
+    let (mut tb, mut tc) = (b.svc.events.subscribe().unwrap(), c.svc.events.subscribe().unwrap());
+
+    let channel = format!("group:{gid}");
+    let started = a.svc.talk_start(&channel, vec![b.id(), c.id()]).await.unwrap();
+    let mut heard = started.listeners.clone();
+    heard.sort();
+    let mut both = vec![b.id(), c.id()];
+    both.sort();
+    assert_eq!(heard, both, "{:?}", started.refused);
+    assert_eq!(a.svc.talk_audio(&started.talk_id, vec!["AAEC".into()]).unwrap(), 2);
+    for tap in [&mut tb, &mut tc] {
+        assert_eq!(next_talk_event(tap, "start", 5).await["channel"], channel.as_str());
+        assert_eq!(next_talk_event(tap, "audio", 5).await["frames"][0], "AAEC");
+    }
+    a.svc.talk_end(&started.talk_id);
+    next_talk_event(&mut tb, "end", 5).await;
+
+    // Divya is not in the group: Bharat's PC does not play her on its channel.
+    let outsider = d.svc.talk_start(&channel, vec![b.id()]).await.unwrap();
+    assert_eq!(outsider.refused[0].why, "group");
+    d.svc.talk_end(&outsider.talk_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_walkie_talkie_transmission_that_goes_silent_ends_by_itself() {
+    let a = watched("Asha", "3.15.0").await;
+    let b = watched("Bharat", "3.15.0").await;
+    link(&a, &b).await;
+    let (mut ta, mut tb) = (a.svc.events.subscribe().unwrap(), b.svc.events.subscribe().unwrap());
+    let started = a.svc.talk_start("direct", vec![b.id()]).await.unwrap();
+    a.svc.talk_audio(&started.talk_id, vec!["AAEC".into()]).unwrap();
+    next_talk_event(&mut tb, "audio", 5).await;
+    // The window stops sending (its page froze, say): after a few seconds it is over on both PCs.
+    assert_eq!(next_talk_event(&mut ta, "stopped", 10).await["talk_id"], started.talk_id.as_str());
+    assert_eq!(next_talk_event(&mut tb, "end", 10).await["talk_id"], started.talk_id.as_str());
+    // Bharat is free to be talked to again.
+    let again = a.svc.talk_start("direct", vec![b.id()]).await.unwrap();
+    assert_eq!(again.listeners, vec![b.id()]);
+    a.svc.talk_end(&again.talk_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_walkie_talkie_stays_out_of_a_call() {
+    let a = watched("Asha", "3.15.0").await;
+    let b = watched("Bharat", "3.15.0").await;
+    let c = watched("Chetan", "3.15.0").await;
+    let ab = link(&a, &b).await;
+    link(&c, &a).await;
+    link(&c, &b).await;
+    link(&a, &c).await;
+    let call = a.svc.start_call(&ab, false, "v=0 offer".into(), None).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_some_and(|c| c.phase == "ringing"), 5).await);
+    // While it only rings, Bharat still hears the walkie-talkie.
+    let ringing = c.svc.talk_start("direct", vec![b.id()]).await.unwrap();
+    assert_eq!(ringing.listeners, vec![b.id()], "{:?}", ringing.refused);
+    c.svc.talk_end(&ringing.talk_id);
+
+    b.svc.answer_call(&call.call_id, "v=0 answer".into(), false).await.unwrap();
+    assert!(wait_for(|| a.svc.current_call().is_some_and(|c| c.phase == "active"), 5).await);
+    // Nobody talks into the call: both are left out, and Chetan is told why.
+    let started = c.svc.talk_start("all", vec![a.id(), b.id()]).await.unwrap();
+    assert!(started.listeners.is_empty(), "{:?}", started.listeners);
+    assert_eq!(started.refused.len(), 2);
+    assert!(started.refused.iter().all(|r| r.why == "call"), "{:?}", started.refused);
+    c.svc.talk_end(&started.talk_id);
+    // Nor do the two use the walkie-talkie themselves meanwhile.
+    assert!(a.svc.talk_start("direct", vec![c.id()]).await.unwrap_err().contains("in a call"));
+
+    a.svc.hangup_call(&call.call_id).await.unwrap();
+    assert!(wait_for(|| b.svc.current_call().is_none(), 5).await);
+    let after = c.svc.talk_start("all", vec![a.id(), b.id()]).await.unwrap();
+    assert_eq!(after.listeners.len(), 2, "{:?}", after.refused);
+    c.svc.talk_end(&after.talk_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn do_not_disturb_keeps_the_walkie_talkie_silent() {
+    let a = watched("Asha", "3.15.0").await;
+    let b = watched("Bharat", "3.15.0").await;
+    link(&a, &b).await;
+    // Bharat's status says "Do not disturb": no voice comes out of his PC, and Asha is told.
+    let mut s = b.db().get_settings().unwrap();
+    s.profile.status = "dnd".into();
+    b.db().save_settings(&s).unwrap();
+    let started = a.svc.talk_start("all", vec![b.id()]).await.unwrap();
+    assert!(started.listeners.is_empty(), "{:?}", started.listeners);
+    assert_eq!(started.refused.first().map(|r| r.why.as_str()), Some("dnd"));
+    a.svc.talk_end(&started.talk_id);
+
+    // Quiet hours count as well (here: from an hour ago until two hours from now, every day).
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    let minute = now.hour() * 60 + now.minute();
+    s.profile.status.clear();
+    s.quiet_hours = crate::storage::models::QuietHours { enabled: true, start: (minute + 1440 - 60) % 1440, end: (minute + 120) % 1440, days: vec![0, 1, 2, 3, 4, 5, 6] };
+    b.db().save_settings(&s).unwrap();
+    let quiet = a.svc.talk_start("direct", vec![b.id()]).await.unwrap();
+    assert_eq!(quiet.refused.first().map(|r| r.why.as_str()), Some("dnd"), "{:?}", quiet.listeners);
+    a.svc.talk_end(&quiet.talk_id);
+
+    // Back to normal: he hears her again.
+    s.quiet_hours.enabled = false;
+    b.db().save_settings(&s).unwrap();
+    let again = a.svc.talk_start("all", vec![b.id()]).await.unwrap();
+    assert_eq!(again.listeners, vec![b.id()], "{:?}", again.refused);
+    a.svc.talk_end(&again.talk_id);
+}

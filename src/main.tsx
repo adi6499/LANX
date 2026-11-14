@@ -66,7 +66,11 @@ const Root = React.lazy(
         : () =>
             // LANX 3.13.0: calls on web engines without RTCPeerConnection (Linux) use LANX's own
             // engine — put in place before anything (the phone camera too) looks for it.
-            import("./lib/ownrtc")
+            import("./lib/endTracks")
+              // LANX 3.15.0, Linux: ending a camera that is still shown must not freeze the window.
+              .then((m) => IS_LINUX && m.installSafeStop())
+              .catch(() => false)
+              .then(() => import("./lib/ownrtc"))
               .then((m) => m.installOwnRtc())
               .catch(() => false)
               // LANX 3.6.2: the paired phone's camera for calls, meetings and gestures (main window only).

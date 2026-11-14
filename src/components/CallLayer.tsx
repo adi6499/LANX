@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { CallEvent, CallInfo, Conversation, Profile } from "../types";
 import { Avatar } from "./Avatar";
 import { api, errorText, events } from "../lib/api";
-import { IS_WINDOWS } from "../lib/platform";
+import { IS_LINUX, IS_WINDOWS } from "../lib/platform";
 import { Recorder, recordingSupported } from "../lib/recorder";
 import { VOICE_BITRATE, getCamera, getMic, getScreen, liveReceiver, pictureStats, preferCodecs, tuneSdp, tuneSender, videoBudget, watchQuality } from "../lib/webrtc";
 import { CLIP_MAX, REMOTE_CHANNEL, RemoteInput, RemoteLink, RemoteMsg } from "../lib/remote";
@@ -340,7 +340,10 @@ export const CallLayer = forwardRef<CallLayerHandle, CallLayerProps>(({ onError,
       const stream = remoteStreamRef.current;
       if (!stream.getTracks().includes(e.track)) stream.addTrack(e.track);
       if (e.track.kind === "audio" && remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = stream;
+        // LANX 3.15.0, Linux: the sound player gets the sound alone. Handed the whole stream, the
+        // Linux web engine ran the pictures through it as well (twice the work), and had to
+        // rearrange that running player when the picture's track arrived.
+        remoteAudioRef.current.srcObject = IS_LINUX ? new MediaStream(stream.getAudioTracks()) : stream;
         remoteAudioRef.current.play().catch(() => {});
       }
       e.track.onunmute = () => setTick((n) => n + 1);

@@ -5,7 +5,7 @@ import {
   UserSettings,
   NavTab,
 } from "../types";
-import { MonitorPlay, MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Hand, PartyPopper } from "lucide-react";
+import { MonitorPlay, Radio, MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Hand, PartyPopper } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
 import { ShieldCheck } from "lucide-react";
@@ -441,6 +441,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <StickyNote className="h-[17px] w-[17px]" />
               </button>
             )}
+            {/* LANX 3.15.0: the walkie-talkie. */}
+            <button type="button" data-open-talk onClick={() => window.dispatchEvent(new CustomEvent("lanx:talk-open", { detail: {} }))} title="Walkie-talkie: hold to talk, colleagues hear you live" className="lanx-tool flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <Radio className="h-[17px] w-[17px]" />
+            </button>
             {onOpenGestures && <GestureButton onOpenGestures={onOpenGestures} />}
             {(onOpenPdf || onOpenCalc) && (
               <div className="relative">
