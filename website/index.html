@@ -262,9 +262,9 @@
       <p class="sub">The same LANX (version <span data-v="linuxVersion">3.13.1</span>), for Ubuntu, Debian, Mint, Fedora and their relatives. It talks to the Windows copies on your network.</p>
       <article class="dl-card oneline" data-linux-only>
         <h3>Easiest: one line in the Terminal</h3>
-        <p>Open <b>Terminal</b> (Ctrl+Alt+T on Ubuntu and Mint), paste this line (right-click and choose Paste, or press Ctrl+Shift+V &mdash; plain Ctrl+V does not paste in a terminal) and press Enter. It finds the right package for your Linux, checks it, installs it and opens LANX. When it asks for your password, type it and press Enter; on some computers nothing shows while you type. <b>Run the same line again any time to update.</b></p>
+        <p>Open <b>Terminal</b> (Ctrl+Alt+T on Ubuntu and Mint), paste this line (right-click and choose Paste, or press Ctrl+Shift+V &mdash; plain Ctrl+V does not paste in a terminal) and press Enter. It downloads LANX, checks it, installs it for you and opens it. <b>No password is needed:</b> LANX goes into your own folder, with its entry in the applications menu. (Only when the computer is missing a system part LANX needs, or on Fedora, it asks for the administrator&rsquo;s password, and says why.) <b>Run the same line again any time to update.</b></p>
         <p class="cmd"><code data-v="oneLine">(wget -qO- https://lanx-website.vercel.app/install.sh 2&gt;/dev/null || curl -fsSL https://lanx-website.vercel.app/install.sh) | sh</code><button type="button" class="copy" data-copy="oneLine">Copy</button></p>
-        <p class="sha small">Works on Ubuntu, Debian, Mint, Pop!_OS, Zorin, elementary and Fedora, with nothing to install first. Typing it by hand? This shorter line does the same on Ubuntu and Mint: <code>wget -qO- https://lanx-website.vercel.app/install.sh | sh</code>. <a href="/install.sh">See what it does</a>.</p>
+        <p class="sha small">Works on Ubuntu, Debian, Mint, Pop!_OS, Zorin, elementary and Fedora, with nothing to install first. To install LANX for every user of the computer at once (that asks the administrator&rsquo;s password), put <code>-s -- --system</code> after <code>sh</code>. Typing it by hand? This shorter line does the same on Ubuntu and Mint: <code>wget -qO- https://lanx-website.vercel.app/install.sh | sh</code>. <a href="/install.sh">See what it does</a>.</p>
       </article>
       <div class="dl-cards">
         <article class="dl-card" data-linux-deb>
@@ -286,7 +286,7 @@
         </article>
       </div>
       <p class="note">
-        <b>Firewall:</b> nothing to do — if the ufw firewall is on, the installer lets LANX through for your local network.
+        <b>Firewall:</b> most Linux desktops have none switched on, and then there is nothing to do. If the ufw firewall is on, the one line tells you so and how to let LANX through (that step asks the administrator&rsquo;s password); the .deb file does it by itself.
         <b>What's different on Linux:</b> the screenshot key, "Send to LANX" in the file manager and automatic update sharing are Windows-only;
         a Linux PC can see and control a colleague's Windows screen during Remote help but cannot itself be controlled yet.
         <b>Updating:</b> run the one line again (or download the new package here).
