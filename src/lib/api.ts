@@ -1813,6 +1813,22 @@ export const api = {
   clearWallpaperFile: async (): Promise<void> => {
     if (isTauri) return invoke("clear_wallpaper_file");
   },
+  /** LANX 3.14.0: the wallpaper screen's own picture or video (a file of yours, or fetched once from a link). */
+  pickWallScreenFile: async (): Promise<{ path: string; name: string; kind: "image" | "video"; bytes: number } | null> => {
+    if (isTauri) return invoke("pick_wallscreen_file");
+    return null;
+  },
+  wallScreenFromLink: async (url: string): Promise<{ path: string; name: string; kind: "image" | "video"; bytes: number }> => {
+    if (isTauri) return invoke("wallscreen_from_link", { url });
+    // Browser preview: nothing is downloaded, the link itself is shown.
+    const u = url.trim();
+    if (!/^https:\/\/[^\s]+\.[^\s]+$/.test(u)) throw new Error("Use a link that starts with https://");
+    const video = /\.(mp4|webm|mov|m4v)([?#]|$)/i.test(u);
+    return { path: u, name: video ? "From a link.mp4" : "From a link.jpg", kind: video ? "video" : "image", bytes: 0 };
+  },
+  clearWallScreenFile: async (): Promise<void> => {
+    if (isTauri) return invoke("clear_wallscreen_file");
+  },
 
   /** Voice (2.5.0): the speech model, dictation and note recordings. */
   voiceModels: async (): Promise<VoiceModel[]> => {

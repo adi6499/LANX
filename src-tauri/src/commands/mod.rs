@@ -10,6 +10,7 @@ pub mod docs;
 pub mod calendar;
 pub mod share;
 pub mod wallpaper;
+pub mod wallscreen;
 pub mod voice;
 pub mod remote;
 pub mod tools;
@@ -53,11 +54,48 @@ pub fn apply_autostart(app: &AppHandle, enabled: bool) {
     }
     let launcher = app.autolaunch();
     let current = launcher.is_enabled().unwrap_or(false);
+    // LANX 3.14.0 (Linux): the start-up entry names the program that made it. After LANX
+    // moved (installed for the whole computer before, in your own folder now, or the other
+    // way round) it would start the old copy, or nothing: write it again.
+    #[cfg(target_os = "linux")]
+    if enabled && current && !startup_entry_is_ours(dirs::config_dir().map(|d| d.join("autostart")).as_deref(), std::env::current_exe().ok().as_deref()) {
+        let _ = launcher.disable();
+        let _ = launcher.enable();
+        return;
+    }
     if enabled && !current {
         let _ = launcher.enable();
     } else if !enabled && current {
         let _ = launcher.disable();
     }
+}
+
+/// Linux: whether LANX's "start with the computer" entry (a `.desktop` file in the
+/// autostart folder whose Exec runs a program called `lanx`) starts this very program.
+/// No such entry, or nothing to compare: nothing to repair.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn startup_entry_is_ours(autostart_dir: Option<&std::path::Path>, exe: Option<&std::path::Path>) -> bool {
+    let (Some(dir), Some(exe)) = (autostart_dir, exe) else { return true };
+    let Ok(entries) = std::fs::read_dir(dir) else { return true };
+    for e in entries.flatten() {
+        if e.path().extension().and_then(|x| x.to_str()) != Some("desktop") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(e.path()) else { continue };
+        for line in text.lines() {
+            let Some(rest) = line.strip_prefix("Exec=") else { continue };
+            let rest = rest.trim();
+            // the program: up to the closing quote, or the first space
+            let program = match rest.strip_prefix('"') {
+                Some(quoted) => quoted.split('"').next().unwrap_or(""),
+                None => rest.split(' ').next().unwrap_or(""),
+            };
+            if std::path::Path::new(program).file_name().and_then(|n| n.to_str()) == Some("lanx") {
+                return std::path::Path::new(program) == exe;
+            }
+        }
+    }
+    true
 }
 
 #[tauri::command]
@@ -877,4 +915,39 @@ pub fn play_sound(state: State<AppState>, name: Option<String>, volume: Option<u
     let path = custom_path.unwrap_or_else(|| s.as_ref().map(|s| s.custom_sound_path.clone()).unwrap_or_default());
     let vol = volume.unwrap_or_else(|| s.as_ref().map(|s| s.sound_volume).unwrap_or(80));
     crate::sound::play(&choice, &path, vol);
+}
+
+#[cfg(test)]
+mod startup_entry_tests {
+    use super::startup_entry_is_ours;
+    use std::path::Path;
+
+    fn entry(dir: &Path, exec: &str) {
+        std::fs::write(dir.join("LANX.desktop"), format!("[Desktop Entry]\nType=Application\nName=LANX\nExec={exec}\nTerminal=false\n")).unwrap();
+    }
+
+    #[test]
+    fn the_startup_entry_must_start_this_very_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let mine = Path::new("/home/asha/.local/lib/lanx/lanx");
+        // no entry at all, or another program's entry: nothing to repair
+        assert!(startup_entry_is_ours(Some(dir.path()), Some(mine)));
+        std::fs::write(dir.path().join("other.desktop"), "[Desktop Entry]\nExec=/usr/bin/caja --force-desktop\n").unwrap();
+        assert!(startup_entry_is_ours(Some(dir.path()), Some(mine)));
+        // an entry made by a LANX installed for the whole computer: not ours
+        entry(dir.path(), "/usr/bin/lanx --minimized");
+        assert!(!startup_entry_is_ours(Some(dir.path()), Some(mine)));
+        assert!(startup_entry_is_ours(Some(dir.path()), Some(Path::new("/usr/bin/lanx"))));
+        // ours, written plainly or in quotes (the installer writes quotes)
+        entry(dir.path(), "/home/asha/.local/lib/lanx/lanx --minimized");
+        assert!(startup_entry_is_ours(Some(dir.path()), Some(mine)));
+        entry(dir.path(), "\"/home/asha/.local/lib/lanx/lanx\" --minimized");
+        assert!(startup_entry_is_ours(Some(dir.path()), Some(mine)));
+        entry(dir.path(), "\"/home/asha kumar/.local/lib/lanx/lanx\" --minimized");
+        assert!(!startup_entry_is_ours(Some(dir.path()), Some(mine)));
+        assert!(startup_entry_is_ours(Some(dir.path()), Some(Path::new("/home/asha kumar/.local/lib/lanx/lanx"))));
+        // nothing to compare with
+        assert!(startup_entry_is_ours(None, Some(mine)));
+        assert!(startup_entry_is_ours(Some(dir.path()), None));
+    }
 }

@@ -3,6 +3,7 @@ import { Check, Film, ImageIcon, Loader2 } from "lucide-react";
 import { api, errorText } from "../lib/api";
 import { BUILTIN, DEFAULT_WALLPAPER, type WallpaperChoice, startBuiltin } from "../lib/wallpaper";
 import { loadWallpaperChoice } from "./WallpaperLayer";
+import { openWallScreen } from "../lib/wallscreen";
 
 /** LANX 2.5.0: Settings → Appearance → Live wallpaper. */
 export function WallpaperSection({ onError }: { onError: (t: string) => void }) {
@@ -64,6 +65,16 @@ export function WallpaperSection({ onError }: { onError: (t: string) => void }) 
         </div>
       )}
       <p className="text-[10.5px] text-slate-400">Built-in wallpapers are drawn by LANX and loop without a seam. A video of your own plays on a loop (mp4, webm, mov; pictures png, jpg, webp, gif). The "Solid" glass preset hides it; "Frosted" or "Crystal" let it show through.</p>
+      {/* LANX 3.14.0: the wallpaper screen. */}
+      <div className="flex items-center gap-3 rounded-[12px] bg-[var(--lanx-fill)] px-3 py-2.5">
+        <div className="min-w-0 flex-1">
+          <div className="text-[12.5px] font-semibold text-slate-800 dark:text-slate-100">Wallpaper screen</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400">A live wallpaper over the whole screen with a big clock, like a phone’s lock screen. It has its own wallpaper, which can also come from a link.</div>
+        </div>
+        <button type="button" data-wallscreen-open onClick={openWallScreen} className="shrink-0 rounded-[10px] bg-sky-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-sky-700">
+          Open full screen
+        </button>
+      </div>
     </div>
   );
 }

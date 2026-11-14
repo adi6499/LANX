@@ -898,3 +898,21 @@
 :root:is(.lanx-linux, .lanx-lite) [data-wallpaper] video {
   filter: none !important;
 }
+
+/* LANX 3.14.0: the wallpaper screen. A still picture drifts very slowly (so it feels
+   alive); the sheets rise into place. Held still on Linux / light PCs and when
+   "reduce motion" is on. */
+@keyframes lanx-wallscreen-drift {
+  from { transform: scale(1) translate3d(0, 0, 0); }
+  to { transform: scale(1.08) translate3d(-1.2%, -0.8%, 0); }
+}
+.lanx-wallscreen-drift { animation: lanx-wallscreen-drift 48s ease-in-out infinite alternate; will-change: transform; }
+@keyframes lanx-wallscreen-rise {
+  from { opacity: 0; margin-bottom: -10px; }
+  to { opacity: 1; margin-bottom: 0; }
+}
+.lanx-wallscreen-rise { animation: lanx-wallscreen-rise 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+:root:is(.lanx-linux, .lanx-lite) .lanx-wallscreen-drift { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .lanx-wallscreen-drift, .lanx-wallscreen-rise { animation: none !important; }
+}

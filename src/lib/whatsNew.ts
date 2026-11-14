@@ -19,6 +19,18 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.14.0",
+    title: "A live wallpaper screen with a big clock",
+    items: [
+      { icon: "🖼️", title: "The wallpaper screen", text: "Tools → Wallpaper screen (or Settings → Appearance → Open full screen) fills the whole screen with a live wallpaper, a big clock and the date, like a phone’s lock screen. Move the mouse for the buttons; Esc goes back to LANX." },
+      { icon: "✨", title: "Three new live wallpapers", text: "Bloom (soft colours drifting), Silk (flowing ribbons) and Day and night — a sky that follows your PC’s clock: sunrise, daylight, sunset and stars. The arrow keys step through them. They are in the wallpaper list behind your chats too." },
+      { icon: "🔗", title: "Your own picture or video, or a link", text: "Choose a file of yours, or paste a link to a picture or video. LANX downloads it once and keeps a copy on this PC, so it also shows without the internet." },
+      { icon: "🕒", title: "Your clock", text: "Four styles (Bold, Light, Serif, Digital), 12 or 24 hours, seconds, the date on or off, and keeping the screen awake while it shows." },
+      { icon: "🐧", title: "Linux: no password to install or update", text: "The one line on the LANX website now puts LANX into your own folder, so nothing asks for the administrator’s password. LANX also keeps “start with the computer” pointing at the copy you use." },
+      { icon: "💡", title: "Good to know", text: "New messages show as a small note on the wallpaper screen; click it to come back. A link must start with https:// and be the address of the picture or video itself (right-click it → Copy image address), up to 150 MB." },
+    ],
+  },
+  {
     version: "3.13.1",
     title: "Smooth on Linux",
     items: [

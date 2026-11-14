@@ -23,6 +23,10 @@ export const BUILTIN: { id: string; name: string; hint: string; colors: string[]
   { id: "bokeh", name: "Bokeh", hint: "Floating lights", colors: ["#3b0764", "#ec4899", "#fb923c"] },
   { id: "rain", name: "Rain", hint: "Rain on glass", colors: ["#1e293b", "#64748b", "#cbd5e1"] },
   { id: "meadow", name: "Meadow", hint: "Sunlit gradient breeze", colors: ["#14532d", "#4ade80", "#fef08a"] },
+  // LANX 3.14.0: three more, made for the full-screen wallpaper screen.
+  { id: "bloom", name: "Bloom", hint: "Soft colours drifting", colors: ["#1a1030", "#ff5f9e", "#3aa0ff"] },
+  { id: "silk", name: "Silk", hint: "Flowing ribbons", colors: ["#0f1b3d", "#a78bfa", "#5eead4"] },
+  { id: "horizon", name: "Day and night", hint: "The sky follows your clock", colors: ["#1e3a8a", "#60a5fa", "#fde68a"] },
 ];
 
 /** LANX 3.6.1: how bright a wallpaper looks once dimmed — so panels can stay
@@ -49,7 +53,7 @@ export function builtinTone(id: string | undefined, dim: number): WallTone {
   return toneOf(ls[0] * 0.6 + ls[1] * 0.25 + ls[2] * 0.15, dim);
 }
 /** A picture or video frame, measured on a small copy (null if it can't be read). */
-export function measureTone(el: HTMLImageElement | HTMLVideoElement, dim: number): WallTone | null {
+export function measureTone(el: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement, dim: number): WallTone | null {
   try {
     const c = document.createElement("canvas");
     c.width = c.height = 16;
@@ -222,10 +226,143 @@ const painters: Record<string, Painter> = {
     }
     ctx.globalCompositeOperation = "source-over";
   },
+  // LANX 3.14.0 ------------------------------------------------------------
+  /** Big soft fields of colour that drift through each other. */
+  bloom(ctx, w, h, t) {
+    ctx.fillStyle = "#0b0a1a";
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = "screen";
+    const fields = [
+      ["#ff5f9e", 0.0, 0.23, 0.31],
+      ["#ff9f43", 1.9, 0.19, 0.27],
+      ["#7c5cff", 3.3, 0.17, 0.21],
+      ["#3aa0ff", 4.4, 0.21, 0.25],
+      ["#2dd4bf", 5.6, 0.15, 0.29],
+    ] as const;
+    const big = Math.max(w, h);
+    for (const [c, off, sx, sy] of fields) {
+      const x = w * (0.5 + 0.38 * Math.sin(t * sx * 0.5 + off));
+      const y = h * (0.5 + 0.36 * Math.cos(t * sy * 0.5 + off * 1.7));
+      const r = big * (0.42 + 0.08 * Math.sin(t * 0.13 + off));
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, c + "cc");
+      g.addColorStop(0.55, c + "44");
+      g.addColorStop(1, c + "00");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.globalCompositeOperation = "source-over";
+  },
+  /** Wide ribbons of colour that flow slowly across the screen. */
+  silk(ctx, w, h, t) {
+    const g = ctx.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, "#0f1b3d");
+    g.addColorStop(1, "#3b1d5e");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    const cols = ["#5eead4", "#60a5fa", "#a78bfa", "#f472b6", "#fb923c", "#facc15", "#38bdf8"];
+    const step = Math.max(8, Math.round(w / 120));
+    for (let i = 0; i < cols.length; i++) {
+      const base = h * (0.2 + i * 0.09);
+      const amp = h * (0.07 + 0.02 * Math.sin(t * 0.1 + i));
+      const top = (x: number) => base + Math.sin((x / w) * Math.PI * 2 * (0.8 + i * 0.07) + t * (0.12 + i * 0.015) + i * 0.9) * amp + Math.sin((x / w) * Math.PI * 5 - t * 0.08 + i) * amp * 0.25;
+      const thick = (x: number) => h * (0.1 + 0.03 * Math.sin(t * 0.07 + i * 1.3)) * (0.6 + 0.4 * Math.sin((x / w) * Math.PI * 2 + t * 0.05 + i));
+      ctx.beginPath();
+      for (let x = 0; x <= w + step; x += step) x === 0 ? ctx.moveTo(x, top(x)) : ctx.lineTo(x, top(x));
+      for (let x = w + step; x >= 0; x -= step) ctx.lineTo(x, top(x) + thick(x));
+      ctx.closePath();
+      const lg = ctx.createLinearGradient(0, 0, w, 0);
+      const a = cols[i];
+      const b = cols[(i + 2) % cols.length];
+      lg.addColorStop(0, a + "00");
+      lg.addColorStop(0.25, a + "70");
+      lg.addColorStop(0.75, b + "70");
+      lg.addColorStop(1, b + "00");
+      ctx.fillStyle = lg;
+      ctx.fill();
+    }
+  },
+  /** A sky over hills that follows this PC's clock: dawn, day, dusk, and stars at night. */
+  horizon(ctx, w, h, t, rnd) {
+    const d = new Date();
+    const hour = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+    // hour → sky colour at the top and at the horizon
+    const keys: [number, number[], number[]][] = [
+      [0, [5, 8, 22], [11, 16, 38]],
+      [4.5, [10, 15, 44], [27, 31, 74]],
+      [6, [42, 42, 106], [246, 165, 107]],
+      [7.5, [90, 143, 216], [255, 217, 160]],
+      [10, [63, 138, 224], [168, 216, 255]],
+      [15, [58, 134, 220], [191, 227, 255]],
+      [17.5, [61, 95, 176], [255, 179, 107]],
+      [18.75, [43, 42, 110], [240, 112, 90]],
+      [20, [13, 18, 53], [42, 31, 79]],
+      [24, [5, 8, 22], [11, 16, 38]],
+    ];
+    let k = 0;
+    while (k < keys.length - 2 && hour >= keys[k + 1][0]) k++;
+    const f = (hour - keys[k][0]) / (keys[k + 1][0] - keys[k][0]);
+    const mix = (a: number[], b: number[]) => a.map((v, i) => Math.round(lerp(v, b[i], f)));
+    const top = mix(keys[k][1], keys[k + 1][1]);
+    const low = mix(keys[k][2], keys[k + 1][2]);
+    const rgb = (c: number[], a = 1) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+    const ground = h * 0.74;
+    const sky = ctx.createLinearGradient(0, 0, 0, ground);
+    sky.addColorStop(0, rgb(top));
+    sky.addColorStop(1, rgb(low));
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, w, h);
+    // stars: out at night, fading at dawn and dusk
+    const stars = hour < 5 ? 1 : hour < 6.5 ? 1 - (hour - 5) / 1.5 : hour < 18.5 ? 0 : hour < 19.75 ? (hour - 18.5) / 1.25 : 1;
+    if (stars > 0.02) {
+      for (let i = 0; i < 170; i++) {
+        const x = rnd[i * 3] * w;
+        const y = rnd[i * 3 + 1] * ground * 0.95;
+        const tw = 0.55 + 0.45 * Math.sin(t * (0.6 + rnd[i * 3 + 2] * 1.4) + i);
+        ctx.fillStyle = `rgba(255, 246, 224, ${stars * tw * 0.85})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 0.5 + rnd[i * 3 + 2] * 1.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // the sun by day (6 → 18 across the sky), the moon by night
+    const day = hour >= 5.75 && hour <= 18.25;
+    const along = day ? (hour - 6) / 12 : ((hour + 6) % 24) / 12;
+    const cx = w * (0.08 + 0.84 * Math.min(1, Math.max(0, along)));
+    // (A low arc: on the wallpaper screen the top of the sky belongs to the clock.)
+    const cy = ground - Math.sin(Math.PI * Math.min(1, Math.max(0, along))) * ground * 0.4 + ground * 0.04;
+    const size = Math.min(w, h) * (day ? 0.045 : 0.035);
+    const glow = ctx.createRadialGradient(cx, cy, size * 0.6, cx, cy, size * (day ? 7 : 5));
+    glow.addColorStop(0, day ? "rgba(255, 244, 214, 0.55)" : "rgba(226, 232, 255, 0.28)");
+    glow.addColorStop(1, day ? "rgba(255, 244, 214, 0)" : "rgba(226, 232, 255, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, w, ground);
+    ctx.fillStyle = day ? "#fff6dc" : "#eef1ff";
+    ctx.beginPath();
+    ctx.arc(cx, cy, size, 0, Math.PI * 2);
+    ctx.fill();
+    // three rows of hills, darker towards the front, tinted by the sky
+    for (let i = 0; i < 3; i++) {
+      const y0 = ground + i * h * 0.06;
+      const shade = 0.42 - i * 0.14;
+      ctx.fillStyle = rgb(low.map((v, j) => Math.round(v * shade + top[j] * 0.12)));
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let x = 0; x <= w + 12; x += 12) {
+        const y = y0 - Math.sin(x / (w * (0.21 + i * 0.07)) + i * 2.1) * h * (0.045 - i * 0.008) - Math.sin(x / (w * 0.07) + i * 5.3) * h * 0.012;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  },
 };
 
-/** Runs a built-in wallpaper on a canvas until `stop()` is called. */
-export function startBuiltin(canvas: HTMLCanvasElement, id: string, still = false): () => void {
+/** Runs a built-in wallpaper on a canvas until `stop()` is called.
+ *  `screen` (LANX 3.14.0): it is the whole picture (the wallpaper screen), not a
+ *  background behind lists — drawn sharper and, on Linux, more often. */
+export function startBuiltin(canvas: HTMLCanvasElement, id: string, still = false, screen = false): () => void {
   const paint = painters[id] ?? painters.aurora;
   const ctx = canvas.getContext("2d")!;
   let raf = 0;
@@ -238,23 +375,24 @@ export function startBuiltin(canvas: HTMLCanvasElement, id: string, still = fals
     return seed / 2147483647;
   });
   const t0 = performance.now();
+  const linux = (document.documentElement.classList.contains("lanx-linux") || document.documentElement.classList.contains("lanx-lite"));
   const fit = () => {
     const dpr = Math.min(1.5, window.devicePixelRatio || 1);
-    const w = Math.max(1, Math.floor(canvas.clientWidth * dpr * 0.6));
-    const h = Math.max(1, Math.floor(canvas.clientHeight * dpr * 0.6));
+    const scale = screen && !linux ? 0.8 : 0.6;
+    const w = Math.max(1, Math.floor(canvas.clientWidth * dpr * scale));
+    const h = Math.max(1, Math.floor(canvas.clientHeight * dpr * scale));
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
     }
   };
-  const linux = (document.documentElement.classList.contains("lanx-linux") || document.documentElement.classList.contains("lanx-lite"));
   // On Linux it holds still while you scroll: each of its frames repaints the whole
   // window there, and the list you're moving matters more (3.6.2).
   let busyUntil = 0;
   const busy = () => {
     busyUntil = performance.now() + 500;
   };
-  if (linux) {
+  if (linux && !screen) {
     window.addEventListener("scroll", busy, { capture: true, passive: true });
     window.addEventListener("wheel", busy, { capture: true, passive: true });
   }
@@ -271,7 +409,7 @@ export function startBuiltin(canvas: HTMLCanvasElement, id: string, still = fals
     // where the engine paints it on the processor.
     timer = window.setTimeout(() => {
       raf = requestAnimationFrame(frame);
-    }, skip ? 120 : linux ? 66 : 33);
+    }, skip ? 120 : linux ? (screen ? 42 : 66) : 33);
   };
   const onVisible = () => {
     if (document.hidden) {

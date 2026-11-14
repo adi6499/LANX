@@ -5,7 +5,7 @@ import {
   UserSettings,
   NavTab,
 } from "../types";
-import { MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Hand, PartyPopper } from "lucide-react";
+import { MonitorPlay, MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Hand, PartyPopper } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
 import { ShieldCheck } from "lucide-react";
@@ -479,6 +479,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {/* LANX 3.9.0: quiz, presenting, watching, announcements, bells — with colleagues. */}
                       <button type="button" data-tools-item="together" onClick={() => { setToolsMenu(false); window.dispatchEvent(new Event("lanx:together-hub")); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
                         <PartyPopper className="h-4 w-4 text-slate-600" /> Together…
+                      </button>
+                      {/* LANX 3.14.0: a live wallpaper over the whole screen, with a big clock. */}
+                      <button type="button" data-tools-item="wallscreen" onClick={() => { setToolsMenu(false); window.dispatchEvent(new Event("lanx:wallscreen-open")); }} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12.5px] text-left text-slate-700 dark:text-slate-200 hover:bg-[var(--lanx-fill)]">
+                        <MonitorPlay className="h-4 w-4 text-slate-600" /> Wallpaper screen
                       </button>
                     </div>
                   </>

@@ -21,7 +21,7 @@ pub fn wallpaper_dir() -> PathBuf {
     crate::storage::data_dir(crate::testmode::profile().as_deref()).join("wallpaper")
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct WallpaperFile {
     pub path: String,
     pub name: String,
@@ -33,6 +33,12 @@ pub struct WallpaperFile {
 #[tauri::command]
 pub async fn pick_wallpaper(app: AppHandle, state: State<'_, AppState>) -> Result<Option<WallpaperFile>, String> {
     state.network.privacy.guard()?;
+    pick_into(&app, wallpaper_dir(), "wallpaper").await
+}
+
+/// Shows the file picker and keeps a copy of the chosen picture or video as
+/// `<base>.<ext>`, the one file in `dir` (LANX 3.14.0: the wallpaper screen keeps its own).
+pub(super) async fn pick_into(app: &AppHandle, dir: PathBuf, base: &str) -> Result<Option<WallpaperFile>, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let mut builder = app
         .dialog()
@@ -60,7 +66,6 @@ pub async fn pick_wallpaper(app: AppHandle, state: State<'_, AppState>) -> Resul
     if size > MAX_BYTES {
         return Err("That file is over 150 MB. A shorter clip works better as a wallpaper.".to_string());
     }
-    let dir = wallpaper_dir();
     std::fs::create_dir_all(&dir).map_err(err)?;
     // One wallpaper at a time: old copies go.
     if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -68,8 +73,8 @@ pub async fn pick_wallpaper(app: AppHandle, state: State<'_, AppState>) -> Resul
             let _ = std::fs::remove_file(e.path());
         }
     }
-    let name = src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| format!("wallpaper.{ext}"));
-    let dest = dir.join(format!("wallpaper.{ext}"));
+    let name = src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| format!("{base}.{ext}"));
+    let dest = dir.join(format!("{base}.{ext}"));
     std::fs::copy(&src, &dest).map_err(err)?;
     Ok(Some(WallpaperFile { path: dest.to_string_lossy().to_string(), name, kind: kind.to_string(), bytes: size }))
 }
@@ -89,7 +94,7 @@ pub fn clear_wallpaper_file() -> Result<(), String> {
 // ------------------------------------------------- the phone (LANX 3.4)
 
 /// The built-in wallpapers (src/lib/wallpaper.ts draws them).
-pub const BUILTIN_IDS: [&str; 6] = ["aurora", "ocean", "night", "bokeh", "rain", "meadow"];
+pub const BUILTIN_IDS: [&str; 9] = ["aurora", "ocean", "night", "bokeh", "rain", "meadow", "bloom", "silk", "horizon"];
 /// Biggest wallpaper file accepted (also from the phone).
 pub const MAX_WALLPAPER_BYTES: u64 = MAX_BYTES;
 

@@ -55,6 +55,7 @@ const MusicPlayer = lazy(() => import("./components/music/MusicPlayer").then((m)
 const ListenInvites = lazy(() => import("./components/music/ListenTogether").then((m) => ({ default: m.ListenInvites })));
 const TogetherLayer = lazy(() => import("./components/together/TogetherLayer").then((m) => ({ default: m.TogetherLayer })));
 const GamesPanel = lazy(() => import("./components/games/GamesPanel").then((m) => ({ default: m.GamesPanel })));
+const WallScreen = lazy(() => import("./components/WallScreen").then((m) => ({ default: m.WallScreen })));
 import { WallpaperLayer } from "./components/WallpaperLayer";
 import { WhatsAppInviteModal } from "./components/WhatsAppInviteModal";
 import { DictationOverlay } from "./components/voice/DictationOverlay";
@@ -309,6 +310,13 @@ export default function App() {
       games.onNudge(null);
       window.removeEventListener("lanx:game-open", open);
     };
+  }, []);
+  /** LANX 3.14.0: the wallpaper screen (a live wallpaper over the whole screen, with a clock). */
+  const [showWallScreen, setShowWallScreen] = useState(false);
+  useEffect(() => {
+    const open = () => setShowWallScreen(true);
+    window.addEventListener("lanx:wallscreen-open", open);
+    return () => window.removeEventListener("lanx:wallscreen-open", open);
   }, []);
   const [shareText, setShareText] = useState<string | null>(null);
   const [shareFile, setShareFile] = useState<string | null>(null);
@@ -2204,6 +2212,12 @@ export default function App() {
       </Suspense>
       {/* LANX 2.17.0: keeps a hosted game going while the host looks elsewhere. */}
       <HostRunner />
+      {/* LANX 3.14.0: the wallpaper screen. */}
+      {showWallScreen && settings && (
+        <Suspense fallback={null}>
+          <WallScreen reduceMotion={!!settings.reduce_motion} unread={conversations.reduce((n, c) => n + (c.unread_count || 0), 0)} onClose={() => setShowWallScreen(false)} />
+        </Suspense>
+      )}
       {gamesPresence.mounted && lastGames.current && settings && (
         <Suspense fallback={null}>
           <GamesPanel
