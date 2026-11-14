@@ -239,33 +239,29 @@ class VideoPump {
     holder().append(v);
     this.video = v;
     void v.play().catch(() => {});
-    // The page's own clock, if the worker's can't start (or never ticks).
-    const fallback = () => {
-      this.ticker?.terminate();
-      this.ticker = null;
-      const tick = () => {
-        if (this.closed) return;
-        this.grab();
-        window.setTimeout(tick, this.tickMs || 33);
-      };
-      tick();
+    // Two clocks side by side, and whichever ticks first is used (`take` skips a tick that
+    // comes too soon). LANX 3.15.0: the worker's alone was not enough. On Linux (WebKitGTK)
+    // its ticks reach the page at a fraction of their rate — 6 to 24 a second where 30 were
+    // asked for, one or two a second during a call — and the other side saw a slide show.
+    // The page's own clock is steady while LANX is in view; the worker's keeps the picture
+    // going when LANX is behind other windows or minimised (the page's clock slows then).
+    const tick = () => {
+      if (this.closed) return;
+      this.grab();
+      window.setTimeout(tick, this.tickMs || 33);
     };
+    tick();
     try {
-      let ticked = false;
       const w = new Worker("/lanx-ticker.js");
-      w.onmessage = () => {
-        ticked = true;
-        this.grab();
-      };
+      w.onmessage = () => this.grab();
       w.onerror = () => {
-        if (this.ticker === w) fallback();
+        if (this.ticker !== w) return;
+        w.terminate();
+        this.ticker = null;
       };
       this.ticker = w;
-      window.setTimeout(() => {
-        if (!ticked && this.ticker === w && !this.closed) fallback();
-      }, 1500);
     } catch {
-      fallback();
+      // (the page's clock alone)
     }
     this.retime();
   }
