@@ -20,13 +20,14 @@ export interface Release {
 export const RELEASES: Release[] = [
   {
     version: "3.15.0",
-    title: "A live walkie-talkie",
+    title: "A live walkie-talkie, and more on the wallpaper screen",
     items: [
       { icon: "📻", title: "Hold to talk, they hear you live", text: "The new radio button above the list of chats opens the walkie-talkie. Hold the big button (or the space bar), talk, let go. Your colleagues hear you while you are still talking, without picking anything up." },
       { icon: "👥", title: "Three kinds of channel", text: "Everyone who is online, the members of a group, or one colleague. The screen says how many hear you, and who does not and why (walkie-talkie switched off, channel muted, in a call, “Do not disturb”, LANX locked, LANX too old)." },
       { icon: "⌨️", title: "A talk key for any program (Windows)", text: "Hold Ctrl + Alt + T to talk while you work in another program; let go to stop. For a short while after a colleague talked it answers them, otherwise it talks on the channel you chose last. You can choose other keys or switch the key off in the walkie-talkie’s screen." },
       { icon: "☝️", title: "One voice at a time", text: "While someone talks, nobody else can talk over them. A short tone tells you when you may talk, when a colleague starts and when they are done. A transmission is one minute at most." },
       { icon: "🔇", title: "You decide what you hear", text: "Mute a channel, set the loudness, or switch the walkie-talkie off altogether. The last few things you heard are listed to play again. Nobody talks into a call or a meeting; a PC on “Do not disturb” or in its quiet hours, and a locked LANX, play nothing." },
+      { icon: "🔋", title: "The wallpaper screen shows more than the time", text: "Under the big clock: the battery, the weather for a place you choose, your next calendar entry, how many colleagues are online, the song that is playing (with pause and next) and today’s birthdays. The new Widgets button on the wallpaper screen switches each one on or off. Only the weather uses the internet: it asks Open-Meteo.com, a free weather service, for the place you pick and sends it nothing else; until you pick a place nothing is asked." },
       { icon: "🐧", title: "Linux: video moves again, and the phone’s camera works", text: "On Linux the picture of the others in video calls and meetings stood still on its first frame (the sound was fine). It moves now, as on Windows. A paired phone can now be the camera of a Linux PC as well; until now LANX on Linux never offered it. A Linux PC does not update itself: to get a new version, run the one line from the LANX website on it again." },
       { icon: "💡", title: "Good to know", text: "Colleagues need LANX 3.15.0 or newer to hear you. On Linux the walkie-talkie works in its screen (button and space bar); the key for other programs is on Windows. The phone keeps the Intercom for now. A quick click is not a transmission: hold the button while you talk. “Hold to test my microphone” plays your own voice back to you." },
     ],

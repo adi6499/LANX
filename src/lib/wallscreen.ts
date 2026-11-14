@@ -2,6 +2,7 @@
  *  clock and the date, like a phone's lock screen. The wallpaper is one of LANX's own
  *  (drawn live), your own picture or video, or one fetched once from a link. */
 import { api } from "./api";
+import { type Place, type WidgetChoice, DEFAULT_WIDGETS, cleanPlace, cleanWidgets } from "./glance";
 import { BUILTIN } from "./wallpaper";
 
 export type ClockStyle = "bold" | "thin" | "serif" | "mono";
@@ -24,6 +25,11 @@ export interface WallScreenPrefs {
   date: boolean;
   /** Keep the screen from going to sleep while the wallpaper screen shows. */
   awake: boolean;
+  /** LANX 3.15.0: the small things under the clock, each on or off. */
+  widgets: WidgetChoice;
+  /** The weather's place (none chosen yet: the weather shows nothing and asks for one). */
+  place: Place | null;
+  fahrenheit: boolean;
 }
 
 /** Whether this PC's region tells the time with AM and PM. */
@@ -35,7 +41,7 @@ function regionUses12Hours(): boolean {
   }
 }
 
-export const DEFAULT_WALLSCREEN: WallScreenPrefs = { source: "builtin", id: "bloom", dim: 12, clock: "bold", hour12: regionUses12Hours(), seconds: false, date: true, awake: true };
+export const DEFAULT_WALLSCREEN: WallScreenPrefs = { source: "builtin", id: "bloom", dim: 12, clock: "bold", hour12: regionUses12Hours(), seconds: false, date: true, awake: true, widgets: DEFAULT_WIDGETS, place: null, fahrenheit: false };
 
 export const CLOCK_STYLES: { id: ClockStyle; name: string; font: string; weight: number; spacing: string }[] = [
   { id: "bold", name: "Bold", font: '"Plus Jakarta Sans", system-ui, sans-serif', weight: 700, spacing: "-0.045em" },
@@ -63,6 +69,9 @@ export function cleanWallScreen(v: unknown): WallScreenPrefs {
     seconds: typeof o.seconds === "boolean" ? o.seconds : d.seconds,
     date: typeof o.date === "boolean" ? o.date : d.date,
     awake: typeof o.awake === "boolean" ? o.awake : d.awake,
+    widgets: cleanWidgets(o.widgets),
+    place: cleanPlace(o.place),
+    fahrenheit: typeof o.fahrenheit === "boolean" ? o.fahrenheit : d.fahrenheit,
   };
 }
 

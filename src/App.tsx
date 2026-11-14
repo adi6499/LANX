@@ -2233,7 +2233,13 @@ export default function App() {
       {/* LANX 3.14.0: the wallpaper screen. */}
       {showWallScreen && settings && (
         <Suspense fallback={null}>
-          <WallScreen reduceMotion={!!settings.reduce_motion} unread={conversations.reduce((n, c) => n + (c.unread_count || 0), 0)} onClose={() => setShowWallScreen(false)} />
+          <WallScreen
+            reduceMotion={!!settings.reduce_motion}
+            unread={conversations.reduce((n, c) => n + (c.unread_count || 0), 0)}
+            online={peers.filter((p) => p.status === "online" && p.trust_state !== "blocked").length}
+            birthdays={peers.filter((p) => birthdayInfo(profiles[p.id]?.birthday)?.days === 0).map((p) => p.display_name)}
+            onClose={() => setShowWallScreen(false)}
+          />
         </Suspense>
       )}
       {gamesPresence.mounted && lastGames.current && settings && (

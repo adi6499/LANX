@@ -1680,6 +1680,35 @@ export const api = {
   talkEnd: async (talkId: string): Promise<void> => {
     if (isTauri) return invoke("talk_end", { talkId });
   },
+  /** LANX 3.15.0, the wallpaper screen's widgets: this PC's battery (null: it has none). */
+  batteryStatus: async (): Promise<{ percent: number; charging: boolean; plugged: boolean } | null> => {
+    if (isTauri) return invoke("battery_status");
+    // Browser preview: a laptop at 78%, or what a test put in window.__lanxBattery.
+    const fake = (window as unknown as { __lanxBattery?: { percent: number; charging: boolean; plugged: boolean } | null }).__lanxBattery;
+    return fake === undefined ? { percent: 78, charging: false, plugged: false } : fake;
+  },
+  /** The places a typed name can mean (the weather's place). Uses the internet. */
+  weatherPlaces: async (query: string): Promise<{ name: string; region: string; lat: number; lon: number }[]> => {
+    if (isTauri) return invoke("weather_places", { query });
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) throw new Error("Type the name of a town or city.");
+    const known = [
+      { name: "Mumbai", region: "Maharashtra, India", lat: 19.0728, lon: 72.8826 },
+      { name: "Pune", region: "Maharashtra, India", lat: 18.5196, lon: 73.8554 },
+      { name: "London", region: "England, United Kingdom", lat: 51.5085, lon: -0.1257 },
+      { name: "London", region: "Ontario, Canada", lat: 42.9834, lon: -81.233 },
+    ].filter((p) => p.name.toLowerCase().startsWith(q));
+    if (!known.length) throw new Error(`No place called “${query.trim()}” was found. Try the nearest larger town.`);
+    return known;
+  },
+  /** The weather now at a place the user picked. Uses the internet. */
+  weatherNow: async (lat: number, lon: number, fahrenheit: boolean): Promise<{ temp: number; code: number; day: boolean; high: number | null; low: number | null }> => {
+    if (isTauri) return invoke("weather_now", { lat, lon, fahrenheit });
+    if ((window as unknown as { __lanxNoInternet?: boolean }).__lanxNoInternet) throw new Error("The weather could not be fetched (no internet?).");
+    const c = { temp: lat > 40 ? 9.3 : 29.4, code: lat > 40 ? 61 : 2, day: true, high: lat > 40 ? 11 : 32, low: lat > 40 ? 4 : 24 };
+    const f = (v: number) => (fahrenheit ? v * 1.8 + 32 : v);
+    return { ...c, temp: f(c.temp), high: f(c.high), low: f(c.low) };
+  },
   /** The walkie-talkie key (hold to talk from any program): can this LANX have one, and does Windows give it the keys? */
   talkKeyState: async (): Promise<{ available: boolean; working: boolean; label: string }> => {
     if (isTauri) return invoke("talk_key_state");

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock, Film, ImageIcon, Link2, Loader2, Wallpaper, X } from "lucide-react";
+import { Check, Clock, Film, ImageIcon, LayoutGrid, Link2, Loader2, Wallpaper, X } from "lucide-react";
 // The "Light" clock: a weight the rest of LANX doesn't use (loaded with this screen only).
 import "@fontsource/plus-jakarta-sans/200.css";
 import { api, errorText, isTauri } from "../lib/api";
 import { BUILTIN, DEFAULT_WALLPAPER, type WallTone, type WallpaperChoice, fileKind, measureTone, mimeOf, startBuiltin } from "../lib/wallpaper";
 import { CLOCK_STYLES, DEFAULT_WALLSCREEN, type WallScreenPrefs, dateLine, loadWallScreen, saveWallScreen, timeParts } from "../lib/wallscreen";
 import { loadWallpaperChoice } from "./WallpaperLayer";
+import { WallWidgets, WidgetsSheet } from "./WallWidgets";
 
 /** LANX 3.14.0: the wallpaper screen — a live wallpaper over the whole screen, with a big
  *  clock and the date like a phone's lock screen. Move the mouse for the buttons:
@@ -14,10 +15,10 @@ import { loadWallpaperChoice } from "./WallpaperLayer";
 
 type Shown = { kind: "builtin"; id: string } | { kind: "file"; path: string; name: string };
 
-export function WallScreen({ reduceMotion, unread, onClose }: { reduceMotion: boolean; unread: number; onClose: () => void }) {
+export function WallScreen({ reduceMotion, unread, online = 0, birthdays = [], onClose }: { reduceMotion: boolean; unread: number; online?: number; birthdays?: string[]; onClose: () => void }) {
   const [prefs, setPrefs] = useState<WallScreenPrefs | null>(null);
   const [app, setApp] = useState<WallpaperChoice>(DEFAULT_WALLPAPER);
-  const [sheet, setSheet] = useState<"wall" | "clock" | null>(null);
+  const [sheet, setSheet] = useState<"wall" | "clock" | "widgets" | null>(null);
   const [controls, setControls] = useState(true);
   const [here, setHere] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -277,6 +278,8 @@ export function WallScreen({ reduceMotion, unread, onClose }: { reduceMotion: bo
           {time.suffix && <span style={{ fontSize: "0.15em", fontWeight: 600, opacity: 0.86, marginLeft: "0.4em", letterSpacing: "0.05em" }}>{time.suffix}</span>}
         </div>
         {fileGone && <div className="mt-4 rounded-full bg-black/55 px-4 py-1.5 text-[13px]">That picture or video can’t be opened any more. Choose another wallpaper.</div>}
+        {/* LANX 3.15.0: the small things under the clock */}
+        {prefs && <WallWidgets prefs={prefs} now={now} online={online} birthdays={birthdays} onChoosePlace={() => setSheet("widgets")} />}
       </div>
 
       {/* new messages while it shows */}
@@ -297,6 +300,7 @@ export function WallScreen({ reduceMotion, unread, onClose }: { reduceMotion: bo
         />
       )}
       {sheet === "clock" && prefs && <ClockSheet prefs={prefs} now={now} onPick={update} />}
+      {sheet === "widgets" && prefs && <WidgetsSheet prefs={prefs} onPick={update} />}
 
       {/* the buttons */}
       <div data-wallscreen-controls data-shown={controls ? "yes" : "no"} className="absolute inset-x-0 bottom-6 flex justify-center" style={{ opacity: controls ? 1 : 0, transition: ease ?? "opacity 300ms ease", pointerEvents: controls ? "auto" : "none" }}>
@@ -306,6 +310,9 @@ export function WallScreen({ reduceMotion, unread, onClose }: { reduceMotion: bo
           </BarButton>
           <BarButton id="clock" label="Clock" on={sheet === "clock"} onClick={() => setSheet((s) => (s === "clock" ? null : "clock"))}>
             <Clock className="h-[17px] w-[17px]" />
+          </BarButton>
+          <BarButton id="widgets" label="Widgets" on={sheet === "widgets"} onClick={() => setSheet((s) => (s === "widgets" ? null : "widgets"))}>
+            <LayoutGrid className="h-[17px] w-[17px]" />
           </BarButton>
           <BarButton id="close" label="Close" on={false} onClick={close}>
             <X className="h-[17px] w-[17px]" />

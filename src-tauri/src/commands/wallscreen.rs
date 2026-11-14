@@ -186,6 +186,11 @@ fn fetch(url: &str, part: &Path, max_bytes: u64, max_time: Duration) -> Result<(
     }
 }
 
+/// LANX 3.15.0: the same fetch for a small answer (the weather): its own limits.
+pub(super) fn fetch_small(url: &str, part: &Path, max_bytes: u64, max_time: Duration) -> Result<(), String> {
+    fetch(&clean_link(url)?, part, max_bytes, max_time)
+}
+
 /// What arrived in `part` becomes the one wallpaper-screen file in `dir`, if it is a
 /// picture or a video.
 pub fn keep_download(part: &Path, dir: &Path, url: &str) -> Result<WallpaperFile, String> {
