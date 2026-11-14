@@ -11,18 +11,18 @@
   "windows": "Windows 10 / 11, 64-bit",
   "linux": {
     "deb": {
-      "file": "/files/LANX-3.13.0-linux-amd64.deb",
-      "bytes": 28202640,
+      "file": "/files/LANX-3.13.1-linux-amd64.deb",
+      "bytes": 28214614,
       "size": "26.9 MB",
-      "sha256": "4b2f13b22c9aebc055af670f9375bbf8a9c4eec712c921936f08388ea3d5b210",
-      "version": "3.13.0"
+      "sha256": "a8b3222f897961fbc4275ff9c4f9f67cd3b22aa784e64693bba7bb77db3315f0",
+      "version": "3.13.1"
     },
     "rpm": {
-      "file": "/files/LANX-3.13.0-linux-x86_64.rpm",
-      "bytes": 28207933,
+      "file": "/files/LANX-3.13.1-linux-x86_64.rpm",
+      "bytes": 28219302,
       "size": "26.9 MB",
-      "sha256": "87537ca82bb85f27c313a2244703096846c8770b805de315ea58d5238e5f2417",
-      "version": "3.13.0"
+      "sha256": "cfb706a6f9df2b9a4e13ed93758a784f1158fbce1b638ce809c3f2d406e54718",
+      "version": "3.13.1"
     }
   }
 }
