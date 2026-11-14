@@ -100,7 +100,10 @@ export const dominoes: GameDef<DominoState> = {
     const hands = Array.from({ length: n }, (_, p) => deck.slice(p * DOMINO_HAND, (p + 1) * DOMINO_HAND));
     const lead = leadOf(hands);
     const s: DominoState = { hands, line: [], turn: lead.player, passes: 0, winner: null, reason: "", lead: lead.tile, lastBy: -1, event: "", out: Array(n).fill(false) };
-    const inCount = () => s.out.filter((o) => !o).length;
+    // LANX 3.16.0: the game is blocked when nobody still at the table can play a tile.
+    // (It used to count passes, and a pass by someone who then left still counted: the game
+    // was called blocked while the player to move could play, and the wrong player won.)
+    const stuck = () => s.hands.every((h, q) => s.out[q] || dominoPlayable(s, h).length === 0);
     for (const m of moves) {
       if (s.winner !== null) return null;
       const gone = leaver(m, n);
@@ -120,7 +123,7 @@ export const dominoes: GameDef<DominoState> = {
           s.lead = next.tile;
           s.turn = next.player;
         } else if (s.turn === gone) s.turn = nextIn(gone, n, s.out);
-        if (s.line.length && s.passes >= inCount()) finish(s);
+        if (s.line.length && stuck()) finish(s);
         continue;
       }
       const p = s.turn;
@@ -130,7 +133,7 @@ export const dominoes: GameDef<DominoState> = {
         s.passes++;
         s.lastBy = p;
         s.event = `P${p + 1} can't play — passes`;
-        if (s.passes >= inCount()) {
+        if (stuck()) {
           finish(s);
           continue;
         }

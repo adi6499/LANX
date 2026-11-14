@@ -133,8 +133,11 @@ const SEAT_COLOURS = ["#f43f5e", "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6", "#f
 export const RULES_2170 = new Set<string>(["ludo", "dots", "memory", "minesvs", "mahjong", "battleship", "go", "hex", "checkers", "taproulette", "mathrush", "trivia", "drawguess", "wordbox", "paintfight", "werewolf", "airhockey", "foosball", "spinnerwars", "hearts", "spades", "euchre", "blackjack", "ginrummy", "holdem", "ocho", "crazy8", "gofish", "snakes", "bankroll", "backgammon", "dominoes", "carrom", "pool", "cuppong", "bowling", "darts", "minigolf", "archery"]);
 /** LANX 2.17.1: Ludo's home stretch was fixed (five squares), so Ludo needs 2.17.1 on both PCs. */
 export const RULES_2171 = new Set<string>(["ludo"]);
+/** LANX 3.16.0: games whose rules were repaired in 3.16.0 (the same moves replay differently in an
+ *  older copy), so every PC at the table needs 3.16.0 (src-tauri RULES_3160_GAMES). */
+export const RULES_3160 = new Set<string>(["gofish", "dominoes", "bankroll", "holdem", "mahjong", "taproulette", "wordbox", "drawguess", "werewolf"]);
 /** The oldest LANX a colleague needs to play this game with you. */
-export const needsVersion = (id: string) => (RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
+export const needsVersion = (id: string) => (RULES_3160.has(id) ? "3.16.0" : RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
 /** Whether this many players can sit at the game. */
 export const sizeOk = (meta: GameMeta | undefined, n: number) => !!meta && n >= meta.minPlayers && n <= meta.maxPlayers && (!meta.sizes || meta.sizes.includes(n));
 
@@ -454,6 +457,7 @@ export async function openFromCard(card: GameCardData, msg: Message, peers: Peer
       if (before) void sendTo(oppId, m, "state", { sync: 1, round: m.round, first: seats[0].id });
     }
   }
+  resendPending(m.id);
   if (invited && m.moves.length === 0 && m.status !== "over") sfx(m.mode === "duo" ? "start" : "join");
   if (invited && m.mode === "multi" && (m.status === "lobby" || m.status === "playing")) await sendTo(m.host, m, "accept", null);
   if (invited && m.mode === "duo" && m.moves.length === 0 && m.round === 1 && m.status === "playing") await sendTo(m.host, m, "accept", null);
@@ -476,6 +480,70 @@ async function sendTo(peerId: string, m: Match, action: GameAction, data: unknow
     return false;
   }
 }
+
+// LANX 3.16.0: a step that matters is sent until it has arrived. (A move used to be sent once.
+// If the colleague's LANX was locked or off the network for that moment, both PCs then waited
+// for each other for good, and only "Resign" was left.) It goes again after 1.5, 3, 6, 12 and
+// then every 20 seconds, for a quarter of an hour; at once when anything arrives from that
+// colleague for this match, and when you press Play on the card again.
+interface Pending {
+  matchId: string;
+  peer: string;
+  tries: number;
+  since: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  go: () => Promise<boolean>;
+}
+const pending = new Map<string, Pending>();
+const RETRY_MS = [1500, 3000, 6000, 12000, 20000];
+const RETRY_FOR_MS = 15 * 60_000;
+
+/** Sends what `build` gives (worked out afresh each time; null: nothing to send any more), again
+ *  and again until it arrives. A newer send of the same `kind` to the same colleague takes its place. */
+function sendSure(peerId: string, m: Match, kind: string, build: () => { action: GameAction; data: unknown } | null): Promise<boolean> {
+  const key = `${m.id}|${peerId}|${kind}`;
+  const old = pending.get(key);
+  if (old?.timer) clearTimeout(old.timer);
+  const p: Pending = { matchId: m.id, peer: peerId, tries: 0, since: Date.now(), timer: null, go: async () => false };
+  p.go = async () => {
+    if (p.timer) clearTimeout(p.timer);
+    p.timer = null;
+    const step = matches.get(m.id) === m ? build() : null;
+    if (!step) {
+      if (pending.get(key) === p) pending.delete(key);
+      return true;
+    }
+    const ok = await sendTo(peerId, m, step.action, step.data);
+    if (pending.get(key) !== p) return ok; // a newer one took its place meanwhile
+    if (ok || Date.now() - p.since > RETRY_FOR_MS) {
+      pending.delete(key);
+      return ok;
+    }
+    if (!p.timer) p.timer = setTimeout(() => void p.go(), RETRY_MS[Math.min(p.tries++, RETRY_MS.length - 1)]);
+    return false;
+  };
+  pending.set(key, p);
+  return p.go();
+}
+
+/** Tries now what is still waiting to be sent (for one match, and one colleague of it, when given). How many. */
+export function resendPending(matchId?: string, peerId?: string): number {
+  let n = 0;
+  for (const p of [...pending.values()]) {
+    if ((matchId && p.matchId !== matchId) || (peerId && p.peer !== peerId) || !p.timer) continue;
+    n++;
+    void p.go();
+  }
+  return n;
+}
+/** Steps of this match still waiting to arrive somewhere. */
+export const unsentCount = (matchId: string) => [...pending.values()].filter((p) => p.matchId === matchId).length;
+const dropPending = (matchId: string, peerId: string, kind: string) => {
+  const key = `${matchId}|${peerId}|${kind}`;
+  const p = pending.get(key);
+  if (p?.timer) clearTimeout(p.timer);
+  pending.delete(key);
+};
 
 const stateData = (m: Match) => ({
   moves: m.moves,
@@ -501,6 +569,12 @@ async function dropOut(m: Match, player: number, who: string) {
     void recordResult(m);
     return;
   }
+  // LANX 3.16.0: this game knows players leaving, and the rules refused it now: that player is
+  // out of the game already (gave up before, went bankrupt, was knocked out), and it is not their
+  // turn. Nothing changes for the others. (This used to end the game for everyone, with no winner:
+  // the buttons stay on screen for someone who is out, and pressing one again was enough.)
+  const rules = await import("./gameRules");
+  if (m.turn !== player && rules.validateMoves(m.game, [`x${player}`], m.seats.length, seedOf(m))) return;
   m.status = "over";
   m.result = { winner: null, draw: false, reason: `${who} left — the game can't go on without them` };
 }
@@ -508,7 +582,12 @@ async function dropOut(m: Match, player: number, who: string) {
 /** The host tells everyone at the table how things stand. */
 async function broadcast(m: Match) {
   const ids = m.seats.filter((s) => s.id !== me && !m.gone.includes(s.id) && (m.status !== "lobby" || m.joined.includes(s.id))).map((s) => s.id);
-  await Promise.all(ids.map((id) => sendTo(id, m, "state", stateData(m))));
+  await Promise.all(
+    ids.map((id) =>
+      // (the state as it is when it goes out: an older one is never sent after a newer)
+      sendSure(id, m, "state", () => (m.seats.some((x) => x.id === id) && !m.gone.includes(id) ? { action: "state", data: stateData(m) } : null)),
+    ),
+  );
 }
 
 /** Works out whose turn it is and whether the game is over; records the score when it ends. */
@@ -545,10 +624,16 @@ export async function play(id: string, move: string): Promise<string | null> {
   if (!(await appendValid(m, move))) return "That move isn't allowed.";
   soundAfterMove(m, true);
   bump();
-  if (m.mode === "duo") void sendTo(opponent(m)!.id, m, "move", duoData(m));
+  if (m.mode === "duo") void sendSure(opponent(m)!.id, m, "moves", () => ({ action: "move", data: duoData(m) }));
   else if (m.mode === "multi") {
     if (isHost(m)) void broadcast(m);
-    else void sendTo(m.host, m, "move", { cell: move });
+    else {
+      // `n`: the place of this move in the game. The host takes it only there, so a move that
+      // is sent twice (the first did arrive, after all) is never played twice.
+      const n = m.moves.length - 1;
+      const round = m.round;
+      void sendSure(m.host, m, "move", () => (m.round === round && m.status === "playing" && m.moves[n] === move ? { action: "move", data: { cell: move, n } } : null));
+    }
   }
   return null;
 }
@@ -610,8 +695,10 @@ export async function rematch(id: string) {
   await settle(m);
   sfx("start");
   bump();
-  if (m.mode === "duo") await sendTo(opponent(m)!.id, m, "rematch", { round: m.round });
-  else if (m.mode === "multi") await broadcast(m);
+  if (m.mode === "duo") {
+    const round = m.round;
+    await sendSure(opponent(m)!.id, m, "rematch", () => (m.round === round && m.moves.length === 0 ? { action: "rematch", data: { round } } : null));
+  } else if (m.mode === "multi") await broadcast(m);
 }
 
 /** The host starts a multi-player game with whoever has joined. */
@@ -772,6 +859,7 @@ async function receiveAsync(e: GameEvent) {
       });
     } else return;
   }
+  resendPending(m.id, e.from_id);
   if (e.action === "delta") {
     // Relayed by the host to everyone else (or to the one it names), and kept for the boards.
     const seat = m.seats.findIndex((s) => s.id === e.from_id);
@@ -963,7 +1051,9 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
     case "move": {
       // Their turn — or, when everyone acts at once, a move marked with their own player number.
       const theirs = m.turn < 0 ? String(d.cell ?? "").startsWith(`${playerOf(m, seat)}@`) : turnSeat(m) === seat;
-      if (m.status !== "playing" || !theirs || d.cell === undefined) {
+      // LANX 3.16.0: a move says which place in the game it is for; one that comes again, or late, is not played.
+      const place = typeof (d as { n?: unknown }).n === "number" ? ((d as { n?: number }).n as number) : null;
+      if (m.status !== "playing" || !theirs || d.cell === undefined || (place !== null && place !== m.moves.length)) {
         await sendTo(e.from_id, m, "state", stateData(m)); // put their board right
         return;
       }
@@ -1015,6 +1105,8 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
       note = `The ${game} table started without you.`;
     } else {
       const wasLobby = m.status === "lobby";
+      // (My move that was still waiting to be sent: the host's game holds it, or has gone on without it.)
+      if (round !== m.round || moves.length > m.moves.length - 1) dropPending(m.id, m.host, "move");
       const had = m.round === round ? m.moves.length : -1;
       const hadJoined = m.joined.length;
       const newRound = m.round !== round;

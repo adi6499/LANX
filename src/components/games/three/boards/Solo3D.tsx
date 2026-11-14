@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag, Pause, Play, RotateCcw } from "lucide-react";
 import { sfx } from "../../../../lib/gameSounds";
-import { MINES, MS, addTile, around, canMove, empty, freshField, move2048, plant, type Grid, type SoloProps, type Sq } from "../../Solo";
+import { MINES, MS, addTile, around, canMove, empty, freshField, move2048, plant, useScoreOnLeave, type Grid, type SoloProps, type Sq } from "../../Solo";
 import { BoardScene, type PieceSpec } from "../boardScene";
 import { Stage } from "../stage";
 import { FONT, canvasTexture, mesh, sharedGeo, slab, wood } from "../kit";
@@ -153,6 +153,7 @@ export function Game2048_3D({ onScore }: SoloProps) {
   const [score, setScore] = useState(0);
   const [over, setOver] = useState(false);
   const reported = useRef(false);
+  useScoreOnLeave(score, onScore, reported);
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   // Slides wait their turn; a key pressed mid-slide finishes the slide at once, so no press is ever lost.
@@ -162,6 +163,7 @@ export function Game2048_3D({ onScore }: SoloProps) {
     if (scene) void scene.show(tilesRef.current, [], false);
   }, [scene]);
   const reset = () => {
+    if (!reported.current && score > 0) onScore(score);
     const t = toTiles(addTile(addTile(empty())));
     setTiles(t);
     setScore(0);

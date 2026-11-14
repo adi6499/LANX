@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
 import { namesIn, seatFor, type BoardProps } from "../../boardProps";
 import { backgammon, bgMoves, bgTarget, type BgState } from "../../../../lib/games/backgammon.ts";
-import { BOARD, HOUSE_COST, bankroll, buildable, type BankrollState } from "../../../../lib/games/bankroll.ts";
+import { BOARD, HOUSE_COST, bankroll, buildable, worth, type BankrollState } from "../../../../lib/games/bankroll.ts";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
 import { FONT, canvasTexture, discGeometry, hop, markerRing, mesh, pawnGeometry, plastic, roundRect, slab, wood } from "../kit";
@@ -603,6 +603,11 @@ export function Bankroll3D(p: BoardProps) {
         {state.cash.map((c, q) => (
           <span key={q} className={`inline-flex items-center gap-1.5 ${state.out[q] ? "line-through opacity-50" : ""} ${q === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""}`}>
             <SeatDot color={colours[q]} /> {name(q)} {state.out[q] ? "out" : `₹${c}`}
+            {!state.out[q] && worth(state, q) !== c && (
+              <span data-bankroll-worth={worth(state, q)} className="font-normal opacity-70">
+                (worth ₹{worth(state, q)})
+              </span>
+            )}
           </span>
         ))}
       </div>

@@ -1,7 +1,10 @@
 // Mahjong Duels: 72 tiles (36 kinds, two of each) laid out in eight rows of
 // nine. A tile is free when its left or right side is open. On your turn
-// take a free matching pair (a point) — or pass if there is none for you.
-// The game ends when nobody can take a pair; most pairs wins. 2–4 players.
+// take a free matching pair. LANX 3.16.0: a pair of winds or dragons counts two
+// points, any other pair one, and the table is shuffled again whenever no pair
+// is free, until it is cleared; most points wins. (Every pair used to count the
+// same and the game stopped when it got stuck, so the result followed the seat
+// order: only the first player could win.) 2–4 players.
 // Moves: "a,b" (two tiles) or "p" to pass.
 // LANX 2.17.0: "x<p>" — player p left: skipped from then on, can't win; the
 // last one left wins.
@@ -12,6 +15,10 @@ export const MJ_ROWS = 8;
 export const MJ_COLS = 9;
 const KINDS = ["🀀", "🀁", "🀂", "🀃", "🀄", "🀅", "🀆", "🀇", "🀈", "🀉", "🀊", "🀋", "🀌", "🀍", "🀎", "🀏", "🀐", "🀑", "🀒", "🀓", "🀔", "🀕", "🀖", "🀗", "🀘", "🀙", "🀚", "🀛", "🀜", "🀝", "🀞", "🀟", "🀠", "🀡", "🀢", "🀣"];
 
+/** Winds and dragons: their pairs count double. */
+const HONOURS = new Set(KINDS.slice(0, 7));
+export const mjValue = (face: string | null | undefined): number => (face && HONOURS.has(face) ? 2 : 1);
+
 export interface MahjongState {
   tiles: (string | null)[];
   scores: number[];
@@ -19,13 +26,14 @@ export interface MahjongState {
   /** Players who passed in a row. */
   passes: number;
   last: number[];
-  /** Times the table was reshuffled because no pair was free (three at most). */
+  /** Times the table was reshuffled because no pair was free. */
   reshuffles: number;
   /** LANX 2.17.0: players who left. */
   out: boolean[];
 }
 
-const MAX_RESHUFFLES = 3;
+/** (Two tiles alone are always a free pair, so a table always clears; the cap only guards the loop.) */
+const MAX_RESHUFFLES = 60;
 
 /** With no free pair left, the remaining tiles are shuffled in place (the same way on every PC). */
 function reshuffleIfStuck(s: MahjongState, seed: string) {
@@ -62,13 +70,13 @@ function outcome(s: MahjongState, n: number): Outcome {
   if (!stuck(s) && s.passes < s.out.filter((o) => !o).length) return ON;
   const best = Math.max(...s.scores.filter((_x, i) => !s.out[i]));
   const tops = s.scores.map((x, i) => (x === best && !s.out[i] ? i : -1)).filter((i) => i >= 0);
-  return tops.length > 1 ? draw(`${best} pairs each`, s.scores) : win(tops[0], `${best} pairs`, s.scores);
+  return tops.length > 1 ? draw(`${best} points each`, s.scores) : win(tops[0], `${best} points`, s.scores);
 }
 
 export const mahjong: GameDef<MahjongState> = {
   id: "mahjong",
   name: "Mahjong Duels",
-  blurb: "Take free matching tiles in turn; most pairs wins.",
+  blurb: "Take free matching tiles in turn; winds and dragons count double. Most points wins.",
   emoji: "🀄",
   minPlayers: 2,
   maxPlayers: 4,
@@ -95,10 +103,12 @@ export const mahjong: GameDef<MahjongState> = {
       if (!mm) return null;
       const a = Number(mm[1]);
       const b = Number(mm[2]);
+      // (Tile numbers off the table are refused: one far outside it used to be taken, and made every PC work for minutes.)
+      if (a >= s.tiles.length || b >= s.tiles.length) return null;
       if (a === b || !mjFree(s.tiles, a) || !mjFree(s.tiles, b) || s.tiles[a] !== s.tiles[b]) return null;
+      s.scores[s.turn] += mjValue(s.tiles[a]);
       s.tiles[a] = null;
       s.tiles[b] = null;
-      s.scores[s.turn]++;
       s.last = [a, b];
       s.passes = 0;
       s.turn = nextIn(s.turn, n, s.out);

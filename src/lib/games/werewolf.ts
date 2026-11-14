@@ -43,7 +43,13 @@ export const wolfCount = (n: number) => Math.max(1, Math.floor(n / 4));
 export function dealRoles(n: number, random: () => number, inPlay?: readonly boolean[]): Role[] {
   const roles: Role[] = Array(n).fill("villager");
   const seated = Array.from({ length: n }, (_, i) => i).filter((i) => !inPlay || inPlay[i]);
-  const order = seated.sort(() => random() - 0.5);
+  // LANX 3.16.0: a fair shuffle (each order equally likely). Sorting with a random comparison
+  // was not: the host was a wolf far more often than chance (32% instead of 20% at five players).
+  const order = seated.slice();
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
   const wolves = Math.min(wolfCount(order.length), Math.max(0, order.length - 2));
   for (let k = 0; k < Math.max(1, wolves); k++) if (order[k] !== undefined) roles[order[k]] = "wolf";
   const seer = order[Math.max(1, wolves)];

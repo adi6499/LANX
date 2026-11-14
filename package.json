@@ -10,6 +10,7 @@
     "dev:phone": "vite --config vite.phone.config.ts",
     "preview": "vite preview",
     "test": "tsc --noEmit && cd src-tauri && cargo test",
+    "test:games": "node --import ./tests/games/harness/hooks.mjs --test tests/games/*.test.mjs",
     "tauri": "tauri",
     "app": "node scripts/with-cmake.mjs dev",
     "release": "node scripts/release-key.mjs && node scripts/with-cmake.mjs build && node scripts/release.mjs",

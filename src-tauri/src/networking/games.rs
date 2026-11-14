@@ -74,6 +74,9 @@ pub fn game_name(id: &str) -> &'static str {
 
 /// The oldest LANX that knows this game.
 pub fn game_min_version(id: &str) -> &'static str {
+    if RULES_3160_GAMES.contains(&id) {
+        return FEATURES_RULES_3160;
+    }
     if RULES_2171_GAMES.contains(&id) {
         return FEATURES_RULES_2171;
     }
@@ -226,7 +229,11 @@ mod tests {
         assert_eq!(game_min_version("gomoku"), FEATURES_GAMES_B);
         // 2.17.0 changed the rules of these (and every 2.12.0 game): both PCs need 2.17.0.
         assert_eq!(game_min_version("go"), FEATURES_RULES_2170);
-        assert_eq!(game_min_version("holdem"), FEATURES_RULES_2170);
+        // 3.16.0 repaired the rules of these: every PC at the table needs 3.16.0.
+        assert_eq!(game_min_version("holdem"), FEATURES_RULES_3160);
+        assert_eq!(game_min_version("gofish"), FEATURES_RULES_3160);
+        assert_eq!(game_min_version("werewolf"), FEATURES_RULES_3160);
+        assert!(RULES_3160_GAMES.iter().all(|g| GAME_IDS.contains(g)));
         assert_eq!(game_min_version("ludo"), FEATURES_RULES_2171);
         assert_eq!(game_min_version("hearts"), FEATURES_RULES_2170);
         assert_eq!(game_min_version("chess"), FEATURES_GAMES);

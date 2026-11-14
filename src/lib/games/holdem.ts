@@ -158,12 +158,16 @@ function settle(s: HoldemState, n: number) {
   } else {
     const ranks = new Map<number, ReturnType<typeof bestHand>>();
     for (const p of players) ranks.set(p, bestHand([...s.hole[p], ...s.board]));
-    // Side pots: slice the contributions level by level.
-    const levels = [...new Set(s.contributed.filter((c) => c > 0))].sort((a, b) => a - b);
+    // Side pots: slice the contributions level by level. LANX 3.16.0: the levels are those of
+    // the players still in the hand, and the highest of them takes in everything paid above
+    // it. (Levels used to come from everyone's chips, folded hands too; a level that only
+    // players who had folded or left had reached belonged to nobody, and its chips vanished.)
+    const levels = [...new Set(players.map((p) => s.contributed[p]).filter((c) => c > 0))].sort((a, b) => a - b);
     let prev = 0;
-    for (const level of levels) {
+    for (const [k, level] of levels.entries()) {
+      const top = k === levels.length - 1 ? Infinity : level;
       let pot = 0;
-      for (let p = 0; p < n; p++) pot += Math.max(0, Math.min(s.contributed[p], level) - prev);
+      for (let p = 0; p < n; p++) pot += Math.max(0, Math.min(s.contributed[p], top) - prev);
       const eligible = players.filter((p) => s.contributed[p] >= level);
       if (eligible.length && pot > 0) {
         let best = eligible[0];

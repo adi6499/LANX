@@ -9,7 +9,7 @@
 // game is over. Every right answer scores the same (the old "first in"
 // bonus went by arrival order at the host, which favoured the host's PC).
 
-import { ON, draw, leaver, win, type GameDef, type Outcome } from "./core.ts";
+import { ON, draw, leaver, rng, win, type GameDef, type Outcome } from "./core.ts";
 
 export interface RoundState {
   /** Rounds played so far (the current one included once open). */
@@ -75,6 +75,11 @@ export function partyReplay<Extra>(moves: string[], n: number, seed: string, r: 
       s.log.push(`P${gone + 1} left the game.`);
       if (present(s).length <= 1) {
         s.open = false;
+        s.done = true;
+      } else if (!s.open && r.over?.(s, n)) {
+        // LANX 3.16.0: nothing is left to play (Draw & Guess: everyone who still had a
+        // drawing turn has left between rounds). The game used to wait for a round that
+        // could never open.
         s.done = true;
       }
       continue;
@@ -154,6 +159,16 @@ const hashOf = (text: string) => {
   return h >>> 0;
 };
 
+/** LANX 3.16.0: a well-mixed whole number from a text, the same on every PC: the seeded
+ *  generator, run in a little first. (The plain hash of "…#tap1", "…#tap2" moves by a fixed
+ *  step from round to round, so Tap Roulette's wheel was not random: with two players the
+ *  loser simply alternated, with seven or eight every game was a draw.) */
+export const drawOf = (text: string): number => {
+  const next = rng(text);
+  for (let i = 0; i < 12; i++) next();
+  return Math.floor(next() * 4294967296);
+};
+
 // ---------------------------------------------------------------- Tap Roulette
 
 export interface TapExtra {
@@ -183,7 +198,7 @@ export const tapRoulette = partyDef<TapExtra>(
   {
     rounds: 5,
     seconds: 10,
-    setup: (seed, round) => ({ draw: hashOf(`${seed}#tap${round}`) }),
+    setup: (seed, round) => ({ draw: drawOf(`${seed}#tap${round}`) }),
     score: (s, extra) => {
       const { losers, drawn } = tapLosers(s, extra);
       extra.losers = losers;

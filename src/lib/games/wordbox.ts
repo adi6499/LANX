@@ -7,7 +7,7 @@
 // Moves: "<player>@a:<word>" as you find them; the host opens and closes rounds.
 
 import { partyDef, type PartyState } from "./party.ts";
-import { rng } from "./core.ts";
+import { rng, shuffled } from "./core.ts";
 
 /** The sixteen dice of the classic game. */
 const DICE = ["AAEEGN", "ABBJOO", "ACHOPS", "AFFKPS", "AOOTTW", "CIMOTU", "DEILRX", "DELRVY", "DISTTY", "EEGHNW", "EEINSU", "EHRTVW", "EIOSST", "ELRTTY", "HIMNQU", "HLNNRZ"];
@@ -17,8 +17,12 @@ export interface WordboxExtra {
 }
 
 export function wordboxGrid(seed: string, round: number): string[] {
+  // LANX 3.16.0: the dice are shuffled with the shared shuffle (whole-number steps on the
+  // seeded generator). They were shuffled by sorting with a random comparison, and how a
+  // sort answers that differs between web engines: a Windows PC and a Linux PC or an iPhone
+  // got different letter grids in more than half of the rounds.
+  const order = shuffled(DICE, `${seed}#wordbox${round}#dice`);
   const next = rng(`${seed}#wordbox${round}`);
-  const order = [...DICE].sort(() => next() - 0.5);
   return order.map((d) => d[Math.floor(next() * 6)]);
 }
 

@@ -22,7 +22,9 @@ export const teamWin = (players: number[], reason: string, scores?: number[]): O
 /** LANX 2.17.0: "x<p>" means player p left the table or gave up. The player number, -1 when it names
  *  nobody at this table, or null when the move is something else. */
 export function leaver(move: string, n: number): number | null {
-  const m = /^x(\d)$/.exec(move);
+  // LANX 3.16.0: one or two digits. (Read with one digit only, players 11 and 12 of a big
+  // table could not leave, and the game ended for everyone when one of them did.)
+  const m = /^x(\d{1,2})$/.exec(move);
   if (!m) return null;
   const p = Number(m[1]);
   return p < n ? p : -1;

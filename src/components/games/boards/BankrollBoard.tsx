@@ -1,7 +1,7 @@
 import { Dice3D } from "./Dice3D";
 import { useMemo } from "react";
 import { namesIn, seatFor, type BoardProps } from "../boardProps";
-import { BOARD, HOUSE_COST, bankroll, buildable } from "../../../lib/games/bankroll.ts";
+import { BOARD, HOUSE_COST, bankroll, buildable, worth } from "../../../lib/games/bankroll.ts";
 
 const GROUP: Record<string, string> = { brown: "#92400e", sky: "#0ea5e9", pink: "#ec4899", orange: "#f97316", red: "#dc2626", yellow: "#eab308", blue: "#1d4ed8" };
 const CELL = 64;
@@ -31,6 +31,12 @@ export function BankrollBoard({ moves, canPlay, turn, seats, starter = 0, seed =
         {state.cash.map((c, p) => (
           <span key={p} className={`inline-flex items-center gap-1.5 ${state.out[p] ? "line-through opacity-50" : ""} ${p === turn && state.winner === null ? "underline decoration-2 underline-offset-4" : ""}`}>
             <span className="g3-token h-3.5 w-3.5 rounded-full" style={{ backgroundColor: colour(p) }} /> {name(p)} {state.out[p] ? "out" : `₹${c}`}
+            {/* LANX 3.16.0: what decides the game, when it is more than the cash */}
+            {!state.out[p] && worth(state, p) !== c && (
+              <span data-bankroll-worth={worth(state, p)} className="font-normal opacity-70">
+                (worth ₹{worth(state, p)})
+              </span>
+            )}
           </span>
         ))}
       </div>

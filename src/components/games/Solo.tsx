@@ -12,57 +12,27 @@ export interface SoloProps {
 
 const btn = "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors active:scale-95";
 
+/** LANX 3.16.0: a score also counts when you leave a game you had begun. (It was saved only at
+ *  "game over": close the games window in the middle of your best game ever, and it was gone.)
+ *  `reported` is the board's own "this game's score is in" mark. */
+export function useScoreOnLeave(score: number, onScore: (score: number) => void, reported: { current: boolean }) {
+  const last = useRef({ score, onScore });
+  last.current = { score, onScore };
+  useEffect(
+    () => () => {
+      if (reported.current || last.current.score <= 0) return;
+      reported.current = true;
+      last.current.onScore(last.current.score);
+    },
+    [reported],
+  );
+}
+
 // ---------------------------------------------------------------- 2048
 
-export type Grid = number[][];
-const SIZE = 4;
-export const empty = (): Grid => Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
-
-export function addTile(g: Grid): Grid {
-  const free: [number, number][] = [];
-  g.forEach((row, r) => row.forEach((v, c) => v === 0 && free.push([r, c])));
-  if (!free.length) return g;
-  const [r, c] = free[Math.floor(Math.random() * free.length)];
-  const next = g.map((row) => [...row]);
-  next[r][c] = Math.random() < 0.9 ? 2 : 4;
-  return next;
-}
-
-export function slideRow(row: number[]): { row: number[]; gained: number } {
-  const vals = row.filter((v) => v);
-  const out: number[] = [];
-  let gained = 0;
-  for (let i = 0; i < vals.length; i++) {
-    if (vals[i] === vals[i + 1]) {
-      out.push(vals[i] * 2);
-      gained += vals[i] * 2;
-      i++;
-    } else out.push(vals[i]);
-  }
-  while (out.length < SIZE) out.push(0);
-  return { row: out, gained };
-}
-
-const rotate = (g: Grid): Grid => g[0].map((_, c) => g.map((row) => row[c]).reverse());
-
-export function move2048(g: Grid, dir: "left" | "right" | "up" | "down"): { grid: Grid; gained: number; moved: boolean } {
-  let turns = { left: 0, up: 1, right: 2, down: 3 }[dir];
-  let work = g;
-  for (let i = 0; i < turns; i++) work = rotate(work);
-  let gained = 0;
-  const slid = work.map((row) => {
-    const s = slideRow(row);
-    gained += s.gained;
-    return s.row;
-  });
-  let back = slid;
-  for (let i = 0; i < (4 - turns) % 4; i++) back = rotate(back);
-  turns = 0;
-  const moved = back.some((row, r) => row.some((v, c) => v !== g[r][c]));
-  return { grid: back, gained, moved };
-}
-
-export const canMove = (g: Grid) => (["left", "right", "up", "down"] as const).some((d) => move2048(g, d).moved);
+// LANX 3.16.0: the moves themselves live in lib/games/solo2048.ts (tested there).
+import { type Grid, addTile, canMove, empty, move2048 } from "../../lib/games/solo2048";
+export { type Grid, addTile, canMove, empty, move2048, slideRow } from "../../lib/games/solo2048";
 
 export const TILE: Record<number, string> = {
   2: "bg-slate-100 text-slate-700",
@@ -83,8 +53,11 @@ export function Game2048({ onScore }: SoloProps) {
   const [score, setScore] = useState(0);
   const [over, setOver] = useState(false);
   const reported = useRef(false);
+  useScoreOnLeave(score, onScore, reported);
 
   const reset = () => {
+    // (the game you give up for a new one counts too)
+    if (!reported.current && score > 0) onScore(score);
     setGrid(addTile(addTile(empty())));
     setScore(0);
     setOver(false);

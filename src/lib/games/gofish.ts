@@ -53,6 +53,14 @@ function refill(s: GoFishState, p: number) {
   if (!s.gone[p] && s.hands[p].length === 0 && s.stock.length) s.hands[p].push(s.stock.shift()!);
 }
 
+/** LANX 3.16.0: nobody sits with an empty hand while the stock has cards. (Only the next
+ *  player to move used to draw. A player whose hand a book had emptied then held nothing,
+ *  the boards show nobody to ask who holds nothing, and a two-player game could not be
+ *  finished.) */
+function refillAll(s: GoFishState, n: number) {
+  for (let p = 0; p < n; p++) refill(s, p);
+}
+
 function nextTurn(s: GoFishState, n: number) {
   for (let k = 1; k <= n; k++) {
     const q = (s.turn + k) % n;
@@ -78,6 +86,7 @@ export const gofish: GameDef<GoFishState> = {
     for (let p = 0; p < n; p++) layBooks(s, p);
     for (const m of moves) {
       if (done(s) || s.end) return null;
+      refillAll(s, n);
       const left = leaver(m, n);
       if (left !== null) {
         if (left < 0 || s.gone[left]) return null;
@@ -125,6 +134,7 @@ export const gofish: GameDef<GoFishState> = {
       } else s.event = `${asked} — Go fish (the stock is empty)`;
       nextTurn(s, n);
     }
+    if (!done(s) && !s.end) refillAll(s, n);
     return s;
   },
   turn: (s) => s.turn,

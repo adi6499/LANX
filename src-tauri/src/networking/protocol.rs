@@ -107,6 +107,12 @@ pub const FEATURES_RULES_2170: &str = "2.17.0";
 /// LANX 2.17.1: Ludo's home stretch was a square too long; both PCs need 2.17.1 for Ludo.
 pub const FEATURES_RULES_2171: &str = "2.17.1";
 pub const RULES_2171_GAMES: [&str; 1] = ["ludo"];
+/// LANX 3.16.0: the games repair. These games' rules changed (Go Fish deals to an empty hand,
+/// Dominoes' blocked game, Bankroll's bankruptcy, Hold'em's side pots, Mahjong Duels' points,
+/// Tap Roulette's wheel, Wordbox's letters, Draw & Guess's end, Werewolf's players 11 and 12),
+/// so every PC at the table needs 3.16.0 (mirrors RULES_3160 in src/lib/games.ts).
+pub const FEATURES_RULES_3160: &str = "3.16.0";
+pub const RULES_3160_GAMES: [&str; 9] = ["gofish", "dominoes", "bankroll", "holdem", "mahjong", "taproulette", "wordbox", "drawguess", "werewolf"];
 /// The games whose rules changed in 2.17.0 (mirrors RULES_2170 in src/lib/games.ts).
 pub const RULES_2170_GAMES: [&str; 39] = [
     "ludo",

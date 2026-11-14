@@ -181,6 +181,8 @@ function pay(s: BankrollState, from: number, to: number, amount: number) {
   }
   // Bankrupt: the creditor takes what is left (never more than there is).
   const left = Math.max(0, s.cash[from]);
+  // LANX 3.16.0: …and really gets it. (The words said so; the cash was never paid over.)
+  if (to >= 0) s.cash[to] += left;
   s.cash[from] = 0;
   s.out[from] = true;
   s.skip[from] = false;
@@ -194,8 +196,11 @@ function pay(s: BankrollState, from: number, to: number, amount: number) {
 
 function outcome(s: BankrollState): Outcome {
   if (s.winner === null) return ON;
-  if (s.draw) return draw(s.reason, s.cash);
-  return win(s.winner, s.reason, s.cash);
+  // LANX 3.16.0: the scores are what decides the game: cash plus streets and houses. (They
+  // were cash alone, so the winner often showed less than someone else.)
+  const riches = s.cash.map((_, p) => (s.out[p] ? 0 : worth(s, p)));
+  if (s.draw) return draw(s.reason, riches);
+  return win(s.winner, s.reason, riches);
 }
 
 export const bankroll: GameDef<BankrollState> = {
