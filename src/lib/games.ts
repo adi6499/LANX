@@ -216,6 +216,10 @@ export interface Match {
   secretRound?: number;
   /** multi, the host (2.17.0): colleagues who pressed Play after the game started; they sit down at the next round. */
   late?: { id: string; name: string }[];
+  /** duo (3.17.0): this PC asked the other for round `round` and waits for the answer. */
+  asked?: { round: number };
+  /** duo (3.17.0): the other player asks for round `round`; this PC has not answered yet. */
+  rematchAsk?: { round: number };
   /** duo (3.17.0): who gave up in which round (a device id). It travels with the game, so a PC that was
    *  away when it happened still learns of it. */
   resigned?: { by: string; round: number };
@@ -798,10 +802,57 @@ export async function resign(id: string) {
   else await sendTo(m.host, m, "resign", null);
 }
 
-/** Another round: the next seat starts this time. (multi: the host decides.) */
-export async function rematch(id: string) {
+/** "3.9.0" is at least "3.17.0"? (false) — version numbers compared part by part. */
+export function versionAtLeast(version: string | null | undefined, min: string): boolean {
+  const a = String(version ?? "").split(".").map((x) => parseInt(x, 10) || 0);
+  const b = min.split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return true;
+}
+/** The oldest LANX that answers a request for another round (older ones start it at once). */
+export const REMATCH_ASK = "3.17.0";
+
+/** LANX 3.17.0: the host takes a player out of a table game (their PC is gone, or they do not
+ *  answer): they are out as if they had left, and the others play on. (Only the player could do
+ *  that, so a PC that disappeared on its turn blocked the table for good.) A problem in plain
+ *  words, or null. */
+export async function removePlayer(id: string, seat: number): Promise<string | null> {
+  const m = matches.get(id);
+  if (!m || m.mode !== "multi" || !isHost(m)) return "Only the host of a table can do that.";
+  if (m.status !== "playing") return "The game is not being played.";
+  const s = m.seats[seat];
+  if (!s || s.id === me) return "Pick another player (to stop yourself, use Resign).";
+  if (m.gone.includes(s.id)) return null;
+  await dropOut(m, playerOf(m, seat), s.name);
+  if (!m.gone.includes(s.id)) m.gone.push(s.id);
+  m.lastAt = Date.now();
+  if (isOver(m)) resultSfx(m);
+  else sfx("buzz");
+  bump();
+  await broadcast(m);
+  // (They hear of it too, should their PC come back: their board then shows them as out.)
+  void sendTo(s.id, m, "state", stateData(m));
+  return null;
+}
+
+/** Another round: the next seat starts this time. (multi: the host decides.)
+ *  LANX 3.17.0, two players, `ask`: the other player is asked first; the round starts when they
+ *  say yes (acceptRematch on their PC). Without `ask` (a colleague on an older LANX) it starts at once. */
+export async function rematch(id: string, opts?: { ask?: boolean }) {
   const m = matches.get(id);
   if (!m || (m.status !== "over" && m.status !== "playing")) return;
+  if (m.mode === "duo" && opts?.ask) {
+    if (m.status !== "over") return;
+    const round = m.round + 1;
+    if (m.rematchAsk && m.rematchAsk.round === round) return acceptRematch(id); // they asked already: that is a yes
+    m.asked = { round };
+    m.lastAt = Date.now();
+    bump();
+    await sendSure(opponent(m)!.id, m, "rematch", () => (m.asked && m.asked.round === round && m.round < round ? { action: "rematch", data: { round, ask: 1 } } : null));
+    return;
+  }
   if (m.mode === "multi") {
     if (!isHost(m)) return;
     const meta = gameMeta(m.game);
@@ -823,10 +874,45 @@ export async function rematch(id: string) {
   await settle(m);
   sfx("start");
   bump();
+  m.asked = undefined;
+  m.rematchAsk = undefined;
   if (m.mode === "duo") {
     const round = m.round;
     await sendSure(opponent(m)!.id, m, "rematch", () => (m.round === round && m.moves.length === 0 ? { action: "rematch", data: { round } } : null));
   } else if (m.mode === "multi") await broadcast(m);
+}
+
+/** LANX 3.17.0: "yes" to the other player's request for another round. */
+export async function acceptRematch(id: string) {
+  const m = matches.get(id);
+  if (!m || m.mode !== "duo" || !m.rematchAsk || m.rematchAsk.round <= m.round) return;
+  const round = m.rematchAsk.round;
+  startRound(m, round);
+  await settle(m);
+  sfx("start");
+  bump();
+  await sendSure(opponent(m)!.id, m, "rematch", () => (m.round === round && m.moves.length === 0 ? { action: "rematch", data: { round } } : null));
+}
+/** LANX 3.17.0: "not now" to the other player's request for another round. */
+export async function declineRematch(id: string) {
+  const m = matches.get(id);
+  if (!m || m.mode !== "duo" || !m.rematchAsk) return;
+  const round = m.rematchAsk.round;
+  m.rematchAsk = undefined;
+  bump();
+  await sendTo(opponent(m)!.id, m, "decline", { round });
+}
+/** A fresh board for round `round` of a two-player match. */
+function startRound(m: Match, round: number) {
+  m.round = round;
+  m.moves = [];
+  m.deltas = [];
+  m.turn = 0;
+  m.result = null;
+  m.status = "playing";
+  m.asked = undefined;
+  m.rematchAsk = undefined;
+  m.lastAt = Date.now();
 }
 
 /** The host starts a multi-player game with whoever has joined. */
@@ -1050,6 +1136,11 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
         m.status = "declined";
         sfx("buzz");
         note = `${who} declined the ${game} challenge.`;
+      } else if (m.asked) {
+        // LANX 3.17.0: "not now" to our request for another round.
+        m.asked = undefined;
+        m.note = `${who} does not want another round right now.`;
+        note = `${who} does not want another round of ${game} right now.`;
       }
       break;
     case "leave":
@@ -1070,19 +1161,34 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
         note = `${who} resigned — you won at ${game}.`;
       }
       break;
-    case "rematch":
-      if (round !== null && round > m.round) {
-        m.round = round;
-        m.moves = [];
-        m.deltas = [];
-        m.turn = 0;
-        m.result = null;
-        m.status = "playing";
-        await settle(m);
-        sfx("start");
-        note = `${who} wants another round of ${game}.`;
+    case "rematch": {
+      if (round === null || round <= m.round) break;
+      // LANX 3.17.0: a game that is being played here is not wiped by a request for another round
+      // (it used to be, whatever stood on the board). They are sent the game as it stands here.
+      if (m.status === "playing" && m.moves.length > 0) {
+        void sendTo(opp.id, m, "state", duoData(m));
+        return;
       }
+      const ask = !!(d as { ask?: unknown }).ask;
+      if (ask && !(m.asked && m.asked.round === round)) {
+        // They ask; nothing changes here until this PC's player says yes.
+        if (m.rematchAsk?.round === round) return;
+        m.rematchAsk = { round };
+        m.note = "";
+        sfx("turn");
+        note = `${who} asks for another round of ${game}.`;
+        break;
+      }
+      // The round is on: their yes to our request, both asked at the same moment, or a colleague
+      // on an older LANX (which starts the round at once).
+      const both = ask;
+      startRound(m, round);
+      await settle(m);
+      sfx("start");
+      note = `Another round of ${game} with ${who}${myTurn(m) ? " — your move!" : "."}`;
+      if (both) void sendSure(opp.id, m, "rematch", () => (m.round === round && m.moves.length === 0 ? { action: "rematch", data: { round } } : null));
       break;
+    }
     case "move":
     case "state": {
       // LANX 2.16.1: "please send me the game" — their LANX restarted and lost it.

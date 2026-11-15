@@ -449,3 +449,164 @@ test("S2-09 another round asked of a colleague who cleared the game: the asker i
   assert.equal(A.getMatch(id).status, "left", "A sees that B is no longer in it (A used to wait at an empty board)");
   assert.equal(B.getMatch(id), undefined);
 });
+
+// ------------------------------------------------------------------ S2-04
+test("S2-04 the host takes out a player whose PC has gone on their turn, and the table plays on", async () => {
+  const { net, pcs, id } = await table("chainreaction");
+  const { H, G1, G2 } = pcs;
+  assert.equal(await H.play(id, "0"), null);
+  await tick();
+  // It is G1's turn, and G1's PC is gone (switched off): nothing reaches it, nothing comes from it.
+  net.fail = (from, to) => to === "G1" || from === "G1";
+  assert.equal(H.turnSeat(H.getMatch(id)), 1);
+  assert.equal(H.myTurn(H.getMatch(id)), false);
+  assert.equal(G2.myTurn(G2.getMatch(id)), false, "the table waits for G1 (and used to, for good)");
+  // Only the host can do it, and not to itself.
+  assert.match(await G2.removePlayer(id, 1), /Only the host/);
+  assert.match(await H.removePlayer(id, 0), /Resign/);
+  assert.equal(await H.removePlayer(id, 1), null);
+  await tick(12);
+  assert.ok(H.getMatch(id).moves.includes("x1"), "G1 is out, as if they had left");
+  assert.ok(H.getMatch(id).gone.includes("G1"));
+  assert.equal(H.getMatch(id).status, "playing");
+  assert.equal(G2.myTurn(G2.getMatch(id)), true, "the next player has the move");
+  assert.equal(await G2.play(id, "40"), null);
+  await tick(12);
+  assert.deepEqual(H.getMatch(id).moves, ["0", "x1", "40"]);
+  // Taking the same player out twice changes nothing.
+  assert.equal(await H.removePlayer(id, 1), null);
+  assert.deepEqual(H.getMatch(id).moves, ["0", "x1", "40"]);
+  // G1's PC comes back and tries to move: it is shown the game, in which it is out.
+  net.fail = null;
+  await net.send("G1", "H", { match_id: id, game: "chainreaction", action: "move", seq: 0, data: { cell: "20", n: 1, k: "late-1" }, at: 0 });
+  await tick(12);
+  assert.deepEqual(H.getMatch(id).moves, ["0", "x1", "40"]);
+  assert.ok(G1.getMatch(id).moves.includes("x1"));
+  // With two left, taking out the other one ends the game: the host has won.
+  assert.equal(await H.play(id, "5"), null);
+  await tick(12);
+  assert.equal(await H.removePlayer(id, 2), null);
+  await tick(12);
+  assert.equal(H.getMatch(id).status, "over");
+  assert.equal(H.getMatch(id).result.winner, 0);
+});
+
+// ------------------------------------------------------------------ S2-07
+/** A finished game of tic-tac-toe between A and B (A won). */
+async function finished() {
+  const net = makeNet();
+  const A = await net.boot("A");
+  const B = await net.boot("B");
+  const { match, card } = A.challenge("tictactoe", peer("B"));
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick();
+  for (const [who, mv] of [[A, "0"], [B, "3"], [A, "1"], [B, "4"], [A, "2"]]) {
+    assert.equal(await who.play(match.id, mv), null);
+    await tick();
+  }
+  return { net, A, B, id: match.id };
+}
+
+test("S2-07 another round is asked for: nothing changes until the other says yes", async () => {
+  const { A, B, id } = await finished();
+  await A.rematch(id, { ask: true });
+  await tick(12);
+  assert.equal(A.getMatch(id).status, "over", "the asker's board stays as it was");
+  assert.equal(A.getMatch(id).round, 1);
+  assert.deepEqual(A.getMatch(id).asked, { round: 2 });
+  assert.equal(B.getMatch(id).status, "over", "the asked player's finished game is still there to look at");
+  assert.equal(B.getMatch(id).moves.length, 5);
+  assert.deepEqual(B.getMatch(id).rematchAsk, { round: 2 });
+  // B says yes.
+  await B.acceptRematch(id);
+  await tick(12);
+  for (const pc of [A, B]) {
+    assert.equal(pc.getMatch(id).status, "playing");
+    assert.equal(pc.getMatch(id).round, 2);
+    assert.deepEqual(pc.getMatch(id).moves, []);
+    assert.equal(pc.getMatch(id).asked, undefined);
+    assert.equal(pc.getMatch(id).rematchAsk, undefined);
+  }
+  assert.equal(B.myTurn(B.getMatch(id)), true, "the other player starts the second round");
+  assert.equal(await B.play(id, "4"), null);
+  await tick();
+  assert.deepEqual(A.getMatch(id).moves, ["4"]);
+});
+
+test("S2-07 \"not now\" leaves both boards as they were, and the asker is told", async () => {
+  const { A, B, id } = await finished();
+  await A.rematch(id, { ask: true });
+  await tick(12);
+  await B.declineRematch(id);
+  await tick(12);
+  assert.equal(A.getMatch(id).asked, undefined);
+  assert.match(A.getMatch(id).note, /does not want another round/);
+  for (const pc of [A, B]) {
+    assert.equal(pc.getMatch(id).status, "over");
+    assert.equal(pc.getMatch(id).round, 1);
+    assert.equal(pc.getMatch(id).moves.length, 5);
+  }
+  // Asking again is possible, and a yes then starts the round.
+  await A.rematch(id, { ask: true });
+  await tick(12);
+  await B.acceptRematch(id);
+  await tick(12);
+  assert.equal(A.getMatch(id).round, 2);
+});
+
+test("S2-07 both ask at the same moment: the round simply starts", async () => {
+  const { net, A, B, id } = await finished();
+  net.hold = (from, to, step) => step.action === "rematch";
+  await A.rematch(id, { ask: true });
+  await B.rematch(id, { ask: true });
+  await tick();
+  net.hold = null;
+  await net.release();
+  await tick(20);
+  for (const pc of [A, B]) {
+    assert.equal(pc.getMatch(id).status, "playing");
+    assert.equal(pc.getMatch(id).round, 2);
+    assert.deepEqual(pc.getMatch(id).moves, []);
+  }
+});
+
+test("S2-07 a request for another round never wipes a game that is being played", async () => {
+  const net = makeNet();
+  const A = await net.boot("A");
+  const B = await net.boot("B");
+  const { match, card } = A.challenge("tictactoe", peer("B"));
+  const id = match.id;
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick();
+  assert.equal(await A.play(id, "0"), null);
+  await tick();
+  assert.equal(await B.play(id, "4"), null);
+  await tick();
+  // A "rematch" for a later round arrives in the middle of the game (an old copy pressed too early, or a changed one).
+  for (const data of [{ round: 2 }, { round: 2, ask: 1 }, { round: 9 }]) {
+    await net.send("B", "A", { match_id: id, game: "tictactoe", action: "rematch", seq: 0, data, at: 0 });
+    await tick(12);
+    assert.equal(A.getMatch(id).round, 1);
+    assert.deepEqual(A.getMatch(id).moves, ["0", "4"], "the game on A's board is untouched (it used to be wiped)");
+    assert.equal(A.getMatch(id).rematchAsk, undefined);
+  }
+  assert.equal(await A.play(id, "1"), null);
+  await tick();
+  assert.deepEqual(B.getMatch(id).moves, ["0", "4", "1"]);
+});
+
+test("S2-07 with a colleague on an older LANX another round starts at once, as before", async () => {
+  const { A, B, id } = await finished();
+  // (the board asks only when the colleague's LANX can answer; for an older one it calls rematch without "ask")
+  assert.equal(A.versionAtLeast("3.16.1", A.REMATCH_ASK), false);
+  assert.equal(A.versionAtLeast("3.17.0", A.REMATCH_ASK), true);
+  assert.equal(A.versionAtLeast("3.9.9", "3.17.0"), false);
+  assert.equal(A.versionAtLeast("4.0.0", "3.17.0"), true);
+  assert.equal(A.versionAtLeast(undefined, "3.17.0"), false);
+  await A.rematch(id);
+  await tick(12);
+  for (const pc of [A, B]) {
+    assert.equal(pc.getMatch(id).status, "playing");
+    assert.equal(pc.getMatch(id).round, 2);
+  }
+});

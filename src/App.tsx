@@ -2249,6 +2249,7 @@ export default function App() {
             openMatchId={lastGames.current.matchId}
             closing={gamesPresence.closing}
             peers={peers}
+            versions={peerVersions}
             myId={settings.device_id}
             myName={settings.display_name}
             chatPeerId={activeConversation?.peer_id || null}

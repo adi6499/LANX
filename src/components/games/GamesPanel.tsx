@@ -30,6 +30,8 @@ interface Props {
   initialQuery: string;
   openMatchId: string | null;
   peers: Peer[];
+  /** LANX 3.17.0: which LANX each colleague runs (as the Peers screen shows it). */
+  versions?: Record<string, { version?: string | null }>;
   myId: string;
   myName: string;
   /** The colleague of the chat this was opened from (offered first). */
@@ -69,7 +71,7 @@ function statsLine(id: string): string {
   return s.best ? `Best ${s.best}` : `${s.played} played`;
 }
 
-export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, chatPeerId, onClose, onError, onSendCard, closing }: Props) {
+export function GamesPanel({ initialQuery, openMatchId, peers, versions, myId, myName, chatPeerId, onClose, onError, onSendCard, closing }: Props) {
   useSyncExternalStore(games.subscribe, games.snapshot, games.snapshot);
   useEffect(() => games.setMe(myId, myName), [myId, myName]);
   const openMatch = openMatchId ? games.getMatch(openMatchId) : undefined;
@@ -355,7 +357,7 @@ export function GamesPanel({ initialQuery, openMatchId, peers, myId, myName, cha
                 </div>
               </div>
             )}
-            {view === "match" && match && <MatchView match={match} three={three} onMove={onMove} onBack={() => setView("lobby")} onError={onError} />}
+            {view === "match" && match && <MatchView match={match} three={three} versions={versions} onMove={onMove} onBack={() => setView("lobby")} onError={onError} />}
             {view === "match" && !match && (
               <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-500">
                 <div className="text-[13px]">That game is gone.</div>
@@ -529,7 +531,7 @@ function Lobby({
 
 // ---------------------------------------------------------------- a match
 
-function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match; three: boolean; onMove: (mv: string) => void; onBack: () => void; onError: (t: string) => void }) {
+function MatchView({ match: m, three, versions, onMove, onBack, onError }: { match: Match; three: boolean; versions?: Record<string, { version?: string | null }>; onMove: (mv: string) => void; onBack: () => void; onError: (t: string) => void }) {
   const meta = games.gameMeta(m.game)!;
   const seatNow = games.turnSeat(m);
   const mine = games.mySeat(m);
@@ -537,6 +539,11 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
   const host = games.isHost(m);
   const sides = SIDE_LABEL[m.game];
   const [sure, setSure] = useState(false);
+  // LANX 3.17.0: the host is about to take this seat out of the game (a second press does it).
+  const [removing, setRemoving] = useState(-1);
+  // LANX 3.17.0: another round is asked for when the colleague's LANX can answer (3.17.0 and newer).
+  const other = games.opponent(m);
+  const canAsk = m.mode === "duo" && !!other && games.versionAtLeast(versions?.[other.id]?.version, games.REMATCH_ASK);
   // LANX 2.17.0: this match is on screen; while it is, its own board runs a hosted game (not HostRunner).
   useEffect(() => {
     games.setShowing(m.id);
@@ -665,6 +672,23 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
                     </div>
                   </div>
                   {m.status === "lobby" && joined && <Check className="h-4 w-4 text-emerald-500" />}
+                  {/* LANX 3.17.0: the host can take a player out (their PC is gone, or they do not answer). */}
+                  {host && m.mode === "multi" && m.status === "playing" && !isMe && !gone && (
+                    <button
+                      type="button"
+                      data-game-remove={i}
+                      title={`Take ${s.name} out of the game — when their PC is gone or they do not answer. The others play on.`}
+                      onClick={() => {
+                        if (removing !== i) return setRemoving(i);
+                        setRemoving(-1);
+                        void games.removePlayer(m.id, i).then((p) => p && onError(p));
+                      }}
+                      onBlur={() => setRemoving(-1)}
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${removing === i ? "bg-rose-600 text-white" : "text-slate-400 hover:bg-slate-500/15 hover:text-slate-700 dark:hover:text-slate-200"}`}
+                    >
+                      {removing === i ? "Take out?" : <X className="h-3 w-3" />}
+                    </button>
+                  )}
                   {toMove && <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300">to move</span>}
                   {m.result && games.wonBy(m.result, i) && <Trophy className="h-4 w-4 text-amber-500" />}
                 </div>
@@ -694,9 +718,28 @@ function MatchView({ match: m, three, onMove, onBack, onError }: { match: Match;
                 <Flag className="h-3.5 w-3.5" /> {m.mode === "local" && m.seats.length > 2 ? `${games.seatName(m, seatNow)} gives up` : "Resign"}
               </button>
             ))}
-            {m.status === "over" && (m.mode !== "multi" || host) && (
-              <button type="button" data-game-rematch onClick={() => void games.rematch(m.id)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
-                <RefreshCw className="h-3.5 w-3.5" /> Rematch
+            {/* LANX 3.17.0: another round of a two-player game is asked for, and the other says yes or not now. */}
+            {m.status === "over" && m.mode === "duo" && m.rematchAsk && (
+              <div data-game-rematch-ask className="w-full rounded-2xl bg-indigo-500/10 px-3 py-2 text-[12px] font-semibold text-slate-800 dark:text-slate-100">
+                {other?.name ?? "Your colleague"} asks for another round.
+                <div className="mt-1.5 flex gap-1.5">
+                  <button type="button" data-game-rematch-yes onClick={() => void games.acceptRematch(m.id)} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
+                    <Play className="h-3.5 w-3.5" /> Play
+                  </button>
+                  <button type="button" data-game-rematch-no onClick={() => void games.declineRematch(m.id)} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
+                    Not now
+                  </button>
+                </div>
+              </div>
+            )}
+            {m.status === "over" && m.mode === "duo" && m.asked && !m.rematchAsk && (
+              <div data-game-rematch-asked className="w-full rounded-2xl bg-slate-500/10 px-3 py-2 text-[12px] text-slate-600 dark:text-slate-300">
+                Asked {other?.name ?? "your colleague"} for another round. It starts when they say yes.
+              </div>
+            )}
+            {m.status === "over" && (m.mode !== "multi" || host) && !m.rematchAsk && (
+              <button type="button" data-game-rematch onClick={() => void games.rematch(m.id, { ask: canAsk })} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}>
+                <RefreshCw className="h-3.5 w-3.5" /> {m.asked ? "Ask again" : "Rematch"}
               </button>
             )}
             {m.status !== "playing" && (
