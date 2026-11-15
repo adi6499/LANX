@@ -43,8 +43,30 @@ LANX says so when you challenge someone on an older version (`RULES_3160` in `sr
 - **Dominoes:** when nobody can play, the game ends as soon as the player to move passes (it
   used to need a pass from everyone). It does not end by itself before that pass.
 
+### Ludo: the die is really thrown (asked for by the user, 15 Nov 2026)
+
+The flat Ludo board drew everything the moment it arrived: a roll with no move passed the turn
+at once and its number was gone before anyone could read it. Now the board shows one thing at a
+time (`useLudoPlayback` in `boards/LudoBoard.tsx`): the die is thrown onto the board from the
+roller's corner, bounces and comes to rest (`ThrownDie`, 950 ms), its number lies there for a
+second, and only then the token moves or the turn passes. The game itself is never held back,
+only its picture. Snakes & Ladders, Bankroll and Backgammon still draw their dice at once.
+
+### Checked for LANX 3.16.0 (15 Nov 2026)
+
+- `npm run test:games`: 27 of 27. Rust: the version gate's tests 4 of 4.
+- The real app, two test copies playing Ludo against each other on Windows
+  (`LANAPPLICATION-tests\snk\ludo_app.mjs`): 15 of 15. Sixteen rolls, the same numbers in the
+  same order on both, every die 0.94 to 1.01 s in the air and 0.95 to 1.05 s at rest, the rolls
+  with no move too.
+- The real rule code in both JavaScript engines (V8 on Windows, JavaScriptCore in LANX for
+  Linux; `games-audit\engines\real-webkit.sh`): 980 of 980 results the same: the 40 fixed
+  Wordbox grids (17 of 40 before the repair), 300 Werewolf deals, 300 Tap Roulette draws, 100
+  shuffled decks, and what Go Fish, Mahjong Duels, Dominoes, Ludo and Tap Roulette deal and roll.
+
 ### Not tested yet
 
-- The same 40 Wordbox grids in the Linux/iPhone engine (WebKit). The file is ready; the run is
-  part of Sprint 9.
-- Nothing of Sprint 1 has been tried in the running app or between two real PCs yet.
+- A move that is lost and sent again, and a player leaving twice, between real PCs (they are
+  tested on the pretend network of the test suite only).
+- The Ludo dice on a real Linux PC (the code is the same; the picture was only seen on Windows).
+- 2048's score on leaving, and Bankroll's "worth" on the boards, have no test.
