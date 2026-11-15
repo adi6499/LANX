@@ -301,3 +301,151 @@ test("S2-05 two players: moves made in turn are not mixed together (only moves b
   await tick(12);
   assert.deepEqual(A.getMatch(match.id).moves, ["0"]);
 });
+
+// ------------------------------------------------------------------ S2-02
+test("S2-02 a table goes on after the host's LANX has restarted", async () => {
+  const { net, pcs, id } = await table("chainreaction");
+  let { H } = pcs;
+  const { G1, G2 } = pcs;
+  assert.equal(await H.play(id, "0"), null);
+  await tick();
+  assert.equal(await G1.play(id, "20"), null);
+  await tick();
+  await H.saveLive();
+  // The host's LANX is closed and started again.
+  H = pcs.H = await net.boot("H");
+  await tick(12);
+  const back = H.getMatch(id);
+  assert.ok(back, "the host still has its table (it used to be gone, and every move of a guest was dropped without a word)");
+  assert.equal(back.status, "playing");
+  assert.deepEqual(back.moves, ["0", "20"]);
+  assert.equal(H.isHost(back), true);
+  // G2, whose turn it is, plays: the host takes the move and tells everyone.
+  assert.equal(await G2.play(id, "40"), null);
+  await tick(12);
+  for (const pc of [H, G1, G2]) assert.deepEqual(pc.getMatch(id).moves, ["0", "20", "40"]);
+  assert.equal(H.myTurn(H.getMatch(id)), true);
+  assert.equal(await H.play(id, "5"), null);
+  await tick(12);
+  for (const pc of [G1, G2]) assert.deepEqual(pc.getMatch(id).moves, ["0", "20", "40", "5"]);
+});
+
+test("S2-02 a guest whose LANX restarted is back at the table with the game as it stands", async () => {
+  const { net, pcs, id } = await table("chainreaction");
+  const { H, G2 } = pcs;
+  assert.equal(await H.play(id, "0"), null);
+  await tick();
+  await pcs.G1.saveLive();
+  // While G1's LANX is closed, nothing reaches it; the host's news for G1 waits.
+  net.fail = (from, to) => to === "G1";
+  delete net.pcs.G1;
+  const G1 = (pcs.G1 = await (async () => {
+    net.fail = null;
+    return net.boot("G1");
+  })());
+  await tick(12);
+  assert.deepEqual(G1.getMatch(id).moves, ["0"]);
+  assert.equal(G1.myTurn(G1.getMatch(id)), true);
+  assert.equal(await G1.play(id, "20"), null);
+  await tick(12);
+  for (const pc of [H, G2]) assert.deepEqual(pc.getMatch(id).moves, ["0", "20"]);
+});
+
+test("S2-02 a two-player game goes on after both have restarted LANX, and a move made meanwhile is fetched", async () => {
+  const net = makeNet();
+  let A = await net.boot("A");
+  let B = await net.boot("B");
+  const { match, card } = A.challenge("tictactoe", peer("B"));
+  const id = match.id;
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick();
+  assert.equal(await A.play(id, "0"), null);
+  await tick();
+  await A.saveLive();
+  await B.saveLive();
+  // B plays while A's LANX is closed (the move cannot be delivered), then closes LANX too.
+  net.fail = (from, to) => to === "A";
+  assert.equal(await B.play(id, "4"), null);
+  await tick();
+  await B.saveLive();
+  net.fail = null;
+  A = await net.boot("A");
+  B = await net.boot("B");
+  await tick(20);
+  assert.deepEqual(A.getMatch(id).moves, ["0", "4"], "A has the move B made while A was closed");
+  assert.deepEqual(B.getMatch(id).moves, ["0", "4"]);
+  assert.equal(A.myTurn(A.getMatch(id)), true);
+  assert.equal(await A.play(id, "1"), null);
+  await tick();
+  assert.deepEqual(B.getMatch(id).moves, ["0", "4", "1"]);
+});
+
+// ------------------------------------------------------------------ S2-09
+test("S2-09 a challenge that was cancelled stays cancelled: pressing Play on its card starts no game", async () => {
+  const net = makeNet();
+  let A = await net.boot("A");
+  const B = await net.boot("B");
+  const { match, card } = A.challenge("tictactoe", peer("B"));
+  const id = match.id;
+  // A cancels while B cannot be reached: B never hears of it.
+  net.fail = (from, to) => to === "B";
+  await A.leave(id);
+  await tick();
+  net.fail = null;
+  await A.saveLive();
+  A = await net.boot("A"); // …and A's LANX has even been restarted since
+  // B presses Play on the card.
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick(12);
+  assert.equal(A.getMatch(id), undefined, "no game appears on A's PC (one used to, with nobody in it)");
+  assert.equal(B.getMatch(id).status, "left", "B's card says the game is gone");
+});
+
+test("S2-09 giving up is remembered, and a colleague who was away learns of it", async () => {
+  const net = makeNet();
+  let A = await net.boot("A");
+  let B = await net.boot("B");
+  const { match, card } = A.challenge("tictactoe", peer("B"));
+  const id = match.id;
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick();
+  assert.equal(await A.play(id, "0"), null);
+  await tick();
+  await B.saveLive();
+  // A gives up while B's LANX is closed.
+  net.fail = (from, to) => to === "B";
+  await A.resign(id);
+  await tick();
+  net.fail = null;
+  await A.saveLive();
+  assert.equal(A.getMatch(id).status, "over");
+  A = await net.boot("A");
+  assert.equal(A.getMatch(id).status, "over", "after a restart A's game is still over (it used to come back as being played)");
+  B = await net.boot("B");
+  await tick(20);
+  assert.equal(B.getMatch(id).status, "over", "B, back at the game, learns that A gave up");
+  assert.equal(B.getMatch(id).result.winner, B.mySeat(B.getMatch(id)));
+  assert.match(B.getMatch(id).result.reason, /resigned/);
+  assert.deepEqual([net.stats("B").tictactoe.played, net.stats("B").tictactoe.won], [1, 1]);
+  assert.deepEqual([net.stats("A").tictactoe.played, net.stats("A").tictactoe.lost], [1, 1]);
+});
+
+test("S2-09 another round asked of a colleague who cleared the game: the asker is told it is gone", async () => {
+  const net = makeNet();
+  const A = await net.boot("A");
+  const B = await net.boot("B");
+  const { match, card } = A.challenge("tictactoe", peer("B"));
+  const id = match.id;
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick();
+  for (const [who, mv] of [[A, "0"], [B, "3"], [A, "1"], [B, "4"], [A, "2"]]) {
+    assert.equal(await who.play(id, mv), null);
+    await tick();
+  }
+  await B.leave(id); // B presses Clear on the finished game
+  await tick();
+  await A.rematch(id);
+  await tick(12);
+  assert.equal(A.getMatch(id).status, "left", "A sees that B is no longer in it (A used to wait at an empty board)");
+  assert.equal(B.getMatch(id), undefined);
+});

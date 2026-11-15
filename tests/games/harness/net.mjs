@@ -17,6 +17,8 @@ export function makeNet() {
     // A fresh copy of games.ts = LANX (re)started on that PC; the preferences on disk stay.
     const mod = await import(`${GAMES}?pc=${id}&run=${(globalThis.RUN = (globalThis.RUN ?? 0) + 1)}`);
     mod.setMe(id, `Name-${id}`);
+    // (LANX reads the matches it kept from before the restart)
+    await mod.whenLoaded?.();
     net.pcs[id] = mod;
     return mod;
   };

@@ -216,6 +216,9 @@ export interface Match {
   secretRound?: number;
   /** multi, the host (2.17.0): colleagues who pressed Play after the game started; they sit down at the next round. */
   late?: { id: string; name: string }[];
+  /** duo (3.17.0): who gave up in which round (a device id). It travels with the game, so a PC that was
+   *  away when it happened still learns of it. */
+  resigned?: { by: string; round: number };
   /** multi, the host (3.17.0): the number of the news last sent to the table; it only ever goes up. */
   rev?: number;
   /** multi, a guest (3.17.0): the number of the newest news taken from the host, and which run of the host's LANX it came from. */
@@ -245,6 +248,7 @@ let myName = "";
 export const setMe = (id: string, name: string) => {
   me = id;
   myName = name;
+  if (id) void loadLive();
 };
 
 // ---------------------------------------------------------------- the store
@@ -267,7 +271,98 @@ export const snapshot = () => version;
 const bump = () => {
   version++;
   for (const fn of subs) fn();
+  saveSoon();
 };
+
+// ---------------------------------------------------------------- kept over a restart (3.17.0)
+
+// LANX 3.17.0: the matches are kept on this PC's disk (they lived in memory only). When LANX
+// starts again they are all still there: a table whose host restarted LANX no longer dies in
+// silence, a finished game stays finished, and what was cancelled or cleared stays so.
+const LIVE_KEY = "games_live";
+const KEEP_MS = 7 * 24 * 3600_000;
+const KEEP_MATCHES = 30;
+let liveLoaded: Promise<void> | null = null;
+let liveBroken = false;
+let lastSaved = "";
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function liveText(): string {
+  const list = [...matches.values()]
+    .filter((m) => m.mode !== "local" && Date.now() - m.lastAt < KEEP_MS)
+    .sort((a, b) => b.lastAt - a.lastAt)
+    .slice(0, KEEP_MATCHES)
+    // (strokes and taps are not kept; a secret has its own place, see setSecret; an error is of the moment)
+    .map((m) => ({ ...m, deltas: [], secret: undefined, secretRound: undefined, error: null }));
+  return JSON.stringify({ v: 1, matches: list, ended: [...ended].slice(-300) });
+}
+
+/** Writes the matches to disk now (they are written by themselves a moment after every change). */
+export async function saveLive(): Promise<void> {
+  if (!liveLoaded) return;
+  await liveLoaded;
+  if (liveBroken) return; // what is on disk could not be read: it is not written over
+  const text = liveText();
+  if (text === lastSaved) return;
+  lastSaved = text;
+  try {
+    await api.setPref(LIVE_KEY, text);
+  } catch {
+    lastSaved = "";
+  }
+}
+function saveSoon() {
+  if (saveTimer || !liveLoaded) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void saveLive();
+  }, 400);
+  (saveTimer as unknown as { unref?: () => void }).unref?.();
+}
+
+/** Reads the kept matches (once), and lets the others at each game know this PC is back. */
+function loadLive(): Promise<void> {
+  return (liveLoaded ??= (async () => {
+    let raw: string | null = null;
+    try {
+      raw = await api.getPref(LIVE_KEY);
+    } catch {
+      liveBroken = true;
+      return;
+    }
+    const back: Match[] = [];
+    try {
+      const kept = raw ? (JSON.parse(raw) as { matches?: unknown; ended?: unknown }) : {};
+      for (const id of Array.isArray(kept.ended) ? kept.ended : []) ended.add(String(id));
+      for (const x of Array.isArray(kept.matches) ? (kept.matches as Partial<Match>[]) : []) {
+        if (!x || typeof x.id !== "string" || typeof x.game !== "string" || !Array.isArray(x.seats) || !Array.isArray(x.moves)) continue;
+        if (matches.has(x.id) || ended.has(x.id) || !isLanGame(x.game) || (x.mode !== "duo" && x.mode !== "multi")) continue;
+        const m = { round: 1, turn: 0, result: null, joined: [], gone: [], note: "", lastAt: Date.now(), unseen: false, ...x, deltas: [], error: null } as Match;
+        matches.set(m.id, m);
+        back.push(m);
+      }
+    } catch {
+      /* nothing usable was kept */
+    }
+    lastSaved = liveText();
+    if (!back.length) return;
+    for (const m of back) await settle(m);
+    // Back at the game: the host tells its table how things stand; a guest asks its host; in a
+    // two-player game each asks the other for anything played meanwhile.
+    for (const m of back) {
+      if (m.status !== "playing" && m.status !== "lobby" && m.status !== "waiting") continue;
+      if (m.mode === "multi") {
+        if (isHost(m)) void broadcast(m);
+        else if (m.joined.includes(me) || m.seats.some((s) => s.id === me)) void sendTo(m.host, m, "accept", null);
+      } else if (m.status === "playing") {
+        const opp = opponent(m);
+        if (opp) void sendTo(opp.id, m, "state", { sync: 1, round: m.round, first: m.seats[0]?.id });
+      }
+    }
+  })());
+}
+/** Resolves once the matches kept from before the restart are back (at once when there is nothing to read). */
+export const whenLoaded = (): Promise<void> => liveLoaded ?? Promise.resolve();
 
 export const getMatch = (id: string) => matches.get(id);
 
@@ -677,6 +772,7 @@ export async function resign(id: string) {
   if (m.mode === "duo") {
     m.status = "over";
     m.result = { winner: playerOf(m, mySeat(m)) === 0 ? seatOf(m, 1) : seatOf(m, 0), draw: false, reason: "you resigned" };
+    m.resigned = { by: me, round: m.round };
     m.lastAt = Date.now();
     void recordResult(m);
     resultSfx(m);
@@ -762,12 +858,14 @@ export async function leave(id: string) {
   const m = matches.get(id);
   if (!m) return;
   matches.delete(id);
+  // LANX 3.17.0: remembered for every match that went between PCs (it was only remembered for a
+  // table one hosted): what was cancelled or cleared here stays so, also after LANX restarts.
+  if (m.mode !== "local") ended.add(m.id);
   bump();
   if (m.mode === "duo") {
     if (m.status === "playing" || m.status === "waiting") await sendTo(opponent(m)!.id, m, "leave", null);
   } else if (m.mode === "multi") {
     if (isHost(m)) {
-      ended.add(m.id);
       const ids = m.seats.filter((s) => s.id !== me && !m.gone.includes(s.id)).map((s) => s.id);
       await Promise.all(ids.map((pid) => sendTo(pid, m, "leave", null)));
     } else if (m.status === "lobby" || m.status === "playing") {
@@ -833,7 +931,7 @@ export function markSeen(id: string) {
 type Data = { moves?: unknown; round?: unknown; cell?: unknown; seats?: unknown; status?: unknown; joined?: unknown; first?: unknown; sync?: unknown; ended?: unknown };
 
 /** What a two-player match tells the other PC: the moves, the round and (2.16.1) who sits first. */
-const duoData = (m: Match) => ({ moves: m.moves, round: m.round, first: m.seats[0]?.id });
+const duoData = (m: Match) => ({ moves: m.moves, round: m.round, first: m.seats[0]?.id, resigned: m.resigned && m.resigned.round === m.round ? m.resigned.by : undefined });
 
 /** LANX 2.16.1: who challenged in a two-player match, from the game card in the chat with that colleague. */
 async function challenger(matchId: string, peerId: string): Promise<string | null> {
@@ -863,7 +961,17 @@ export function receive(e: GameEvent) {
 }
 
 async function receiveAsync(e: GameEvent) {
-  if (!isLanGame(e.game) || ended.has(e.match_id)) return;
+  if (liveLoaded) await liveLoaded;
+  if (!isLanGame(e.game)) return;
+  if (ended.has(e.match_id)) {
+    // LANX 3.17.0: this match was cancelled, cleared or closed here. Whoever still plays it is told
+    // so (their card then says the game is gone), instead of being left to wait for an answer.
+    // (Pressing Play on a cancelled challenge used to start a game on the other PC that nobody was in.)
+    if (e.action === "accept" || e.action === "move" || e.action === "rematch" || (e.action === "state" && !Array.isArray((e.data as { seats?: unknown } | null)?.seats))) {
+      void api.sendGame(e.from_id, { match_id: e.match_id, game: e.game, action: "leave", seq: 0, data: null, at: 0 }).catch(() => {});
+    }
+    return;
+  }
   const d = (e.data && typeof e.data === "object" ? e.data : {}) as Data;
   let m = matches.get(e.match_id);
   if (!m) {
@@ -952,9 +1060,11 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       }
       break;
     case "resign":
-      if (m.status === "playing") {
+      // (3.17.0: only for the round it was given up in; one that is sent again must not end a later round)
+      if (m.status === "playing" && (round === null || round === m.round)) {
         m.status = "over";
         m.result = { winner: mySeat(m), draw: false, reason: `${who} resigned` };
+        m.resigned = { by: opp.id, round: m.round };
         void recordResult(m);
         resultSfx(m);
         note = `${who} resigned — you won at ${game}.`;
@@ -982,6 +1092,16 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       }
       const mv = Array.isArray(d.moves) ? d.moves.map(String) : null;
       if (!mv) return;
+      // LANX 3.17.0: they gave up this round while this PC was away (LANX closed, or off the network).
+      if ((d as { resigned?: unknown }).resigned === opp.id && m.status === "playing" && (round === null || round === m.round)) {
+        m.status = "over";
+        m.result = { winner: mySeat(m), draw: false, reason: `${who} resigned` };
+        m.resigned = { by: opp.id, round: m.round };
+        void recordResult(m);
+        resultSfx(m);
+        note = `${who} resigned — you won at ${game}.`;
+        break;
+      }
       if (round !== null && round > m.round) {
         m.round = round;
         m.moves = [];
