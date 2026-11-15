@@ -402,7 +402,9 @@ function Lobby({
     setCount(Math.max(2, game.minPlayers) <= game.maxPlayers ? Math.max(2, game.minPlayers) : Math.max(1, game.minPlayers));
   }, [game.id, game.minPlayers, game.maxPlayers]);
   const online = peers.filter((p) => p.status === "online");
-  const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  // LANX 3.17.0: no more colleagues than the game has places (you take one yourself).
+  const room = Math.max(1, game.maxPlayers - 1);
+  const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length >= room ? c : [...c, id]));
   const chosenPeers = online.filter((p) => chosen.includes(p.id));
 
   return (
@@ -441,7 +443,7 @@ function Lobby({
               const on = chosen.includes(p.id);
               return (
                 <label key={p.id} className={`flex items-center gap-3 px-3 py-2 ${isOn ? "cursor-pointer" : "opacity-60"}`} data-game-peer-row={p.id}>
-                  <input type="checkbox" data-game-pick-peer={p.id} disabled={!isOn || busy} checked={on} onChange={() => toggle(p.id)} className="h-4 w-4 accent-indigo-600" />
+                  <input type="checkbox" data-game-pick-peer={p.id} disabled={!isOn || busy || (!on && chosen.length >= room)} checked={on} onChange={() => toggle(p.id)} className="h-4 w-4 accent-indigo-600" />
                   <Avatar name={p.display_name} color={p.avatar_color} size={32} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-semibold text-slate-900 dark:text-white">

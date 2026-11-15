@@ -19,6 +19,16 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.16.1",
+    title: "Games at a table: two faults of 3.16.0 put right",
+    items: [
+      { icon: "🏁", title: "The last move of a table game arrives", text: "In 3.16.0, when a guest at a table of three or more made the move that ended the game, the host never heard of it and the table hung. It arrives now. Two-player games were not affected." },
+      { icon: "🙋", title: "Party games: every answer counts", text: "In 3.16.0, when two players answered at the same moment (Trivia, Math Rush, Tap Roulette, Wordbox, Draw & Guess, Werewolf), the host could throw one answer away. Every answer counts again, and none is counted twice." },
+      { icon: "📊", title: "Statistics count each game once", text: "A game at a table could be counted two or three times, and pressing an old game card after a restart counted it again. Each round is now counted once. Statistics that could not be read for a moment are no longer wiped by the next result." },
+      { icon: "🪑", title: "Late to the table? You sit down at the next round", text: "A colleague who was invited and pressed Play after the game had started was left waiting for good. The host now hears them, and they are dealt in at the next round. A table can no longer be invited beyond the number of places the game has." },
+    ],
+  },
+  {
     version: "3.16.0",
     title: "Games: a real roll of the die in Ludo, and twelve faults put right",
     items: [

@@ -6,7 +6,22 @@ checklist with every status is the document "LANX Games repair plan and checklis
 
 Run the tests: `npm run test:games` (Node 24 runs the rule files as they are; nothing to build).
 
-## Sprint 1 — the twelve serious faults (LANX 3.16.0, in work)
+## LANX 3.16.1 — two faults of 3.16.0, and the first of Sprint 2 (15 Nov 2026)
+
+Tests: `tests/games/sprint2-match.test.mjs` (9). The three named "3.16.1" fail on the 3.16.0 code.
+
+| ID | What was wrong | What changed | Test |
+|---|---|---|---|
+| 3.16.1-a | **Made by 3.16.0 (S1-01):** a guest's move that ended a table game was never sent to the host: the "still playing?" check was made after the move had ended the game on the guest's PC. The table hung at the end. | The move is sent whatever it did to the game here. | "3.16.1 a table: a guest's move that ends the game…" (three games played to the end) |
+| 3.16.1-b | **Made by 3.16.0 (S1-01):** every move had to name its place in the game, also where everyone acts at once: of two answers given at the same moment the host threw the second away. | Every move carries a number of its own and the host plays each number once (`Match.seen`); only a move made in turn names its place. Each waiting move is filed by itself, so two quick answers do not push each other out. | "3.16.1 a party game: answers given at the same moment…", "…a move made in turn still names its place…" |
+| S2-08 | A game was counted two or more times in the statistics (a table guest who made the last move; every later state; an old card pressed after a restart). A failed read of the statistics was taken for "none yet", and the next result wiped them. | Each round is counted once ("<match>#<round>", kept with the statistics, the last 400). Unreadable statistics are neither kept nor written over. An abandoned game is not a game played. | 3 tests "S2-08 …" |
+| S2-06 | "Sit down at the next round" never worked: whoever was not seated was turned away before the code for it. | The table remembers whom it invited (`Match.invited`); an invited colleague who presses Play late is put down for the next round, and their PC says so. | 2 tests "S2-06 …" |
+| S2-10 | A table could be invited beyond its size and then could not start. | No more invitations than the game has places (the store and the list of colleagues). | "S2-10 …" |
+
+Lesson kept for the rest of the repair: the Sprint 1 match tests never let a guest make the last
+move of a table game, and never played a party game over the pretend network. Both are covered now.
+
+## Sprint 1 — the twelve serious faults (LANX 3.16.0)
 
 Tests: `tests/games/sprint1-rules.test.mjs` (12) and `tests/games/sprint1-match.test.mjs` (15).
 The match tests run the real match code (`src/lib/games.ts`) once per pretend PC over a pretend

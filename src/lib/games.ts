@@ -216,6 +216,10 @@ export interface Match {
   secretRound?: number;
   /** multi, the host (2.17.0): colleagues who pressed Play after the game started; they sit down at the next round. */
   late?: { id: string; name: string }[];
+  /** multi, the host (3.16.1): the numbers of the guests' moves played lately, so that none is played twice. */
+  seen?: string[];
+  /** multi, the host (3.17.0): everyone the table was opened for. (The seats hold only who was in at the start.) */
+  invited?: { id: string; name: string }[];
   /** LANX 2.16.1: this PC lost the game (LANX restarted), so the other player's next full list of moves
    *  is taken as it stands (the rules still check it) instead of only their new moves. */
   catchUp?: boolean;
@@ -409,9 +413,12 @@ export function challenge(game: GameId, peer: Peer): { match: Match; card: GameC
 }
 
 /** A table for several colleagues: one card per colleague, all naming the whole table. */
-export function challengeMany(game: GameId, peers: Peer[]): { match: Match; cards: { peerId: string; card: GameCardData }[] } {
+export function challengeMany(game: GameId, all: Peer[]): { match: Match; cards: { peerId: string; card: GameCardData }[] } {
+  // LANX 3.17.0: no more invitations than the game has places. (A table invited beyond its size
+  // could not be started when everyone pressed Play.)
+  const peers = all.slice(0, Math.max(1, (gameMeta(game)?.maxPlayers ?? 8) - 1));
   const seats = [mySeatEntry(0), ...peers.map((p, i) => peerSeat(p, i + 1))];
-  const m = make({ id: newId(), game, mode: "multi", seats, host: me, status: "lobby", joined: [me] });
+  const m = make({ id: newId(), game, mode: "multi", seats, host: me, status: "lobby", joined: [me], invited: seats.map((s) => ({ id: s.id, name: s.name })) });
   const players = seats.map((s) => s.id);
   const names = seats.map((s) => s.name);
   return {
@@ -526,6 +533,11 @@ function sendSure(peerId: string, m: Match, kind: string, build: () => { action:
   return p.go();
 }
 
+/** A guest's moves made in turn that may still be waiting to be sent: their place in the game. */
+const unsentInTurn = new Map<string, { matchId: string; n: number; round: number }>();
+/** Moves the host's game has moved past: nothing more to send for them. */
+const unsentDone = new Set<string>();
+
 /** Tries now what is still waiting to be sent (for one match, and one colleague of it, when given). How many. */
 export function resendPending(matchId?: string, peerId?: string): number {
   let n = 0;
@@ -551,6 +563,8 @@ const stateData = (m: Match) => ({
   round: m.round,
   status: m.status,
   joined: m.joined,
+  // LANX 3.17.0: who sits down at the next round (they pressed Play after the start).
+  late: (m.late ?? []).map((l) => l.id),
   // LANX 2.17.0: a game that ended because someone left (the rules alone wouldn't say it is over).
   ended: m.status === "over" && m.result && m.result.winner === null && !m.result.draw ? m.result.reason : undefined,
 });
@@ -628,11 +642,18 @@ export async function play(id: string, move: string): Promise<string | null> {
   else if (m.mode === "multi") {
     if (isHost(m)) void broadcast(m);
     else {
-      // `n`: the place of this move in the game. The host takes it only there, so a move that
-      // is sent twice (the first did arrive, after all) is never played twice.
+      // Every move has a number of its own (`k`): the host plays each number once, so a move that
+      // is sent twice (the first did arrive, after all) is never played twice. A move made in
+      // turn also says its place in the game (`n`), and is taken only there.
+      // LANX 3.16.1: sent whatever the move did to the game here — a move that ends the game must
+      // reach the host too (in 3.16.0 it never did); and each move waits by itself (`k` is part
+      // of what it is filed under), so two quick answers do not push each other out.
       const n = m.moves.length - 1;
       const round = m.round;
-      void sendSure(m.host, m, "move", () => (m.round === round && m.status === "playing" && m.moves[n] === move ? { action: "move", data: { cell: move, n } } : null));
+      const k = `${playerOf(m, mySeat(m))}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}`;
+      const inTurn = !move.includes("@");
+      void sendSure(m.host, m, `move:${k}`, () => (m.round === round && !unsentDone.has(k) ? { action: "move", data: inTurn ? { cell: move, n, k } : { cell: move, k } } : null));
+      if (inTurn) unsentInTurn.set(k, { matchId: m.id, n, round });
     }
   }
   return null;
@@ -999,7 +1020,23 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
 /** The host of a table: takes the players' steps and sends everyone the state. */
 async function hostStep(m: Match, e: GameEvent, d: Data) {
   const seat = m.seats.findIndex((s) => s.id === e.from_id);
-  if (seat < 0) return; // not at this table
+  if (seat < 0) {
+    // LANX 3.17.0: not at the table, but invited to it, and pressing Play after the start: they sit
+    // down at the next round. (This was meant to work since 2.17.0, but whoever was not seated was
+    // turned away before the code for it was reached.)
+    const guest = (m.invited ?? []).find((x) => x.id === e.from_id);
+    if (!guest || e.action !== "accept" || (m.status !== "playing" && m.status !== "over")) return;
+    if (!(m.late ?? []).some((l) => l.id === e.from_id)) {
+      m.late = [...(m.late ?? []), { id: e.from_id, name: guest.name || e.from_name }];
+      m.gone = m.gone.filter((id) => id !== e.from_id);
+      m.lastAt = Date.now();
+      m.unseen = true;
+      bump();
+      nudge?.(`${guest.name || e.from_name} wants to join the ${gameName(m.game)} table — they sit down at the next round.`, m);
+    }
+    await sendTo(e.from_id, m, "state", stateData(m));
+    return;
+  }
   const who = m.seats[seat].name;
   const game = gameName(m.game);
   let note = "";
@@ -1051,9 +1088,14 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
     case "move": {
       // Their turn — or, when everyone acts at once, a move marked with their own player number.
       const theirs = m.turn < 0 ? String(d.cell ?? "").startsWith(`${playerOf(m, seat)}@`) : turnSeat(m) === seat;
-      // LANX 3.16.0: a move says which place in the game it is for; one that comes again, or late, is not played.
-      const place = typeof (d as { n?: unknown }).n === "number" ? ((d as { n?: number }).n as number) : null;
-      if (m.status !== "playing" || !theirs || d.cell === undefined || (place !== null && place !== m.moves.length)) {
+      // LANX 3.16.0: a move made in turn says which place in the game it is for; one that comes
+      // again, or late, is not played. LANX 3.16.1: only of moves made in turn (where everyone acts
+      // at once, two answers of the same moment both name the same place, and both count); and
+      // every move's own number is played once.
+      const place = m.turn >= 0 && typeof (d as { n?: unknown }).n === "number" ? ((d as { n?: number }).n as number) : null;
+      const k = typeof (d as { k?: unknown }).k === "string" ? ((d as { k: string }).k as string).slice(0, 40) : null;
+      const again = k !== null && (m.seen ?? []).includes(k);
+      if (m.status !== "playing" || !theirs || d.cell === undefined || again || (place !== null && place !== m.moves.length)) {
         await sendTo(e.from_id, m, "state", stateData(m)); // put their board right
         return;
       }
@@ -1062,6 +1104,7 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
         await sendTo(e.from_id, m, "state", stateData(m));
         return;
       }
+      if (k !== null) m.seen = [...(m.seen ?? []), k].slice(-200);
       soundAfterMove(m, false);
       note = isOver(m) ? `${game}: ${resultText(m)}` : myTurn(m) ? `${who} played — your move in ${game}.` : "";
       await broadcast(m);
@@ -1098,15 +1141,27 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
     const joined = Array.isArray(d.joined) ? d.joined.map(String) : m.joined;
     const rules = await import("./gameRules");
     if (!rules.validateMoves(m.game, moves, seats.length, `${m.id}#${round}`)) return;
-    if (status === "playing" && !seats.some((s) => s.id === me)) {
+    const late = Array.isArray((d as { late?: unknown }).late) && ((d as { late: unknown[] }).late.map(String).includes(me));
+    if ((status === "playing" || d.status === "over") && !seats.some((s) => s.id === me)) {
+      const before = m.note;
       m.status = "declined";
-      m.note = "The game started without you.";
-      sfx("buzz");
-      note = `The ${game} table started without you.`;
+      // LANX 3.17.0: "…you sit down at the next round" once the host has heard your Play.
+      m.note = late ? "The game is under way. You sit down at the next round." : "The game started without you.";
+      if (m.note !== before) {
+        sfx("buzz");
+        note = late ? `The ${game} table is playing — you sit down at the next round.` : `The ${game} table started without you.`;
+      }
     } else {
       const wasLobby = m.status === "lobby";
-      // (My move that was still waiting to be sent: the host's game holds it, or has gone on without it.)
-      if (round !== m.round || moves.length > m.moves.length - 1) dropPending(m.id, m.host, "move");
+      // (A move of mine, made in turn, that was still waiting to be sent: the host's game holds it,
+      // or has gone on without it. An answer given when everyone acts at once keeps waiting: the
+      // host's list growing says nothing about it.)
+      for (const [k, w] of unsentInTurn) {
+        if (w.matchId !== m.id || (w.round === round && moves.length <= w.n)) continue;
+        unsentDone.add(k);
+        unsentInTurn.delete(k);
+        dropPending(m.id, m.host, `move:${k}`);
+      }
       const had = m.round === round ? m.moves.length : -1;
       const hadJoined = m.joined.length;
       const newRound = m.round !== round;
@@ -1155,22 +1210,40 @@ export interface GameStats {
 export type Stats = Record<string, GameStats>;
 
 let stats: Stats | null = null;
+/** LANX 3.17.0: the rounds already counted ("<match>#<round>"), kept with the statistics, so that no
+ *  game is counted twice — not when the result arrives a second time, not after LANX restarts. */
+let counted: string[] = [];
+const COUNTED = "#counted";
+const COUNTED_MAX = 400;
 
 export async function loadStats(): Promise<Stats> {
   if (stats) return stats;
+  let raw: string | null;
   try {
-    const raw = await api.getPref("games_stats");
-    const parsed = raw ? (JSON.parse(raw) as Stats) : {};
-    stats = parsed && typeof parsed === "object" ? parsed : {};
+    raw = await api.getPref("games_stats");
   } catch {
-    stats = {};
+    // LANX 3.17.0: could not be read just now. Nothing is kept and nothing will be written over
+    // what is on disk; the next time tries again. (This used to be taken for "no statistics yet",
+    // and the next result then wiped every earlier one.)
+    return {};
   }
+  let parsed: unknown = {};
+  try {
+    parsed = raw ? JSON.parse(raw) : {};
+  } catch {
+    parsed = {};
+  }
+  const all = (parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}) as Record<string, unknown>;
+  counted = Array.isArray(all[COUNTED]) ? (all[COUNTED] as unknown[]).map(String).slice(-COUNTED_MAX) : [];
+  delete all[COUNTED];
+  stats = all as Stats;
   return stats;
 }
 
 async function saveStats() {
+  if (!stats) return; // never read: nothing of ours to write
   try {
-    await api.setPref("games_stats", JSON.stringify(stats ?? {}));
+    await api.setPref("games_stats", JSON.stringify({ ...stats, [COUNTED]: counted.slice(-COUNTED_MAX) }));
   } catch {
     /* the score is only a convenience */
   }
@@ -1182,12 +1255,17 @@ async function recordResult(m: Match) {
   if (m.mode === "local" || !m.result) return;
   const seat = mySeat(m);
   if (seat < 0) return;
-  const s = await loadStats();
-  const g = (s[m.game] ??= fresh());
+  // (taken now: the match may have gone on to another round by the time the statistics are read)
+  const result = m.result;
+  const key = `${m.id}#${m.round}`;
+  if (result.winner === null && !result.draw) return; // abandoned: nobody won or lost, and it is not a game played
+  await loadStats();
+  if (!stats || counted.includes(key)) return;
+  counted.push(key);
+  const g = (stats[m.game] ??= fresh());
   g.played += 1;
-  if (m.result.draw) g.drawn += 1;
-  else if (m.result.winner === null) return; // abandoned: nobody won or lost
-  else if (wonBy(m.result, seat)) g.won += 1;
+  if (result.draw) g.drawn += 1;
+  else if (wonBy(result, seat)) g.won += 1;
   else g.lost += 1;
   await saveStats();
   bump();
@@ -1195,8 +1273,9 @@ async function recordResult(m: Match) {
 
 /** A solo game finished with this score (Minesweeper counts seconds: lower is better). */
 export async function recordScore(game: SoloId, score: number, lowerIsBetter = false) {
-  const s = await loadStats();
-  const g = (s[game] ??= fresh());
+  await loadStats();
+  if (!stats) return;
+  const g = (stats[game] ??= fresh());
   g.played += 1;
   if (g.best === undefined || (lowerIsBetter ? score < g.best : score > g.best)) g.best = score;
   await saveStats();

@@ -4,7 +4,11 @@ const net = globalThis.NET;
 export const errorText = (e) => String(e?.message ?? e);
 export const api = {
   sendGame: (peerId, step) => net.send(pc, peerId, step),
-  getPref: async (k) => net.prefs[pc]?.[k] ?? null,
+  getPref: async (k) => {
+    // (a test can make a read fail: the settings store is busy)
+    if (net.prefFail?.(pc, k)) throw new Error("The settings could not be read.");
+    return net.prefs[pc]?.[k] ?? null;
+  },
   setPref: async (k, v) => { (net.prefs[pc] ??= {})[k] = v; },
   getConversations: async () => [],
   getMessages: async () => [],
