@@ -10,6 +10,10 @@ registerHooks({
       if (specifier === "./gameSounds") return { url: new URL("mock-sfx.mjs", here).href, shortCircuit: true };
       if (specifier === "./gameRules") return { url: new URL("gameRules.ts", parent.split("?")[0]).href, shortCircuit: true };
     }
+    // A neighbour named without its ending ("./webrtc"), as the app's bundler allows: the .ts file.
+    if (/^\.\.?\//.test(specifier) && !/\.[a-z]+$/i.test(specifier) && parent.includes("/src/")) {
+      return { url: new URL(specifier + ".ts", parent.split("?")[0]).href, shortCircuit: true };
+    }
     return nextResolve(specifier, context);
   },
 });

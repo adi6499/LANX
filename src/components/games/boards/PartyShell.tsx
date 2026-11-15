@@ -6,6 +6,7 @@
 // screen or the hidden copy that keeps a table going — never both); the
 // others count the round down on their own clock; the log says names.
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { steadyInterval, steadyTimeout } from "../../../lib/steadyClock";
 import { sfx } from "../../../lib/gameSounds";
 import { HostAway, namesIn, seatFor, type Seat } from "../boardProps";
 import type { RoundState } from "../../../lib/games/party.ts";
@@ -132,7 +133,8 @@ export function PartyShell({
     if (!host || !state.open) return;
     const key = `close|${testId}:${state.round}:${state.deadline}`;
     let since = 0;
-    const t = window.setInterval(() => {
+    // LANX 3.17.0: on a clock that keeps time while LANX is hidden or minimised (lib/steadyClock).
+    const stop = steadyInterval(() => {
       if (closed.current === key) return;
       const { allIn: everyone, onMove: send } = live.current;
       since = everyone ? since || Date.now() : 0;
@@ -141,7 +143,7 @@ export function PartyShell({
       closed.current = key;
       send(`e:${state.round}`);
     }, 150);
-    return () => window.clearInterval(t);
+    return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, state.open, state.round, state.deadline, testId]);
   const closeNow = () => {
@@ -157,10 +159,9 @@ export function PartyShell({
   next.current = startNext;
   useEffect(() => {
     if (!away || !host || state.open || state.done || canStart === false) return;
-    const t = window.setTimeout(() => {
+    return steadyTimeout(() => {
       if (drive(`next|${testId}:${state.round}`)) next.current();
     }, 8000);
-    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [away, host, state.open, state.done, state.round, canStart, testId]);
   const me = seat ?? -1;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { steadyInterval } from "../../../lib/steadyClock";
 import { namesIn, seatFor, type BoardProps } from "../boardProps";
 import { dealRoles, resolveNight, tally, werewolf, wolfCount, type NightAct, type Role, type Vote, type WerewolfState } from "../../../lib/games/werewolf.ts";
 import { firstSeen, hostName, useDriver } from "./PartyShell";
@@ -98,8 +99,8 @@ export function useWerewolf({ moves, canPlay, seat, seats, starter = 0, seed = "
   useEffect(() => run.current());
   useEffect(() => {
     if (!host) return;
-    const t = window.setInterval(() => run.current(), 400);
-    return () => window.clearInterval(t);
+    // LANX 3.17.0: on a clock that keeps time while LANX is hidden or minimised (lib/steadyClock).
+    return steadyInterval(() => run.current(), 400);
   }, [host]);
   const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
   const start = () => {

@@ -18,13 +18,29 @@ export interface ChannelHooks {
 
 type Msg = { kind: "rtc"; to?: number; from: number; sdp: string; what: "offer" | "answer" };
 type Line = { pc: RTCPeerConnection; dc: RTCDataChannel | null; open: boolean };
+/** A message is passed through the host's relay at most this often per player (each one is a whole connection). */
+const RELAY_EVERY_MS = 100;
 
 export class GameChannel {
   private lines = new Map<number, Line>();
   private listeners = new Set<(from: number, data: unknown) => void>();
   private closed = false;
+  /** LANX 3.17.0: every message has a number; one older than the newest heard from that player is left out. */
+  private sent = 0;
+  private heard = new Map<number, number>();
+  private relayed = new Map<number, number>();
+  /** True for a message that is newer than anything heard from that player (or carries no number: an older LANX). */
+  private fresh(from: number, q: unknown): boolean {
+    if (typeof q !== "number") return true;
+    if (q <= (this.heard.get(from) ?? 0)) return false;
+    this.heard.set(from, q);
+    return true;
+  }
 
-  constructor(private hooks: ChannelHooks) {
+  private hooks: ChannelHooks;
+
+  constructor(hooks: ChannelHooks) {
+    this.hooks = hooks;
     if (hooks.host) for (const p of hooks.players) if (p !== hooks.me) void this.offer(p);
   }
 
@@ -41,7 +57,7 @@ export class GameChannel {
       // LANX 2.16.0: the sender as the match vouches for it (the host's relay), not as it claims.
       const claimed = (d as unknown as { __from?: unknown }).__from;
       const from = typeof claimed === "number" ? claimed : d.from;
-      for (const fn of this.listeners) fn(from, d.payload);
+      if (this.fresh(from, (d as unknown as { q?: unknown }).q)) for (const fn of this.listeners) fn(from, d.payload);
       return true;
     }
     return false;
@@ -57,21 +73,37 @@ export class GameChannel {
   /** Sends to one player (the host) or to everyone (the guests only reach the host). */
   send(data: unknown, to?: number) {
     if (this.closed) return;
-    const targets = this.hooks.host ? (to === undefined ? [...this.lines.keys()] : [to]) : [...this.lines.keys()];
-    const text = JSON.stringify({ from: this.hooks.me, payload: data });
-    let sent = false;
-    for (const t of targets) {
-      const l = this.lines.get(t);
-      if (l?.dc && l.open && l.dc.readyState === "open") {
-        try {
-          l.dc.send(text);
-          sent = true;
-        } catch {
-          /* fall through to the relay */
-        }
+    // LANX 3.17.0: player by player. Whoever has an open line gets it there; anyone whose line
+    // is not open gets it through the host's relay. (The relay used to be tried only when no line
+    // at all was open: with three or more at the table, a PC whose own line never opened got
+    // nothing while the others played.) The relay is slower, so a player gets at most ten
+    // messages a second that way.
+    const q = ++this.sent;
+    const text = JSON.stringify({ from: this.hooks.me, payload: data, q });
+    const now = Date.now();
+    const onLine = (l: Line | undefined): boolean => {
+      if (!l?.dc || !l.open || l.dc.readyState !== "open") return false;
+      try {
+        l.dc.send(text);
+        return true;
+      } catch {
+        return false; // the relay, then
       }
+    };
+    /** Not more often than the relay can bear (per player; a guest's one way is filed under -1). */
+    const relayNow = (who: number): boolean => {
+      if (now - (this.relayed.get(who) ?? 0) < RELAY_EVERY_MS) return false;
+      this.relayed.set(who, now);
+      return true;
+    };
+    if (!this.hooks.host) {
+      // A guest reaches only the host: its line, or the relay.
+      if (!onLine([...this.lines.values()][0]) && relayNow(-1)) this.hooks.sendDelta({ kind: "live", from: this.hooks.me, to, payload: data, q });
+      return;
     }
-    if (!sent) this.hooks.sendDelta({ kind: "live", from: this.hooks.me, to, payload: data });
+    for (const t of to === undefined ? this.hooks.players.filter((p) => p !== this.hooks.me) : [to]) {
+      if (!onLine(this.lines.get(t)) && relayNow(t)) this.hooks.sendDelta({ kind: "live", from: this.hooks.me, to: t, payload: data, q });
+    }
   }
 
   get live(): boolean {
@@ -102,9 +134,9 @@ export class GameChannel {
     };
     dc.onmessage = (e) => {
       try {
-        const m = JSON.parse(String(e.data)) as { from: number; payload: unknown };
+        const m = JSON.parse(String(e.data)) as { from: number; payload: unknown; q?: unknown };
         // LANX 2.16.0: a line belongs to one player — whatever it says, it speaks for that player only.
-        for (const fn of this.listeners) fn(p, m.payload);
+        if (this.fresh(p, m.q)) for (const fn of this.listeners) fn(p, m.payload);
       } catch {
         /* ignore */
       }
