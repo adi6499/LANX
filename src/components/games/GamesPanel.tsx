@@ -738,6 +738,12 @@ function MatchView({ match: m, three, versions, onMove, onBack, onError }: { mat
                 </div>
               </div>
             )}
+            {/* (what came of a request for another round: "… does not want another round right now.") */}
+            {m.status === "over" && m.mode === "duo" && m.note && !m.asked && !m.rematchAsk && (
+              <div data-game-note className="w-full rounded-2xl bg-slate-500/10 px-3 py-2 text-[12px] text-slate-600 dark:text-slate-300">
+                {m.note}
+              </div>
+            )}
             {m.status === "over" && m.mode === "duo" && m.asked && !m.rematchAsk && (
               <div data-game-rematch-asked className="w-full rounded-2xl bg-slate-500/10 px-3 py-2 text-[12px] text-slate-600 dark:text-slate-300">
                 Asked {other?.name ?? "your colleague"} for another round. It starts when they say yes.

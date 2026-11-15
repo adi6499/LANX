@@ -894,6 +894,7 @@ export async function rematch(id: string, opts?: { ask?: boolean }) {
     const round = m.round + 1;
     if (m.rematchAsk && m.rematchAsk.round === round) return acceptRematch(id); // they asked already: that is a yes
     m.asked = { round };
+    m.note = "";
     m.lastAt = Date.now();
     bump();
     await sendSure(opponent(m)!.id, m, "rematch", () => (m.asked && m.asked.round === round && m.round < round ? { action: "rematch", data: { round, ask: 1 } } : null));
