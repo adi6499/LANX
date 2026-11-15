@@ -216,6 +216,12 @@ export interface Match {
   secretRound?: number;
   /** multi, the host (2.17.0): colleagues who pressed Play after the game started; they sit down at the next round. */
   late?: { id: string; name: string }[];
+  /** LANX 3.17.0: a fingerprint of the game as this PC sees it ("<round>:<moves>:<mark>"; the mark
+   *  is made of whose turn it is, how the game stands or ended, and the score line). It travels
+   *  with every step, and the other PC compares. */
+  fp?: string;
+  /** LANX 3.17.0: another PC, with the very same moves, sees a different game (see `fp`). */
+  outOfStep?: boolean;
   /** duo (3.17.0): this PC asked the other for round `round` and waits for the answer. */
   asked?: { round: number };
   /** duo (3.17.0): the other player asks for round `round`; this PC has not answered yet. */
@@ -669,6 +675,8 @@ const stateData = (m: Match) => ({
   round: m.round,
   status: m.status,
   joined: m.joined,
+  // LANX 3.17.0: how the host sees the game (see compareStep).
+  fp: m.fp,
   // LANX 3.17.0: the number of this news (see guestStep: older news never replaces newer).
   rev: m.rev ?? 0,
   boot: BOOT,
@@ -725,7 +733,40 @@ async function settle(m: Match) {
     m.result = { winner: end.winner === null ? null : seatOf(m, end.winner), draw: end.draw, reason: end.reason, winners: end.winners?.map((p) => seatOf(m, p)) };
     void recordResult(m);
   }
+  let line = "";
+  try {
+    line = rules.summaryOf(m.game, m.moves, n, seedOf(m));
+  } catch {
+    /* a game without a score line */
+  }
+  m.fp = `${m.round}:${m.moves.length}:${mark(`${m.turn}|${end.over}|${end.winner}|${end.draw}|${end.reason}|${line}`)}`;
   bump(); // the turn (or the result) changed after the rules were loaded
+}
+
+/** A short mark of a text (the same on every PC). */
+function mark(text: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** LANX 3.17.0: the other PC's fingerprint of the game against ours. Only the moves travel between
+ *  PCs; each works the game out for itself, and nothing ever compared the results. Now a PC that,
+ *  with the very same moves, sees another turn, another score or another ending is told so. */
+function compareStep(m: Match, theirs: unknown, who: string): string {
+  if (typeof theirs !== "string" || !m.fp) return "";
+  const [round, count] = theirs.split(":");
+  const [myRound, myCount] = m.fp.split(":");
+  if (round !== myRound || count !== myCount) return ""; // not the same moment of the game
+  const differs = theirs !== m.fp;
+  if (differs === !!m.outOfStep) return "";
+  m.outOfStep = differs;
+  if (!differs) return "";
+  console.warn(`[games] ${m.game} ${m.id}: this PC and ${who} see different games after the same ${count} moves (${m.fp} / ${theirs})`);
+  return `${gameName(m.game)}: this PC and ${who} do not see the same game any more. Start another round to put it right.`;
 }
 
 async function appendValid(m: Match, move: string): Promise<boolean> {
@@ -876,6 +917,7 @@ export async function rematch(id: string, opts?: { ask?: boolean }) {
   bump();
   m.asked = undefined;
   m.rematchAsk = undefined;
+  m.outOfStep = false;
   if (m.mode === "duo") {
     const round = m.round;
     await sendSure(opponent(m)!.id, m, "rematch", () => (m.round === round && m.moves.length === 0 ? { action: "rematch", data: { round } } : null));
@@ -912,6 +954,7 @@ function startRound(m: Match, round: number) {
   m.status = "playing";
   m.asked = undefined;
   m.rematchAsk = undefined;
+  m.outOfStep = false;
   m.lastAt = Date.now();
 }
 
@@ -1017,7 +1060,7 @@ export function markSeen(id: string) {
 type Data = { moves?: unknown; round?: unknown; cell?: unknown; seats?: unknown; status?: unknown; joined?: unknown; first?: unknown; sync?: unknown; ended?: unknown };
 
 /** What a two-player match tells the other PC: the moves, the round and (2.16.1) who sits first. */
-const duoData = (m: Match) => ({ moves: m.moves, round: m.round, first: m.seats[0]?.id, resigned: m.resigned && m.resigned.round === m.round ? m.resigned.by : undefined });
+const duoData = (m: Match) => ({ moves: m.moves, round: m.round, first: m.seats[0]?.id, fp: m.fp, resigned: m.resigned && m.resigned.round === m.round ? m.resigned.by : undefined });
 
 /** LANX 2.16.1: who challenged in a two-player match, from the game card in the chat with that colleague. */
 async function challenger(matchId: string, peerId: string): Promise<string | null> {
@@ -1243,7 +1286,17 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       }
       // LANX 2.16.1: their board is behind ours (their LANX restarted, or a step went missing): send them the game.
       if (mv.length < m.moves.length && !m.catchUp && (m.status === "playing" || m.status === "over")) void sendTo(opp.id, m, "state", duoData(m));
-      if (m.status !== "playing" || mv.length <= m.moves.length) return;
+      if (m.status !== "playing" || mv.length <= m.moves.length) {
+        // (the same list as ours: do the two PCs make the same game of it?)
+        if (mv.length === m.moves.length && round === m.round) {
+          const said = compareStep(m, (d as { fp?: unknown }).fp, who);
+          if (said) {
+            bump();
+            nudge?.(said, m);
+          }
+        }
+        return;
+      }
       const rules = await import("./gameRules");
       if (!rules.validateMoves(m.game, mv, 2, seedOf(m))) return;
       if (m.catchUp) {
@@ -1266,7 +1319,7 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       m.moves = mv;
       await settle(m);
       soundAfterMove(m, false);
-      note = isOver(m) ? `${game} vs ${who}: ${resultText(m)}` : myTurn(m) ? `${who} played — your move in ${game}.` : `${who} played in ${game}.`;
+      note = compareStep(m, (d as { fp?: unknown }).fp, who) || (isOver(m) ? `${game} vs ${who}: ${resultText(m)}` : myTurn(m) ? `${who} played — your move in ${game}.` : `${who} played in ${game}.`);
       break;
     }
     default:
@@ -1437,6 +1490,7 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
       const hadJoined = m.joined.length;
       const newRound = m.round !== round;
       if (newRound) m.deltas = []; // last round's strokes and taps (2.17.0)
+      if (newRound) m.outOfStep = false;
       m.seats = seats;
       m.moves = moves;
       m.round = round;
@@ -1445,6 +1499,7 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
       m.result = null;
       m.note = "";
       await settle(m);
+      const apart = compareStep(m, (d as { fp?: unknown }).fp, e.from_name);
       // LANX 2.17.0: the host ended it because someone left.
       if (!isOver(m) && d.status === "over" && typeof d.ended === "string") {
         m.status = "over";
@@ -1461,6 +1516,7 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
         soundAfterMove(m, false);
         if (myTurn(m)) note = `Your move in ${game}.`;
       } else if (status === "lobby" && joined.length > hadJoined) sfx("join");
+      if (apart) note = apart;
     }
   } else return;
   m.lastAt = Date.now();

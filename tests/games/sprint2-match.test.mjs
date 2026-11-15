@@ -610,3 +610,50 @@ test("S2-07 with a colleague on an older LANX another round starts at once, as b
     assert.equal(pc.getMatch(id).round, 2);
   }
 });
+
+// ------------------------------------------------------------------ S2-12
+test("S2-12 the PCs of a game compare what they see: the same moves giving another game is noticed", async () => {
+  const net = makeNet();
+  const A = await net.boot("A");
+  const B = await net.boot("B");
+  const { match, card } = A.challenge("ludo", peer("B"));
+  const id = match.id;
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick();
+  assert.equal(await A.play(id, "r"), null);
+  await tick(12);
+  // Every step carries a fingerprint, and the two agree.
+  const steps = net.log.filter((l) => l.action === "move");
+  assert.match(steps.at(-1).data.fp, /^1:\d+:[0-9a-z]+$/);
+  assert.equal(A.getMatch(id).fp, B.getMatch(id).fp);
+  assert.ok(!A.getMatch(id).outOfStep && !B.getMatch(id).outOfStep);
+  // A copy that makes another game of the same moves (another die, say) would send another fingerprint.
+  const now = B.getMatch(id);
+  const [round, count] = now.fp.split(":");
+  await net.send("A", "B", { match_id: id, game: "ludo", action: "move", seq: 0, data: { moves: now.moves, round: 1, first: "A", fp: `${round}:${count}:zzzz` }, at: 0 });
+  await tick(12);
+  assert.equal(B.getMatch(id).outOfStep, true, "B is told that the two PCs do not see the same game (this used to stay unnoticed)");
+  // The same moves and the same fingerprint again: all is well again.
+  await net.send("A", "B", { match_id: id, game: "ludo", action: "move", seq: 0, data: { moves: now.moves, round: 1, first: "A", fp: now.fp }, at: 0 });
+  await tick(12);
+  assert.equal(B.getMatch(id).outOfStep, false);
+  // A fingerprint of another moment of the game, or none at all (an older LANX), says nothing.
+  for (const fp of [`${round}:${Number(count) + 3}:zzzz`, `2:${count}:zzzz`, undefined]) {
+    await net.send("A", "B", { match_id: id, game: "ludo", action: "move", seq: 0, data: { moves: now.moves, round: 1, first: "A", fp }, at: 0 });
+    await tick(12);
+    assert.equal(B.getMatch(id).outOfStep, false, String(fp));
+  }
+});
+
+test("S2-12 a table: a guest compares with the host, through a whole game without a false alarm", async () => {
+  const { net, pcs, id } = await table("chainreaction");
+  await playOut(pcs, id, 5);
+  for (const k of Object.keys(pcs)) assert.ok(!pcs[k].getMatch(id).outOfStep, `${k} in step`);
+  assert.ok(net.log.filter((l) => l.action === "state").every((l) => typeof l.data.fp === "string"));
+  // The host's news with another fingerprint for the same moves: the guest is told.
+  const h = pcs.H.getMatch(id);
+  const last = net.log.filter((l) => l.to === "G1" && l.action === "state").at(-1).data;
+  await net.send("H", "G1", { match_id: id, game: "chainreaction", action: "state", seq: 0, data: { ...last, rev: last.rev + 1, fp: `${h.round}:${h.moves.length}:zzzz` }, at: 0 });
+  await tick(12);
+  assert.equal(pcs.G1.getMatch(id).outOfStep, true);
+});

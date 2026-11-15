@@ -708,6 +708,12 @@ function MatchView({ match: m, three, versions, onMove, onBack, onError }: { mat
               {m.error}
             </div>
           )}
+          {/* LANX 3.17.0: the PCs of this game compare what they see after every move. */}
+          {m.outOfStep && m.mode !== "local" && (
+            <div data-game-out-of-step className="rounded-2xl bg-amber-500/15 px-3 py-2 text-[12px] text-amber-900 dark:text-amber-200">
+              This PC and {m.mode === "duo" ? (games.opponent(m)?.name ?? "the other PC") : "the host"} do not see the same game any more. {m.mode === "duo" || host ? "Start another round to put it right." : "Ask the host to start another round."}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             {m.status === "playing" && m.moves.length > 0 && (m.mode === "local" || mine >= 0) && meta.group !== "party" && !meta.realtime && (sure ? (
               <button type="button" data-game-resign-sure onClick={() => void games.resign(m.id)} className={`${btn} bg-rose-600 text-white hover:bg-rose-700`}>
