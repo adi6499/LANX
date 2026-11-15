@@ -19,6 +19,19 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.17.0",
+    title: "Games that do not get stuck between PCs",
+    items: [
+      { icon: "🔁", title: "A game is still there after LANX restarts", text: "Your games are now kept on your PC. Close LANX or restart the PC in the middle of a game, and it is all still there. A table no longer dies when the host’s LANX restarts: the host tells everyone how things stand and play goes on." },
+      { icon: "🪑", title: "The host can take out a player who has gone", text: "If a colleague’s PC is switched off on their turn, the whole table used to wait for good. The host now has a small button next to each player to take them out; the others play on." },
+      { icon: "🤝", title: "Another round is a question", text: "“Rematch” in a two-player game now asks the other player, who answers “Play” or “Not now”. Nothing changes on either board until they say yes, and a game that is being played is never wiped." },
+      { icon: "📬", title: "Nothing late, nothing twice, nothing crossed", text: "News from a table’s host is numbered, so an old message that arrives late can no longer undo a newer one. When both players press at the same moment (Ready in Sea Battle), both count. An answer in a party game says which round it is for and is not taken for the next one." },
+      { icon: "🗑️", title: "Cancelled means cancelled", text: "A challenge you cancelled, a game you cleared and a game someone gave up stay that way, also after a restart. Whoever still presses Play on the old card is told the game is gone." },
+      { icon: "⏱️", title: "Party games keep time when LANX is minimised", text: "On the host’s PC a round now closes on time even when LANX is hidden or minimised. If two PCs ever see a different game after the same moves, LANX says so instead of leaving it unnoticed." },
+      { icon: "💡", title: "Good to know", text: "Tap Roulette, Math Rush, Trivia, Wordbox, Draw & Guess, Paint Fight and Werewolf need LANX 3.17.0 on every PC at the table. With a colleague on an older LANX, “Rematch” starts the round at once, as before. A PC that is asleep keeps no time: its party round closes when it wakes." },
+    ],
+  },
+  {
     version: "3.16.1",
     title: "Games at a table: two faults of 3.16.0 put right",
     items: [

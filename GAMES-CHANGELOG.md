@@ -6,6 +6,27 @@ checklist with every status is the document "LANX Games repair plan and checklis
 
 Run the tests: `npm run test:games` (Node 24 runs the rule files as they are; nothing to build).
 
+## Sprint 2 — multiplayer reliability (LANX 3.17.0)
+
+Tests: `tests/games/sprint2-match.test.mjs` (29) and `tests/games/sprint2-clock-line.test.mjs` (4);
+with Sprint 1's 27 that is 60. (S2-06, S2-08 and S2-10 went out with 3.16.1, see below.)
+
+| ID | What was wrong | What changed | Test |
+|---|---|---|---|
+| S2-01 | The host's news to a table carried a number that nobody read; an older one arriving late replaced a newer one, and the table could wait for good. | The host numbers its news (`rev`, within one run of LANX: `boot`); a guest leaves alone an older one. | "S2-01 …" |
+| S2-02 | Matches lived in memory only: a table died in silence when the host's LANX restarted. | Matches are kept on disk (pref `games_live`: the newest 30 of the last week). After a restart the host tells its table, a guest asks its host, two players ask each other. | 3 tests "S2-02 …" |
+| S2-03 | Party games stopped keeping time while the host's LANX was hidden. | The host's round clock runs on `lib/steadyClock` (a worker's clock beside the page's). **Not done:** the real-time games' own loop (Sprint 4); a sleeping PC cannot be helped. | 2 tests "S2-03 …" (stand-in worker) |
+| S2-04 | A player whose PC disappeared on their turn blocked the table; only the player could take themselves out. | `removePlayer`: the host takes a player out, as if they had left (a small button on the player's row, pressed twice). | "S2-04 …" |
+| S2-05 | Two moves that crossed in a two-player game (both pressing Ready) were both ignored. | Moves both may make at once are merged in one fixed order on both PCs. | 3 tests "S2-05 …" |
+| S2-07 | "Rematch" restarted both boards at once, and could wipe a game in progress. | Asked for and answered (`rematch({ask})`, `acceptRematch`, `declineRematch`); never wipes a game being played; with a LANX older than 3.17.0 it starts at once as before. | 5 tests "S2-07 …" |
+| S2-09 | Cancel, Clear and a resignation were not remembered for two-player matches. | Remembered for every match between PCs, over a restart; whoever still sends steps for it is told it is gone; a resignation travels with the game. | 3 tests "S2-09 …" |
+| S2-11 | Live games with 3+ players: the relay was used only when no line at all was open; snapshots had no order. | Per player: the line where it is open, the relay where it is not (ten a second at most); every message numbered. | 2 tests "S2-11 …" (stand-in connection) |
+| S2-12 | Nothing checked that two PCs made the same game of the same moves. | Every step carries a fingerprint (turn, standing or ending, score line); a PC that differs is told, and so is its player. It does not compare every piece on the board. | 2 tests "S2-12 …" |
+| S2-13 | Answers and votes carried no round number; a late one was taken for the next round. | "<player>@a#<round>:…" and "<player>@v#<day>:…", refused in any other round; marked by the match code. **These games need 3.17.0 on every PC:** Tap Roulette, Math Rush, Trivia, Wordbox, Draw & Guess, Paint Fight, Werewolf. | 2 tests "S2-13 …" |
+
+Not done in Sprint 2, said plainly: a player is taken out by the host's hand, not by itself
+after a time; the real-time games' loop still stops while the host's window is hidden.
+
 ## LANX 3.16.1 — two faults of 3.16.0, and the first of Sprint 2 (15 Nov 2026)
 
 Tests: `tests/games/sprint2-match.test.mjs` (9). The three named "3.16.1" fail on the 3.16.0 code.
