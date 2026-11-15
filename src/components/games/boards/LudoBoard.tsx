@@ -1,4 +1,4 @@
-import { Dice3D } from "./Dice3D";
+import { DIE_SHOW, Dice3D, DieFaces } from "./Dice3D";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
 import { FINISH, TRACK, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
@@ -76,6 +76,155 @@ export function useLudoAutoMove(state: LudoState | null, canPlay: boolean, onMov
     }, delay);
     return () => window.clearTimeout(t);
   }, [pick, rolls, delay]);
+}
+
+// ---------------------------------------------------------------- one thing at a time (3.16.0)
+
+/** The throw of the die, and how long its number then stays before anything follows. */
+export const ROLL_MS = 950;
+export const HOLD_MS = 1000;
+/** A breath after a token has landed. */
+const AFTER_MOVE_MS = 220;
+
+/** How long a step is on show before the next may follow. */
+function stepMs(moves: string[], i: number, n: number, seed: string, still: boolean): number {
+  const m = moves[i] ?? "";
+  if (m === "r") return (still ? 0 : ROLL_MS) + HOLD_MS;
+  if (!m.startsWith("m:")) return 0;
+  if (still) return AFTER_MOVE_MS;
+  const before = ludo.replay(moves.slice(0, i), n, seed);
+  const after = ludo.replay(moves.slice(0, i + 1), n, seed);
+  if (!before || !after) return 0;
+  const p = before.turn;
+  const t = Number(m.slice(2));
+  const from = before.pos[p]?.[t] ?? -1;
+  const to = after.pos[p]?.[t] ?? from;
+  const hops = from === -1 ? 1 : Math.max(0, to - from);
+  const knocked = after.pos.some((list, q) => q !== p && list.some((rel, k) => rel === -1 && (before.pos[q]?.[k] ?? -1) >= 0));
+  return hops * STEP_MS + (knocked ? HOME_MS : 0) + AFTER_MOVE_MS;
+}
+
+/** LANX 3.16.0: the board shows one thing at a time, each to its end. A roll is thrown, comes to
+ *  rest and stays for a moment; only then the token moves, the turn passes or the next roll comes.
+ *  (Everything used to be drawn the moment it arrived. A roll with no move passed the turn at
+ *  once, and the die with its number was gone before anyone could read it; a colleague's roll and
+ *  move, arriving together, showed only the end.) What is shown is the first `count` moves; the
+ *  game itself is never held back, only its picture.
+ *  `phase`: the newest step on show is a roll that is being thrown, or lies there to be read. */
+export function useLudoPlayback(moves: string[], n: number, seed: string) {
+  const [shown, setShown] = useState(moves.length);
+  const [, redraw] = useState(0);
+  const began = useRef(0); // when the step now on show began (0: it was there already)
+  const last = useRef(moves);
+  const still = reducedMotion();
+  // Still the same game? (A new round, or a list put right by the other PC, is shown as it is.)
+  const same = shown <= moves.length && last.current.slice(0, shown).every((x, i) => moves[i] === x);
+  let count = same ? shown : moves.length;
+  // Far behind (back after a break in the line): only the last few steps are played out.
+  if (moves.length - count > 8) count = moves.length - 3;
+  useEffect(() => {
+    last.current = moves;
+    if (count !== shown) {
+      began.current = 0;
+      setShown(count);
+    }
+  });
+  useEffect(() => {
+    if (count >= moves.length) return;
+    const left = began.current ? began.current + stepMs(moves, count - 1, n, seed, still) - performance.now() : 0;
+    const t = window.setTimeout(() => {
+      began.current = performance.now();
+      setShown(count + 1);
+    }, Math.max(0, left));
+    return () => window.clearTimeout(t);
+  }, [count, moves, n, seed, still]);
+  const newest = moves[count - 1];
+  const throwMs = still ? 0 : ROLL_MS;
+  const since = began.current ? performance.now() - began.current : Infinity;
+  const phase: "throw" | "hold" | null = newest === "r" && since < throwMs + HOLD_MS ? (since < throwMs ? "throw" : "hold") : null;
+  // Draw again when the die has come to rest, and when its number has been seen.
+  useEffect(() => {
+    if (newest !== "r" || !began.current) return;
+    const now = performance.now();
+    const timers = [throwMs, throwMs + HOLD_MS]
+      .map((ms) => began.current + ms - now)
+      .filter((ms) => ms > 0)
+      .map((ms) => window.setTimeout(() => redraw((x) => x + 1), ms + 20));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [count, newest, throwMs]);
+  return { count, live: count >= moves.length, phase, still };
+}
+
+/** Where a throw starts, by the thrower's corner of the screen (0 top left, clockwise): x, y as shares of the board. */
+const THROW_FROM: [number, number][] = [[0.14, 0.1], [0.86, 0.1], [0.86, 0.9], [0.14, 0.9]];
+/** The bounces of a throw: each one's share of the time, and how high it goes (the first is 1). */
+const BOUNCES: [number, number][] = [[0.4, 1], [0.26, 0.4], [0.17, 0.16], [0.1, 0.06]];
+
+/** LANX 3.16.0: the die, thrown onto the board from the roller's corner. It flies in, bounces four
+ *  times, each bounce lower and shorter, tumbling ever more slowly, and comes to rest near the
+ *  middle with its number up, where it stays to be read. Drawn frame by frame (no React in
+ *  between); with "less motion" it simply lies there. */
+function ThrownDie({ value, from, side, nth, still }: { value: number; from: number; side: number; nth: number; still: boolean }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const cube = useRef<HTMLSpanElement>(null);
+  const shadow = useRef<HTMLSpanElement>(null);
+  const v = Math.max(1, Math.min(6, Math.round(value) || 1));
+  const D = Math.round(side * 0.125);
+  useLayoutEffect(() => {
+    const start = THROW_FROM[from] ?? THROW_FROM[3];
+    // (never twice the same spot, nor the same way up: a little chance from the number of the roll)
+    const chance = (k: number) => ((nth * 9301 + k * 49297 + 233) % 1000) / 1000 - 0.5;
+    const end = [0.5 + (start[0] - 0.5) * 0.2 + chance(1) * 0.16, 0.5 + (start[1] - 0.5) * 0.2 + chance(2) * 0.16];
+    const [fx, fy] = DIE_SHOW[v];
+    const restZ = chance(3) * 50;
+    const draw = (u: number) => {
+      const e = 1 - (1 - u) ** 3; // fast at first, slower and slower
+      const x = (start[0] + (end[0] - start[0]) * e) * side;
+      const y = (start[1] + (end[1] - start[1]) * e) * side;
+      let z = 0;
+      let done = 0;
+      for (const [share, height] of BOUNCES) {
+        if (u < done + share) {
+          const w = (u - done) / share;
+          z = height * 4 * w * (1 - w);
+          break;
+        }
+        done += share;
+      }
+      const lift = z * side * 0.15;
+      if (box.current) box.current.style.transform = `translate(${(x - D / 2).toFixed(1)}px, ${(y - D / 2 - lift).toFixed(1)}px) scale(${(1 + z * 0.22).toFixed(3)})`;
+      if (cube.current) cube.current.style.transform = `rotateZ(${(restZ + (1 - e) * 220).toFixed(1)}deg) rotateX(${(fx + (1 - e) * 720).toFixed(1)}deg) rotateY(${(fy + (1 - e) * 1080).toFixed(1)}deg)`;
+      if (shadow.current) {
+        shadow.current.style.transform = `translate(${(x - D / 2 + lift * 0.3).toFixed(1)}px, ${(y - D / 2 + D * 0.2 + lift * 0.12).toFixed(1)}px) scale(${(1 - z * 0.25).toFixed(3)})`;
+        shadow.current.style.opacity = (0.34 - z * 0.2).toFixed(2);
+      }
+    };
+    if (still) {
+      draw(1);
+      return;
+    }
+    const t0 = performance.now();
+    let raf = 0;
+    const frame = () => {
+      const u = Math.min(1, (performance.now() - t0) / ROLL_MS);
+      draw(u);
+      if (u < 1) raf = requestAnimationFrame(frame);
+    };
+    frame();
+    return () => cancelAnimationFrame(raf);
+    // (one throw per die: a new roll is a new die)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <span className="pointer-events-none absolute inset-0" data-ludo-thrown={v} aria-hidden="true">
+      <span ref={shadow} className="absolute left-0 top-0 rounded-[30%] bg-black blur-[5px]" style={{ width: D, height: D * 0.82, opacity: 0 }} />
+      <span ref={box} className="g3-dice absolute left-0 top-0" style={{ width: D, height: D, ["--h" as string]: `${D / 2}px` }}>
+        <span ref={cube} className="g3-dice-cube" style={{ transition: "none" }}>
+          <DieFaces />
+        </span>
+      </span>
+    </span>
+  );
 }
 
 /** A corner's square for a token: its yard spot (-1), the track, its home column, or the centre. */
@@ -236,21 +385,29 @@ function useLudoMotion(state: LudoState | null, moves: string[], n: number) {
 
 /** Ludo: Roll, then click the token to move. LANX 2.17.1: the look of Ludo King — four strong colours,
  *  pin tokens, your colour at the bottom left, a player plate at each corner with the die. */
-export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
+export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
   const n = Math.max(2, Math.min(4, seats?.length ?? 2));
-  const state = useMemo(() => ludo.replay(moves, n, seed), [moves, n, seed]);
-  const rolls = useMemo(() => moves.filter((x) => x === "r").length, [moves]);
-  const place = useLudoMotion(state, moves, n);
-  useLudoAutoMove(state, canPlay, onMove, 800);
+  // LANX 3.16.0: what is on show (see useLudoPlayback): the game up to the step being played out.
+  const play = useLudoPlayback(moves, n, seed);
+  const view = useMemo(() => (play.count >= moves.length ? moves : moves.slice(0, play.count)), [moves, play.count]);
+  const state = useMemo(() => ludo.replay(view, n, seed), [view, n, seed]);
+  const rolls = useMemo(() => view.filter((x) => x === "r").length, [view]);
+  const place = useLudoMotion(state, view, n);
+  // You act on the game as it is, and once the die has come to rest.
+  const mayPlay = canPlay && play.live && play.phase !== "throw";
+  useLudoAutoMove(state, mayPlay, onMove, HOLD_MS);
   const rootRef = useRef<HTMLDivElement>(null);
   const side = useFitSide(rootRef);
   if (!state) return null;
   const me = local ? -1 : Math.max(0, seat);
   const name = (p: number) => (p === me ? "You" : seatFor(seats, starter, p, n).name.split(" (")[0]);
   const colour = (p: number) => ludoColour(p, n);
-  const movable = canPlay && state.roll ? ludoMovable(state) : [];
+  const movable = mayPlay && state.roll ? ludoMovable(state) : [];
+  // While a roll is thrown and read, the board stays with whoever rolled (the turn may have passed already).
+  const turn = play.phase ? state.roller : state.turn;
   const startCorner = (i: number) => [0, 1, 2, 3].find((c) => startOf(c) === i) ?? -1;
-  const said = ludoEventText(state, name);
+  // (While the die flies nothing is said about it; while it lies there the status line says it all.)
+  const said = play.phase ? "" : ludoEventText(state, name);
   // Your colour sits at the bottom left (as in Ludo King); at one PC the board stays put.
   const k = me < 0 ? 0 : (3 - ludoCorner(me, n) + 4) % 4;
   const spin = (p: Pt): Pt => {
@@ -266,7 +423,7 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
     list.map((rel, t) => {
       const at = place(`${p}-${t}`, cellOf(ludoCorner(p, n), rel, t));
       const [y, x] = spin([at.y, at.x]);
-      return { p, t, rel, x, y, lift: at.lift, moving: at.moving, can: p === turn && movable.includes(t) };
+      return { p, t, rel, x, y, lift: at.lift, moving: at.moving, can: p === state.turn && movable.includes(t) };
     }),
   );
   const groups = new Map<string, number[]>();
@@ -289,7 +446,7 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
   tokens.sort((a, b) => Number(a.moving) - Number(b.moving) || a.y + a.off.dy - (b.y + b.off.dy));
 
   const home = (p: number) => state.pos[p].filter((x) => x === FINISH).length;
-  const canRoll = canPlay && !state.roll && state.winner === null;
+  const canRoll = canPlay && play.live && !play.phase && !state.roll && state.winner === null;
   const plate = (s: number) => {
     const c = cornerAt(s);
     const p = ludoPlayerAt(c, n);
@@ -328,7 +485,10 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
                 <Dice3D value={state.lastRoll} size={32} rollKey={rolls} />
               </span>
             ) : (
-              <Dice3D value={6} size={32} />
+              // (not rolled yet: a little paler, so that it is not read as a six that was thrown)
+              <span className={canRoll ? "" : "opacity-60"}>
+                <Dice3D value={6} size={32} />
+              </span>
             )}
           </div>
         )}
@@ -339,17 +499,27 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
   const h = C * 0.24;
   const tip = C * 0.38;
   const PIN = `M 0 ${tip} Q ${-r * 0.95} ${-h + r * 0.55} ${-r} ${-h} A ${r} ${r} 0 1 1 ${r} ${-h} Q ${r * 0.95} ${-h + r * 0.55} 0 ${tip} Z`;
+  const pickOne = mayPlay && state.roll > 0 && movable.length > 1 && ludoChoices(state).length > 1;
+  const turnOf = turn === me ? "Your turn" : `${name(turn)}'s turn`;
   const status = state.winner !== null
     ? `${name(state.winner)} ${state.winner === me ? "win" : "wins"}!`
-    : state.roll > 0 && canPlay
-      ? movable.length > 1 && ludoChoices(state).length > 1
-        ? `Pick a token to move ${state.roll}`
-        : `Moving ${state.roll}…`
-      : canPlay
-        ? state.again
-          ? "Roll again!"
-          : "Your turn — tap your die to roll"
-        : `${name(turn)}'s turn`;
+    : play.phase === "throw"
+      ? state.roller === me
+        ? "Rolling…"
+        : `${name(state.roller)} is rolling…`
+      : play.phase === "hold"
+        ? `${name(state.roller)} rolled a ${state.lastRoll}${state.event === "no move" ? " — no token can move" : state.event === "sixes" ? " — three sixes in a row, the turn is over" : pickOne ? " — pick a token to move" : ""}`
+        : !play.live
+          ? turnOf
+          : state.roll > 0 && canPlay
+            ? pickOne
+              ? `Pick a token to move ${state.roll}`
+              : `Moving ${state.roll}…`
+            : canPlay
+              ? state.again
+                ? "Roll again!"
+                : "Your turn — tap your die to roll"
+              : turnOf;
 
   return (
     <div ref={rootRef} data-game-board="ludo" className="flex flex-col items-center gap-2" style={{ width: side }}>
@@ -359,6 +529,7 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
       </div>
       {/* LANX 3.12.0: a printed cardboard board in a wooden frame, its colours a little shaded,
           the token spots pressed in, and glossy pins standing on a base. */}
+      <div className="relative" style={{ width: side, height: side }} data-ludo-roll-phase={play.phase ?? undefined}>
       <svg width={side} height={side} viewBox={`${-FRAME} ${-FRAME} ${SIZE + 2 * FRAME} ${SIZE + 2 * FRAME}`} className="select-none" data-ludo-classic>
         <defs>
           <clipPath id="ludoRound">
@@ -475,6 +646,8 @@ export function LudoBoard({ moves, canPlay, turn, seat, seats, starter = 0, seed
           );
         })}
       </svg>
+        {play.phase && state.lastRoll > 0 && <ThrownDie key={rolls} value={state.lastRoll} from={screenCorner(ludoCorner(state.roller, n))} side={side} nth={rolls} still={play.still} />}
+      </div>
       <div className="flex w-full gap-3">
         {plate(3)}
         {plate(2)}

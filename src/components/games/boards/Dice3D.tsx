@@ -16,6 +16,21 @@ const FACES: { v: number; t: string }[] = [
   { v: 5, t: "rotateX(-90deg) translateZ(var(--h))" },
 ];
 
+/** How far the cube turns (X, Y) to bring each number to the front. */
+export const DIE_SHOW = SHOW;
+/** The six faces of the cube (inside a `g3-dice-cube`). */
+export function DieFaces() {
+  return (
+    <>
+      {FACES.map((f) => (
+        <span key={f.v} className="g3-dice-face" style={{ transform: f.t }}>
+          {Array.from({ length: 9 }, (_, i) => (PIPS[f.v].includes(i) ? <i key={i} /> : <b key={i} />))}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function Dice3D({ value, size = 36, rollKey, testId }: { value: number; size?: number; rollKey?: string | number; testId?: string }) {
   const [turns, setTurns] = useState(0);
   useEffect(() => {

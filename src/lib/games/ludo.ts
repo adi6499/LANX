@@ -84,17 +84,19 @@ export function ludoChoices(s: LudoState): number[] {
 
 /** The event in words; `name(p)` gives a player's name. */
 export function ludoEventText(s: LudoState, name: (p: number) => string): string {
+  // LANX 3.16.0: said to you as "you" ("a six — You rolls again" it used to say).
+  const whose = (p: number) => (name(p) === "You" ? "your" : `${name(p)}'s`);
   switch (s.event) {
     case "no move":
       return `${name(s.roller)} can't move with a ${s.lastRoll}`;
     case "sixes":
-      return `three sixes in a row — ${name(s.roller)}'s turn is over`;
+      return `three sixes in a row — ${whose(s.roller)} turn is over`;
     case "knock":
-      return `${name(s.by)} knocked out ${name(s.victim)}'s token — roll again`;
+      return `${name(s.by)} knocked out ${whose(s.victim)} token — ${name(s.by) === "You" ? "roll" : "rolls"} again`;
     case "home":
-      return `${name(s.by)} got a token home — roll again`;
+      return `${name(s.by)} got a token home — ${name(s.by) === "You" ? "roll" : "rolls"} again`;
     default:
-      return s.again && s.lastRoll === 6 && !s.roll ? `a six — ${name(s.turn)} rolls again` : "";
+      return s.again && s.lastRoll === 6 && !s.roll ? `a six — ${name(s.turn) === "You" ? "you roll" : `${name(s.turn)} rolls`} again` : "";
   }
 }
 
