@@ -216,6 +216,11 @@ export interface Match {
   secretRound?: number;
   /** multi, the host (2.17.0): colleagues who pressed Play after the game started; they sit down at the next round. */
   late?: { id: string; name: string }[];
+  /** multi, the host (3.17.0): the number of the news last sent to the table; it only ever goes up. */
+  rev?: number;
+  /** multi, a guest (3.17.0): the number of the newest news taken from the host, and which run of the host's LANX it came from. */
+  hostRev?: number;
+  hostBoot?: string;
   /** multi, the host (3.16.1): the numbers of the guests' moves played lately, so that none is played twice. */
   seen?: string[];
   /** multi, the host (3.17.0): everyone the table was opened for. (The seats hold only who was in at the start.) */
@@ -245,6 +250,8 @@ export const setMe = (id: string, name: string) => {
 // ---------------------------------------------------------------- the store
 
 const matches = new Map<string, Match>();
+/** This run of LANX (3.17.0): a host's news is numbered within a run; after a restart the count starts again. */
+const BOOT = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 /** Matches this PC ended as host: late steps for them are ignored. */
 const ended = new Set<string>();
 const subs = new Set<() => void>();
@@ -563,6 +570,9 @@ const stateData = (m: Match) => ({
   round: m.round,
   status: m.status,
   joined: m.joined,
+  // LANX 3.17.0: the number of this news (see guestStep: older news never replaces newer).
+  rev: m.rev ?? 0,
+  boot: BOOT,
   // LANX 3.17.0: who sits down at the next round (they pressed Play after the start).
   late: (m.late ?? []).map((l) => l.id),
   // LANX 2.17.0: a game that ended because someone left (the rules alone wouldn't say it is over).
@@ -595,6 +605,7 @@ async function dropOut(m: Match, player: number, who: string) {
 
 /** The host tells everyone at the table how things stand. */
 async function broadcast(m: Match) {
+  m.rev = (m.rev ?? 0) + 1;
   const ids = m.seats.filter((s) => s.id !== me && !m.gone.includes(s.id) && (m.status !== "lobby" || m.joined.includes(s.id))).map((s) => s.id);
   await Promise.all(
     ids.map((id) =>
@@ -980,6 +991,30 @@ async function duoStep(m: Match, e: GameEvent, d: Data) {
       }
       if (round !== null && round < m.round) return; // an old round's move
       if (m.status === "waiting") m.status = "playing";
+      // LANX 3.17.0: both moved at the same moment, where both may (each pressed Ready in Sea
+      // Battle, say): the two lists then differ, and neither is the longer one. Both moves count,
+      // in one fixed order (the first player's, then the second's), so both PCs end with the same
+      // list. (Lists of equal length used to be ignored on both sides, and both waited for good.)
+      if (m.status === "playing" && !m.catchUp) {
+        let c = 0;
+        while (c < mv.length && c < m.moves.length && mv[c] === m.moves[c]) c++;
+        const mine = m.moves.slice(c);
+        const meP = playerOf(m, mySeat(m));
+        const themP = playerOf(m, m.seats.findIndex((x) => x.id === opp.id));
+        const theirs = mv.slice(c).filter((x) => !mine.includes(x));
+        if (mine.length && theirs.length && mine.every((x) => x.startsWith(`${meP}@`)) && theirs.every((x) => x.startsWith(`${themP}@`))) {
+          const merged = [...m.moves.slice(0, c), ...(meP < themP ? [...mine, ...theirs] : [...theirs, ...mine])];
+          const rulesNow = await import("./gameRules");
+          if (rulesNow.validateMoves(m.game, merged, 2, seedOf(m))) {
+            m.moves = merged;
+            await settle(m);
+            soundAfterMove(m, false);
+            if (merged.length !== mv.length || merged.some((x, i) => mv[i] !== x)) void sendSure(opp.id, m, "moves", () => ({ action: "move", data: duoData(m) }));
+            note = myTurn(m) ? `${who} played — your move in ${game}.` : `${who} played in ${game}.`;
+            break;
+          }
+        }
+      }
       // LANX 2.16.1: their board is behind ours (their LANX restarted, or a step went missing): send them the game.
       if (mv.length < m.moves.length && !m.catchUp && (m.status === "playing" || m.status === "over")) void sendTo(opp.id, m, "state", duoData(m));
       if (m.status !== "playing" || mv.length <= m.moves.length) return;
@@ -1141,6 +1176,16 @@ async function guestStep(m: Match, e: GameEvent, d: Data) {
     const joined = Array.isArray(d.joined) ? d.joined.map(String) : m.joined;
     const rules = await import("./gameRules");
     if (!rules.validateMoves(m.game, moves, seats.length, `${m.id}#${round}`)) return;
+    // LANX 3.17.0: the host numbers its news. Each one travels by itself and they can arrive out of
+    // order; an older one that comes late is left alone. (It used to replace the newer one: if the
+    // newer had given this PC the move, the table then waited for good.)
+    const rev = typeof (d as { rev?: unknown }).rev === "number" ? ((d as { rev: number }).rev as number) : null;
+    const boot = typeof (d as { boot?: unknown }).boot === "string" ? ((d as { boot: string }).boot as string) : null;
+    if (rev !== null && boot !== null) {
+      if (m.hostBoot === boot && rev < (m.hostRev ?? 0)) return;
+      m.hostBoot = boot;
+      m.hostRev = rev;
+    }
     const late = Array.isArray((d as { late?: unknown }).late) && ((d as { late: unknown[] }).late.map(String).includes(me));
     if ((status === "playing" || d.status === "over") && !seats.some((s) => s.id === me)) {
       const before = m.note;

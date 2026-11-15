@@ -226,3 +226,78 @@ test("3.16.1 a table: a move made in turn still names its place and is played on
   assert.equal(typeof sent[0].data.k, "string");
   assert.deepEqual(H.getMatch(id).moves, ["0", "20"]);
 });
+
+// ------------------------------------------------------------------ S2-01
+test("S2-01 a table: the host's news is numbered, and older news that arrives late never replaces newer", async () => {
+  const { net, pcs, id } = await table("chainreaction");
+  const { H, G1, G2 } = pcs;
+  // What the host sends to G2 is held up on the way.
+  net.hold = (from, to, step) => from === "H" && to === "G2" && step.action === "state";
+  assert.equal(await H.play(id, "0"), null);
+  await tick();
+  assert.equal(await G1.play(id, "20"), null);
+  await tick();
+  assert.equal(net.held.length, 2, "two pieces of news are on their way to G2");
+  assert.deepEqual(G2.getMatch(id).moves, []);
+  net.hold = null;
+  // They arrive the wrong way round: the newer first, then the older.
+  await net.release([1, 0]);
+  await tick(12);
+  assert.deepEqual(G2.getMatch(id).moves, ["0", "20"], "G2 keeps the newer game (the older one used to win, and the table then waited for G2 for good)");
+  assert.equal(G2.myTurn(G2.getMatch(id)), true);
+  assert.equal(await G2.play(id, "40"), null);
+  await tick();
+  assert.deepEqual(H.getMatch(id).moves, ["0", "20", "40"]);
+  // The numbers only ever go up.
+  const revs = net.log.filter((l) => l.from === "H" && l.to === "G1" && l.action === "state").map((l) => l.data.rev);
+  assert.ok(revs.length >= 4 && revs.every((r, i) => i === 0 || r >= revs[i - 1]), `the host's numbers: ${revs.join(",")}`);
+  // After the host's LANX has started again its count begins anew: that news is taken (it is the truth now).
+  const fresh = { ...net.log.filter((l) => l.to === "G2" && l.action === "state").at(-1).data, rev: 1, boot: "another-run" };
+  await net.send("H", "G2", { match_id: id, game: "chainreaction", action: "state", seq: 0, data: fresh, at: 0 });
+  await tick(12);
+  assert.equal(G2.getMatch(id).hostBoot, "another-run");
+  assert.equal(G2.getMatch(id).hostRev, 1);
+});
+
+// ------------------------------------------------------------------ S2-05
+for (const order of [[0, 1], [1, 0]]) {
+  test(`S2-05 two players: both press Ready in Sea Battle at the same moment (arriving ${order[0] ? "B's first" : "A's first"}) — both count`, async () => {
+    const net = makeNet();
+    const A = await net.boot("A");
+    const B = await net.boot("B");
+    const { match, card } = A.challenge("battleship", peer("B"));
+    const id = match.id;
+    await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+    await tick();
+    net.hold = (from, to, step) => step.action === "move";
+    assert.equal(await A.play(id, "0@ready"), null);
+    assert.equal(await B.play(id, "1@ready"), null);
+    await tick();
+    assert.equal(net.held.length, 2);
+    net.hold = null;
+    await net.release(order);
+    await tick(20);
+    for (const pc of [A, B]) assert.deepEqual(pc.getMatch(id).moves, ["0@ready", "1@ready"], "both PCs have both, in the same order (each used to keep only its own, for good)");
+    assert.equal(A.myTurn(A.getMatch(id)), true, "the first player can fire");
+    assert.equal(B.myTurn(B.getMatch(id)), false);
+    assert.equal(await A.play(id, "f:0"), null);
+    await tick();
+    assert.deepEqual(B.getMatch(id).moves, ["0@ready", "1@ready", "f:0"]);
+    assert.equal(A.unsentCount(id) + B.unsentCount(id), 0);
+  });
+}
+
+test("S2-05 two players: moves made in turn are not mixed together (only moves both may make at once are)", async () => {
+  const net = makeNet();
+  const A = await net.boot("A");
+  const B = await net.boot("B");
+  const { match, card } = A.challenge("tictactoe", peer("B"));
+  await B.openFromCard(card, cardMsg("A"), [peer("A")]);
+  await tick();
+  assert.equal(await A.play(match.id, "0"), null);
+  await tick();
+  // A list that differs from ours in a move made in turn is not taken, whoever sends it.
+  await net.send("B", "A", { match_id: match.id, game: "tictactoe", action: "move", seq: 1, data: { moves: ["4"], round: 1, first: "A" }, at: 0 });
+  await tick(12);
+  assert.deepEqual(A.getMatch(match.id).moves, ["0"]);
+});
