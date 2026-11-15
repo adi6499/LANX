@@ -104,13 +104,17 @@ export function partyReplay<Extra>(moves: string[], n: number, seed: string, r: 
       if (r.over ? r.over(s, n) : s.round >= roundsFor(r, n)) s.done = true;
       continue;
     }
-    const ans = /^(\d+)@a:(.*)$/s.exec(m);
+    // LANX 3.17.0: "<player>@a#<round>:<answer>" — an answer says which round it is for, and is
+    // refused in any other. (Without the round, one that arrived after the next round had opened
+    // was taken for that round.) The form without a round is still read: games played before.
+    const ans = /^(\d+)@a(?:#(\d+))?:(.*)$/s.exec(m);
     if (!ans) return null;
     const p = Number(ans[1]);
     if (!s.open || p < 0 || p >= n || s.out[p]) return null;
+    if (ans[2] !== undefined && Number(ans[2]) !== s.round) return null;
     if (!r.multi && s.answers.some((a) => a.player === p)) return null; // one answer each
-    if (r.accept && !r.accept(s, p, ans[2], s.extra as Extra)) return null;
-    s.answers.push({ player: p, text: ans[2].slice(0, 200) });
+    if (r.accept && !r.accept(s, p, ans[3], s.extra as Extra)) return null;
+    s.answers.push({ player: p, text: ans[3].slice(0, 200) });
   }
   return s;
 }

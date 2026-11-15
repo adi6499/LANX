@@ -455,6 +455,18 @@ export function turnOf(game: GameId, moves: string[], n = 2, seed = ""): number 
 }
 
 /** A line for the status panel (scores, counts), when the game has one. */
+/** LANX 3.17.0: an answer ("<player>@a:…") or a Werewolf vote ("<player>@v:…") gets the number of
+ *  the round it is given in, as the rules now want it; any other move comes back as it is. */
+export function stampMove(game: GameId, moves: string[], n: number, seed: string, move: string): string {
+  const mm = /^(\d+)@([av]):/.exec(move);
+  if (!mm) return move;
+  const d = DEFS[game] as unknown as { rules?: unknown; replay: (moves: string[], n: number, seed: string) => unknown } | undefined;
+  if (!d || (mm[2] === "a" ? !d.rules : game !== "werewolf")) return move;
+  const s = d.replay(moves, n, seed) as { round?: unknown } | null;
+  if (!s || typeof s.round !== "number") return move;
+  return `${mm[1]}@${mm[2]}#${s.round}:${move.slice(mm[0].length)}`;
+}
+
 export function summaryOf(game: GameId, moves: string[], n = 2, seed = ""): string {
   const d = DEFS[game];
   if (!d?.summary) return "";

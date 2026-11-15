@@ -131,7 +131,7 @@ class WheelScene extends TurnScene<PartyState<TapExtra>> {
   protected async animateStep(_before: PartyState<TapExtra>, after: PartyState<TapExtra>, move: string) {
     if (!move.startsWith("e:")) {
       this.showTapped(after);
-      if (move.includes("@a:")) sfx("pop", 0.5);
+      if (/@a(#\d+)?:/.test(move)) sfx("pop", 0.5);
       return;
     }
     const loser = rouletteLoser(after);

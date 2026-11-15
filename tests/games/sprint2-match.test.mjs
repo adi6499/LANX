@@ -196,7 +196,7 @@ test("3.16.1 a party game: answers given at the same moment all count, and none 
   net.hold = null;
   await net.release();
   await tick(12);
-  assert.deepEqual([...H.getMatch(id).moves].sort(), [`o:1:${T}`, "1@a:in", "2@a:in"].sort(), "the host has both answers (in 3.16.0 it threw the second away)");
+  assert.deepEqual([...H.getMatch(id).moves].sort(), [`o:1:${T}`, "1@a#1:in", "2@a#1:in"].sort(), "the host has both answers (in 3.16.0 it threw the second away)");
   for (const pc of [G1, G2]) assert.deepEqual(pc.getMatch(id).moves, H.getMatch(id).moves);
   // The same answer arriving a second time (it was sent again although the first had arrived) is not played twice.
   const sent = net.log.filter((l) => l.to === "H" && l.action === "move");
@@ -656,4 +656,70 @@ test("S2-12 a table: a guest compares with the host, through a whole game withou
   await net.send("H", "G1", { match_id: id, game: "chainreaction", action: "state", seq: 0, data: { ...last, rev: last.rev + 1, fp: `${h.round}:${h.moves.length}:zzzz` }, at: 0 });
   await tick(12);
   assert.equal(pcs.G1.getMatch(id).outOfStep, true);
+});
+
+// ------------------------------------------------------------------ S2-13
+test("S2-13 the rules: an answer says which round it is for, and is refused in any other", async () => {
+  const { tapRoulette } = await import(new URL("../../src/lib/games/party.ts", import.meta.url).href);
+  const { werewolf } = await import(new URL("../../src/lib/games/werewolf.ts", import.meta.url).href);
+  const rules = await import(new URL("../../src/lib/gameRules.ts", import.meta.url).href);
+  const T = 1_700_000_000_000;
+  const round1 = [`o:1:${T}`];
+  assert.ok(tapRoulette.replay([...round1, "0@a#1:in"], 3, "m-s13#1"), "an answer for the open round");
+  assert.equal(tapRoulette.replay([...round1, "0@a#2:in"], 3, "m-s13#1"), null, "an answer for another round");
+  assert.ok(tapRoulette.replay([...round1, "0@a:in"], 3, "m-s13#1"), "the old form (a game played before 3.17.0) is still read");
+  const round2 = [...round1, "0@a#1:in", "e:1", `o:2:${T}`];
+  assert.equal(tapRoulette.replay([...round2, "1@a#1:in"], 3, "m-s13#1"), null, "a late answer for round 1 is not taken for round 2");
+  assert.ok(tapRoulette.replay([...round2, "1@a#2:in"], 3, "m-s13#1"));
+  // The store marks an answer with the round it is given in; other moves are left alone.
+  assert.equal(rules.stampMove("taproulette", round2, 3, "m-s13#1", "1@a:in"), "1@a#2:in");
+  assert.equal(rules.stampMove("trivia", [], 3, "m-s13#1", "2@a:1"), "2@a#0:1");
+  assert.equal(rules.stampMove("drawguess", [], 3, "m-s13#1", "2@a:a guess: with a colon"), "2@a#0:a guess: with a colon");
+  assert.equal(rules.stampMove("taproulette", round2, 3, "m-s13#1", "1@a#2:in"), "1@a#2:in", "marked already");
+  assert.equal(rules.stampMove("battleship", [], 2, "s", "0@ready"), "0@ready");
+  assert.equal(rules.stampMove("tictactoe", [], 2, "s", "4"), "4");
+  assert.equal(rules.stampMove("ludo", [], 2, "s", "r"), "r");
+  // Werewolf: a vote says which day it is for.
+  const day1 = ["night:1", "dawn:1:none", "day:1"];
+  assert.ok(werewolf.replay(day1, 5, "m-ww#1"));
+  assert.ok(werewolf.replay([...day1, "0@v#1:1"], 5, "m-ww#1"));
+  assert.ok(werewolf.replay([...day1, "0@v:1"], 5, "m-ww#1"), "the old form");
+  assert.equal(werewolf.replay([...day1, "0@v#2:1"], 5, "m-ww#1"), null);
+  const day2 = [...day1, "lynch:1:none", "night:2", "dawn:2:none", "day:2"];
+  assert.ok(werewolf.replay(day2, 5, "m-ww#1"));
+  assert.equal(werewolf.replay([...day2, "0@v#1:1"], 5, "m-ww#1"), null, "yesterday's vote is not counted today");
+  assert.ok(werewolf.replay([...day2, "0@v#2:skip"], 5, "m-ww#1"));
+  assert.equal(rules.stampMove("werewolf", day2, 5, "m-ww#1", "3@v:1"), "3@v#2:1");
+});
+
+test("S2-13 a table: an answer that arrives after the next round has opened is not taken for it", async () => {
+  const { net, pcs, id } = await table("taproulette");
+  const { H, G1, G2 } = pcs;
+  const T = 1_700_000_000_000;
+  assert.equal(await H.play(id, `o:1:${T}`), null);
+  await tick(12);
+  // G1 taps in round 1, but the tap is held up on the way.
+  net.hold = (from, to, step) => from === "G1" && step.action === "move";
+  assert.equal(await G1.play(id, "1@a:in"), null);
+  await tick();
+  assert.equal(net.held.length, 1);
+  assert.equal(net.held.length && net.log.filter((l) => l.from === "G1" && l.action === "move").at(-1).data.cell, "1@a#1:in", "the tap says it is for round 1");
+  net.hold = null;
+  // Meanwhile the host closes round 1 (G1 "did not tap in") and opens round 2.
+  assert.equal(await G2.play(id, "2@a:in"), null);
+  assert.equal(await H.play(id, "0@a:in"), null);
+  await tick(12);
+  assert.equal(await H.play(id, "e:1"), null);
+  assert.equal(await H.play(id, `o:2:${T}`), null);
+  await tick(12);
+  // Now G1's tap for round 1 arrives.
+  await net.release();
+  await tick(20);
+  const moves = H.getMatch(id).moves;
+  assert.ok(!moves.some((x) => x.startsWith("1@a")), `G1's late tap is not in round 2 (it used to be counted there): ${moves.join(" ")}`);
+  assert.deepEqual(G1.getMatch(id).moves, moves, "and G1's board has been put right");
+  // G1 taps in round 2 for real.
+  assert.equal(await G1.play(id, "1@a:in"), null);
+  await tick(12);
+  assert.ok(H.getMatch(id).moves.includes("1@a#2:in"));
 });

@@ -171,11 +171,14 @@ export const werewolf: GameDef<WerewolfState> = {
       } else if ((mm = /^day:(\d+)$/.exec(m))) {
         if (Number(mm[1]) !== s.round || s.phase !== "day") return null;
         s.votes = {};
-      } else if ((mm = /^(\d+)@v:(\d+|skip)$/.exec(m))) {
+      } else if ((mm = /^(\d+)@v(?:#(\d+))?:(\d+|skip)$/.exec(m))) {
+        // LANX 3.17.0: "<player>@v#<day>:<target>" — a vote says which day it is for (one that
+        // arrived a day late was counted for the wrong day).
         const p = Number(mm[1]);
         if (s.phase !== "day" || p < 0 || p >= n || !s.alive[p]) return null;
-        if (mm[2] !== "skip") {
-          const t = Number(mm[2]);
+        if (mm[2] !== undefined && Number(mm[2]) !== s.round) return null;
+        if (mm[3] !== "skip") {
+          const t = Number(mm[3]);
           if (t < 0 || t >= n || !s.alive[t] || t === p) return null;
           s.votes[p] = t;
         } else s.votes[p] = "skip";

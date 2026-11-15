@@ -136,8 +136,11 @@ export const RULES_2171 = new Set<string>(["ludo"]);
 /** LANX 3.16.0: games whose rules were repaired in 3.16.0 (the same moves replay differently in an
  *  older copy), so every PC at the table needs 3.16.0 (src-tauri RULES_3160_GAMES). */
 export const RULES_3160 = new Set<string>(["gofish", "dominoes", "bankroll", "holdem", "mahjong", "taproulette", "wordbox", "drawguess", "werewolf"]);
+/** LANX 3.17.0: games whose answers and votes now say which round they are for: every PC at the
+ *  table needs 3.17.0 (src-tauri RULES_3170_GAMES). */
+export const RULES_3170 = new Set<string>(["taproulette", "mathrush", "trivia", "wordbox", "drawguess", "paintfight", "werewolf"]);
 /** The oldest LANX a colleague needs to play this game with you. */
-export const needsVersion = (id: string) => (RULES_3160.has(id) ? "3.16.0" : RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
+export const needsVersion = (id: string) => (RULES_3170.has(id) ? "3.17.0" : RULES_3160.has(id) ? "3.16.0" : RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
 /** Whether this many players can sit at the game. */
 export const sizeOk = (meta: GameMeta | undefined, n: number) => !!meta && n >= meta.minPlayers && n <= meta.maxPlayers && (!meta.sizes || meta.sizes.includes(n));
 
@@ -786,6 +789,8 @@ export async function play(id: string, move: string): Promise<string | null> {
   const m = matches.get(id);
   if (!m || m.status !== "playing") return "This game is over.";
   if (!myTurn(m)) return `Wait for ${seatName(m, turnSeat(m))}'s move.`;
+  // LANX 3.17.0: an answer or a vote is marked with the round it is given in.
+  move = (await import("./gameRules")).stampMove(m.game, m.moves, m.seats.length, seedOf(m), move);
   if (!(await appendValid(m, move))) return "That move isn't allowed.";
   soundAfterMove(m, true);
   bump();
