@@ -19,6 +19,19 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.16.0",
+    title: "Games: a real roll of the die in Ludo, and twelve faults put right",
+    items: [
+      { icon: "🎲", title: "Ludo: the die is really thrown", text: "The die flies onto the board, bounces and comes to rest, and its number stays for a second before anything moves. You see every roll, your colleague’s too, also when it gives no move. The line under the board says who rolled what." },
+      { icon: "📨", title: "A move no longer gets lost", text: "If a move could not be sent at that moment (the colleague’s LANX was locked, or the network dropped for a second), LANX sends it again by itself until it has arrived. Before, both sides could wait for each other for good, and only “Resign” was left." },
+      { icon: "🚪", title: "Leaving does not end the game for the others", text: "At a table of three or more, someone who was out already and pressed Resign or Leave table again ended the game for everyone, with no winner. The others now simply play on. Players 11 and 12 of a big table can leave too." },
+      { icon: "🃏", title: "Rules put right", text: "Go Fish can be finished with two players. Dominoes is only “blocked” when nobody can play. Hold’em no longer loses chips from side pots. Bankroll really pays the creditor, and shows what each player is worth. Draw & Guess ends when nobody is left to draw. Tap Roulette’s wheel is random. Wordbox gives the same letters on Windows, Linux and iPhone. Werewolf deals the roles fairly." },
+      { icon: "🀄", title: "Mahjong Duels counts differently", text: "Only the first player could ever win. Now a pair of winds or dragons counts two points, any other pair one, and the table is shuffled again whenever no pair is free, until it is cleared. Most points wins." },
+      { icon: "🔢", title: "2048", text: "Up sends the tiles up and Down sends them down (they were swapped). Your score also counts when you leave a game or start a new one, not only at “game over”." },
+      { icon: "💡", title: "Good to know", text: "For Go Fish, Dominoes, Bankroll, Hold’em, Mahjong Duels, Tap Roulette, Wordbox, Draw & Guess and Werewolf everyone at the table needs LANX 3.16.0; LANX says so when you invite someone on an older version. All other games play with older versions as before. A lost move is only sent again by a PC that has 3.16.0." },
+    ],
+  },
+  {
     version: "3.15.0",
     title: "A live walkie-talkie, and more on the wallpaper screen",
     items: [
