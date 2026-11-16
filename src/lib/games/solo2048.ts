@@ -61,3 +61,49 @@ export function move2048(g: Grid, dir: Dir2048): { grid: Grid; gained: number; m
 export const canMove = (g: Grid) => (["left", "right", "up", "down"] as const).some((d) => move2048(g, d).moved);
 /** The highest tile on the board. */
 export const topTile = (g: Grid) => Math.max(0, ...g.flat());
+
+// LANX 3.18.0 (Sprint 3, S3-13): the game in play is kept, so closing the games window (or
+// LANX) no longer throws it away.
+export interface Saved2048 {
+  grid: Grid;
+  score: number;
+  /** The 2048 tile has been made in this game (said once). */
+  won: boolean;
+}
+
+export const pack2048 = (s: Saved2048): string => JSON.stringify({ g: s.grid, s: s.score, w: s.won ? 1 : 0 });
+
+/** A kept game read back; nothing when the text is not a game that can still be played. */
+export function unpack2048(text: string | null | undefined): Saved2048 | null {
+  if (!text) return null;
+  try {
+    const v = JSON.parse(text) as { g?: unknown; s?: unknown; w?: unknown };
+    const g = v.g;
+    if (!Array.isArray(g) || g.length !== SIZE) return null;
+    const tile = (n: unknown) => n === 0 || (typeof n === "number" && Number.isInteger(n) && n >= 2 && n <= 131072 && (n & (n - 1)) === 0);
+    if (!g.every((row) => Array.isArray(row) && row.length === SIZE && row.every(tile))) return null;
+    const grid = (g as number[][]).map((row) => [...row]);
+    const score = typeof v.s === "number" && Number.isInteger(v.s) && v.s >= 0 ? v.s : -1;
+    if (score < 0 || topTile(grid) === 0 || !canMove(grid)) return null;
+    return { grid, score, won: v.w === 1 || topTile(grid) >= 2048 };
+  } catch {
+    return null;
+  }
+}
+
+const KEY_2048 = "lanx.solo.2048";
+/** The kept game (nothing when there is none, or the store cannot be read). */
+export function load2048(): Saved2048 | null {
+  try {
+    return unpack2048(localStorage.getItem(KEY_2048));
+  } catch {
+    return null;
+  }
+}
+/** Keeps the game in play; a finished game (`null`) is forgotten. */
+export function keep2048(s: Saved2048 | null) {
+  try {
+    if (s && canMove(s.grid)) localStorage.setItem(KEY_2048, pack2048(s));
+    else localStorage.removeItem(KEY_2048);
+  } catch {}
+}

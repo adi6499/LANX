@@ -7,10 +7,12 @@
 // only appear once the field has been lost (or a mine was opened).
 
 import * as THREE from "three";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Flag, Pause, Play, RotateCcw } from "lucide-react";
 import { sfx } from "../../../../lib/gameSounds";
-import { MINES, MS, addTile, around, canMove, empty, freshField, move2048, plant, useScoreOnLeave, type Grid, type SoloProps, type Sq } from "../../Solo";
+import { FlagMode, MINES_HELP, Made2048, NewGameAsk, addTile, canMove, empty, keep2048, load2048, move2048, topTile, type Grid, type SoloProps, type Sq } from "../../Solo";
+import { MS } from "../../../../lib/games/soloMines";
+import { useMinesGame, useSnakeGame } from "../../soloHooks";
 import { BoardScene, type PieceSpec } from "../boardScene";
 import { Stage } from "../stage";
 import { FONT, canvasTexture, mesh, sharedGeo, slab, wood } from "../kit";
@@ -149,11 +151,16 @@ class Scene2048 extends BoardScene<null> {
 }
 
 export function Game2048_3D({ onScore }: SoloProps) {
-  const [tiles, setTiles] = useState<Tile[]>(() => toTiles(addTile(addTile(empty()))));
-  const [score, setScore] = useState(0);
+  // LANX 3.18.0: the game in play is kept (lib/games/solo2048.ts), as on the flat board.
+  const kept = useRef<ReturnType<typeof load2048> | undefined>(undefined);
+  if (kept.current === undefined) kept.current = load2048();
+  const [tiles, setTiles] = useState<Tile[]>(() => toTiles(kept.current?.grid ?? addTile(addTile(empty()))));
+  const [score, setScore] = useState(() => kept.current?.score ?? 0);
+  const [won, setWon] = useState(() => kept.current?.won ?? false);
+  const [cheer, setCheer] = useState(false);
   const [over, setOver] = useState(false);
+  const [asking, setAsking] = useState(false);
   const reported = useRef(false);
-  useScoreOnLeave(score, onScore, reported);
   const tilesRef = useRef(tiles);
   tilesRef.current = tiles;
   // Slides wait their turn; a key pressed mid-slide finishes the slide at once, so no press is ever lost.
@@ -162,18 +169,24 @@ export function Game2048_3D({ onScore }: SoloProps) {
   useEffect(() => {
     if (scene) void scene.show(tilesRef.current, [], false);
   }, [scene]);
-  const reset = () => {
+  const fresh = () => {
     if (!reported.current && score > 0) onScore(score);
     const t = toTiles(addTile(addTile(empty())));
+    tilesRef.current = t;
     setTiles(t);
     setScore(0);
+    setWon(false);
+    setCheer(false);
     setOver(false);
+    setAsking(false);
     reported.current = false;
     void scene?.show(t, [], true);
   };
+  // "New game" in the middle of a game asks first.
+  const reset = () => (score > 0 && !over ? setAsking(true) : fresh());
   const step = useCallback(
     (dir: Dir) => {
-      if (over) return;
+      if (over || asking) return;
       const cur = tilesRef.current;
       const grid = toGrid(cur);
       const want = move2048(grid, dir);
@@ -196,12 +209,17 @@ export function Game2048_3D({ onScore }: SoloProps) {
       setTiles(next);
       setScore((s) => s + want.gained);
       sfx(want.gained > 0 ? "merge" : "tap");
+      if (!won && topTile(after) >= 2048) {
+        setWon(true);
+        setCheer(true);
+        sfx("win");
+      }
       if (!canMove(after)) {
         setOver(true);
         sfx("lose");
       }
     },
-    [over, scene],
+    [over, asking, won, scene],
   );
   useEffect(() => {
     if (over && !reported.current) {
@@ -209,6 +227,12 @@ export function Game2048_3D({ onScore }: SoloProps) {
       onScore(score);
     }
   }, [over, score, onScore]);
+  useEffect(() => keep2048(over ? null : { grid: toGrid(tiles), score, won }), [tiles, score, won, over]);
+  useEffect(() => {
+    if (!cheer) return;
+    const t = window.setTimeout(() => setCheer(false), 7000);
+    return () => window.clearTimeout(t);
+  }, [cheer]);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const map: Record<string, Dir> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", a: "left", d: "right", w: "up", s: "down" };
@@ -243,6 +267,7 @@ export function Game2048_3D({ onScore }: SoloProps) {
           <RotateCcw className="h-3.5 w-3.5" /> New game
         </button>
       </div>
+      <Made2048 show={cheer} />
       <div
         className="relative w-full"
         onPointerDown={(e) => (swipe.current = { x: e.clientX, y: e.clientY })}
@@ -270,8 +295,9 @@ export function Game2048_3D({ onScore }: SoloProps) {
             <div className="text-[13px]">Score {score}</div>
           </div>
         )}
+        {asking && <NewGameAsk score={score} onYes={fresh} onNo={() => setAsking(false)} />}
       </div>
-      <div className="text-[11.5px] text-slate-500">Arrow keys, W A S D, the buttons or a swipe across the board. Tiles with the same number merge.</div>
+      <div className="text-[11.5px] text-slate-500">Arrow keys, W A S D, the buttons or a swipe across the board. Tiles with the same number merge. Your game is kept when you close this.</div>
       <div className="grid grid-cols-3 gap-1 text-[12px]">
         <span />
         <button type="button" data-2048-dir="up" onClick={() => step("up")} className="rounded-lg bg-slate-500/10 px-3 py-1">
@@ -296,7 +322,6 @@ export function Game2048_3D({ onScore }: SoloProps) {
 
 const SN = 20;
 const SC = 0.5;
-type SDir = "U" | "D" | "L" | "R";
 type Pt = [number, number];
 const cellAt = ([x, y]: Pt) => new THREE.Vector3((x - (SN - 1) / 2) * SC, 0.32, (y - (SN - 1) / 2) * SC);
 
@@ -395,112 +420,30 @@ class SnakeScene {
 }
 
 export function Snake3D({ onScore }: SoloProps) {
-  const [score, setScore] = useState(0);
-  const [state, setState] = useState<"ready" | "running" | "paused" | "dead">("ready");
-  const snake = useRef<Pt[]>([[10, 10], [9, 10], [8, 10]]);
-  const dir = useRef<SDir>("R");
-  const nextDir = useRef<SDir>("R");
-  const food = useRef<Pt>([15, 10]);
-  const eaten = useRef(0);
-  const stateRef = useRef(state);
-  stateRef.current = state;
   const [hostRef, scene] = useScene((el) => new SnakeScene(el));
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
-  const speed = () => Math.max(60, 140 - eaten.current * 4);
-  const placeFood = () => {
-    for (;;) {
-      const p: Pt = [Math.floor(Math.random() * SN), Math.floor(Math.random() * SN)];
-      if (!snake.current.some(([x, y]) => x === p[0] && y === p[1])) {
-        food.current = p;
-        return;
-      }
-    }
-  };
-  useEffect(() => scene?.show(snake.current, food.current, 140, false), [scene]);
-  const reset = () => {
-    snake.current = [[10, 10], [9, 10], [8, 10]];
-    dir.current = "R";
-    nextDir.current = "R";
-    eaten.current = 0;
-    setScore(0);
-    placeFood();
-    sceneRef.current?.show(snake.current, food.current, speed(), false);
-    setState("running");
-  };
+  // LANX 3.18.0: the game itself is soloHooks.ts (shared with the flat board); this board draws it.
+  const { score, state, full, start, togglePause, game } = useSnakeGame(onScore, (s, ms, moving) =>
+    // (a full board has no food left: it is drawn under the tail, out of sight)
+    sceneRef.current?.show(s.snake, s.food ?? s.snake[s.snake.length - 1], ms, moving),
+  );
   useEffect(() => {
-    if (state !== "running") return;
-    let alive = true;
-    const tick = () => {
-      if (!alive || stateRef.current !== "running") return;
-      dir.current = nextDir.current;
-      const [hx, hy] = snake.current[0];
-      const d = dir.current;
-      const head: Pt = [hx + (d === "R" ? 1 : d === "L" ? -1 : 0), hy + (d === "D" ? 1 : d === "U" ? -1 : 0)];
-      const hit = head[0] < 0 || head[1] < 0 || head[0] >= SN || head[1] >= SN || snake.current.some(([x, y]) => x === head[0] && y === head[1]);
-      if (hit) {
-        setState("dead");
-        sfx("boom");
-        onScore(eaten.current);
-        return;
-      }
-      snake.current = [head, ...snake.current];
-      if (head[0] === food.current[0] && head[1] === food.current[1]) {
-        eaten.current += 1;
-        sfx("eat");
-        setScore(eaten.current);
-        placeFood();
-      } else snake.current.pop();
-      sceneRef.current?.show(snake.current, food.current, speed(), true);
-      window.setTimeout(tick, speed());
-    };
-    const t = window.setTimeout(tick, 140);
-    return () => {
-      alive = false;
-      window.clearTimeout(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, onScore]);
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      const map: Record<string, SDir> = { ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R", w: "U", s: "D", a: "L", d: "R" };
-      const nd = map[e.key];
-      if (nd) {
-        e.preventDefault();
-        const opposite: Record<SDir, SDir> = { U: "D", D: "U", L: "R", R: "L" };
-        if (opposite[dir.current] !== nd) nextDir.current = nd;
-        if (stateRef.current === "ready" || stateRef.current === "dead") reset();
-      } else if (e.key === " ") {
-        e.preventDefault();
-        setState((s) => (s === "running" ? "paused" : s === "paused" ? "running" : s));
-      }
-    };
-    window.addEventListener("keydown", h);
-    // LANX 3.5.0: a flick of the hand plays like an arrow key.
-    const flick = (e: Event) => {
-      const d = (e as CustomEvent<{ dir: string }>).detail.dir;
-      e.preventDefault();
-      h(new KeyboardEvent("keydown", { key: `Arrow${d[0].toUpperCase()}${d.slice(1)}` }));
-    };
-    window.addEventListener("lanx:gesture-swipe", flick);
-    return () => {
-      window.removeEventListener("keydown", h);
-      window.removeEventListener("lanx:gesture-swipe", flick);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const s = game.current;
+    scene?.show(s.snake, s.food ?? s.snake[s.snake.length - 1], 140, false);
+  }, [scene, game]);
   return (
-    <div data-solo="snake" data-g3-solo="snake" className="flex w-[480px] max-w-full flex-col items-center gap-3">
+    <div data-solo="snake" data-g3-solo="snake" data-solo-state={state} className="flex w-[480px] max-w-full flex-col items-center gap-3">
       <div className="flex items-center gap-3 text-[13px]">
         <span className="rounded-full bg-slate-500/10 px-3 py-1 font-semibold" data-solo-score>
           Eaten {score}
         </span>
         {state === "running" || state === "paused" ? (
-          <button type="button" onClick={() => setState(state === "running" ? "paused" : "running")} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
+          <button type="button" data-solo-pause onClick={togglePause} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
             {state === "running" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />} {state === "running" ? "Pause" : "Go on"}
           </button>
         ) : (
-          <button type="button" data-solo-start onClick={reset} className={`${btn} bg-emerald-500 text-white hover:bg-emerald-600`}>
+          <button type="button" data-solo-start onClick={start} className={`${btn} bg-emerald-500 text-white hover:bg-emerald-600`}>
             <Play className="h-3.5 w-3.5" /> {state === "dead" ? "Play again" : "Start"}
           </button>
         )}
@@ -509,13 +452,13 @@ export function Snake3D({ onScore }: SoloProps) {
         <SceneBox hostRef={hostRef} aspect={1.08} minH={340} maxH={480} testId="snake" />
         {state === "dead" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-2xl bg-slate-900/60 text-white lanx-fade">
-            <div className="text-xl font-bold">Ouch!</div>
+            <div className="text-xl font-bold">{full ? "You filled the board!" : "Ouch!"}</div>
             <div className="text-[13px]">You ate {score}</div>
           </div>
         )}
         {state === "paused" && <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-slate-900/40 text-xl font-bold text-white">Paused</div>}
       </div>
-      <div className="text-[11.5px] text-slate-500">Arrow keys or W A S D to steer; Space pauses.</div>
+      <div className="text-[11.5px] text-slate-500">Arrow keys or W A S D to steer; Space pauses. The game waits while LANX is hidden.</div>
     </div>
   );
 }
@@ -616,86 +559,45 @@ class MinesScene extends BoardScene<null> {
 }
 
 export function Minesweeper3D({ onScore }: SoloProps) {
-  const [field, setField] = useState<Sq[]>(freshField);
-  const [planted, setPlanted] = useState(false);
-  const [state, setState] = useState<"playing" | "won" | "lost">("playing");
-  const [start, setStart] = useState<number | null>(null);
-  const [now, setNow] = useState(Date.now());
+  // LANX 3.18.0: the game itself is soloHooks.ts (shared with the flat board); this board draws it.
+  const { game, seconds, flagsLeft, flagMode, setFlagMode, press, flag, reset } = useMinesGame(onScore);
+  const { field, state } = game;
   const [hostRef, scene] = useScene((el) => new MinesScene(el));
   const first = useRef(true);
-  useEffect(() => {
-    if (state !== "playing" || start === null) return;
-    const t = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(t);
-  }, [state, start]);
   useEffect(() => {
     if (!scene) return;
     scene.show(field, !first.current);
     first.current = false;
   }, [scene, field]);
-  const seconds = start === null ? 0 : Math.floor((now - start) / 1000);
-  const flags = field.filter((s) => s.flag).length;
-  const reset = () => {
-    setField(freshField());
-    setPlanted(false);
-    setState("playing");
-    setStart(null);
-  };
-  const open = (i: number) => {
-    if (state !== "playing") return;
-    let f = field;
-    if (!planted) {
-      f = plant(field, i);
-      setPlanted(true);
-      setStart(Date.now());
-    }
-    if (f[i].flag || f[i].open) return;
-    f = f.map((s) => ({ ...s }));
-    if (f[i].mine) {
-      f.forEach((s) => {
-        if (s.mine) s.open = true;
-      });
-      setField(f);
-      setState("lost");
-      sfx("boom");
-      return;
-    }
-    const stack = [i];
-    while (stack.length) {
-      const j = stack.pop()!;
-      if (f[j].open || f[j].flag) continue;
-      f[j].open = true;
-      if (f[j].n === 0) for (const k of around(j)) if (!f[k].open && !f[k].mine) stack.push(k);
-    }
-    sfx("tap");
-    setField(f);
-    if (f.every((s) => s.open || s.mine)) {
-      setState("won");
-      sfx("win");
-      onScore(Math.max(1, Math.floor((Date.now() - (start ?? Date.now())) / 1000)));
-    }
-  };
-  const toggleFlag = (i: number) => {
-    if (state !== "playing" || field[i].open) return;
-    sfx("flag");
-    setField((f) => f.map((s, j) => (j === i ? { ...s, flag: !s.flag } : s)));
-  };
-  const openRef = useRef(open);
-  openRef.current = open;
-  const flagRef = useRef(toggleFlag);
-  flagRef.current = toggleFlag;
   const stateRef = useRef(state);
   stateRef.current = state;
-  useEffect(() => scene?.setHandlers({ open: (i) => openRef.current(i), flag: (i) => flagRef.current(i), can: () => stateRef.current === "playing" }), [scene]);
+  useEffect(() => scene?.setHandlers({ open: press, flag, can: () => stateRef.current === "playing" }), [scene, press, flag]);
+  /** The arrow keys walk over the (hidden) squares; F plants a flag on the one you are on. */
+  const cells = useRef<HTMLDivElement>(null);
+  const key = (e: ReactKeyboardEvent, i: number) => {
+    if (e.key === "f" || e.key === "F") {
+      e.preventDefault();
+      flag(i);
+      return;
+    }
+    const r = Math.floor(i / MS);
+    const c = i % MS;
+    const to =
+      e.key === "ArrowLeft" && c > 0 ? i - 1 : e.key === "ArrowRight" && c < MS - 1 ? i + 1 : e.key === "ArrowUp" && r > 0 ? i - MS : e.key === "ArrowDown" && r < MS - 1 ? i + MS : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    cells.current?.querySelector<HTMLButtonElement>(`[data-mine-cell="${to}"]`)?.focus();
+  };
   return (
-    <div data-solo="mines" data-g3-solo="mines" className="flex w-[460px] max-w-full flex-col items-center gap-3">
+    <div data-solo="mines" data-g3-solo="mines" data-solo-state={state} className="flex w-[460px] max-w-full flex-col items-center gap-3">
       <div className="flex items-center gap-3 text-[13px]">
         <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/10 px-3 py-1 font-semibold" data-solo-flags>
-          <Flag className="h-3.5 w-3.5" /> {MINES - flags}
+          <Flag className="h-3.5 w-3.5" /> {flagsLeft}
         </span>
         <span className="rounded-full bg-slate-500/10 px-3 py-1 font-semibold" data-solo-score>
           {seconds} s
         </span>
+        <FlagMode on={flagMode} set={setFlagMode} />
         <button type="button" data-solo-start onClick={reset} className={`${btn} bg-slate-500/10 text-slate-700 dark:text-slate-200`}>
           <RotateCcw className="h-3.5 w-3.5" /> New field
         </button>
@@ -708,14 +610,14 @@ export function Minesweeper3D({ onScore }: SoloProps) {
           </div>
         )}
       </div>
-      <div className="sr-only" data-mine-cells>
+      <div ref={cells} className="sr-only" data-mine-cells>
         {field.map((s, i) => (
-          <button key={i} type="button" data-mine-cell={i} onClick={() => open(i)} onContextMenu={(e) => { e.preventDefault(); toggleFlag(i); }}>
+          <button key={i} type="button" data-mine-cell={i} data-mine-shows={s.open ? (s.mine ? "mine" : s.n) : s.flag ? "flag" : "closed"} onClick={() => press(i)} onKeyDown={(e) => key(e, i)} onContextMenu={(e) => { e.preventDefault(); flag(i); }}>
             {s.open ? (s.mine ? "mine" : s.n) : s.flag ? "flag" : "closed"}
           </button>
         ))}
       </div>
-      <div className="text-[11.5px] text-slate-500">Click to open a square; right-click to plant a flag. The first click is always safe.</div>
+      <div className="max-w-[420px] text-center text-[11.5px] text-slate-500">{MINES_HELP}</div>
     </div>
   );
 }
