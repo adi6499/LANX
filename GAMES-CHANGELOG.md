@@ -6,7 +6,7 @@ checklist with every status is the document "LANX Games repair plan and checklis
 
 Run the tests: `npm run test:games` (Node 24 runs the rule files as they are; nothing to build).
 
-## Sprint 3 — the smaller defects, game by game (for LANX 3.18.0; not built yet)
+## Sprint 3 — the smaller defects, game by game (LANX 3.18.0)
 
 Tests: `tests/games/sprint3-rules.test.mjs` (9), `sprint3-solo.test.mjs` (11) and
 `sprint3-boards.test.mjs` (2); with Sprints 1 and 2 that is 82. Checked on the games lab page

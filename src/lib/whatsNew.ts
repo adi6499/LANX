@@ -19,6 +19,19 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.18.0",
+    title: "Games: sixteen smaller faults put right",
+    items: [
+      { icon: "🐍", title: "Snake plays fair", text: "Moving into the square your tail is just leaving is no longer a bite. A key you are still holding when you crash does not start the next game. Two quick turns both count. And the game waits while LANX is hidden." },
+      { icon: "💣", title: "Minesweeper", text: "A first click on a square you had flagged used to leave the field without any mines. Fixed. You can now plant flags without a right mouse button (the Flags switch, or the F key), walk the field with the arrow keys, and click a number to open the squares around it." },
+      { icon: "🔢", title: "2048 keeps your game", text: "Close the games window, or LANX, and your 2048 game is still there next time. “New game” in the middle of a game asks first. And LANX says so when you make the 2048 tile." },
+      { icon: "🐺", title: "Werewolf", text: "A wolf (and the seer) can change their pick until the dawn, and the night waits while the pack does not agree. A role card that got lost — after LANX restarted, for example — is sent again by itself." },
+      { icon: "🎨", title: "Draw & Guess, Trivia, Wordbox", text: "200 words instead of 60 and none twice in a match; “apples” is right for “apple”; come back in the middle of a round and the picture so far is sent to you. Trivia Night has 167 questions, shuffled every match, with the answers shuffled too. Wordbox only takes real words, each once." },
+      { icon: "♟️", title: "Board and card games", text: "Chess: no move after a draw. Checkers says “You must jump” on the flat board too. Reversi passes for you when you have no move. Blackjack alone is you against the dealer. Hold’em: the odd chip, whole-chip raises, and no asking a player who has nobody left to bet against. A draw now names who shares first place." },
+      { icon: "💡", title: "Good to know", text: "Texas Hold’em, Math Rush, Trivia Night, Wordbox and Draw & Guess need LANX 3.18.0 on every PC at the table." },
+    ],
+  },
+  {
     version: "3.17.1",
     title: "No white window when LANX starts",
     items: [
