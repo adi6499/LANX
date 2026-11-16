@@ -1,6 +1,7 @@
 /** Appearance (Settings → Appearance): the window background, the accent
  *  colour and the glass panels. Everything is applied as CSS variables on
  *  <html>, so every screen follows the same choice. */
+import { syncWindowTone } from "./windowTone";
 import { lensFilter } from "./glass";
 import { WALLS, type WallLook, applyColorStyle, colorStyle } from "./storybook";
 import { IS_LINUX } from "./platform";
@@ -197,6 +198,7 @@ export function applyAppearance(a: AppearanceChoice) {
   const bg = a.chat_background || "default";
   const look = colorStyle(a.color_style);
   applyColorStyle(look);
+  syncWindowTone();
   style.setProperty("--lanx-wall-l", wallpaperCss(bg, false, "vmax", storyWall(bg, look, false)));
   style.setProperty("--lanx-wall-d", wallpaperCss(bg, true, "vmax", storyWall(bg, look, true)));
   // A Storybook look brings its own panel tint (set in its colours) unless a background colour was chosen.

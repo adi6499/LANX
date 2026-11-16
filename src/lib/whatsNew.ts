@@ -19,6 +19,14 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.17.1",
+    title: "No white window when LANX starts",
+    items: [
+      { icon: "🌙", title: "LANX no longer opens white", text: "When LANX’s window opened before LANX was ready — you clicked its icon while it was still starting with Windows, or the PC was busy — it showed an empty white window, and on a PC whose Windows is set to light a near-white page. The window now waits until its start-up screen is drawn (LANX’s logo on a calm dark colour, the same on every PC) and opens with that." },
+      { icon: "✨", title: "One start-up screen, and sooner", text: "LANX used to show nothing for a moment, then a “Starting LANX…” screen, then itself. Its window now opens earlier with one start-up screen, which stays until LANX is really ready and then fades away." },
+    ],
+  },
+  {
     version: "3.17.0",
     title: "Games that do not get stuck between PCs",
     items: [

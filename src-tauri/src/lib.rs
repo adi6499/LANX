@@ -46,6 +46,11 @@ static UI_READY: AtomicBool = AtomicBool::new(false);
 static START_HIDDEN: AtomicBool = AtomicBool::new(false);
 /// LANX 2.5.3: the main window has been shown once at start-up.
 static SHOWN_ONCE: AtomicBool = AtomicBool::new(false);
+/// LANX 3.17.1: the page's start-up screen (index.html) is drawn: there is something to show.
+static SPLASH_SHOWN: AtomicBool = AtomicBool::new(false);
+/// LANX 3.17.1: the window was asked for (the tray, a second start of LANX) before anything
+/// was drawn in it; it opens the moment something is.
+static WANT_SHOWN: AtomicBool = AtomicBool::new(false);
 /// LANX 3.11 (Linux): started with --minimized on a desktop without a tray: the window
 /// opens minimised (in the taskbar) instead of hidden where nobody can find it.
 static START_MINIMIZED: AtomicBool = AtomicBool::new(false);
@@ -70,9 +75,62 @@ fn first_show(app: &AppHandle) {
 fn ui_ready(window: tauri::Window) {
     if window.label() == "main" {
         UI_READY.store(true, Ordering::SeqCst);
-        if !START_HIDDEN.load(Ordering::SeqCst) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
-            first_show(window.app_handle());
+        something_drawn(window.app_handle());
+    }
+}
+
+/// LANX 3.17.1: the page calls this when its start-up screen (the logo on LANX's dark colour)
+/// is drawn. The window opens now — sooner than before, when it waited for all of LANX's code —
+/// and it never opens with nothing drawn in it: until its page has drawn, Windows fills a
+/// window itself, white where Windows is in light mode ("LANX shows a white screen").
+#[tauri::command]
+fn splash_shown(window: tauri::Window) {
+    if window.label() == "main" {
+        SPLASH_SHOWN.store(true, Ordering::SeqCst);
+        something_drawn(window.app_handle());
+    }
+}
+
+/// There is something to show: the window opens, unless LANX started hidden and nobody has
+/// asked for it.
+fn something_drawn(app: &AppHandle) {
+    let asked = WANT_SHOWN.swap(false, Ordering::SeqCst);
+    if (asked || !START_HIDDEN.load(Ordering::SeqCst)) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
+        first_show(app);
+    }
+}
+
+/// The window is asked for: the tray, or a second start of LANX. While LANX is still starting
+/// (nothing drawn yet) the window opens the moment something is; it used to open at once,
+/// empty. (After 20 seconds it opens whatever there is: a page that never loads has to be
+/// seen, by the owner and by the blank-window watchdog.)
+fn open_main_window(app: &AppHandle) {
+    if SPLASH_SHOWN.load(Ordering::SeqCst) || UI_READY.load(Ordering::SeqCst) || SHOWN_ONCE.load(Ordering::SeqCst) {
+        SHOWN_ONCE.store(true, Ordering::SeqCst);
+        show_main_window(app);
+        return;
+    }
+    if WANT_SHOWN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        if WANT_SHOWN.swap(false, Ordering::SeqCst) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
+            eprintln!("[Window] asked for, and still nothing drawn after 20 s; showing the window anyway");
+            show_main_window(&app);
         }
+    });
+}
+
+/// LANX 3.17.1: the colour behind the main window's page. At start-up it is LANX's dark
+/// start-up colour (tauri.conf.json), so a window that opens before its page has drawn is
+/// never white; once LANX is up the page sets it to its own colour (it shows for a moment
+/// along the edges while the window is resized).
+#[tauri::command]
+fn window_tone(window: tauri::WebviewWindow, r: u8, g: u8, b: u8) {
+    if window.label() == "main" {
+        let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
     }
 }
 
@@ -212,7 +270,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => show_main_window(app),
+            "open" => open_main_window(app),
             "lock" => {
                 if let Some(state) = app.try_state::<AppState>() {
                     if privacy::pin_is_set(&state.db) {
@@ -220,7 +278,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
                         let status = state.network.privacy.status(&state.db);
                         state.network.events.emit_json("lanx://lock-changed", status);
                     } else {
-                        show_main_window(app);
+                        open_main_window(app);
                         state.network.events.emit_json("lanx://open-privacy-settings", ());
                     }
                 }
@@ -235,7 +293,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                open_main_window(tray.app_handle());
             }
         });
     if let Some(icon) = app.default_window_icon() {
@@ -293,7 +351,7 @@ pub fn run() {
     if profile.is_none() {
         // A second launch just brings the running LANX to the front.
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            show_main_window(app);
+            open_main_window(app);
             // LANX 1.7.0: Explorer's "Send to → LANX".
             shell::queue_send(app, shell::send_paths(&args));
             // LANX 2.14.0: a PDF double-clicked in Explorer opens in LANX.
@@ -473,13 +531,15 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 linux_media::enable(&w);
             }
-            // LANX 2.5.3: the window is shown by ui_ready, once its page has
-            // drawn. If the page never reports in, show it after 6 seconds
-            // anyway — the blank-window watchdog needs to see it.
+            // LANX 2.5.3: the window is shown once its page has drawn (3.17.1: its
+            // start-up screen, see splash_shown). If the page never reports in, show
+            // it anyway — the blank-window watchdog needs to see it. 3.17.1: after 20
+            // seconds, not 6: a start that is merely slow (a busy PC) used to get an
+            // empty window at 6 seconds, white where Windows is in light mode.
             {
                 let app = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
                     if !START_HIDDEN.load(Ordering::SeqCst) && !SHOWN_ONCE.swap(true, Ordering::SeqCst) {
                         eprintln!("[Window] the page did not report in; showing the window anyway");
                         first_show(&app);
@@ -576,6 +636,8 @@ pub fn run() {
             commands::unlock,
             commands::lock_app,
             ui_ready,
+            splash_shown,
+            window_tone,
             commands::island_take,
             commands::get_peer_profiles,
             commands::search_network,

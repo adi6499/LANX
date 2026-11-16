@@ -8,18 +8,24 @@
     <!-- Applies dark mode before first paint (external file so the strict CSP allows it). -->
     <script src="/theme-init.js"></script>
     <!-- LANX 2.5.3: the page has its colour and a logo from the very first paint,
-         so the window is never white while the app's code loads. -->
+         so the window is never white while the app's code loads.
+         LANX 3.17.1: in the main window that colour is dark on every PC, and the start-up
+         screen stays (above everything) until LANX is really ready, then fades away. -->
     <style>
       html { background: #f8fafc; }
       html.dark { background: #080c14; }
-      #lanx-splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-family: system-ui, "Segoe UI", sans-serif; color: #64748b; }
+      html.lanx-starting { background: #080c14; }
+      html.lanx-small #lanx-splash { display: none; }
+      html.lanx-starting #lanx-splash, #lanx-splash.lanx-splash-out { background: #080c14; color: #94a3b8; }
+      #lanx-splash.lanx-splash-out { opacity: 0; pointer-events: none; }
+      #lanx-splash { position: fixed; inset: 0; z-index: 2147483000; transition: opacity 0.24s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-family: system-ui, "Segoe UI", sans-serif; color: #64748b; }
       #lanx-splash img { width: 72px; height: 72px; border-radius: 18px; animation: lanx-splash-pulse 1.4s ease-in-out infinite; }
-      #lanx-splash b { font-size: 13px; letter-spacing: 0.25em; }
+      #lanx-splash b { font-size: 12px; font-weight: 500; letter-spacing: 0.04em; }
       @keyframes lanx-splash-pulse { 0%, 100% { opacity: 0.55; transform: scale(0.96); } 50% { opacity: 1; transform: scale(1); } }
     </style>
   </head>
   <body class="bg-slate-50 text-slate-900 dark:bg-[#080c14] dark:text-slate-100 antialiased select-none overflow-hidden">
-    <div id="lanx-splash"><img src="/lanx-logo.png" alt="" /><b>LANX</b></div>
+    <div id="lanx-splash"><img src="/lanx-logo.png" alt="" /><b>Starting LANX…</b></div>
     <div id="root" class="h-screen w-screen overflow-hidden"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

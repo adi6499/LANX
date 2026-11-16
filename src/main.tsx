@@ -81,11 +81,38 @@ const Root = React.lazy(
               }),
 );
 
+/** LANX 3.17.1: takes the start-up screen (index.html) away, with a short fade. The main
+ *  window does this once LANX is really ready (App calls it); until then that one screen
+ *  stays, instead of logo → another loading screen → LANX. */
+let splashEnded = false;
+function endSplash() {
+  if (splashEnded) return;
+  splashEnded = true;
+  let gone = false;
+  const go = () => {
+    if (gone) return;
+    gone = true;
+    const el = document.getElementById("lanx-splash");
+    if (el) {
+      el.classList.add("lanx-splash-out");
+      setTimeout(() => el.remove(), 280);
+    }
+    document.documentElement.classList.remove("lanx-starting");
+  };
+  // After LANX's first real picture is on screen (a hidden window may get no frames: the timer).
+  requestAnimationFrame(() => requestAnimationFrame(go));
+  setTimeout(go, 500);
+}
+(window as unknown as { __lanxAppReady?: () => void }).__lanxAppReady = endSplash;
+
 /** Runs once the window's own part has drawn. */
 function Drawn({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     // LANX 2.5.3: the start-up logo (index.html) goes once the app has drawn.
-    requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("lanx-splash")?.remove()));
+    // LANX 3.17.1: in the main window it stays until LANX is ready (see endSplash); if that
+    // never comes, it goes after 15 seconds so whatever is underneath can be seen.
+    if (isMain) setTimeout(endSplash, 15000);
+    else endSplash();
     // LANX 1.3.0: tell LANX the window drew itself (it restarts with a fresh
     // WebView2 folder if a window stays blank).
     if (isMain && "__TAURI_INTERNALS__" in window) {

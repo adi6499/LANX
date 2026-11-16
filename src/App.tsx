@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import { syncWindowTone } from "./lib/windowTone";
 import {
   UserSettings,
   Peer,
@@ -409,6 +410,7 @@ export default function App() {
       theme === "dark" ||
       (theme === "system" && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
     root.classList.toggle("dark", !!dark);
+    syncWindowTone();
   }, []);
 
   /** Wipes chat data from memory when LANX locks. */
@@ -1575,6 +1577,16 @@ export default function App() {
   const pdfPresence = usePresence(!!pdfPath, 220);
   const lastPdf = useRef(pdfPath);
   if (pdfPath) lastPdf.current = pdfPath;
+
+  // LANX 3.17.1: the start-up screen (index.html) goes once LANX has something real to show
+  // (its own screen, the lock screen, or why it could not start).
+  const startedUp = !!settings && !!lock;
+  useEffect(() => {
+    if (startedUp || loadError) {
+      (window as unknown as { __lanxAppReady?: () => void }).__lanxAppReady?.();
+      syncWindowTone();
+    }
+  }, [startedUp, loadError]);
 
   if (!settings || !lock) {
     return (
