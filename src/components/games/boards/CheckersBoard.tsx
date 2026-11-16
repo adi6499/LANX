@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BoardProps } from "../boardProps";
-import { checkers, checkersMoves, checkersRouteStep } from "../../../lib/games/checkers.ts";
+import { checkers, checkersMoves, checkersMustJump, checkersRouteStep } from "../../../lib/games/checkers.ts";
 
 /** LANX 2.17.0: the words under a board while two capture routes reach the same square. */
 export const CHECKERS_ROUTE_NOTE = "Two ways to jump there — click the square marked blue to jump through first (or your piece to start again).";
@@ -55,6 +55,10 @@ export function CheckersBoard({ moves, canPlay, turn, seat, onMove }: BoardProps
   const order = Array.from({ length: 64 }, (_, k) => (flip ? 63 - k : k));
   return (
     <div className="flex flex-col items-center gap-2">
+      {/* LANX 3.18.0: said on the flat board too (the 3D board always did). */}
+      <div data-checkers-must-jump={canPlay && checkersMustJump(legal) ? "1" : undefined} className={`h-[18px] text-[12px] font-semibold text-amber-700 dark:text-amber-300 ${canPlay && checkersMustJump(legal) ? "" : "invisible"}`}>
+        You must jump
+      </div>
       <div data-game-board="checkers" className="rounded-xl overflow-hidden ring-1 ring-black/20 shadow-lg select-none grid grid-cols-8" style={{ width: 8 * 50 }}>
         {order.map((i) => {
           const r = Math.floor(i / 8);

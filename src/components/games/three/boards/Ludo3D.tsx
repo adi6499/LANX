@@ -275,6 +275,23 @@ class LudoScene extends TurnScene<LudoState> {
       await throwDice(this.stage, [this.die], [after.lastRoll], { cx: TRAY_X, cz: 0, w: 2.7, d: 4.4, y: 0.1, from: new THREE.Vector3(0.2, 0, 1) }, `${this.seed}#ludo${after.rolls}`, (k) => sfx("thud", 0.2 + k * 0.5));
       return;
     }
+    // LANX 3.18.0 (S3-05): a player left ("x<player>"). It was read as a token move of whoever's
+    // turn it was — of a token that does not exist. Their tokens on the track fly back home.
+    const gone = /^x(\d{1,2})$/.exec(move);
+    if (gone) {
+      const q = Number(gone[1]);
+      const flights: Promise<void>[] = [];
+      (before.pos[q] ?? []).forEach((rel, k) => {
+        if (rel < 0 || after.pos[q]?.[k] !== -1) return;
+        const m = this.tokens[ludoCorner(q, this.n)]?.[k];
+        if (!m) return;
+        const start = m.position.clone();
+        const home = at(...squareOf(ludoCorner(q, this.n), -1, k));
+        flights.push(this.stage.animate(520, (u) => hop(start, home, 2, u, m.position)));
+      });
+      await Promise.all(flights);
+      return;
+    }
     const t = Number(move.slice(2));
     const p = before.turn;
     const from = before.pos[p][t];

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { seatFor, type BoardProps } from "../../boardProps";
 import { GO, GO_KOMI, go, goScore, type GoState } from "../../../../lib/games/go.ts";
 import { GO_PASS_HINT, goPassed } from "../../boards/GoBoard";
-import { reversiPassNote } from "../../Boards";
+import { reversiPassNote, useAutoPass } from "../../Boards";
 import { GOMOKU, gomoku, type GomokuState } from "../../../../lib/games/gomoku.ts";
 import { HEX, hex, hexCanSwap, type HexState } from "../../../../lib/games/hex.ts";
 import { hexSwapNote } from "../../boards/HexBoard";
@@ -709,6 +709,7 @@ export function Reversi3D({ moves, canPlay, turn, seats, starter = 0, onMove }: 
   const legal = useMemo(() => reversiLegal(board, (turn % 2) as 0 | 1), [board, turn]);
   const [black, white] = reversiCount(board);
   const note = reversiPassNote(board, moves, turn, canPlay, (q) => seatFor(seats, starter, q, 2).name.split(" (")[0]);
+  useAutoPass(!!note?.mine, moves.length, onMove);
   const move = useRef(onMove);
   move.current = onMove;
   const [hostRef, scene] = useScene((el) => new ReversiScene(el));

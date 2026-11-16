@@ -147,3 +147,12 @@ export function checkersRouteStep(routes: string[]): { path: number[]; next: num
   const next = [...new Set(paths.map((p) => p[path.length]).filter((x) => x !== undefined))];
   return { path, next };
 }
+
+/** LANX 3.18.0 (S3-03): the side to move has a jump — and so has to take one (the flat board
+ *  never said so: your other pieces simply would not move). A jump goes two squares along a
+ *  diagonal, 14 or 18 squares on in the list of 64. */
+export const checkersMustJump = (legal: readonly string[]): boolean =>
+  legal.some((m) => {
+    const p = m.split("-").map(Number);
+    return p.length > 1 && Math.abs(p[1] - p[0]) > 9;
+  });

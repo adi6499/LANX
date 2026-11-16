@@ -12,7 +12,8 @@ const CELL = 30;
 export const placeHint = (why: "edge" | "touch") => (why === "touch" ? "Ships can't touch, not even at the corners." : "That ship doesn't fit there — it would stick out past the edge. Try another square, or turn it (Across / Down).");
 
 /** This PC is marked ready but has no fleet (it was lost): no answer would be true, so none is given. */
-export const LOST_FLEET = "Your fleet isn't on this PC any more, so their shots can't be answered and this game can't go on. Press Leave game, then start a new match.";
+// LANX 3.18.0 (S3-01): it said "Press Leave game", a button a game that has begun does not have.
+export const LOST_FLEET = "Your fleet isn't on this PC any more, so their shots can't be answered and this game can't go on. Press Resign to end it, then start a new match.";
 
 /** What the last shot did, for this player: "You sank Sam's Cruiser!", "Sam missed." … */
 export function seaNews(s: BattleshipState, moves: string[], seat: number, name: (p: number) => string): string | null {

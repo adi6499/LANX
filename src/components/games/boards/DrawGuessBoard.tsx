@@ -22,6 +22,47 @@ export function roundStrokes(deltas: unknown[], seed: string, round: number, dra
   return mine.slice(from).filter((d): d is Stroke => d.kind === "stroke" && Array.isArray(d.pts) && d.pts.length > 0);
 }
 
+/** LANX 3.18.0 (S3-12): "send me the picture so far" — to the drawer, from a player who comes
+ *  into a round that is already going with an empty board (strokes are not kept on disk, so a
+ *  restart of LANX in the middle of a round lost the picture until the next round). */
+export type NeedPicture = { kind: "needPicture"; round: number; to: number; s?: string; __from?: number };
+
+/** The asking, and the drawer's answer. On both boards (flat and 3D). */
+export function usePictureCatchUp(a: { deltas: unknown[]; seed: string; round: number; drawer: number | undefined; seat: number; open: boolean; strokes: Stroke[]; onDelta?: (d: unknown) => void }) {
+  const send = useRef(a.onDelta);
+  send.current = a.onDelta;
+  const strokes = useRef(a.strokes);
+  strokes.current = a.strokes;
+  const iDraw = a.drawer !== undefined && a.drawer === a.seat;
+  // ---- the one who came back. Only a board that OPENED on a round already going asks (a round
+  // that begins while you watch is empty because nothing has been drawn yet).
+  const key = `${a.seed}|${a.round}`;
+  const cameInto = useRef<string | null | undefined>(undefined);
+  if (cameInto.current === undefined) cameInto.current = a.open ? key : null;
+  const ask = a.open && !iDraw && a.drawer !== undefined && a.seat >= 0 && cameInto.current === key && a.strokes.length === 0;
+  useEffect(() => {
+    if (!ask || a.drawer === undefined) return;
+    const go = () => send.current?.({ kind: "needPicture", round: a.round, to: a.drawer as number, s: a.seed } satisfies NeedPicture);
+    const t1 = window.setTimeout(go, 900);
+    const t2 = window.setTimeout(go, 6000);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [ask, a.round, a.drawer, a.seed]);
+  // ---- the drawer: sends what is on the board, to the one who asked only.
+  const answered = useRef(new WeakSet<object>());
+  useEffect(() => {
+    if (!iDraw || !a.open) return;
+    for (const d of a.deltas as NeedPicture[]) {
+      if (!d || typeof d !== "object" || d.kind !== "needPicture" || answered.current.has(d)) continue;
+      answered.current.add(d);
+      if (d.round !== a.round || (d.s !== undefined && d.s !== a.seed) || d.to !== a.seat || typeof d.__from !== "number" || d.__from === a.seat) continue;
+      for (const s of strokes.current) send.current?.({ kind: "stroke", pts: s.pts, c: s.c, w: s.w, round: s.round, s: s.s, to: d.__from });
+    }
+  }, [a.deltas, iDraw, a.open, a.round, a.seed, a.seat]);
+}
+
 /** Someone guessed the word, or the drawer left: the host closes the round. */
 export const drawRoundOver = (state: DrawState, extra: DrawExtra | null) => !!extra && state.open && (state.answers.some((a) => isRightGuess(a.text, extra.word)) || !!state.out[extra.drawer]);
 
@@ -49,6 +90,7 @@ export function DrawGuessBoard({ moves, canPlay, seat, seats, starter = 0, seed 
   const iDraw = !!extra && extra.drawer === seat;
   const round = state?.round ?? 0;
   const strokes = useMemo(() => roundStrokes(deltas, seed, round, extra?.drawer), [deltas, seed, round, extra?.drawer]);
+  usePictureCatchUp({ deltas, seed, round, drawer: extra?.drawer, seat, open: !!state?.open, strokes, onDelta });
 
   // Repaint from every stroke of this round whenever one arrives.
   useEffect(() => {

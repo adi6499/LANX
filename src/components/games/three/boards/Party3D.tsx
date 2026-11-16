@@ -17,7 +17,7 @@ import { wolfCount } from "../../../../lib/games/werewolf.ts";
 import { PartyShell, useRoundClock } from "../../boards/PartyShell";
 import { inCount, partyNames } from "../../boards/PartyBoards";
 import { DayVotes, ROLE_TEXT, VOTE_RULE, useWerewolf } from "../../boards/WerewolfBoard";
-import { DRAW_RULES, drawLabel, drawRoundOver, roundStrokes, type Clear, type Stroke } from "../../boards/DrawGuessBoard";
+import { DRAW_RULES, drawLabel, drawRoundOver, roundStrokes, usePictureCatchUp, type Clear, type Stroke } from "../../boards/DrawGuessBoard";
 import { SeatDot } from "../ui";
 import "../party3d.css";
 
@@ -220,7 +220,7 @@ export function Werewolf3D(p: BoardProps) {
         <div className="relative text-center text-[15px] font-bold">{head}</div>
         <div className="relative mt-3 flex flex-wrap justify-center gap-2" data-ww-players>
           {alive.map((a, q) => {
-            const can = acting && a && q !== seat && canPlay && !(state.phase === "night" && (done || (myRole?.role === "wolf" && pack.includes(q))));
+            const can = acting && a && q !== seat && canPlay && !(state.phase === "night" && myRole?.role === "wolf" && pack.includes(q));
             return (
               <button
                 key={q}
@@ -256,7 +256,7 @@ export function Werewolf3D(p: BoardProps) {
       {state.phase !== "lobby" && state.phase !== "over" && (
         <div className="text-[12.5px] font-semibold" data-ww-status data-ww-night={state.phase === "night" ? "" : undefined}>
           {status}
-          {state.phase === "night" && acting && !done ? " — click them above" : ""}
+          {state.phase === "night" && acting ? (done ? " — click another above to change" : " — click them above") : ""}
         </div>
       )}
       {myRole && state.phase !== "lobby" && (
@@ -344,6 +344,7 @@ export function DrawGuess3D({ moves, canPlay, seat, seats, starter = 0, seed = "
   const round = state?.round ?? 0;
   // Only the drawer's strokes, of this match round and party round (the same as the flat board).
   const strokes = useMemo(() => roundStrokes(deltas, seed, round, extra?.drawer), [deltas, seed, round, extra?.drawer]);
+  usePictureCatchUp({ deltas, seed, round, drawer: extra?.drawer, seat, open: !!state?.open, strokes, onDelta });
   // Paint: everything already shown at once, new strokes drawn on smoothly (for the guessers).
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");

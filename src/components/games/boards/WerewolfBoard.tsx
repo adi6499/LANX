@@ -9,8 +9,12 @@ type PeekResult = { kind: "peekResult"; to: number; target: number; wolf: boolea
 /** LANX 2.17.0: a night action goes privately (`to`) to the host, to the sender's own PC and — for a
  *  wolf's pick — to the rest of the pack, tagged with its night and the match round (`s`). */
 type Act = NightAct & { to: number; s?: string; __from?: number };
-type Delta = RoleCard | PeekResult | Act;
-type Secret = { roles: Role[]; night: { round: number } };
+/** LANX 3.18.0 (S3-09): "I have no role card" — sent to the host by a player whose card never
+ *  came, or went with a restart of LANX (cards are not kept on disk). The host sends it again. */
+type NeedRole = { kind: "needRole"; from: number; to: number; s?: string; __from?: number };
+type Delta = RoleCard | PeekResult | Act | NeedRole;
+/** (peeks: what the seer has been told so far, so that it can be told again.) */
+type Secret = { roles: Role[]; night: { round: number }; peeks?: PeekResult[] };
 
 export const ROLE_TEXT: Record<Role, string> = { wolf: "🐺 Werewolf — pick a victim each night with your pack.", seer: "🔮 Seer — peek at one player each night.", villager: "🧑‍🌾 Villager — find the wolves by day." };
 export const NIGHT_SECS = 45;
@@ -81,9 +85,14 @@ export function useWerewolf({ moves, canPlay, seat, seats, starter = 0, seed = "
     if (done.has(`${seed}|${phaseKey}`)) return;
     if (state.phase === "night") {
       const r = resolveNight(tonight, sec.roles, state.alive, state.round);
-      if (!r.allIn && Date.now() < deadline) return;
+      // (the night ends early once everyone has acted AND the pack agrees; else when its clock runs out)
+      if (!(r.allIn && r.agreed) && Date.now() < deadline) return;
       if (!once(phaseKey)) return;
-      if (r.peek !== null && r.seer >= 0) onDelta?.({ kind: "peekResult", to: r.seer, target: r.peek, wolf: sec.roles[r.peek] === "wolf", night: state.round, s: seed } satisfies PeekResult);
+      if (r.peek !== null && r.seer >= 0) {
+        const told = { kind: "peekResult", to: r.seer, target: r.peek, wolf: sec.roles[r.peek] === "wolf", night: state.round, s: seed } satisfies PeekResult;
+        onDelta?.(told);
+        onSecret?.({ ...sec, peeks: [...(sec.peeks ?? []), told] } satisfies Secret);
+      }
       onMove(`dawn:${state.round}:${r.victim === null ? "none" : r.victim}`);
       finish(state.alive.map((a, p) => a && p !== r.victim));
     } else {
@@ -97,6 +106,46 @@ export function useWerewolf({ moves, canPlay, seat, seats, starter = 0, seed = "
     }
   };
   useEffect(() => run.current());
+  // ---- a lost role card (3.18.0). The player without one asks the host; the host sends it again,
+  // with what the seer has been told so far.
+  const askCard = useRef(onDelta);
+  askCard.current = onDelta;
+  const cardMissing = !!state && (state.phase === "night" || state.phase === "day") && !host && !myRole && seat >= 0 && seat < n && !state.left[seat];
+  useEffect(() => {
+    if (!cardMissing) return;
+    let tries = 0;
+    const ask = () => {
+      if (tries++ < 12) askCard.current?.({ kind: "needRole", from: seat, to: hostP, s: seed } satisfies NeedRole);
+    };
+    const first = window.setTimeout(ask, 1500); // (the card may simply be on its way)
+    const again = window.setInterval(ask, 5000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(again);
+    };
+  }, [cardMissing, seat, hostP, seed]);
+  const answeredCards = useRef(new WeakSet<object>());
+  const ownCard = useRef("");
+  useEffect(() => {
+    if (!host || !sec) return;
+    const allWolves = sec.roles.map((r, q) => (r === "wolf" ? q : -1)).filter((q) => q >= 0);
+    // The host's own card went with a restart of its LANX too: it deals itself the card again.
+    if (!myRole && state && (state.phase === "night" || state.phase === "day") && seat >= 0 && seat < sec.roles.length && ownCard.current !== seed) {
+      ownCard.current = seed;
+      onDelta?.({ kind: "role", to: seat, role: sec.roles[seat], wolves: sec.roles[seat] === "wolf" ? allWolves : [], s: seed } satisfies RoleCard);
+      for (const told of sec.peeks ?? []) if (told.to === seat) onDelta?.(told);
+    }
+    for (const d of mine) {
+      if (d.kind !== "needRole" || answeredCards.current.has(d)) continue;
+      answeredCards.current.add(d);
+      // Who really asked (the match fills that in): a card only ever goes to its own player.
+      const p = typeof d.__from === "number" ? d.__from : -1;
+      if (p < 0 || p === seat || p >= sec.roles.length) continue;
+      const wolves = sec.roles.map((r, q) => (r === "wolf" ? q : -1)).filter((q) => q >= 0);
+      onDelta?.({ kind: "role", to: p, role: sec.roles[p], wolves: sec.roles[p] === "wolf" ? wolves : [], s: seed } satisfies RoleCard);
+      for (const told of sec.peeks ?? []) if (told.to === p) onDelta?.(told);
+    }
+  }, [mine, host, sec, seat, seed, onDelta, myRole, state]);
   useEffect(() => {
     if (!host) return;
     // LANX 3.17.0: on a clock that keeps time while LANX is hidden or minimised (lib/steadyClock).
@@ -132,8 +181,9 @@ function statusOf(state: WerewolfState | null, seat: number, role: Role | undefi
   if (state.left[seat]) return "You left the game";
   if (!state.alive[seat]) return "You're out — watching";
   if (state.phase === "night") {
-    if (role === "wolf") return done ? "Your pick is in — waiting for the dawn" : "Pick your victim";
-    if (role === "seer") return done ? "Peek sent — waiting for the dawn" : "Pick someone to peek at";
+    if (!role) return "Fetching your role card from the host…";
+    if (role === "wolf") return done ? "Your pick is in — you can still change it until the dawn" : "Pick your victim";
+    if (role === "seer") return done ? "Peek sent — you can still change it until the dawn" : "Pick someone to peek at";
     return "The village sleeps…";
   }
   return state.votes[seat] !== undefined ? "Vote cast — you can still change it" : "Vote someone out, or skip";
@@ -157,7 +207,7 @@ export function DayVotes({ state, name }: { state: WerewolfState; name: (p: numb
 
 /** Werewolf: the host's PC keeps the roles and runs the nights and days. */
 export function WerewolfBoard(p: BoardProps) {
-  const { state, n, name, colour, tidy, myRole, peeks, left, start, attack, peekAt, vote, done, canPlay, seat, host, pack, packPicks, status } = useWerewolf(p);
+  const { state, n, name, colour, tidy, myRole, peeks, left, start, attack, peekAt, vote, canPlay, seat, host, pack, packPicks, myAct, status } = useWerewolf(p);
   if (!state) return null;
   const alive = state.alive;
   const iAmAlive = alive[seat];
@@ -167,7 +217,7 @@ export function WerewolfBoard(p: BoardProps) {
     <div className="flex flex-wrap justify-center gap-1.5" data-ww-targets>
       {alive.map((a, q) =>
         a && q !== seat && !skip.includes(q) ? (
-          <button key={q} type="button" data-ww-target={q} disabled={!canPlay || (state.phase === "night" && done)} onClick={() => pick(q)} className={`inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[12.5px] font-semibold text-slate-900 shadow ring-1 hover:bg-indigo-50 disabled:opacity-50 dark:bg-slate-800 dark:text-white ${chosen === q ? "ring-2 ring-indigo-500" : "ring-black/10"}`}>
+          <button key={q} type="button" data-ww-target={q} disabled={!canPlay} onClick={() => pick(q)} className={`inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[12.5px] font-semibold text-slate-900 shadow ring-1 hover:bg-indigo-50 disabled:opacity-50 dark:bg-slate-800 dark:text-white ${chosen === q ? "ring-2 ring-indigo-500" : "ring-black/10"}`}>
             <span className="g3-token h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colour(q) }} /> {label} {name(q)}
             {state.phase === "day" && votesFor(q) > 0 && <span className="rounded-full bg-rose-600 px-1.5 text-[10.5px] text-white" data-ww-votes={q}>{votesFor(q)}</span>}
             {state.phase === "night" && packPicks.filter((x) => x.target === q).map((x) => <span key={x.wolf} className="text-[10.5px] text-rose-600" data-ww-pack-pick={x.wolf}>🐺 {name(x.wolf)}</span>)}
@@ -213,8 +263,8 @@ export function WerewolfBoard(p: BoardProps) {
       )}
       {state.phase === "night" && (
         <div className="flex flex-col items-center gap-2 text-[13px]" data-ww-night>
-          {iAmAlive && myRole?.role === "wolf" && players(attack, "Attack", undefined, pack)}
-          {iAmAlive && myRole?.role === "seer" && players(peekAt, "Peek at", undefined)}
+          {iAmAlive && myRole?.role === "wolf" && players(attack, "Attack", myAct?.kind === "kill" ? myAct.target : undefined, pack)}
+          {iAmAlive && myRole?.role === "seer" && players(peekAt, "Peek at", myAct?.kind === "peek" ? myAct.target : undefined)}
         </div>
       )}
       {state.phase === "day" && (

@@ -107,9 +107,23 @@ export function reversiPassNote(board: ReturnType<typeof reversiStart>, moves: s
   const mover = (turn % 2) as 0 | 1;
   const other = (1 - mover) as 0 | 1;
   if (!reversiLegal(board, mover).length && reversiLegal(board, other).length)
-    return canPlay ? { text: `You have no move this turn — press Pass and ${name(other)} plays again.`, mine: true } : { text: `${name(mover)} has no move — passes, and it's ${name(other)}'s turn again.`, mine: false };
+    return canPlay ? { text: `You have no move this turn — LANX passes for you, and ${name(other)} plays again.`, mine: true } : { text: `${name(mover)} has no move — passes, and it's ${name(other)}'s turn again.`, mine: false };
   if (moves.length && moves[moves.length - 1] === "p") return { text: `${name(other)} had no move and passed.`, mine: false };
   return null;
+}
+
+/** LANX 3.18.0 (S3-04): a player with no move does not have to find the Pass button. After a
+ *  moment to read why, LANX passes for them (there is nothing else they could do; the Pass
+ *  button is still there for whoever wants it at once). The rules are unchanged. */
+export const AUTO_PASS_MS = 2200;
+export function useAutoPass(mine: boolean, movesMade: number, onMove: (m: string) => void) {
+  const go = useRef(onMove);
+  go.current = onMove;
+  useEffect(() => {
+    if (!mine) return;
+    const t = window.setTimeout(() => go.current("p"), AUTO_PASS_MS);
+    return () => window.clearTimeout(t);
+  }, [mine, movesMade]);
 }
 
 export function ReversiBoard({ moves, canPlay, turn, seats, starter = 0, onMove }: BoardProps) {
@@ -118,6 +132,7 @@ export function ReversiBoard({ moves, canPlay, turn, seats, starter = 0, onMove 
   const [black, white] = reversiCount(board);
   const last = moves.length ? Number(moves[moves.length - 1]) : -1;
   const note = reversiPassNote(board, moves, turn, canPlay, (p) => seatFor(seats, starter, p, 2).name.split(" (")[0]);
+  useAutoPass(!!note?.mine, moves.length, onMove);
   return (
     <div data-game-board="reversi" className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-4 text-[12.5px] font-semibold">

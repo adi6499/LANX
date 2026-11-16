@@ -118,7 +118,10 @@ export function resolveNight(acts: readonly NightAct[], roles: readonly Role[], 
       best = v;
     }
   const allIn = wolves.length > 0 && wolves.every((w) => picks.has(w)) && (seer < 0 || peek !== null);
-  return { victim, peek: peek as number | null, seer, wolves, allIn, picks: [...picks].map(([wolf, p]) => ({ wolf, target: p.target })) };
+  // LANX 3.18.0 (S3-09): the pack is of one mind. While it is not, the host leaves the night
+  // open (until its clock runs out), so a wolf who sees the others' picks can still change theirs.
+  const agreed = new Set([...picks.values()].map((p) => p.target)).size <= 1;
+  return { victim, peek: peek as number | null, seer, wolves, allIn, agreed, picks: [...picks].map(([wolf, p]) => ({ wolf, target: p.target })) };
 }
 
 /** Who is on each side once the roles are known (the leavers are left out of the win). */

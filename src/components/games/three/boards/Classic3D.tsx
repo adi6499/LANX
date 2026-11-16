@@ -10,7 +10,7 @@ import { Chess, type Square } from "chess.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BoardProps } from "../../boardProps";
 import { C4_COLS, C4_ROWS, c4Grid, c4WinCells, chessGame, type Cell } from "../../../../lib/gameRules";
-import { checkers, checkersMoves, checkersRouteStep, type CheckersState } from "../../../../lib/games/checkers.ts";
+import { checkers, checkersMoves, checkersMustJump, checkersRouteStep, type CheckersState } from "../../../../lib/games/checkers.ts";
 import { CHECKERS_ROUTE_NOTE } from "../../boards/CheckersBoard";
 import { sfx } from "../../../../lib/gameSounds";
 import { BoardScene, type PieceSpec } from "../boardScene";
@@ -628,7 +628,7 @@ export function Checkers3D({ moves, canPlay, turn, seat, local, onMove }: BoardP
           <span className="ml-2" />
           <SeatDot color="#1f2937" /> {state.cells.filter((x) => x?.p === 1).length}
         </span>
-        {canPlay && legal.length > 0 && legal[0].split("-").length > 1 && Math.abs(Number(legal[0].split("-")[1]) - Number(legal[0].split("-")[0])) > 9 && <span className="text-amber-700 dark:text-amber-300">You must jump</span>}
+        {canPlay && checkersMustJump(legal) && <span data-checkers-must-jump="1" className="text-amber-700 dark:text-amber-300">You must jump</span>}
       </BoardBar>
       <SceneBox hostRef={hostRef} aspect={1.08} maxH={620} testId="checkers" />
       {choosing && <div data-checkers-routes className="text-center text-[12px] font-semibold text-slate-700 dark:text-slate-200">{CHECKERS_ROUTE_NOTE}</div>}
