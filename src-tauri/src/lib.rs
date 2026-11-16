@@ -80,9 +80,10 @@ fn ui_ready(window: tauri::Window) {
 }
 
 /// LANX 3.17.1: the page calls this when its start-up screen (the logo on LANX's dark colour)
-/// is drawn. The window opens now — sooner than before, when it waited for all of LANX's code —
-/// and it never opens with nothing drawn in it: until its page has drawn, Windows fills a
-/// window itself, white where Windows is in light mode ("LANX shows a white screen").
+/// is drawn. The window opens now, so it never opens with nothing drawn in it: until its page
+/// has drawn, Windows fills a window itself, white where Windows is in light mode ("LANX shows
+/// a white screen"). (Measured: this is no sooner than before, about 1.3–1.6 s after the
+/// start; the web view itself takes a second to come up.)
 #[tauri::command]
 fn splash_shown(window: tauri::Window) {
     if window.label() == "main" {

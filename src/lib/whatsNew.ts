@@ -23,7 +23,7 @@ export const RELEASES: Release[] = [
     title: "No white window when LANX starts",
     items: [
       { icon: "🌙", title: "LANX no longer opens white", text: "When LANX’s window opened before LANX was ready — you clicked its icon while it was still starting with Windows, or the PC was busy — it showed an empty white window, and on a PC whose Windows is set to light a near-white page. The window now waits until its start-up screen is drawn (LANX’s logo on a calm dark colour, the same on every PC) and opens with that." },
-      { icon: "✨", title: "One start-up screen, and sooner", text: "LANX used to show nothing for a moment, then a “Starting LANX…” screen, then itself. Its window now opens earlier with one start-up screen, which stays until LANX is really ready and then fades away." },
+      { icon: "✨", title: "One start-up screen", text: "LANX now opens with one start-up screen — its logo and “Starting LANX…” — which stays until LANX is really ready and then fades away." },
     ],
   },
   {
