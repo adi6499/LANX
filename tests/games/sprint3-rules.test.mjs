@@ -227,3 +227,112 @@ test("S3-16 Hold'em: nobody is asked to act alone with nothing to call; the odd 
   assert.ok(hands > 300, `${hands} showdowns looked at`);
   assert.ok(oddSplits >= 3, `only ${oddSplits} pots were shared with a chip left over; the test needs a few`);
 });
+
+// ------------------------------------------------------------------ S3-08
+test("S3-08 Trivia Night: 160 questions, none twice in a match, different sets from match to match, options shuffled", async () => {
+  const { TRIVIA, trivia } = await load("games/party.ts");
+  assert.ok(TRIVIA.length >= 160, `${TRIVIA.length} questions`);
+  assert.equal(new Set(TRIVIA.map((q) => q.q)).size, TRIVIA.length, "no question is there twice");
+  for (const q of TRIVIA) {
+    assert.equal(q.options.length, 4, q.q);
+    assert.equal(new Set(q.options).size, 4, `${q.q}: four different options`);
+    assert.ok(Number.isInteger(q.a) && q.a >= 0 && q.a < 4, q.q);
+    assert.ok(q.q.length <= 80 && q.options.every((o) => o.length > 0 && o.length <= 40), `${q.q}: fits the board`);
+  }
+  const byText = new Map(TRIVIA.map((q) => [q.q, q.options[q.a]]));
+  const place = [0, 0, 0, 0];
+  const sets = new Set();
+  const matches = [];
+  for (let g = 0; g < 600; g++) {
+    const seed = `m-tr${(g * 7919).toString(36)}#1`;
+    const asked = [];
+    for (let round = 1; round <= 10; round++) {
+      const q = trivia.rules.setup(seed, round, 3, null);
+      assert.equal(q.options[q.a], byText.get(q.q), `${seed} round ${round}: the right option is still the right one after shuffling`);
+      assert.equal(new Set(q.options).size, 4);
+      place[q.a]++;
+      asked.push(q.q);
+    }
+    assert.equal(new Set(asked).size, 10, `${seed}: ten different questions`);
+    sets.add([...asked].sort().join("|"));
+    matches.push(new Set(asked));
+  }
+  assert.ok(sets.size >= 598, `${sets.size} different sets in 600 matches (there used to be 40 at most)`);
+  for (const n of place) assert.ok(n / 6000 > 0.21 && n / 6000 < 0.29, `the right answer's place is spread evenly: ${place.join(", ")} of 6000`);
+  let shared = 0;
+  for (let i = 1; i < matches.length; i++) for (const q of matches[i]) if (matches[i - 1].has(q)) shared++;
+  assert.ok(shared / 599 < 1.2, `two matches share ${(shared / 599).toFixed(2)} questions on average (it was 2.6)`);
+});
+
+// ------------------------------------------------------------------ S3-12
+test("S3-12 Draw & Guess: 200 words, none twice in a match, and one or many is the same guess", async () => {
+  const { DRAW_WORDS, drawWord, isRightGuess, drawRoundsFor } = await load("games/drawguess.ts");
+  assert.ok(DRAW_WORDS.length >= 200, `${DRAW_WORDS.length} words`);
+  assert.equal(new Set(DRAW_WORDS).size, DRAW_WORDS.length, "no word is there twice");
+  for (const w of DRAW_WORDS) assert.match(w, /^[a-z]+( [a-z]+)?$/, w);
+  for (let g = 0; g < 2000; g++) {
+    const seed = `m-dw${g}#1`;
+    const n = 3 + (g % 6);
+    const words = Array.from({ length: drawRoundsFor(n) }, (_, k) => drawWord(seed, k + 1));
+    assert.equal(new Set(words).size, words.length, `${seed}, ${n} players: ${words.join(", ")}`);
+  }
+  assert.equal(drawWord("m-a#1", 1), drawWord("m-a#1", 1));
+  assert.ok(isRightGuess("Apples", "apple"));
+  assert.ok(isRightGuess("box", "boxes"));
+  assert.ok(isRightGuess("ice-cream", "ice cream"));
+  assert.ok(isRightGuess("GRAPE", "grapes"));
+  assert.ok(!isRightGuess("grapefruit", "grapes"));
+  assert.ok(!isRightGuess("", "s"));
+  assert.ok(!isRightGuess("car", "cat"));
+});
+
+// ------------------------------------------------------------------ S3-14
+test("S3-14 Wordbox: a padded word is not another word, and a word must be in the word list", async () => {
+  const { wordbox, wordboxGrid, wordsByPlayer } = await load("games/wordbox.ts");
+  const wl = await load("games/wordlist.ts");
+  const seed = "m-wb#1";
+  const grid = wordboxGrid(seed, 1);
+  // Two three-letter runs on the grid (squares side by side in the top two rows).
+  const first = grid[0] + grid[1] + grid[2];
+  const second = grid[4] + grid[5] + grid[6];
+  const open = [`o:1:${T}`];
+  assert.ok(wordbox.replay([...open, `0@a#1:${first}`], 2, seed), "a clean word on the grid");
+  for (const bad of [`${first} `, ` ${first}`, `${first}     `, first.toLowerCase()]) assert.equal(wordbox.replay([...open, `0@a#1:${bad}`], 2, seed), null, JSON.stringify(bad));
+  assert.equal(wordbox.replay([...open, `0@a#1:${first}`, `0@a#1:${first}`], 2, seed), null, "the same word twice from one player");
+  // A list from before 3.18.0 with a padded word in it is still read, and the word counts once, as its real length.
+  const words = wordsByPlayer([{ player: 0, text: first }, { player: 0, text: `${first}     ` }, { player: 1, text: second }], 2);
+  assert.deepEqual(words[0].map((w) => w.word), [first]);
+  assert.equal(words[0][0].points, words[1][0].points, "three letters score as three letters");
+
+  // The word list, asked by the match code: on the sender's PC, and on the host's PC for a guest.
+  wl.setWordList([first]);
+  try {
+    assert.equal(await wl.wordboxMoveAllowed(`0@a#1:${first}`), true);
+    assert.equal(await wl.wordboxMoveAllowed(`0@a:${second}`), false);
+    assert.equal(await wl.wordboxMoveAllowed("e:1"), true);
+    const net = makeNet();
+    const pcs = { H: await net.boot("H"), G1: await net.boot("G1") };
+    const { match, cards } = pcs.H.challengeMany("wordbox", [peer("G1")]);
+    await pcs.G1.openFromCard(cards[0].card, cardMsg("H"), [peer("H")]);
+    await tick();
+    assert.equal(await pcs.H.startNow(match.id), null);
+    await tick();
+    const id = match.id;
+    assert.equal(await pcs.H.play(id, `o:1:${T}`), null);
+    await tick(12);
+    const g = wordboxGrid(pcs.H.seedOf(pcs.H.getMatch(id)), 1);
+    const real = g[0] + g[1] + g[2];
+    const made = g[4] + g[5] + g[6];
+    wl.setWordList([real]);
+    assert.equal(await pcs.G1.play(id, `1@a:${made}`), "That is not in the word list.", "the sender's own PC refuses it");
+    assert.equal(await pcs.G1.play(id, `1@a:${real}`), null);
+    await tick(12);
+    assert.deepEqual(pcs.H.getMatch(id).moves.slice(1), [`1@a#1:${real}`]);
+    // A copy that does not ask its own list (changed, or older) sends a made-up word: the host's PC refuses it.
+    await net.send("G1", "H", { match_id: id, game: "wordbox", action: "move", seq: 0, data: { cell: `1@a#1:${made}`, k: "made-up-1" }, at: 0 });
+    await tick(12);
+    assert.deepEqual(pcs.H.getMatch(id).moves.slice(1), [`1@a#1:${real}`], "the made-up word is not in the game");
+  } finally {
+    wl.setWordList(null);
+  }
+});

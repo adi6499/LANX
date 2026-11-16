@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { loadWordList, wordListNow } from "../../../lib/games/wordlist";
 import { seatFor, type BoardProps, type Seat } from "../boardProps";
 import { allAnswered, mathRush, present, tapRoulette, trivia, type MathExtra, type RoundState, type TapExtra, type TriviaQ } from "../../../lib/games/party.ts";
 import { wordOnGrid, wordPoints, wordbox, wordsByPlayer, type WordboxExtra } from "../../../lib/games/wordbox.ts";
@@ -147,23 +148,12 @@ export function TriviaBoard({ moves, canPlay, seat, seats, starter = 0, seed = "
 
 // ---------------------------------------------------------------- Wordbox
 
-let dictionary: Set<string> | null = null;
-let loadingDict: Promise<Set<string> | null> | null = null;
-/** The English word list (about 270,000 words), loaded the first time a Wordbox board opens. */
-export function loadWordList(): Promise<Set<string> | null> {
-  if (dictionary) return Promise.resolve(dictionary);
-  loadingDict ??= import("../../../../node_modules/word-list/words.txt?raw")
-    .then((m) => {
-      dictionary = new Set((m.default as string).split("\n").map((w) => w.trim().toUpperCase()));
-      return dictionary;
-    })
-    .catch(() => null);
-  return loadingDict;
-}
+// LANX 3.18.0: the word list lives in lib/games/wordlist (the match code asks it too).
+export { loadWordList };
 
 /** LANX 2.17.0: the word list for both Wordbox boards (null while it loads). */
 export function useWordList(): Set<string> | null {
-  const [dict, setDict] = useState<Set<string> | null>(dictionary);
+  const [dict, setDict] = useState<Set<string> | null>(wordListNow());
   useEffect(() => {
     let live = true;
     void loadWordList().then((d) => live && setDict(d));

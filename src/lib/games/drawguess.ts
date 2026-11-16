@@ -8,12 +8,27 @@
 // Moves: "<player>@a:<guess>"; the host opens and closes rounds.
 
 import { partyDef, type PartyState } from "./party.ts";
-import { rng } from "./core.ts";
+import { shuffled } from "./core.ts";
 
 export const DRAW_WORDS = [
   "apple", "bicycle", "umbrella", "elephant", "guitar", "rocket", "pizza", "camera", "mountain", "butterfly", "laptop", "candle", "tractor", "giraffe", "sandwich", "lighthouse", "snowman", "helicopter", "cactus", "penguin",
   "toothbrush", "volcano", "kite", "octopus", "train", "balloon", "ladder", "island", "crown", "telescope", "scooter", "ice cream", "football", "rainbow", "whale", "robot", "castle", "spider", "banana", "hammer",
   "bridge", "tent", "teapot", "dragon", "windmill", "submarine", "pineapple", "parrot", "glasses", "drum", "anchor", "cloud", "wallet", "tiger", "fountain", "necklace", "kangaroo", "pencil", "bucket", "sunflower",
+  // LANX 3.18.0: 140 more (there were sixty, and the same word came twice in one match in five).
+  "aeroplane", "ambulance", "ant", "arrow", "axe", "backpack", "bat", "bathtub", "beach", "bear",
+  "bed", "bee", "bell", "belt", "bench", "bird", "boat", "book", "boot", "bottle",
+  "bow", "bowl", "box", "bread", "broom", "brush", "bus", "button", "cake", "calendar",
+  "camel", "car", "carrot", "cat", "chair", "cheese", "cherry", "chimney", "clock", "coconut",
+  "comb", "compass", "cow", "crab", "crocodile", "cup", "curtain", "deer", "desk", "diamond",
+  "dice", "dog", "dolphin", "door", "duck", "eagle", "ear", "egg", "envelope", "eye",
+  "fan", "feather", "fence", "fire", "fish", "flag", "flower", "fork", "fox", "frog",
+  "garden", "gate", "ghost", "gift", "glove", "goat", "grapes", "hand", "hat", "heart",
+  "horse", "house", "igloo", "iron", "jar", "jeep", "key", "kettle", "king", "knife",
+  "lamp", "leaf", "lemon", "lion", "lock", "magnet", "map", "mask", "medal", "mirror",
+  "monkey", "moon", "mosquito", "mouse", "mushroom", "nest", "nose", "onion", "owl", "panda",
+  "peacock", "piano", "pillow", "pear", "plate", "pumpkin", "rabbit", "ring", "river", "road",
+  "roof", "rope", "ruler", "sail", "scissors", "sheep", "ship", "shirt", "shoe", "snail",
+  "snake", "sock", "spoon", "stairs", "star", "sun", "table", "tooth", "tree", "trophy",
 ];
 
 export interface DrawExtra {
@@ -25,10 +40,17 @@ export interface DrawExtra {
   guessedBy?: number;
 }
 
-export const drawWord = (seed: string, round: number) => DRAW_WORDS[Math.floor(rng(`${seed}#draw${round}`)() * DRAW_WORDS.length)];
+/** The word of a round. LANX 3.18.0: the words are shuffled once for the match and each round takes
+ *  the next, so no word comes twice in a match (each round used to draw one by itself). */
+export const drawWord = (seed: string, round: number) => shuffled(DRAW_WORDS, `${seed}#drawwords`)[(Math.max(1, round) - 1) % DRAW_WORDS.length];
 /** LANX 2.17.0: how a guess is compared with the word — on every board as in the rules: only the letters count. */
 export const drawNorm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
-export const isRightGuess = (guess: string, word: string) => drawNorm(guess) !== "" && drawNorm(guess) === drawNorm(word);
+/** LANX 3.18.0: one or many is the same guess ("apples" for "apple", "box" for "boxes"). */
+export const isRightGuess = (guess: string, word: string) => {
+  const g = drawNorm(guess);
+  const w = drawNorm(word);
+  return g !== "" && (g === w || g === `${w}s` || `${g}s` === w || g === `${w}es` || `${g}es` === w);
+};
 
 /** Drawing turns each: twice at a table of up to four, once at five or more. */
 export const drawTurnsEach = (n: number) => (n <= 4 ? 2 : 1);

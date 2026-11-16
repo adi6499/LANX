@@ -58,16 +58,20 @@ export const wordPoints = (word: string) => {
   return k >= 8 ? 11 : k === 7 ? 5 : k === 6 ? 3 : k === 5 ? 2 : k >= 3 ? 1 : 0;
 };
 
+/** LANX 3.18.0: a word as it counts — capitals, nothing around it. ("DEN" padded with spaces to
+ *  eight characters used to score as an eight-letter word, and "DEN" and "DEN " as two words.) */
+export const wbWord = (text: string) => text.trim().toUpperCase();
+
 /** The words of a round by player, each marked when somebody else found it too (it scores nobody). */
 export function wordsByPlayer(answers: { player: number; text: string }[], n: number): { word: string; shared: boolean; points: number }[][] {
   const finders = new Map<string, Set<number>>();
   for (const a of answers) {
-    const w = a.text.toUpperCase();
+    const w = wbWord(a.text);
     finders.set(w, (finders.get(w) ?? new Set()).add(a.player));
   }
   const out: { word: string; shared: boolean; points: number }[][] = Array.from({ length: n }, () => []);
   for (const a of answers) {
-    const w = a.text.toUpperCase();
+    const w = wbWord(a.text);
     if (a.player < 0 || a.player >= n || out[a.player].some((x) => x.word === w)) continue;
     const shared = (finders.get(w)?.size ?? 0) > 1;
     out[a.player].push({ word: w, shared, points: shared ? 0 : wordPoints(w) });
@@ -87,15 +91,17 @@ export const wordbox = partyDef<WordboxExtra>(
     seconds: 90,
     setup: (seed, round) => ({ grid: wordboxGrid(seed, round) }),
     accept: (s, player, text, extra) => {
-      const w = text.trim().toUpperCase();
-      if (!/^[A-Z]{3,16}$/.test(w) || !wordOnGrid(extra.grid, w)) return false;
-      return !s.answers.some((a) => a.player === player && a.text.toUpperCase() === w);
+      const w = wbWord(text);
+      // (3.18.0: sent as it counts: nothing padded, nothing in small letters)
+      if (text !== w || !/^[A-Z]{3,16}$/.test(w) || !wordOnGrid(extra.grid, w)) return false;
+      return !s.answers.some((a) => a.player === player && wbWord(a.text) === w);
     },
     score: (s, _extra, n) => {
       const byWord = new Map<string, number[]>();
       for (const a of s.answers) {
-        const w = a.text.toUpperCase();
-        byWord.set(w, [...(byWord.get(w) ?? []), a.player]);
+        const w = wbWord(a.text);
+        const had = byWord.get(w) ?? [];
+        if (!had.includes(a.player)) byWord.set(w, [...had, a.player]);
       }
       const gained = Array(n).fill(0);
       for (const [w, players] of byWord) if (players.length === 1) gained[players[0]] += wordPoints(w);

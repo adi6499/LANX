@@ -139,8 +139,11 @@ export const RULES_3160 = new Set<string>(["gofish", "dominoes", "bankroll", "ho
 /** LANX 3.17.0: games whose answers and votes now say which round they are for: every PC at the
  *  table needs 3.17.0 (src-tauri RULES_3170_GAMES). */
 export const RULES_3170 = new Set<string>(["taproulette", "mathrush", "trivia", "wordbox", "drawguess", "paintfight", "werewolf"]);
+/** LANX 3.18.0: games whose rules were put right in 3.18.0 (Sprint 3 of the repair): every PC at the
+ *  table needs 3.18.0 (src-tauri RULES_3180_GAMES). */
+export const RULES_3180 = new Set<string>(["holdem", "mathrush", "trivia", "wordbox", "drawguess"]);
 /** The oldest LANX a colleague needs to play this game with you. */
-export const needsVersion = (id: string) => (RULES_3170.has(id) ? "3.17.0" : RULES_3160.has(id) ? "3.16.0" : RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
+export const needsVersion = (id: string) => (RULES_3180.has(id) ? "3.18.0" : RULES_3170.has(id) ? "3.17.0" : RULES_3160.has(id) ? "3.16.0" : RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
 /** Whether this many players can sit at the game. */
 export const sizeOk = (meta: GameMeta | undefined, n: number) => !!meta && n >= meta.minPlayers && n <= meta.maxPlayers && (!meta.sizes || meta.sizes.includes(n));
 
@@ -800,6 +803,8 @@ export async function play(id: string, move: string): Promise<string | null> {
   if (!myTurn(m)) return `Wait for ${seatName(m, turnSeat(m))}'s move.`;
   // LANX 3.17.0: an answer or a vote is marked with the round it is given in.
   move = (await import("./gameRules")).stampMove(m.game, m.moves, m.seats.length, seedOf(m), move);
+  // LANX 3.18.0: a Wordbox word must be in the word list (asked here, where the list is waited for).
+  if (m.game === "wordbox" && !(await (await import("./games/wordlist")).wordboxMoveAllowed(move))) return "That is not in the word list.";
   if (!(await appendValid(m, move))) return "That move isn't allowed.";
   soundAfterMove(m, true);
   bump();
@@ -1428,7 +1433,9 @@ async function hostStep(m: Match, e: GameEvent, d: Data) {
         await sendTo(e.from_id, m, "state", stateData(m)); // put their board right
         return;
       }
-      const ok = await appendValid(m, String(d.cell));
+      // LANX 3.18.0: …and a guest's Wordbox word is looked up on the host's PC as well.
+      const listed = m.game !== "wordbox" || (await (await import("./games/wordlist")).wordboxMoveAllowed(String(d.cell)));
+      const ok = listed && (await appendValid(m, String(d.cell)));
       if (!ok) {
         await sendTo(e.from_id, m, "state", stateData(m));
         return;

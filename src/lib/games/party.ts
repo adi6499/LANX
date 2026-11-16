@@ -9,7 +9,8 @@
 // game is over. Every right answer scores the same (the old "first in"
 // bonus went by arrival order at the host, which favoured the host's PC).
 
-import { ON, draw, leaver, rng, win, type GameDef, type Outcome } from "./core.ts";
+import { ON, draw, leaver, rng, shuffled, win, type GameDef, type Outcome } from "./core.ts";
+import { TRIVIA, type TriviaQ } from "./triviaQuestions.ts";
 
 export interface RoundState {
   /** Rounds played so far (the current one included once open). */
@@ -252,56 +253,8 @@ export const mathRush = partyDef<MathExtra>(
 
 // ---------------------------------------------------------------- Trivia Night
 
-export interface TriviaQ {
-  q: string;
-  options: string[];
-  /** Index of the right option. */
-  a: number;
-}
-
-export const TRIVIA: TriviaQ[] = [
-  { q: "Which planet is known as the Red Planet?", options: ["Venus", "Mars", "Jupiter", "Mercury"], a: 1 },
-  { q: "How many sides does a hexagon have?", options: ["5", "6", "7", "8"], a: 1 },
-  { q: "What is the capital of Australia?", options: ["Sydney", "Melbourne", "Canberra", "Perth"], a: 2 },
-  { q: "Which gas do plants take in from the air?", options: ["Oxygen", "Nitrogen", "Carbon dioxide", "Helium"], a: 2 },
-  { q: "Who painted the Mona Lisa?", options: ["Michelangelo", "Leonardo da Vinci", "Raphael", "Donatello"], a: 1 },
-  { q: "What is the largest ocean?", options: ["Atlantic", "Indian", "Arctic", "Pacific"], a: 3 },
-  { q: "How many minutes are in a day?", options: ["1,440", "1,400", "1,240", "1,640"], a: 0 },
-  { q: "Which metal is liquid at room temperature?", options: ["Iron", "Mercury", "Copper", "Zinc"], a: 1 },
-  { q: "What is the national animal of India?", options: ["Lion", "Elephant", "Tiger", "Peacock"], a: 2 },
-  { q: "Which river flows through Kolkata?", options: ["Ganga", "Hooghly", "Yamuna", "Godavari"], a: 1 },
-  { q: "The Taj Mahal is in which city?", options: ["Delhi", "Jaipur", "Agra", "Lucknow"], a: 2 },
-  { q: "How many players are on a cricket team?", options: ["9", "10", "11", "12"], a: 2 },
-  { q: "What is H2O?", options: ["Salt", "Water", "Hydrogen", "Oxygen"], a: 1 },
-  { q: "Which is the smallest prime number?", options: ["0", "1", "2", "3"], a: 2 },
-  { q: "The Great Wall is in which country?", options: ["Japan", "India", "China", "Mongolia"], a: 2 },
-  { q: "Which language has the most native speakers?", options: ["English", "Hindi", "Mandarin", "Spanish"], a: 2 },
-  { q: "What is 15% of 200?", options: ["20", "25", "30", "35"], a: 2 },
-  { q: "Which organ pumps blood?", options: ["Lungs", "Liver", "Heart", "Kidney"], a: 2 },
-  { q: "Which is the longest river in the world?", options: ["Amazon", "Nile", "Yangtze", "Mississippi"], a: 1 },
-  { q: "Who wrote Hamlet?", options: ["Charles Dickens", "William Shakespeare", "Jane Austen", "Mark Twain"], a: 1 },
-  { q: "What does CPU stand for?", options: ["Central Process Unit", "Central Processing Unit", "Computer Personal Unit", "Core Processing Utility"], a: 1 },
-  { q: "Which currency is used in Japan?", options: ["Yuan", "Won", "Yen", "Ringgit"], a: 2 },
-  { q: "How many bones are in the adult human body?", options: ["196", "206", "216", "226"], a: 1 },
-  { q: "The first Indian in space was…", options: ["Kalpana Chawla", "Rakesh Sharma", "Sunita Williams", "Vikram Sarabhai"], a: 1 },
-  { q: "Which planet has the most moons?", options: ["Jupiter", "Saturn", "Uranus", "Neptune"], a: 1 },
-  { q: "What is the boiling point of water at sea level?", options: ["90 °C", "100 °C", "110 °C", "120 °C"], a: 1 },
-  { q: "Which Indian city is called the Pink City?", options: ["Jodhpur", "Udaipur", "Jaipur", "Bikaner"], a: 2 },
-  { q: "Which is the largest desert in the world?", options: ["Sahara", "Gobi", "Antarctic", "Arabian"], a: 2 },
-  { q: "What is the square root of 144?", options: ["10", "11", "12", "14"], a: 2 },
-  { q: "Which blood group is the universal donor?", options: ["A", "B", "AB", "O negative"], a: 3 },
-  { q: "The Olympics are held every…", options: ["2 years", "3 years", "4 years", "5 years"], a: 2 },
-  { q: "Which is the hardest natural substance?", options: ["Gold", "Iron", "Diamond", "Quartz"], a: 2 },
-  { q: "Who is known as the Father of the Nation in India?", options: ["Jawaharlal Nehru", "Mahatma Gandhi", "Sardar Patel", "B. R. Ambedkar"], a: 1 },
-  { q: "What is the chemical symbol for gold?", options: ["Gd", "Go", "Au", "Ag"], a: 2 },
-  { q: "How many continents are there?", options: ["5", "6", "7", "8"], a: 2 },
-  { q: "Which Indian state is the largest by area?", options: ["Maharashtra", "Madhya Pradesh", "Rajasthan", "Uttar Pradesh"], a: 2 },
-  { q: "Which instrument has 88 keys?", options: ["Guitar", "Piano", "Violin", "Flute"], a: 1 },
-  { q: "What is 7 × 8?", options: ["54", "56", "58", "64"], a: 1 },
-  { q: "Mount Everest lies on the border of Nepal and…", options: ["India", "Bhutan", "China", "Pakistan"], a: 2 },
-  { q: "Which is the fastest land animal?", options: ["Lion", "Cheetah", "Horse", "Greyhound"], a: 1 },
-];
-
+// (The questions live in triviaQuestions.ts.)
+export { TRIVIA, type TriviaQ };
 
 export const trivia = partyDef<TriviaQ>(
   "trivia",
@@ -312,9 +265,15 @@ export const trivia = partyDef<TriviaQ>(
   {
     rounds: 10,
     seconds: 20,
+    // LANX 3.18.0: the whole set is shuffled for each match and the ten rounds take the first ten,
+    // so no question comes twice in a match and the sets differ from match to match (there were
+    // only forty sets: a start and a fixed step of seven). The four options are shuffled for each
+    // round as well (37 of the 40 right answers used to sit second or third).
     setup: (seed, round) => {
-      const start = hashOf(`${seed}#trivia`) % TRIVIA.length;
-      return TRIVIA[(start + (round - 1) * 7) % TRIVIA.length];
+      const order = shuffled(TRIVIA.map((_, i) => i), `${seed}#trivia`);
+      const q = TRIVIA[order[(round - 1) % order.length]];
+      const places = shuffled(q.options.map((_, i) => i), `${seed}#trivia${round}`);
+      return { q: q.q, options: places.map((i) => q.options[i]), a: places.indexOf(q.a) };
     },
     score: (s, q) => {
       const right = s.answers.filter((a) => a.text.trim() !== "" && Number(a.text) === q.a).map((a) => a.player);

@@ -115,6 +115,11 @@ pub const FEATURES_RULES_3160: &str = "3.16.0";
 /// LANX 3.17.0: in the party games and Werewolf an answer or a vote says which round it is for
 /// (mirrors RULES_3170 in src/lib/games.ts): every PC at the table needs 3.17.0.
 pub const FEATURES_RULES_3170: &str = "3.17.0";
+/// LANX 3.18.0: Sprint 3 of the games repair changed how these replay (Hold'em's lone player and
+/// odd chip, an empty answer in Math Rush and Trivia, Trivia's questions, Wordbox's padded words,
+/// Draw & Guess's words): every PC at the table needs 3.18.0 (mirrors RULES_3180 in src/lib/games.ts).
+pub const FEATURES_RULES_3180: &str = "3.18.0";
+pub const RULES_3180_GAMES: [&str; 5] = ["holdem", "mathrush", "trivia", "wordbox", "drawguess"];
 pub const RULES_3170_GAMES: [&str; 7] = ["taproulette", "mathrush", "trivia", "wordbox", "drawguess", "paintfight", "werewolf"];
 pub const RULES_3160_GAMES: [&str; 9] = ["gofish", "dominoes", "bankroll", "holdem", "mahjong", "taproulette", "wordbox", "drawguess", "werewolf"];
 /// The games whose rules changed in 2.17.0 (mirrors RULES_2170 in src/lib/games.ts).
