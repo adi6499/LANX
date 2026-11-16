@@ -24,6 +24,10 @@ export interface Outcome {
   reason: string;
   /** LANX 2.17.0: all the winners when a team wins together (Spades, Euchre, Werewolf). */
   winners?: number[];
+  /** LANX 3.18.0: a draw between these players only; everyone else lost (see games/core.ts). */
+  tied?: number[];
+  /** Points per player, for games that keep score. */
+  scores?: number[];
 }
 
 const ON: Outcome = { over: false, winner: null, draw: false, reason: "" };
@@ -244,6 +248,22 @@ export function chessTargets(moves: string[], from: Square): Square[] {
   return c.moves({ square: from, verbose: true }).map((m) => m.to as Square);
 }
 
+/** LANX 3.18.0: every move is allowed, and none is made after the game has ended — by mate,
+ *  stalemate, or a draw (the same position three times, fifty moves, not enough pieces). A draw
+ *  used to be final only because the match stopped there; the rules took one more move. */
+function chessValid(moves: string[]): boolean {
+  const c = new Chess();
+  for (const m of moves) {
+    if (c.isGameOver()) return false;
+    try {
+      c.move(m);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 function chessOutcome(moves: string[]): Outcome {
   const c = chessGame(moves);
   if (!c) return ON;
@@ -395,6 +415,10 @@ function crOutcome(moves: string[], n: number): Outcome {
   if (!s) return ON;
   const w = crWinnerOf(s.out, s.moved, n);
   if (w === null) return ON;
+  // LANX 3.18.0: the words fit how it ended. (Two players, one gave up: it said "the board is all one colour".)
+  const left = new Set(moves.filter((m) => /^x\d*$/.test(m)).map((m) => (m === "x" ? 0 : Number(m.slice(1)))));
+  const others = Array.from({ length: n }, (_, p) => p).filter((p) => p !== w);
+  if (others.every((p) => left.has(p))) return win(w, n > 2 ? "everyone else left" : "the other player gave up");
   return win(w, n > 2 ? "the last one standing" : "the board is all one colour");
 }
 
@@ -412,7 +436,7 @@ export function validateMoves(game: GameId, moves: string[], n = 2, seed = ""): 
     case "reversi":
       return reversiBoard(moves) !== null;
     case "chess":
-      return chessGame(moves) !== null;
+      return chessValid(moves);
     case "chainreaction":
       return crReplay(moves, n) !== null;
     default: {

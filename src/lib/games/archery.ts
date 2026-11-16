@@ -52,7 +52,7 @@ function outcome(s: ArcheryState, n: number): Outcome {
   const live = s.scores.map((x, i) => (s.out[i] ? -Infinity : x));
   const best = Math.max(...live);
   const tops = live.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
-  return tops.length > 1 ? draw(`${best} points each`, s.scores) : win(tops[0], `${best} points`, s.scores);
+  return tops.length > 1 ? draw(`${best} points each`, s.scores, tops) : win(tops[0], `${best} points`, s.scores);
 }
 
 export const archery: GameDef<ArcheryState> = {

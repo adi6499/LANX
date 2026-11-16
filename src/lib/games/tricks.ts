@@ -287,7 +287,7 @@ const heartsRules: Rules = {
     if (!s.over) return ON;
     const best = Math.min(...s.scores);
     const tops = s.scores.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
-    return tops.length > 1 ? draw(`${best} points each`, s.scores) : win(tops[0], `fewest points (${best})`, s.scores);
+    return tops.length > 1 ? draw(`${best} points each`, s.scores, tops) : win(tops[0], `fewest points (${best})`, s.scores);
   },
   // Someone left: the game ends, and the lowest score (this hand's points included) of those still in wins.
   leave: (s, n, p) => {
@@ -297,7 +297,7 @@ const heartsRules: Rules = {
     const best = Math.min(...still.map((q) => pts[q]));
     const tops = still.filter((q) => pts[q] === best);
     s.log.push(`P${p + 1} left the table — the game ends`);
-    s.result = tops.length > 1 ? draw(`P${p + 1} left — ${tops.map((q) => `P${q + 1}`).join(", ")} level on ${best}`, pts) : win(tops[0], `P${p + 1} left — fewest points (${best})`, pts);
+    s.result = tops.length > 1 ? draw(`P${p + 1} left — ${tops.map((q) => `P${q + 1}`).join(", ")} level on ${best}`, pts, tops) : win(tops[0], `P${p + 1} left — fewest points (${best})`, pts);
   },
 };
 

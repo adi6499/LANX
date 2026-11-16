@@ -99,7 +99,7 @@ function outcome(s: MinesVsState, n: number): Outcome {
   if (s.safeLeft > 0) return ON;
   const best = Math.max(...s.scores.filter((_x, i) => !s.out[i]));
   const tops = s.scores.map((x, i) => (x === best && !s.out[i] ? i : -1)).filter((i) => i >= 0);
-  return tops.length > 1 ? draw(`${best} points each`, s.scores) : win(tops[0], `${best} points`, s.scores.slice(0, n));
+  return tops.length > 1 ? draw(`${best} points each`, s.scores, tops) : win(tops[0], `${best} points`, s.scores.slice(0, n));
 }
 
 export const minesVersus: GameDef<MinesVsState> = {

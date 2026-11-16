@@ -125,7 +125,7 @@ export function partyOutcome(s: RoundState, _n: number, what = "points"): Outcom
   if (ps.length === 1 && s.out.some(Boolean)) return win(ps[0], `the others left · ${s.scores[ps[0]]} ${what}`, s.scores);
   const best = Math.max(...ps.map((p) => s.scores[p]));
   const tops = ps.filter((p) => s.scores[p] === best);
-  return tops.length > 1 ? draw(`${best} ${what} each`, s.scores) : win(tops[0], `${best} ${what}`, s.scores);
+  return tops.length > 1 ? draw(`${best} ${what} each`, s.scores, tops) : win(tops[0], `${best} ${what}`, s.scores);
 }
 
 /** Everyone acts at once while a round is open; between rounds the host acts. */
@@ -243,7 +243,7 @@ export const mathRush = partyDef<MathExtra>(
       return { question: `${q * (b % 10 + 1)} ÷ ${q}`, answer: (b % 10) + 1 };
     },
     score: (s, extra) => {
-      const right = s.answers.filter((a) => Number(a.text) === extra.answer).map((a) => a.player);
+      const right = s.answers.filter((a) => a.text.trim() !== "" && Number(a.text) === extra.answer).map((a) => a.player);
       for (const p of right) s.scores[p] += 1;
       return `Round ${s.round}: ${extra.question} = ${extra.answer}${right.length ? ` — right: ${listOf(right)}` : " — nobody got it"}`;
     },
@@ -317,7 +317,7 @@ export const trivia = partyDef<TriviaQ>(
       return TRIVIA[(start + (round - 1) * 7) % TRIVIA.length];
     },
     score: (s, q) => {
-      const right = s.answers.filter((a) => Number(a.text) === q.a).map((a) => a.player);
+      const right = s.answers.filter((a) => a.text.trim() !== "" && Number(a.text) === q.a).map((a) => a.player);
       for (const p of right) s.scores[p] += 10;
       return `Round ${s.round}: ${q.options[q.a]}${right.length ? ` — right: ${listOf(right)}` : " — nobody got it"}`;
     },

@@ -45,7 +45,7 @@ function outcome(s: GoFishState): Outcome {
   const still = s.books.map((_, i) => i).filter((i) => !s.gone[i]);
   const best = Math.max(...still.map((i) => s.books[i]));
   const tops = still.filter((i) => s.books[i] === best);
-  return tops.length > 1 ? draw(`${best} books each`, s.books) : win(tops[0], `${best} books`, s.books);
+  return tops.length > 1 ? draw(`${best} books each`, s.books, tops) : win(tops[0], `${best} books`, s.books);
 }
 
 /** When a player has no cards, they draw one (or sit out if the stock is empty). */

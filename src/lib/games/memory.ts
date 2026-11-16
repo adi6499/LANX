@@ -30,7 +30,7 @@ function outcome(s: MemoryState, n: number): Outcome {
   if (s.pairsLeft > 0) return ON;
   const best = Math.max(...s.scores.filter((_x, i) => !s.out[i]));
   const tops = s.scores.map((x, i) => (x === best && !s.out[i] ? i : -1)).filter((i) => i >= 0);
-  return tops.length > 1 ? draw(`${best} pairs each`, s.scores) : win(tops[0], `${best} pairs`, s.scores);
+  return tops.length > 1 ? draw(`${best} pairs each`, s.scores, tops) : win(tops[0], `${best} pairs`, s.scores);
 }
 
 export const memory: GameDef<MemoryState> = {

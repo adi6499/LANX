@@ -70,7 +70,7 @@ function outcome(s: MahjongState, n: number): Outcome {
   if (!stuck(s) && s.passes < s.out.filter((o) => !o).length) return ON;
   const best = Math.max(...s.scores.filter((_x, i) => !s.out[i]));
   const tops = s.scores.map((x, i) => (x === best && !s.out[i] ? i : -1)).filter((i) => i >= 0);
-  return tops.length > 1 ? draw(`${best} points each`, s.scores) : win(tops[0], `${best} points`, s.scores);
+  return tops.length > 1 ? draw(`${best} points each`, s.scores, tops) : win(tops[0], `${best} points`, s.scores);
 }
 
 export const mahjong: GameDef<MahjongState> = {

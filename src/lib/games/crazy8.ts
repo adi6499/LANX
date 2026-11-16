@@ -53,7 +53,7 @@ function blocked(s: Crazy8State, n: number): Outcome {
   const best = Math.min(...still.map((p) => pts[p]));
   const tops = still.filter((p) => pts[p] === best);
   const scores = pts.map((x, p) => (s.gone[p] ? 0 : x));
-  return tops.length > 1 ? draw(`blocked — ${tops.map((p) => `P${p + 1}`).join(", ")} level on ${best} points`, scores) : win(tops[0], `blocked — fewest card points (${best})`, scores);
+  return tops.length > 1 ? draw(`blocked — ${tops.map((p) => `P${p + 1}`).join(", ")} level on ${best} points`, scores, tops) : win(tops[0], `blocked — fewest card points (${best})`, scores);
 }
 
 export const crazy8: GameDef<Crazy8State> = {

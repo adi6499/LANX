@@ -49,9 +49,9 @@ export function HoldemActions({ state, onMove, quiet, primary, range }: { state:
           {range ? (
             <input type="range" data-holdem-raise-to min={o.minTo} max={o.maxTo} step={10} value={raiseTo} onChange={(e) => setRaise(Number(e.target.value))} className="w-28 accent-amber-500" />
           ) : (
-            <input type="number" data-holdem-raise-to min={o.minTo} max={o.maxTo} step={10} value={raiseTo} onChange={(e) => setRaise(Number(e.target.value))} className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-[12px] dark:border-slate-600 dark:bg-slate-800" />
+            <input type="number" data-holdem-raise-to min={o.minTo} max={o.maxTo} step={10} value={raiseTo} onChange={(e) => setRaise(Math.round(Number(e.target.value)) || 0)} className="w-20 rounded-lg border border-slate-300 px-2 py-1 text-[12px] dark:border-slate-600 dark:bg-slate-800" />
           )}
-          <button type="button" data-holdem-raise onClick={() => onMove(`r:${raiseTo}`)} className="rounded-full bg-amber-500 px-4 py-1.5 font-semibold text-white">
+          <button type="button" data-holdem-raise onClick={() => onMove(`r:${Math.max(o.minTo, Math.min(o.maxTo, Math.round(raiseTo)))}`)} className="rounded-full bg-amber-500 px-4 py-1.5 font-semibold text-white">
             Raise to {raiseTo}
           </button>
         </span>

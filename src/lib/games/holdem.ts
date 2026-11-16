@@ -110,12 +110,20 @@ function startHand(s: HoldemState, n: number, seed: string, deck: Deck) {
   s.minRaise = BIG;
   s.pending = Array(n).fill(false);
   for (const p of canAct(s)) s.pending[p] = true;
+  alone(s);
   s.turn = nextFrom(s, bb, n, (i) => s.pending[i]);
   if (s.turn < 0) {
     // Everyone is all in from the blinds: deal the whole board, then show down.
     runOut(s, deck);
     settle(s, n);
   }
+}
+
+/** LANX 3.18.0: the only player who can still bet, with nothing to call, has nothing to decide:
+ *  the cards are simply dealt out. (They used to be asked to "check" against players who were all in.) */
+function alone(s: HoldemState) {
+  const act = canAct(s);
+  if (act.length === 1 && s.bets[act[0]] >= s.toCall) s.pending[act[0]] = false;
 }
 
 function post(s: HoldemState, p: number, amount: number) {
@@ -178,8 +186,11 @@ function settle(s: HoldemState, n: number) {
           s.chips[w] += share;
           won[w] += share;
         }
-        s.chips[winners[0]] += pot - share * winners.length;
-        won[winners[0]] += pot - share * winners.length;
+        // LANX 3.18.0: a chip that cannot be shared goes to the winner sitting first after the
+        // button, as at a real table (it went to whoever had the lowest seat number).
+        const odd = [...winners].sort((a, b) => ((a - s.button - 1 + n) % n) - ((b - s.button - 1 + n) % n))[0];
+        s.chips[odd] += pot - share * winners.length;
+        won[odd] += pot - share * winners.length;
       }
       prev = level;
     }
@@ -207,7 +218,7 @@ function outcome(s: HoldemState): Outcome {
   const scores = s.chips.map((c, i) => (s.gone[i] ? 0 : c));
   if (s.tie) {
     const most = Math.max(...alive(s).map((p) => s.chips[p]));
-    return draw(`${most} chips each`, scores);
+    return draw(`${most} chips each`, scores, alive(s).filter((p) => s.chips[p] === most));
   }
   if (s.winner === null) return ON;
   const n = s.chips.length;
@@ -254,6 +265,7 @@ export const holdem: GameDef<HoldemState> = {
         after();
         return;
       }
+      alone(s);
       const next = nextFrom(s, from, n, (i) => s.pending[i] && !s.folded[i] && !s.allin[i]);
       if (next < 0) {
         nextStreet(s, n, deck);

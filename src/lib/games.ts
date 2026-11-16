@@ -188,6 +188,8 @@ export interface MatchResult {
   winner: number | null;
   /** LANX 2.17.0: every winning seat when a team wins together. */
   winners?: number[];
+  /** LANX 3.18.0: a draw between these seats only (they share first place); every other seat lost. */
+  tied?: number[];
   draw: boolean;
   reason: string;
 }
@@ -456,6 +458,12 @@ export function resultText(m: Match): string {
   const r = m.result;
   if (!r) return "";
   const reason = namedText(m, r.reason);
+  if (r.draw && r.tied) {
+    // LANX 3.18.0: "Draw between You and Asha — 10 boxes each" (the third player lost).
+    const names = r.tied.map((s) => seatName(m, s));
+    const first = names.includes("You") ? ["You", ...names.filter((x) => x !== "You")] : names;
+    return `Draw between ${first.slice(0, -1).join(", ")} and ${first[first.length - 1]} — ${reason}`;
+  }
   if (r.draw) return `Draw — ${reason}`;
   if (r.winner === null) return reason;
   // LANX 2.17.0: a team wins together.
@@ -733,7 +741,8 @@ async function settle(m: Match) {
   const end = rules.outcome(m.game, m.moves, n, seedOf(m));
   if (end.over && m.status === "playing") {
     m.status = "over";
-    m.result = { winner: end.winner === null ? null : seatOf(m, end.winner), draw: end.draw, reason: end.reason, winners: end.winners?.map((p) => seatOf(m, p)) };
+    const tied = end.draw && end.tied && end.tied.length > 1 && end.tied.length < m.seats.length ? end.tied.map((p) => seatOf(m, p)) : undefined;
+    m.result = { winner: end.winner === null ? null : seatOf(m, end.winner), draw: end.draw, reason: end.reason, winners: end.winners?.map((p) => seatOf(m, p)), tied };
     void recordResult(m);
   }
   let line = "";
@@ -1597,8 +1606,11 @@ async function recordResult(m: Match) {
   counted.push(key);
   const g = (stats[m.game] ??= fresh());
   g.played += 1;
-  if (result.draw) g.drawn += 1;
-  else if (wonBy(result, seat)) g.won += 1;
+  if (result.draw) {
+    // (a draw between some of the players: the others lost)
+    if (result.tied && !result.tied.includes(seat)) g.lost += 1;
+    else g.drawn += 1;
+  } else if (wonBy(result, seat)) g.won += 1;
   else g.lost += 1;
   await saveStats();
   bump();

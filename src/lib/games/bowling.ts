@@ -175,7 +175,7 @@ function outcome(s: BowlingState, n: number): Outcome {
   const live = s.totals.map((x, i) => (s.out[i] ? -1 : x));
   const best = Math.max(...live);
   const tops = live.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
-  return tops.length > 1 ? draw(`${best} each`, s.totals) : win(tops[0], `${best} pins`, s.totals);
+  return tops.length > 1 ? draw(`${best} each`, s.totals, tops) : win(tops[0], `${best} pins`, s.totals);
 }
 
 /** Pins still up, by their numbers (1 = the head pin): "7 and 10", "2, 4 and 5". */

@@ -12,6 +12,8 @@ export interface Outcome {
   winners?: number[];
   /** Points per player, for games that keep score. */
   scores?: number[];
+  /** LANX 3.18.0: a draw between these players only (they share first place); everyone else lost. */
+  tied?: number[];
 }
 
 export const ON: Outcome = { over: false, winner: null, draw: false, reason: "" };
@@ -72,7 +74,9 @@ export function lastIn(out: readonly boolean[], n: number): number | null {
   for (let p = 0; p < n; p++) if (!out[p]) left.push(p);
   return left.length === 1 ? left[0] : null;
 }
-export const draw = (reason: string, scores?: number[]): Outcome => ({ over: true, winner: null, draw: true, reason, scores });
+/** A draw. LANX 3.18.0: `tied` names who shares first place when it is not everyone (three play
+ *  Dots and two finish level: those two drew, the third lost — it used to read as a draw for all three). */
+export const draw = (reason: string, scores?: number[], tied?: number[]): Outcome => ({ over: true, winner: null, draw: true, reason, scores, tied });
 
 /** A game: its rules over the move list, and what the lobby needs to know. */
 export interface GameDef<S = unknown> {

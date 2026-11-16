@@ -214,7 +214,14 @@ function outcome(s: BjState): Outcome {
   const still = s.points.map((_, i) => i).filter((i) => !s.gone[i]);
   const best = Math.max(...still.map((i) => s.points[i]));
   const tops = still.filter((i) => s.points[i] === best);
-  return tops.length > 1 ? draw(`${best} points each`, s.points) : win(tops[0], `${best} points after ${BJ_ROUNDS} rounds`, s.points);
+  // LANX 3.18.0: alone at the table you play the dealer: ahead you win, level is a draw, behind
+  // the dealer wins. (You always "won", even on minus four points.)
+  if (s.points.length === 1) {
+    if (best > 0) return win(0, `${best} points ahead of the dealer after ${BJ_ROUNDS} rounds`, s.points);
+    if (best === 0) return draw(`level with the dealer after ${BJ_ROUNDS} rounds`, s.points);
+    return { over: true, winner: null, draw: false, reason: `The dealer wins: you finish ${-best} ${best === -1 ? "point" : "points"} behind after ${BJ_ROUNDS} rounds`, scores: s.points };
+  }
+  return tops.length > 1 ? draw(`${best} points each`, s.points, tops) : win(tops[0], `${best} points after ${BJ_ROUNDS} rounds`, s.points);
 }
 
 export const blackjack: GameDef<BjState> = {

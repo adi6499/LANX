@@ -85,7 +85,7 @@ function outcome(s: DotsState, n: number): Outcome {
   if (s.linesLeft > 0) return ON;
   const best = Math.max(...s.scores.filter((_x, i) => !s.out[i]));
   const tops = s.scores.map((x, i) => (x === best && !s.out[i] ? i : -1)).filter((i) => i >= 0);
-  if (tops.length > 1) return draw(`${best} boxes each`, s.scores);
+  if (tops.length > 1) return draw(`${best} boxes each`, s.scores, tops);
   return win(tops[0], `${best} boxes`, s.scores);
 }
 

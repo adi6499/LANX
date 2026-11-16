@@ -95,7 +95,7 @@ function outcome(s: GolfState, n: number): Outcome {
   const live = totals.map((x, i) => (s.out[i] ? Infinity : x));
   const best = Math.min(...live);
   const tops = live.map((x, i) => (x === best ? i : -1)).filter((i) => i >= 0);
-  return tops.length > 1 ? draw(`${best} strokes each`, totals) : win(tops[0], `${best} strokes`, totals);
+  return tops.length > 1 ? draw(`${best} strokes each`, totals, tops) : win(tops[0], `${best} strokes`, totals);
 }
 
 export const minigolf: GameDef<GolfState> = {
