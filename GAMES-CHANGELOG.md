@@ -6,6 +6,36 @@ checklist with every status is the document "LANX Games repair plan and checklis
 
 Run the tests: `npm run test:games` (Node 24 runs the rule files as they are; nothing to build).
 
+## Sprint 3 — the smaller defects, game by game (for LANX 3.18.0; not built yet)
+
+Tests: `tests/games/sprint3-rules.test.mjs` (9), `sprint3-solo.test.mjs` (11) and
+`sprint3-boards.test.mjs` (2); with Sprints 1 and 2 that is 82. Checked on the games lab page
+(localhost) as well: the three solo games on the flat and the 3D board, Reversi's automatic pass,
+the Checkers note, a leaver in 3D Ludo. **Not yet tried between two real copies of LANX:** the
+Werewolf role card sent again, the Draw & Guess picture for a returning guest.
+
+| ID | What was wrong | What changed | Test |
+|---|---|---|---|
+| S3-01 | Sea Battle's "your fleet is gone" message said "Press Leave game", a button a game that has begun does not have. | It says "Press Resign". (Both pressing Ready together: S2-05. Tying a player to a fleet, so that answers need not be taken on trust: Sprint 8.) | — (wording) |
+| S3-02 | Chess: after a draw by repetition, fifty moves or too few pieces the rules took one more move. | No move after the game has ended, a draw included. | sprint3-rules |
+| S3-03 | Checkers: the flat board never said that you must jump; your other pieces simply would not move. | "You must jump" on the flat board too (`checkersMustJump`, used by both boards). | sprint3-boards; lab |
+| S3-04 | Reversi: with no move you had to find the Pass button. | After a moment to read why, LANX passes for you (`useAutoPass`); the button stays. The rules are unchanged. | lab (passes once) |
+| S3-05 | Ludo in 3D: a player leaving was animated as a move of a token that does not exist. | Their tokens fly home. **Open (a rule, for the owner):** should a six that cannot be played give another roll? | lab (no error) |
+| S3-06 | Backgammon has no opening roll and no gammon scoring. | **Open (rules, for the owner).** Nothing changed. | — |
+| S3-07 | Blackjack alone: you always "won", even below zero. | Alone you play the dealer: ahead wins, level is a draw, behind loses. | sprint3-rules |
+| S3-08 | Trivia Night: 40 questions, the same sets again, the right answer mostly in the middle, four arguable questions. | 167 questions, shuffled for each match; the options shuffled for each round; the four replaced or reworded. | sprint3-rules |
+| S3-09 | Werewolf: a wolf could not change a pick; a role card was sent once and could be lost. | A pick (and a peek) can be changed until the dawn — the rules always took the latest one, the board locked it. The night stays open, up to its clock, while the pack disagrees. A player without a card asks the host, who sends it again with the seer's peeks; the host re-deals its own after a restart. | sprint3-boards (the night); the card: not yet tried between two copies |
+| S3-10 | Snake: any key restarted the game the moment you died (a held key at once); it ran on while LANX was hidden; moving into the square the tail was leaving counted as a bite. | One game for both boards (`soloHooks.ts` on `soloSnake.ts`): a held key, or one pressed within 0.7 s of the crash, starts nothing; the game pauses when LANX is hidden; the tail's square is free; two quick turns both count. | sprint3-solo; lab |
+| S3-11 | Minesweeper: a first click on a flagged square left the field without any mines; a flag needed a right mouse button; the clock could show a negative number; the flag counter went below zero. | One game for both boards (`soloMines.ts`): a flagged square is left alone before anything is laid; Flags switch, F key, arrow keys; a click on a number opens around it; no more flags than mines; a clock that cannot go backwards. | sprint3-solo; lab |
+| S3-12 | Draw & Guess: 60 words, the same word twice in a match; a returning guest saw a blank board until the next round. | 200 words, shuffled once per match; "apples" is right for "apple". A board that opens on a round already going asks the drawer for the picture so far. **Not covered:** a drawer whose own LANX restarted has lost their own picture. | sprint3-rules (words); the picture: not yet tried between two copies |
+| S3-13 | 2048: reaching 2048 was never said; "New game" (and closing the window) threw the game away. | "You made 2048!" once, and the game goes on; the game in play is kept on this PC; "New game" in the middle of a game asks first. A kept game is counted when it ends, not each time the window closes. | sprint3-solo; lab |
+| S3-14 | Wordbox: words not in the word list could score; a padded word counted twice. | A word counts as its letters and must be in the word list (asked on the sender's PC and again on the host's). | sprint3-rules |
+| S3-15 | Math Rush / Trivia: a blank answer counted as 0 (or as the first option). Dots & Boxes 10-10-5 read as a draw for all three. Chain Reaction's end text was wrong. | A blank is no answer; a draw names who shares first place ("Draw between You and Asha"), in words and statistics, for every game that ends on points; Chain Reaction says how it ended. | sprint3-rules |
+| S3-16 | Hold'em: the odd chip, a decimal raise refused, a lone player still asked to act. | The odd chip goes to the first winner after the button; the raise box sends whole chips; the only player who can still bet, with nothing to call, is not asked. | sprint3-rules |
+
+Hold'em, Math Rush, Trivia Night, Wordbox and Draw & Guess need LANX 3.18.0 on every PC at the
+table (`RULES_3180`): their rules changed in a way two versions would not agree on.
+
 ## Sprint 2 — multiplayer reliability (LANX 3.17.0)
 
 Tests: `tests/games/sprint2-match.test.mjs` (29) and `tests/games/sprint2-clock-line.test.mjs` (4);
