@@ -16,73 +16,17 @@ export interface Release {
   items: ReleaseItem[];
 }
 
-/** Newest first. Plain words: this is read by everyone, not only IT. */
+/** Newest first. Plain words: this is read by everyone, not only IT.
+ *  The owner's rule (18 Nov 2026): the games and the music player are never mentioned here, nor in
+ *  the website's version log. A version that brings only those gets no entry at all (then nothing
+ *  pops up after the update, and Settings → Updates → "What's new" shows the last entry there is). */
 export const RELEASES: Release[] = [
-  {
-    version: "3.19.0",
-    title: "Ludo for five and six players",
-    items: [
-      { icon: "🎲", title: "Five or six at one Ludo table", text: "Invite four or five colleagues to Ludo (or pick 5 or 6 for pass & play) and you play on a six-sided board: six arms, six colours — red, yellow, blue, orange, green and purple — and your own colour nearest to you." },
-      { icon: "📏", title: "The same game, a longer way round", text: "The rules are the ones you know: a six brings a token out, a six, a knock-out or a token home rolls again, stars and start squares are safe, and you need the exact number to get home. Only the way round is longer: 78 squares instead of 52." },
-      { icon: "🟥", title: "Two, three and four players: nothing changes", text: "With up to four players Ludo is exactly as it was, on the board you know." },
-      { icon: "💡", title: "Good to know", text: "A Ludo table of five or six needs LANX 3.19.0 on every PC at the table. A colleague with an older LANX is told so instead of getting the invitation." },
-    ],
-  },
-  {
-    version: "3.18.0",
-    title: "Games: sixteen smaller faults put right",
-    items: [
-      { icon: "🐍", title: "Snake plays fair", text: "Moving into the square your tail is just leaving is no longer a bite. A key you are still holding when you crash does not start the next game. Two quick turns both count. And the game waits while LANX is hidden." },
-      { icon: "💣", title: "Minesweeper", text: "A first click on a square you had flagged used to leave the field without any mines. Fixed. You can now plant flags without a right mouse button (the Flags switch, or the F key), walk the field with the arrow keys, and click a number to open the squares around it." },
-      { icon: "🔢", title: "2048 keeps your game", text: "Close the games window, or LANX, and your 2048 game is still there next time. “New game” in the middle of a game asks first. And LANX says so when you make the 2048 tile." },
-      { icon: "🐺", title: "Werewolf", text: "A wolf (and the seer) can change their pick until the dawn, and the night waits while the pack does not agree. A role card that got lost — after LANX restarted, for example — is sent again by itself." },
-      { icon: "🎨", title: "Draw & Guess, Trivia, Wordbox", text: "200 words instead of 60 and none twice in a match; “apples” is right for “apple”; come back in the middle of a round and the picture so far is sent to you. Trivia Night has 167 questions, shuffled every match, with the answers shuffled too. Wordbox only takes real words, each once." },
-      { icon: "♟️", title: "Board and card games", text: "Chess: no move after a draw. Checkers says “You must jump” on the flat board too. Reversi passes for you when you have no move. Blackjack alone is you against the dealer. Hold’em: the odd chip, whole-chip raises, and no asking a player who has nobody left to bet against. A draw now names who shares first place." },
-      { icon: "💡", title: "Good to know", text: "Texas Hold’em, Math Rush, Trivia Night, Wordbox and Draw & Guess need LANX 3.18.0 on every PC at the table." },
-    ],
-  },
   {
     version: "3.17.1",
     title: "No white window when LANX starts",
     items: [
       { icon: "🌙", title: "LANX no longer opens white", text: "When LANX’s window opened before LANX was ready — you clicked its icon while it was still starting with Windows, or the PC was busy — it showed an empty white window, and on a PC whose Windows is set to light a near-white page. The window now waits until its start-up screen is drawn (LANX’s logo on a calm dark colour, the same on every PC) and opens with that." },
       { icon: "✨", title: "One start-up screen", text: "LANX now opens with one start-up screen — its logo and “Starting LANX…” — which stays until LANX is really ready and then fades away." },
-    ],
-  },
-  {
-    version: "3.17.0",
-    title: "Games that do not get stuck between PCs",
-    items: [
-      { icon: "🔁", title: "A game is still there after LANX restarts", text: "Your games are now kept on your PC. Close LANX or restart the PC in the middle of a game, and it is all still there. A table no longer dies when the host’s LANX restarts: the host tells everyone how things stand and play goes on." },
-      { icon: "🪑", title: "The host can take out a player who has gone", text: "If a colleague’s PC is switched off on their turn, the whole table used to wait for good. The host now has a small button next to each player to take them out; the others play on." },
-      { icon: "🤝", title: "Another round is a question", text: "“Rematch” in a two-player game now asks the other player, who answers “Play” or “Not now”. Nothing changes on either board until they say yes, and a game that is being played is never wiped." },
-      { icon: "📬", title: "Nothing late, nothing twice, nothing crossed", text: "News from a table’s host is numbered, so an old message that arrives late can no longer undo a newer one. When both players press at the same moment (Ready in Sea Battle), both count. An answer in a party game says which round it is for and is not taken for the next one." },
-      { icon: "🗑️", title: "Cancelled means cancelled", text: "A challenge you cancelled, a game you cleared and a game someone gave up stay that way, also after a restart. Whoever still presses Play on the old card is told the game is gone." },
-      { icon: "⏱️", title: "Party games keep time when LANX is minimised", text: "On the host’s PC a round now closes on time even when LANX is hidden or minimised. If two PCs ever see a different game after the same moves, LANX says so instead of leaving it unnoticed." },
-      { icon: "💡", title: "Good to know", text: "Tap Roulette, Math Rush, Trivia, Wordbox, Draw & Guess, Paint Fight and Werewolf need LANX 3.17.0 on every PC at the table. With a colleague on an older LANX, “Rematch” starts the round at once, as before. A PC that is asleep keeps no time: its party round closes when it wakes." },
-    ],
-  },
-  {
-    version: "3.16.1",
-    title: "Games at a table: two faults of 3.16.0 put right",
-    items: [
-      { icon: "🏁", title: "The last move of a table game arrives", text: "In 3.16.0, when a guest at a table of three or more made the move that ended the game, the host never heard of it and the table hung. It arrives now. Two-player games were not affected." },
-      { icon: "🙋", title: "Party games: every answer counts", text: "In 3.16.0, when two players answered at the same moment (Trivia, Math Rush, Tap Roulette, Wordbox, Draw & Guess, Werewolf), the host could throw one answer away. Every answer counts again, and none is counted twice." },
-      { icon: "📊", title: "Statistics count each game once", text: "A game at a table could be counted two or three times, and pressing an old game card after a restart counted it again. Each round is now counted once. Statistics that could not be read for a moment are no longer wiped by the next result." },
-      { icon: "🪑", title: "Late to the table? You sit down at the next round", text: "A colleague who was invited and pressed Play after the game had started was left waiting for good. The host now hears them, and they are dealt in at the next round. A table can no longer be invited beyond the number of places the game has." },
-    ],
-  },
-  {
-    version: "3.16.0",
-    title: "Games: a real roll of the die in Ludo, and twelve faults put right",
-    items: [
-      { icon: "🎲", title: "Ludo: the die is really thrown", text: "The die flies onto the board, bounces and comes to rest, and its number stays for a second before anything moves. You see every roll, your colleague’s too, also when it gives no move. The line under the board says who rolled what." },
-      { icon: "📨", title: "A move no longer gets lost", text: "If a move could not be sent at that moment (the colleague’s LANX was locked, or the network dropped for a second), LANX sends it again by itself until it has arrived. Before, both sides could wait for each other for good, and only “Resign” was left." },
-      { icon: "🚪", title: "Leaving does not end the game for the others", text: "At a table of three or more, someone who was out already and pressed Resign or Leave table again ended the game for everyone, with no winner. The others now simply play on. Players 11 and 12 of a big table can leave too." },
-      { icon: "🃏", title: "Rules put right", text: "Go Fish can be finished with two players. Dominoes is only “blocked” when nobody can play. Hold’em no longer loses chips from side pots. Bankroll really pays the creditor, and shows what each player is worth. Draw & Guess ends when nobody is left to draw. Tap Roulette’s wheel is random. Wordbox gives the same letters on Windows, Linux and iPhone. Werewolf deals the roles fairly." },
-      { icon: "🀄", title: "Mahjong Duels counts differently", text: "Only the first player could ever win. Now a pair of winds or dragons counts two points, any other pair one, and the table is shuffled again whenever no pair is free, until it is cleared. Most points wins." },
-      { icon: "🔢", title: "2048", text: "Up sends the tiles up and Down sends them down (they were swapped). Your score also counts when you leave a game or start a new one, not only at “game over”." },
-      { icon: "💡", title: "Good to know", text: "For Go Fish, Dominoes, Bankroll, Hold’em, Mahjong Duels, Tap Roulette, Wordbox, Draw & Guess and Werewolf everyone at the table needs LANX 3.16.0; LANX says so when you invite someone on an older version. All other games play with older versions as before. A lost move is only sent again by a PC that has 3.16.0." },
     ],
   },
   {
@@ -94,7 +38,7 @@ export const RELEASES: Release[] = [
       { icon: "⌨️", title: "A talk key for any program (Windows)", text: "Hold Ctrl + Alt + T to talk while you work in another program; let go to stop. For a short while after a colleague talked it answers them, otherwise it talks on the channel you chose last. You can choose other keys or switch the key off in the walkie-talkie’s screen." },
       { icon: "☝️", title: "One voice at a time", text: "While someone talks, nobody else can talk over them. A short tone tells you when you may talk, when a colleague starts and when they are done. A transmission is one minute at most." },
       { icon: "🔇", title: "You decide what you hear", text: "Mute a channel, set the loudness, or switch the walkie-talkie off altogether. The last few things you heard are listed to play again. Nobody talks into a call or a meeting; a PC on “Do not disturb” or in its quiet hours, and a locked LANX, play nothing." },
-      { icon: "🔋", title: "The wallpaper screen shows more than the time", text: "Under the big clock: the battery, the weather for a place you choose, your next calendar entry, how many colleagues are online, the song that is playing (with pause and next) and today’s birthdays. The new Widgets button on the wallpaper screen switches each one on or off. Only the weather uses the internet: it asks Open-Meteo.com, a free weather service, for the place you pick and sends it nothing else; until you pick a place nothing is asked." },
+      { icon: "🔋", title: "The wallpaper screen shows more than the time", text: "Under the big clock: the battery, the weather for a place you choose, your next calendar entry, how many colleagues are online and today’s birthdays. The new Widgets button on the wallpaper screen switches each one on or off. Only the weather uses the internet: it asks Open-Meteo.com, a free weather service, for the place you pick and sends it nothing else; until you pick a place nothing is asked." },
       { icon: "🐧", title: "Linux: video moves again, and the phone’s camera works", text: "On Linux the picture of the others in video calls and meetings stood still on its first frame (the sound was fine). It moves now, as on Windows. A paired phone can now be the camera of a Linux PC as well; until now LANX on Linux never offered it. A Linux PC does not update itself: to get a new version, run the one line from the LANX website on it again." },
       { icon: "💡", title: "Good to know", text: "Colleagues need LANX 3.15.0 or newer to hear you. On Linux the walkie-talkie works in its screen (button and space bar); the key for other programs is on Windows. The phone keeps the Intercom for now. A quick click is not a transmission: hold the button while you talk. “Hold to test my microphone” plays your own voice back to you." },
     ],
@@ -127,7 +71,7 @@ export const RELEASES: Release[] = [
     items: [
       { icon: "📞", title: "Voice and video calls on Linux", text: "LANX for Linux can now call and be called — voice and video, with Windows PCs, phones and other Linux PCs. Mint’s web engine has no calling part, so LANX now brings its own." },
       { icon: "👥", title: "Meetings on Linux", text: "Join or start a meeting from Linux Mint like on Windows: cameras, microphones and screen pictures from everyone." },
-      { icon: "🎲", title: "Live games and the phone camera on Linux", text: "Games that play live with a colleague and using your phone as the PC’s camera now work on Linux too — they use the same new calling part." },
+      { icon: "📱", title: "The phone camera on Linux", text: "Using your phone as the PC’s camera now works on Linux too — it uses the same new calling part." },
       { icon: "💡", title: "Good to know", text: "Nothing changes on Windows. On Linux the picture is a little smaller (up to 960 × 540) to stay smooth on older PCs. Everyone on the call needs LANX 3.0 or newer, as before." },
     ],
   },
@@ -139,20 +83,15 @@ export const RELEASES: Release[] = [
       { icon: "🖐️", title: "Hands control the whole PC on Linux Mint", text: "Settings → Gestures → Control the whole PC now works on Linux Mint (and other Linux desktops that use X11): move the mouse, click, scroll, type with the air keyboard and resize any window with two hands — like on Windows." },
       { icon: "🪶", title: "Lighter on memory", text: "LANX's small windows (alerts, the hands bar) used to load the whole app; now they load only their own part, are made only when needed and put away when unused. While LANX sits in the tray on Windows it gives memory back." },
       { icon: "⚡", title: "Smoother on 4 GB PCs", text: "On PCs with 4 GB of memory or less, LANX draws the light look Linux uses: no frosted glass, soft shadows or ever-moving decorations — the same LANX, just quicker." },
-      { icon: "🎲", title: "Ludo and Snakes & Ladders look real", text: "A wooden frame, a printed cardboard board, glossy pieces that stand on a base, wooden ladders and snakes with scales — like the real board games." },
-      { icon: "🎆", title: "Fireworks when someone wins", text: "In every game: the board goes dark, fireworks go up and a banner says who won." },
-      { icon: "⛶", title: "Play full screen", text: "Games → Full screen makes the board as big as your screen (Esc to come back)." },
-      { icon: "🎵", title: "Music made for the phone", text: "On LANX on your phone, tap a song to play it; one ⋯ next to each song opens big buttons for play next, my songs, playlists, sending and WhatsApp. The player bar shows only once something plays." },
       { icon: "💡", title: "Good to know", text: "Calls and meetings on Linux Mint aren't here yet: Mint's web engine has no video-calling part, so LANX needs its own — that is the next big step." },
     ],
   },
   {
     version: "3.11.2",
-    title: "Resize any window with your hands, and a real Snakes & Ladders",
+    title: "Resize any window with your hands",
     items: [
       { icon: "👐", title: "Resize any window with two hands", text: "With “Control the whole PC” on, hold both open hands up around a window — Excel, a browser, anything. Hands apart make it bigger, together smaller; keep going past the screen and it fills it. Lower a hand and it stays that size." },
-      { icon: "🐍", title: "Snakes & Ladders, drawn properly", text: "A bright board in a wooden frame, wooden ladders, striped snakes with heads, and real pawns that wait at the start. After each roll the die tumbles, then your pawn hops square by square, climbs the ladder or slides down the snake." },
-      { icon: "💡", title: "Good to know", text: "Snakes & Ladders still plays with colleagues on older LANX — only the look is new. Gestures: Settings → Gestures lists every move, including the new two-hand resize." },
+      { icon: "💡", title: "Good to know", text: "Settings → Gestures lists every move, including the new two-hand resize." },
     ],
   },
   {
@@ -184,32 +123,20 @@ export const RELEASES: Release[] = [
       { icon: "👥", title: "Meetings for the whole office", text: "A group meeting can now have up to 100 people (it was 12). Start a meeting in a group as usual: with more than 12 people, LANX makes it a big meeting by itself." },
       { icon: "🛰️", title: "The organizer's PC passes it on", text: "In a big meeting each PC sends its picture and voice once, to the organizer's PC, which passes them to everyone. So 100 people don't need 100 connections each, and every PC stays smooth." },
       { icon: "🗣️", title: "You see who's talking", text: "Up to 16 pictures a page (cameras first; flip pages at the top). Whoever is talking pops up in a small window, even when they're on another page, and the six loudest voices are heard." },
-      { icon: "🎉", title: "Together, inside a call", text: "The new Together button in a meeting starts a quiz, a presentation, a video, music or a bell with everyone in the call, already ticked." },
+      { icon: "🎉", title: "Together, inside a call", text: "The new Together button in a meeting starts a quiz, a presentation, a video or a bell with everyone in the call, already ticked." },
       { icon: "💡", title: "Good to know", text: "Everyone needs LANX 3.10.0 or newer, joining from a PC (phones join meetings of up to 12). The meeting ends when the organizer leaves, so the organizer's PC should stay on and plugged in." },
     ],
   },
   {
     version: "3.9.0",
-    title: "Together: quiz, karaoke, bells, announcements, presenting, watching",
+    title: "Together: quiz, bells, announcements, presenting, watching",
     items: [
       { icon: "🎉", title: "Together", text: "Wrench menu → Together: everything below, with colleagues, on all your PCs at once — each lined up to the host's clock to the millisecond." },
-      { icon: "📱", title: "Phones join Listen together", text: "When your PC listens together, your phone can play along in step (Music on the phone → Play on this phone too), or join an invite itself." },
-      { icon: "🎤", title: "Karaoke", text: "Big lyrics, the line being sung filling up as it goes. Listening together, every PC shows the same line at the same moment." },
       { icon: "🧠", title: "Live quiz", text: "Ask questions on everyone's screen; the fastest right answer wins — fair to the millisecond, whatever each PC's clock says." },
       { icon: "📢", title: "Announcements", text: "Hold to talk, let go: every chosen PC plays it at the same moment, so a room of PCs sounds like one voice." },
       { icon: "🔔", title: "Bells and timers", text: "Lunch, tea, stand-up: rings on every chosen PC at the same second, with a countdown on screen." },
       { icon: "🖥️", title: "Present to everyone", text: "Open a PDF or pictures; everyone who joins follows your page and your pointer. No projector needed." },
       { icon: "🎬", title: "Watch together", text: "A video file from your PC (or a link) plays on every PC in step — you play, pause and jump for everyone." },
-    ],
-  },
-  {
-    version: "3.8.0",
-    title: "Listen together, and the right pictures",
-    items: [
-      { icon: "🎧", title: "Listen together", text: "Play music for colleagues: everyone who joins hears the same moment of the same song on their own PC — in step to the millisecond. Music → Together, pick who, and they get an invite. You choose the songs; they can change their volume or leave." },
-      { icon: "🖼️", title: "Every song with its own picture", text: "A song shows its film's or album's own cover — not the picture of some party-mix compilation it was copied onto — and Discover's pictures are sharp instead of blurry." },
-      { icon: "✨", title: "Music screens move as they should", text: "Now playing’s sliding covers and drifting colours now work in the installed LANX — they were being blocked. So are the gesture guide’s and Ludo’s animations." },
-      { icon: "🔎", title: "Each song once in search", text: "Search used to list the same song ten times, once per compilation. Now each recording appears once: the original. (Lofi, remix and instrumental versions still show — they are different recordings.)" },
     ],
   },
   {
@@ -227,7 +154,7 @@ export const RELEASES: Release[] = [
     items: [
       { icon: "🖱️", title: "Control the whole PC with your hand", text: "Turn it on in Gesture settings: your hand moves the real mouse in every program — Chrome, Excel, File Explorer. Pinch to click, make a fist to scroll. It keeps working while LANX is minimised." },
       { icon: "⌨️", title: "Type in the air", text: "A keyboard you type on by pointing and pinching, with word suggestions and 🎤 to type what you say. It comes up when you pinch a text box; over other programs hold up 🤟." },
-      { icon: "🤙", title: "Signs of your own", text: "Teach LANX a hand sign and choose what it does — open the keyboard, mute, play music, call someone, take a screenshot, lock the PC. Gesture settings → Your signs." },
+      { icon: "🤙", title: "Signs of your own", text: "Teach LANX a hand sign and choose what it does — open the keyboard, mute, call someone, take a screenshot, lock the PC. Gesture settings → Your signs." },
       { icon: "🙋", title: "Hands in calls and meetings", text: "Raise your hand high to raise it in a meeting, hold your palm up to the camera to mute, 👍 sends a reaction everyone sees, and a wave ends the call (make a fist to stay)." },
       { icon: "🗣️", title: "New things to say", text: "“Open keyboard”, “type see you at 5”, “press ctrl c”, “take a screenshot”, “lock this PC”, “show LANX”." },
     ],
@@ -271,7 +198,7 @@ export function releasesSince(seen: string | null, now: string, isNewInstall: bo
 }
 
 export function releaseNotes(version: string): Release | null {
-  return RELEASES.find((r) => r.version === version) ?? null;
+  return RELEASES.find((r) => r.version === version) ?? RELEASES.find((r) => !newer(r.version, version)) ?? null;
 }
 
 /** On start: what this update brings (and remember that it was shown). */
