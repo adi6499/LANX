@@ -285,8 +285,8 @@ function cellOf(corner: number, rel: number, token: number, n: number): Pt {
  *  always fit), up to twice its natural size. The room is the nearest real ancestor (the games window's
  *  board area, which otherwise scrolls). LANX 3.19.0: `w0` × `h0` is the board's natural box (the
  *  six-sided board is taller than wide); the answer is its width on screen. */
-const CHROME = 58 * 2 + 8 * 3 + 40 + 8; // two plate rows, three gaps, a two-line status, a little air
-function useFitSide(ref: RefObject<HTMLDivElement | null>, w0 = SIZE, h0 = SIZE): number {
+function useFitSide(ref: RefObject<HTMLDivElement | null>, w0 = SIZE, h0 = SIZE, plate = 58): number {
+  const CHROME = plate * 2 + 8 * 3 + 40 + 8; // two plate rows, three gaps, a two-line status, a little air
   const [side, setSide] = useState(w0);
   useLayoutEffect(() => {
     let el = ref.current?.parentElement ?? null;
@@ -303,7 +303,7 @@ function useFitSide(ref: RefObject<HTMLDivElement | null>, w0 = SIZE, h0 = SIZE)
     const ro = new ResizeObserver(fit);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [ref, w0, h0]);
+  }, [ref, w0, h0, CHROME]);
   return side;
 }
 
@@ -445,7 +445,9 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
   const mayPlay = canPlay && play.live && play.phase !== "throw";
   useLudoAutoMove(state, mayPlay, onMove, HOLD_MS);
   const rootRef = useRef<HTMLDivElement>(null);
-  const side = useFitSide(rootRef, BW + 2 * FRAME, BH + 2 * FRAME);
+  const side = useFitSide(rootRef, BW + 2 * FRAME, BH + 2 * FRAME, six ? 48 : 58);
+  /** Three plates in a row on a narrow board (the games window at its usual size, a phone): short words, a smaller die. */
+  const tight = six && side < 470;
   const tall = Math.round((side * (BH + 2 * FRAME)) / (BW + 2 * FRAME));
   if (!state) return null;
   const me = local ? -1 : Math.max(0, seat);
@@ -510,28 +512,28 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
   const plate = (s: number) => {
     const c = cornerAt(s);
     const p = ludoPlayerAt(c, n);
-    if (p < 0) return <div className="h-[58px] min-w-0 flex-1" />;
+    if (p < 0) return <div className={`${six ? "h-[48px]" : "h-[58px]"} min-w-0 flex-1`} />;
     const active = p === turn && state.winner === null;
     const out = state.out[p];
     // (the plates on the right-hand side are mirrored, so the die is always on the board's side)
     const mirrored = six ? s === 2 || s === 3 : s % 3 !== 0;
     return (
       <div
-        className={`flex h-[58px] min-w-0 flex-1 items-center rounded-2xl transition-shadow ${six ? "gap-2 px-2" : "gap-2.5 px-3"} ${mirrored ? "flex-row-reverse text-right" : ""} ${active ? "bg-white shadow-md dark:bg-slate-800" : "bg-white/60 dark:bg-slate-800/50"}`}
+        className={`flex ${six ? "h-[48px]" : "h-[58px]"} min-w-0 flex-1 items-center rounded-2xl transition-shadow ${six ? (tight ? "gap-1.5 px-1.5" : "gap-2 px-2") : "gap-2.5 px-3"} ${mirrored ? "flex-row-reverse text-right" : ""} ${active ? "bg-white shadow-md dark:bg-slate-800" : "bg-white/60 dark:bg-slate-800/50"}`}
         style={active ? { boxShadow: `0 0 0 2.5px ${palette[c]}` } : undefined}
         data-ludo-plate={p}
         data-ludo-active={active ? "1" : undefined}
       >
         {/* (Three plates in a row on a narrow board — a phone: the plate with the die drops its
             round initial, so that the name still fits. Its coloured ring says whose it is.) */}
-        {!(six && active && side < 470) && (
+        {!(tight && active) && (
           <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${six ? "h-8 w-8 text-[13px]" : "h-9 w-9 text-[14px]"}`} style={{ backgroundColor: palette[c], opacity: out ? 0.4 : 1 }}>
             {seatFor(seats, starter, p, n).name.slice(0, 1).toUpperCase()}
           </span>
         )}
         <div className="min-w-0 flex-1">
           <div className={`truncate text-[13px] font-semibold text-slate-900 dark:text-white ${out ? "line-through opacity-50" : ""}`}>{name(p)}</div>
-          <div className="truncate text-[11px] text-slate-500">{out ? "left the game" : `${home(p)}/4 home`}</div>
+          <div className="truncate text-[11px] text-slate-500">{out ? (tight ? "left" : "left the game") : tight ? `${home(p)}/4` : `${home(p)}/4 home`}</div>
         </div>
         {active && (
           <div
@@ -548,12 +550,12 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
           >
             {state.lastRoll > 0 && state.roller === p ? (
               <span data-ludo-last>
-                <Dice3D value={state.lastRoll} size={32} rollKey={rolls} />
+                <Dice3D value={state.lastRoll} size={tight ? 26 : 32} rollKey={rolls} />
               </span>
             ) : (
               // (not rolled yet: a little paler, so that it is not read as a six that was thrown)
               <span className={canRoll ? "" : "opacity-60"}>
-                <Dice3D value={6} size={32} />
+                <Dice3D value={6} size={tight ? 26 : 32} />
               </span>
             )}
           </div>
