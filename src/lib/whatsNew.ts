@@ -19,6 +19,16 @@ export interface Release {
 /** Newest first. Plain words: this is read by everyone, not only IT. */
 export const RELEASES: Release[] = [
   {
+    version: "3.19.0",
+    title: "Ludo for five and six players",
+    items: [
+      { icon: "🎲", title: "Five or six at one Ludo table", text: "Invite four or five colleagues to Ludo (or pick 5 or 6 for pass & play) and you play on a six-sided board: six arms, six colours — red, yellow, blue, orange, green and purple — and your own colour nearest to you." },
+      { icon: "📏", title: "The same game, a longer way round", text: "The rules are the ones you know: a six brings a token out, a six, a knock-out or a token home rolls again, stars and start squares are safe, and you need the exact number to get home. Only the way round is longer: 78 squares instead of 52." },
+      { icon: "🟥", title: "Two, three and four players: nothing changes", text: "With up to four players Ludo is exactly as it was, on the board you know." },
+      { icon: "💡", title: "Good to know", text: "A Ludo table of five or six needs LANX 3.19.0 on every PC at the table. A colleague with an older LANX is told so instead of getting the invitation." },
+    ],
+  },
+  {
     version: "3.18.0",
     title: "Games: sixteen smaller faults put right",
     items: [

@@ -1,0 +1,614 @@
+[
+ {
+  "n": 2,
+  "seed": "fixture-2-1",
+  "moves": "r r r r r r r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:3 r m:3 r m:2 r m:3 r m:2 r m:2 r m:2 r m:1 r m:2 r m:2 r m:1 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:1 r m:1 r m:1 r m:1 r m:2 r m:2 r m:2 r m:1 r m:1 r m:1 r m:2 r m:0 r m:0 r m:3 r m:0 r m:3 r m:3 r m:0 r m:3 r m:2 r m:3 r m:1 r m:1 r m:1 r m:2 r m:2 r m:1 r m:1 r m:1 r m:3 r m:1 r m:2 r m:1 r m:0 r m:2 r m:0 r m:0 r m:3 r m:1 r m:0 r m:0 r m:1 r m:3 r m:1 r m:0 r m:1 r m:0 r m:1 r m:0 r m:2 r m:3 r m:3 r m:2 r m:2 r m:0 r m:3 r m:2 r m:2 r m:3 r m:0 r m:3 r m:0 r m:2 r m:0 r m:2 r m:2 r m:1 r m:3 r m:2 r m:0 r m:2 r m:0 r m:2 r m:1 r m:1 r m:2 r m:0 r m:2 r m:1 r m:0 r m:0 r m:0 r m:1 r m:0 r m:0 r m:3 r m:0 r m:0 r m:0 r m:3 r m:2 r m:3 r m:0 r m:0 r m:0 r m:3 r m:0 r m:0 r m:2 r r m:0 r r m:3 r r m:1 r m:3 r m:3 r r m:1 r r m:1 r r m:2 r m:0 r m:3 r r m:1 r r m:1 r m:0 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:3 r m:1 r m:1 r m:3 r m:3 r m:1 r m:2 r m:3 r m:2 r m:3 r m:1 r m:1 r m:3 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:1 r m:2 r m:3 r m:2 r m:2 r m:3 r m:2 r m:2 r r m:3 r m:2 r m:1 r m:1 r m:2 r m:1 r m:2 r m:1 r m:2",
+  "positions": "ded39542b188384c6d8446e5728c05ddc6e2417f032dac6bdad852d9ea398255",
+  "last": {
+   "pos": [
+    [
+     56,
+     9,
+     56,
+     41
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ]
+   ],
+   "turn": 1,
+   "roll": 0,
+   "rolls": 194,
+   "lastRoll": 6,
+   "roller": 1,
+   "winner": 1,
+   "event": "home",
+   "victim": -1,
+   "by": 1,
+   "sixes": 1,
+   "again": false,
+   "out": [
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 2 – 4",
+  "outcome": {
+   "over": true,
+   "winner": 1,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 2,
+  "seed": "fixture-2-2",
+  "moves": "r r r m:1 r m:1 r r m:1 r r m:1 r r m:1 r r m:1 r r m:3 r m:1 r m:2 r m:2 r m:1 r m:2 r m:1 r m:2 r m:3 r m:2 r m:2 r m:1 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:3 r m:2 r m:1 r m:3 r m:2 r m:3 r m:1 r m:2 r m:1 r m:3 r m:1 r m:1 r m:2 r m:2 r m:3 r m:1 r m:1 r m:2 r m:1 r m:1 r m:2 r m:1 r m:1 r m:3 r m:2 r m:1 r m:2 r m:3 r m:2 r m:1 r m:1 r m:1 r m:2 r m:3 r m:3 r m:2 r m:1 r m:2 r m:2 r m:2 r m:2 r m:3 r m:3 r m:0 r r m:2 r m:1 r m:3 r m:0 r m:2 r m:2 r m:1 r m:2 r m:1 r m:2 r m:0 r m:3 r m:3 r m:0 r m:3 r m:3 r m:0 r m:3 r m:0 r m:3 r m:0 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:0 r m:3 r m:1 r m:1 r m:2 r m:3 r m:1 r r m:3 r m:3 r m:1 r m:3 r m:1 r m:0 r m:0 r m:3 r m:2 r m:0 r m:0 r m:0 r m:0 r m:0 r m:0 r m:1 r m:0 r m:0 r m:1 r m:0 r m:1 r m:0 r m:1 r m:0 r m:3 r m:0 r m:1 r m:0 r m:3 r m:0 r m:0 r m:3 r m:0 r m:3 r m:0 r r m:1 r m:0 r r m:1 r m:0",
+  "positions": "b93581af406c0c91849741b2a0f55474b5856ab73d81f545b98f375de033c615",
+  "last": {
+   "pos": [
+    [
+     56,
+     56,
+     56,
+     56
+    ],
+    [
+     44,
+     41,
+     55,
+     56
+    ]
+   ],
+   "turn": 0,
+   "roll": 0,
+   "rolls": 157,
+   "lastRoll": 1,
+   "roller": 0,
+   "winner": 0,
+   "event": "home",
+   "victim": -1,
+   "by": 0,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 4 – 1",
+  "outcome": {
+   "over": true,
+   "winner": 0,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 2,
+  "seed": "fixture-2-3",
+  "moves": "r r r r m:0 r m:0 r r m:0 r m:0 r r m:0 r m:0 r r m:0 r r m:1 r m:0 r r m:3 r m:3 r m:0 r r m:0 r m:0 r m:1 r r m:0 r r m:3 r r m:1 r r m:0 r m:2 r m:2 r m:0 r m:2 r m:2 r m:3 r m:2 r m:0 r m:2 r m:0 r m:0 r m:2 r m:1 r m:3 r m:0 r m:3 r m:1 r m:2 r m:2 r m:3 r m:3 r m:3 r m:3 r m:3 r m:2 r m:2 r m:0 r m:3 r m:2 r m:2 r m:1 r m:2 r m:0 r m:1 r m:3 r m:3 r m:2 r m:3 r m:1 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:0 r m:2 r m:3 r m:1 r m:3 r m:1 r m:3 r m:3 r m:1 r m:3 r m:2 r m:3 r m:2 r m:3 r m:1 r m:1 r m:3 r m:1 r m:1 r m:2 r m:3 r m:1 r m:1 r m:2 r m:2 r m:2 r m:3 r m:0 r m:1 r r m:2 r m:3 r m:3 r r m:3 r m:2",
+  "positions": "77ba774cdd938f8198d0ef9841264f8b27b0904abcc89804df5cdd87819f95a9",
+  "last": {
+   "pos": [
+    [
+     -1,
+     8,
+     0,
+     46
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ]
+   ],
+   "turn": 1,
+   "roll": 0,
+   "rolls": 115,
+   "lastRoll": 4,
+   "roller": 1,
+   "winner": 1,
+   "event": "home",
+   "victim": -1,
+   "by": 1,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 0 – 4",
+  "outcome": {
+   "over": true,
+   "winner": 1,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 2,
+  "seed": "fixture-2-4",
+  "moves": "r m:3 r m:3 r r m:3 r r m:3 r r m:3 r m:2 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:1 r m:1 r m:3 r m:2 r m:3 r m:2 r m:3 r m:1 r m:3 r m:2 r m:3 r m:2 r m:2 r m:3 r m:1 r m:1 r r m:1 r m:3 r r m:2 r m:2 r r m:2 r r m:1 r r m:1 r r m:1 r r m:2 r m:0 r m:0 r m:2 r m:0 r m:1 r m:0 r m:1 r m:0 r m:0 r m:2 r m:0 r m:1 r m:1 r m:0 r m:0 r m:1 r m:0 r m:1 r m:1 r m:1 r m:2 r m:0 r m:0 r m:1 r m:2 r m:1 r m:1 r m:1 r m:2 r m:1 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:0 r m:0 r m:1 r m:1 r m:0 r m:2 r m:1 r m:0 r m:1 r m:1 r m:1 r m:2 r m:1 r m:0 r m:0 r m:1 r m:1 r m:1 r m:0 r m:0 r m:1 r m:1 r m:0 r m:2 r m:1 r m:2 r m:1 r m:1 r m:1 r m:3 r m:3 r m:0 r m:1 r m:1 r m:3 r m:0 r m:0 r m:2 r m:0 r m:2 r m:1 r m:3 r m:1 r m:0 r m:3 r m:2 r m:1 r m:1 r m:1 r m:3 r m:3 r m:2 r m:1 r m:0 r m:1 r m:1 r m:2 r m:1 r m:1 r m:3 r m:2 r m:0 r m:2 r m:3 r m:2 r m:0 r m:0 r m:3 r m:1 r m:3 r m:2 r m:3 r m:3 r m:3 r m:2 r m:3 r m:2 r m:3",
+  "positions": "52cff15a2d1875f26f9a54473ecc3e7b90a191922cf226d264d5638bf9188e9c",
+  "last": {
+   "pos": [
+    [
+     -1,
+     55,
+     51,
+     56
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ]
+   ],
+   "turn": 1,
+   "roll": 0,
+   "rolls": 163,
+   "lastRoll": 4,
+   "roller": 1,
+   "winner": 1,
+   "event": "home",
+   "victim": -1,
+   "by": 1,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 1 – 4",
+  "outcome": {
+   "over": true,
+   "winner": 1,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 3,
+  "seed": "fixture-3-1",
+  "moves": "r r m:2 r m:2 r r r m:2 r r r m:2 r r r m:2 r m:1 r m:1 r r m:2 r m:1 r r m:2 r m:1 r r m:2 r m:2 r m:3 r m:3 r m:0 r m:0 r m:2 r m:2 r m:0 r m:0 r m:2 r m:3 r m:0 r m:0 r m:2 r m:3 r m:2 r m:0 r m:3 r m:3 r m:2 r m:0 r m:2 r m:2 r m:3 r m:0 r m:3 r m:3 r m:1 r m:1 r m:2 r m:2 r m:3 r m:0 r m:3 r m:3 r m:1 r m:3 r m:0 r m:3 r m:0 r m:0 r m:3 r m:0 r m:3 r m:0 r m:0 r m:2 r m:2 r m:3 r m:0 r m:3 r r m:3 r m:0 r r m:1 r m:1 r m:1 r m:0 r r m:3 r m:3 r r m:3 r m:1 r m:0 r r m:1 r m:3 r r m:2 r m:3 r r m:2 r m:3 r r m:2 r m:0 r r m:0 r m:3 r m:2 r m:0 r r m:3 r m:0 r m:0 r m:2 r m:2 r m:1 r m:0 r m:2 r m:1 r m:2 r m:2 r m:3 r m:2 r m:0 r m:2 r m:1 r m:1 r m:3 r r m:1 r m:3 r m:0 r m:0 r m:0 r m:0 r m:2 r m:0 r m:1 r m:2 r m:2 r m:0 r m:1 r m:0 r m:0 r m:0 r m:1 r m:1 r m:1 r m:0 r m:0 r m:1 r m:2 r m:2 r m:2 r m:1 r m:0 r m:2 r m:1 r m:1 r m:1 r m:2 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:2 r m:0 r m:2 r m:2 r m:1 r m:2 r m:0 r m:1 r m:1 r m:1 r m:1 r m:2 r m:1 r m:1 r m:2 r m:2 r m:0 r m:1 r m:2 r m:0 r m:1 r m:2 r m:1 r m:1 r m:2 r m:2 r m:1 r m:2 r m:0 r m:1 r m:2 r m:3 r m:2 r m:3 r m:3 r m:3 r m:2 r m:2 r m:0 r m:3 r m:0 r m:2 r m:3 r m:0 r m:2 r m:3 r m:3 r m:2 r m:0 r m:0 r m:2 r m:3 r m:3 r m:2 r m:0 r m:3 r m:2 r m:0 r m:3 r m:3 r m:1 r m:3 r m:2 r m:2 r m:2 r m:0 r m:3 r m:2 r m:2 r m:1 r m:0 r m:3 r m:2 r m:0 r m:0 r m:0 r m:2 r m:3 r m:2 r m:3 r m:3 r m:2 r m:0 r m:2 r m:2 r m:2 r m:3 r m:0 r m:2 r m:2 r m:2 r m:3 r m:3 r m:2 r m:2 r m:2 r m:3 r m:0 r m:2 r m:1 r m:0 r m:0 r m:2 r m:2 r m:3 r m:0 r r m:3 r m:0 r r m:1 r m:0 r m:2 r m:1 r m:3 r m:2 r m:0 r m:1 r m:0 r m:2",
+  "positions": "6f6be74eb66683386608a6ba9cc9c5e92658b1bccf1d990d8f6dfe4ebfe09539",
+  "last": {
+   "pos": [
+    [
+     0,
+     13,
+     12,
+     25
+    ],
+    [
+     39,
+     56,
+     -1,
+     45
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ]
+   ],
+   "turn": 2,
+   "roll": 0,
+   "rolls": 283,
+   "lastRoll": 1,
+   "roller": 2,
+   "winner": 2,
+   "event": "home",
+   "victim": -1,
+   "by": 2,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 0 – 1 – 4",
+  "outcome": {
+   "over": true,
+   "winner": 2,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 3,
+  "seed": "fixture-3-2",
+  "moves": "r r r r r m:1 r m:3 r r r m:1 r m:1 r m:0 r m:1 r r m:1 r m:0 r r m:1 r m:0 r m:1 r m:1 r m:3 r m:3 r m:3 r m:1 r m:1 r m:3 r m:1 r m:1 r m:3 r m:1 r m:1 r m:1 r m:3 r m:1 r m:1 r m:1 r m:3 r m:1 r m:1 x1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:2 r m:1 r m:1 r m:1 r m:1 r m:2 r m:1 r m:2 r m:1 r r m:3 r r m:3 r m:3 r m:3 r m:1 r m:3 r m:3 r m:3 r m:1 r m:3 r m:2 r m:3 r m:1 r m:3 r m:3 r m:3 r m:1 r m:3 r m:2 r m:3 r m:1 r m:3 r m:3 r m:1 r m:2 r m:3 r m:3 r m:3 r m:2 r m:3 r m:0 r m:0 r m:2 r m:0 r m:3 r m:0 r m:0 r m:2 r m:3 r m:0 r m:2 r m:0 r m:3 r m:0 r m:2 r m:2 r m:2 r m:0 r m:2 r m:3 r m:0 r m:3 r m:0 r m:0 r m:2 r m:2 r m:2 r m:0 r m:2 r m:3 r m:2 r m:2 r m:0 r m:2 r m:0 r m:2 r m:0 r m:2 r m:2 r m:3 r m:3 r m:3 r m:2 r m:3 r m:2 r m:2 r m:2 r m:3 r m:0 r m:0 r m:0 r m:3 r m:0 r m:0 r m:0 r m:2 r m:0 r m:2 r m:0 r m:0 r m:2 r m:3 r m:2 r m:3 r m:0 r m:3 r m:0 r m:0 r m:3 r m:2 r m:0 r m:0 r m:3 r r m:0 r m:0 r m:2 r m:0 r m:3 r m:0 r m:3 r r m:0 r r r r r r r r r m:2",
+  "positions": "1562779d58de254cebe8a1e698f28f5f49cd6b1b4ecd5013fe2aa8ca74758fee",
+  "last": {
+   "pos": [
+    [
+     55,
+     56,
+     55,
+     54
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ]
+   ],
+   "turn": 2,
+   "roll": 0,
+   "rolls": 178,
+   "lastRoll": 1,
+   "roller": 2,
+   "winner": 2,
+   "event": "home",
+   "victim": -1,
+   "by": 2,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    true,
+    false
+   ]
+  },
+  "summary": "Tokens home: 1 – 0 – 4",
+  "outcome": {
+   "over": true,
+   "winner": 2,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 3,
+  "seed": "fixture-3-3",
+  "moves": "r r r r m:0 r m:0 r r r m:0 r r r m:0 r r r m:0 r r r m:0 r r r m:3 r m:3 r r m:3 r m:3 r m:3 r m:1 r m:1 r m:2 r m:2 r m:3 r m:3 r m:2 r m:3 r m:3 r m:3 r m:3 r m:3 r m:1 r m:3 r m:3 r m:1 r m:2 r m:3 r m:3 r m:2 r m:3 r m:3 r m:1 r m:3 r m:3 r m:3 r m:3 r m:3 r m:1 r m:3 r m:3 r m:3 r m:3 r m:1 r m:3 r m:0 r m:0 r m:3 r m:3 r m:3 r m:0 r m:2 r m:1 r m:2 r m:2 r m:3 r m:3 r m:3 r m:3 r m:3 r m:1 r m:1 r m:3 r m:0 r m:0 r m:3 r m:2 r m:0 r m:0 r m:1 r m:0 r m:1 r m:0 r m:3 r m:0 r m:0 r m:0 r m:3 r m:0 r m:0 r m:2 r m:0 r m:3 r m:3 r m:2 r m:0 r m:3 r m:3 r m:0 r m:0 r m:0 r m:0 r m:0 r m:3 r m:1 r m:0 r m:1 r m:0 r m:1 r m:0 r m:0 r m:1 r r m:0 r m:0 r m:0 r r m:1 r m:3 r m:0 r m:0 r m:0 r m:3 r m:0 r m:3 r m:3 r m:3 r m:0 r r m:1 r m:0 r m:0 r m:3 r m:1 r m:1 r m:1 r m:0 r m:3 r m:1 r m:0 r m:3 r m:1 r m:1 r m:0 r m:1 r m:1 r m:0 r m:1 r m:0 r m:0 r m:1 r m:1 r m:3 r m:1 r m:0 r m:0 r m:1 r m:0 r m:0 r m:1 r m:3 r m:1 r m:3 r m:1 r m:1 r m:0 r m:2 r m:2 r m:3 r m:3 r m:3 r m:1 r m:3 r m:3 r m:3 r m:2 r m:2 r m:2 r m:3 r m:3 r m:2 r m:0 r m:3 r m:1 r m:3 r m:3 r m:3 r m:2 r m:1 r m:3 r m:3 r m:3 r r m:2 r m:2 r m:3 r r m:1 r m:1 r r m:2 r m:0 r r m:2 r m:0 r m:1 r m:1 r m:2 r m:0 r m:1 r m:2 r m:2 r m:3 r r m:1 r m:2 r m:0 r m:1 r m:2 r m:0 r m:3 r m:1 r m:2 r m:2 r m:0 r m:1 r m:2 r m:2 r m:2 r m:2 r m:0 r m:1 r m:1 r m:2 r m:0 r m:1 r m:2 r m:3 r m:3 r m:1 r m:1 r r m:3 r m:1 r m:2 r m:2 r m:2 r m:2 r m:1 r m:2 r m:2 r m:1 r m:1 r m:2 r m:2 r m:2 r m:0 r m:1 r m:2 r m:2 r m:0 r m:2 r m:3 r m:0 r m:2 r m:1 r m:1 r m:2 r m:3 r m:1 r m:1 r m:2 r m:0 r m:1 r m:2 r m:0 r m:1 r m:2 r m:3 r m:1 r m:0 r m:2 r m:1 r m:0 r m:2 r m:0 r m:3 r m:0 r m:2 r m:3 r m:0 r m:0 r r m:3 r m:2 r m:0 r r m:3 r m:0 r r m:2 r m:0 r r m:1 r m:0 r m:2 r m:2 r m:1 r m:0 r m:2 r m:2 r m:2 r m:0 r m:0 r m:0 r m:2 r m:3 r r m:2 r m:3 r m:1 r r m:2 r m:2 r m:0 r m:2 r m:2 r m:1 r m:2 r m:2 r m:0 r r m:2 r m:3 r m:1 r m:2 r m:2 r m:2 r m:2 r m:3 r m:2 r m:2 r m:3 r m:3 r m:2 r m:2 r m:2 r r m:1 r m:2 r r m:3 r m:2 r r m:2 r m:2 r m:2 r m:2 r m:3 r m:2 r m:2 r m:2 r m:1 r m:2 r m:2 r m:3 r r m:2 r m:2 r m:2 r r m:2 r m:2 r m:1 r m:2 r m:2 r r m:2 r m:2 r r m:2 r m:2 r r m:2 r m:2 r r m:2",
+  "positions": "884618d1140ff849fd9c6e6090dbb6d52d3735777cdf99ec0c47fc4750c65901",
+  "last": {
+   "pos": [
+    [
+     56,
+     56,
+     27,
+     56
+    ],
+    [
+     56,
+     55,
+     56,
+     55
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ]
+   ],
+   "turn": 2,
+   "roll": 0,
+   "rolls": 392,
+   "lastRoll": 2,
+   "roller": 2,
+   "winner": 2,
+   "event": "home",
+   "victim": -1,
+   "by": 2,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 3 – 2 – 4",
+  "outcome": {
+   "over": true,
+   "winner": 2,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 3,
+  "seed": "fixture-3-4",
+  "moves": "r r r r r r r r r r r r r r r m:3 r m:3 r r r m:3 r r r m:3 r r r m:3 r m:0 r m:3 r m:3 r r m:3 r m:3 r r m:3 r m:0 r m:3 r r m:3 r m:3 r r m:3 r m:0 r r m:3 r m:0 r r m:3 r m:3 r m:0 r r m:3 r m:0 r r m:2 r m:3 r m:0 r m:3 r m:3 r m:3 r m:0 r m:3 r m:3 r m:2 r m:0 r m:3 x2 r m:3 r m:3 r m:3 r m:0 r m:3 r m:3 r m:2 r m:2 r m:0 r m:3 r m:3 r m:3 r m:2 r m:3 r m:2 r m:3 r m:0 r m:0 r m:2 r m:0 r m:3 r m:3 r m:3 r m:3 r m:3 r m:0 r m:3 r m:0 r m:0 r m:2 r m:0 r m:0 r m:0 r m:0 r m:3 r m:2 r m:3 r m:3 r m:3 r m:3 r m:0 r m:2 r m:0 r m:3 r m:1 r m:0 r m:2 r m:1 r m:2 r m:1 r m:3 r m:2 r m:2 r m:2 r m:0 r m:0 r m:2 r m:0 r m:2 r m:0 r m:3 r m:0 r m:3 r m:3 r m:0 r m:2 r m:0 r m:2 r m:0 r m:2 r r m:1 r m:2 r r m:0 r m:1 r m:2 r m:2 r r m:3 r m:1 r r m:1 r r m:2 r m:3 r m:0 r r m:1 r r m:1 r m:1 r r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r m:1 r r m:1 r m:1 r m:3 r m:0",
+  "positions": "6a53b98a3c1ddff12d5ad1af9b3bd15dececf4ce9de76095ed1af1ace0e2eb61",
+  "last": {
+   "pos": [
+    [
+     56,
+     56,
+     56,
+     56
+    ],
+    [
+     56,
+     19,
+     -1,
+     56
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     -1
+    ]
+   ],
+   "turn": 0,
+   "roll": 0,
+   "rolls": 178,
+   "lastRoll": 1,
+   "roller": 0,
+   "winner": 0,
+   "event": "home",
+   "victim": -1,
+   "by": 0,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false,
+    true
+   ]
+  },
+  "summary": "Tokens home: 4 – 2 – 0",
+  "outcome": {
+   "over": true,
+   "winner": 0,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 4,
+  "seed": "fixture-4-1",
+  "moves": "r r r r r r r r r r r m:2 r m:2 r r r r m:2 r r r r m:2 r r r m:3 r m:3 r m:3 r m:0 r m:0 r r r m:3 r m:0 r r r m:3 r m:0 r r r m:3 r m:2 r r m:1 r m:0 r r m:3 r m:2 r r m:2 r m:0 r m:3 r m:3 r m:0 r r m:0 r m:3 r m:2 r m:0 r m:0 r m:0 r m:0 r m:2 r m:3 r m:0 r m:0 r m:0 r m:2 r m:2 r m:0 r m:0 r m:1 r m:3 r m:0 r m:0 r m:0 r m:0 r m:0 r m:2 r m:0 r m:0 r m:0 r m:0 r m:2 r m:0 r m:0 r m:0 r m:2 r m:3 r m:0 r m:0 r m:3 r m:2 r m:0 r m:0 r m:0 r m:3 r m:3 r m:0 r m:0 r m:0 r m:2 r m:3 r m:1 r m:0 r m:0 r m:2 r m:0 r m:2 r m:2 r r m:1 r m:0 r m:0 r m:3 r m:2 r m:3 r m:2 r m:3 r m:1 r m:0 r m:1 r m:1 r m:3 r m:1 r m:0 r m:1 r m:1 r m:2 r m:2 r m:3 r m:1 r m:3 r m:3 r m:2 r m:3 r m:1 r m:3 r m:1 r m:1 r m:3 r m:3 r r m:3 r m:1 r m:0 r r m:1 r m:1 r m:1 r m:3 r r m:1 r m:0 r m:3 r m:3 r m:0 r r m:1 r m:1 r m:0 r m:3 r r m:2 r m:1 r m:0 r m:2 r m:2 r m:2 r m:3 r m:1 r m:1 r m:3 r m:2 r m:3 r m:2 r m:0 r m:3 r m:3 r m:1 r m:2 r m:2 r m:2 r m:2 r m:3 r m:2 r m:2 r m:2 r m:3 r m:0 r m:2 r m:2 r m:3 r m:3 r m:2 r m:2 r m:2 r m:1 r m:3 r m:3 r m:2 r r m:3 r m:3 r m:1 r m:2 r r m:3 r m:1 r m:2 r m:2 r m:2 r m:2 r m:1 r m:2 r m:2 r m:1 r m:3 r m:3 r m:2 r r m:1 r m:1 r m:2 r m:2 r r m:3 r m:3 r m:2 r r m:2 r m:0 r m:3 r m:1 r m:2 r r r m:2 r m:3 r m:1 r r r m:3 r m:3 r m:0 r r m:2 r m:3 r r r m:3 r m:1 r m:0 r m:3 r m:3 r m:3 r r m:2 r m:3 r m:3 r r m:2 r m:1 r m:3 r m:1 r m:1 r m:1 r m:1 r m:0 r m:0 r m:3 r m:3 r m:3 r m:1 r m:1 r m:0 r m:3 r m:1 r m:1 r m:2 r m:0 r m:2 r m:3 r m:1 r m:1 r m:0 r m:1 r m:1 r m:1 r m:0 r m:2 r m:3 r m:2 r m:2 r m:1 r m:2 r m:3 r m:3 r m:0 r m:1 r m:0 r m:3 r m:3 r m:0 r m:1 r r m:0 r m:1 r m:1 r m:2 r r m:0 r m:1 r m:0 r m:2 r m:2 r m:0 r m:1 r m:1 r m:1 r m:0 r m:2 r m:0 r m:1 r m:1 r m:0 r m:0 r m:2 r m:0 r r m:1 r m:2 r m:0 r r m:1 r m:0 r m:2 r m:0 r r m:1 r m:2 r m:2 r m:2 r m:3 r r m:0 r m:2 r m:0 r r m:1 r m:2 r m:2 r r m:1 r m:2 r m:3 r m:0 r m:2 r r m:2 r m:2 r m:2 r m:2 r r m:0 r m:2 r m:2 r r m:1 r m:2 r m:2 r r m:1 r m:2 r m:2 r m:1 r m:1 r m:1 r m:2 r m:1 r m:1 r m:2 r m:0 r m:1 r m:1 r m:0 r m:2 r m:0 r m:1 r m:2 r m:2 r m:2 r m:2 r m:0 r m:2 r m:1 r m:2 r r m:2 r m:2 r m:2 r m:1 r m:1 r m:0 r r m:2 r m:2 r m:1 r m:0 r m:1 r m:3 r m:3 r m:2 r m:1 r m:1 r m:1",
+  "positions": "7c4ee810b528e09d5780290b611fc17b936d38027fd1d42f6129b9a48cc0cd0b",
+  "last": {
+   "pos": [
+    [
+     56,
+     56,
+     56,
+     56
+    ],
+    [
+     41,
+     53,
+     -1,
+     56
+    ],
+    [
+     56,
+     56,
+     55,
+     2
+    ],
+    [
+     56,
+     56,
+     23,
+     56
+    ]
+   ],
+   "turn": 0,
+   "roll": 0,
+   "rolls": 413,
+   "lastRoll": 4,
+   "roller": 0,
+   "winner": 0,
+   "event": "home",
+   "victim": -1,
+   "by": 0,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 4 – 1 – 2 – 3",
+  "outcome": {
+   "over": true,
+   "winner": 0,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 4,
+  "seed": "fixture-4-2",
+  "moves": "r m:1 r m:1 r r r r m:1 r r r r m:1 r r m:2 r m:2 r r m:1 r m:3 r m:3 r m:2 r r m:1 r m:1 r r m:2 r r m:2 r m:1 r r m:2 r r m:1 r m:1 r r m:2 r r m:2 r r m:2 r r m:2 r r m:1 r m:2 r r m:2 r x3 r m:1 r m:1 r m:1 r r m:2 r m:3 r r m:2 r r m:2 r m:1 r r m:1 r m:1 r m:2 r r m:2 r m:2 r m:3 r m:3 r r m:3 r m:3 r m:3 r m:1 r m:0 r m:0 r m:0 r m:0 r m:1 r m:2 r m:0 r m:0 r m:3 r m:0 r m:0 r m:0 r m:0 r m:3 r m:1 r m:3 r m:3 r m:1 r m:1 r m:0 r m:1 r m:3 r m:0 r m:2 r m:3 r m:0 r m:2 r m:0 r m:0 r m:0 r m:0 r m:0 r m:3 r r m:0 r m:0 r m:1 r m:0 r m:3 r m:0 r m:0 r m:1 r m:0 r m:2 r m:0 r m:1 r m:1 r m:3 r m:0 r m:2 r m:2 r m:1 r m:0 r m:0 r m:0 r m:1 r m:2 r m:2 r m:1 r m:1 r m:0 r m:0 r m:1 r m:1 r m:3 r m:0 r m:2 r m:1 r m:3 r m:0 r m:1 r m:3 r m:2 r m:3 r m:1 r m:3 r m:0 r m:1 r m:3 r m:0 r m:3 r m:3 r m:0 r m:3 r m:1 r m:2 r m:1 r m:1 r m:0 r m:3 r m:3 r m:2 r m:3 r m:3 r m:0 r m:2 r m:3 r m:2 r m:2 r m:1 r m:2 r m:3 r m:3 r r m:2 r m:2 r m:1 r m:3 r r m:1 r m:3 r m:2 r m:0 r m:2 r m:3 r r m:2 r m:3 r m:3 r m:2 r m:3 r r m:2 r m:2 r m:2 r m:2 r m:2 r m:3 r m:2 r m:2 r m:2 r m:1 r m:2 r m:2 r m:1 r m:2 r m:3 r m:2 r m:1 r m:2 r m:2 r m:2 r m:3 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:2 r m:1 r m:3 r m:2 r m:3 r m:3 r m:2 r m:2 r m:3 r m:3 r m:2 r m:2 r m:3 r m:1 r m:2 r m:2 r m:1 r m:1 r m:3 r r m:3 r m:2 r r m:3 r m:2 r m:2 r m:3 r m:1 r m:3 r r m:3 r m:3 r m:2 r r m:2 r m:3 r m:3 r r m:1 r m:3 r r m:1 r m:3 r m:0 r m:0 r m:1 r m:1 r m:3 r m:0 r m:1 r m:3 r m:0 r m:1 r m:3 r m:3 r m:0 r m:0 r m:1 r m:1 r m:1 r m:3 r m:0 r m:1 r m:1 r m:3 r r r m:3 r m:0 r m:0 r m:1 r m:3 r m:3 r m:0 r m:0 r m:3 r m:3 r m:3 r r m:0 r m:3 r r m:0 r m:3 r r m:0 r m:0 r m:3 r r m:0 r m:3 r m:2 r m:0 r m:3 r m:3 r r m:0 r m:3 r m:3 r r m:0 r m:3 r m:3 r r m:0 r m:3 r m:1 r m:3 r r r m:0 r r r m:0 r r r m:0 r r r r r r r r m:2",
+  "positions": "dd4bd63580e730f254b25c08c83aaf31dfae7a136cf8a3f8b4bfb0ee1dfaa9f8",
+  "last": {
+   "pos": [
+    [
+     56,
+     56,
+     55,
+     55
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ],
+    [
+     54,
+     56,
+     56,
+     56
+    ],
+    [
+     -1,
+     -1,
+     -1,
+     -1
+    ]
+   ],
+   "turn": 1,
+   "roll": 0,
+   "rolls": 350,
+   "lastRoll": 1,
+   "roller": 1,
+   "winner": 1,
+   "event": "home",
+   "victim": -1,
+   "by": 1,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false,
+    false,
+    true
+   ]
+  },
+  "summary": "Tokens home: 2 – 4 – 3 – 0",
+  "outcome": {
+   "over": true,
+   "winner": 1,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 4,
+  "seed": "fixture-4-3",
+  "moves": "r r r r r r m:0 r m:0 r r m:1 r m:1 r r m:0 r r m:1 r r m:0 r r m:1 r r m:0 r r m:1 r r m:0 r r m:1 r m:1 r r m:0 r m:0 r r m:1 r m:1 r m:1 r m:0 r m:1 r m:1 r m:1 r m:1 r m:0 r m:1 r m:0 r m:0 r m:1 r m:1 r m:1 r m:1 r m:0 r m:1 r m:1 r m:0 r m:2 r m:1 r m:1 r m:1 r m:2 r m:1 r m:2 r m:0 r m:2 r m:1 r m:0 r m:1 r m:1 r m:1 r m:2 r m:2 r m:1 r m:1 r m:0 r m:2 r m:1 r m:1 r m:2 r m:2 r m:2 r m:2 r m:1 r m:0 r m:1 r m:1 r m:0 r m:2 r m:2 r m:1 r m:1 r m:2 r m:1 r m:0 r m:2 r m:1 r m:0 r m:2 r m:2 r m:2 r m:3 r m:3 r m:1 r m:2 r m:2 r m:0 r m:0 r m:1 r m:1 r m:2 r m:2 r m:0 r m:3 r m:1 r m:2 r m:1 r m:1 r m:3 r m:1 r m:1 r m:1 r m:1 r m:3 r m:0 r m:2 r m:3 r m:0 r m:0 r m:3 r m:2 r m:3 r m:0 r m:3 r m:2 r m:0 r m:1 r m:0 r m:3 r m:1 r m:1 r m:2 r m:0 r m:3 r m:2 r m:3 r m:0 r m:0 r m:3 r m:3 r m:3 r m:2 r m:3 r m:0 r m:3 r m:2 r m:2 r m:0 r m:3 r m:2 r m:2 r m:0 r m:3 r m:3 r m:3 r m:0 r m:3 r m:1 r m:1 r m:0 r m:0 r m:0 r r r m:2 r m:3 r m:1 r m:1 r r m:3 r m:2 r m:2 r m:3 r m:1 r r m:2 r m:2 r m:1 r r m:2 r m:3 r m:1 r r m:2 r m:1 r m:3 r m:1 r r m:2 r m:1 r m:1 r m:0 r m:0 r m:0 r m:2 r m:2 r m:2 r m:2 r r m:2 r m:2 r m:3 r m:3 r m:2 r m:2 r r m:1 r m:2 r m:3 r m:2 r m:2 r r m:2 r m:3 r m:2 r r m:0 r m:2 r m:2 r m:1 r m:3 r m:3 r m:1 r m:2 r m:2 r m:2 r m:3 r m:2 r m:2 r m:2 r m:1 r m:1 r m:2 r m:2 r m:3 r m:2 r m:3 r m:2 r m:3 r m:1 r m:2 r m:2 r m:3 r m:1 r m:2 r m:2 r m:2 r m:0 r m:2 r m:0 r m:0 r m:1 r m:3 r m:2 r r m:0 r m:3 r m:3 r m:1 r m:1 r m:3 r m:2 r m:0 r m:3 r m:3 r m:3 r m:0 r m:3 r m:1 r m:3 r m:3 r m:2 r m:2 r r m:0 r m:3 r m:2 r r m:0 r m:0 r m:3 r m:2 r r m:0 r m:0 r m:1 r m:2 r r m:0 r m:1 r m:3 r m:2 r r r m:0 r m:1 r m:3 r m:3 r r m:0 r m:3 r m:3 r r m:0 r m:3 r m:0 r m:0 r r m:0 r m:1 r m:3 r m:3 r r r m:3 r m:0 r r m:0 r m:1 r m:0 r r m:0 r m:1 r m:0 r r r m:1 r m:3 r r r m:1 r m:3 r m:3 r m:3 r r m:1 r m:3 r m:0 r m:3 r m:3 r r r m:3 r m:0 r m:3 r r m:3 r m:1 r m:3 r m:3 r r m:1 r m:3 r m:3 r r r m:3 r m:3 r r r m:0 r m:3 r r m:1 r m:0 r m:3 r r r m:3 r m:3 r r r m:0 r m:3 r m:3 r r r m:0 r m:3 r m:3 r r m:1",
+  "positions": "65ce66b8e43d30b85e9483b51fd74d5fac587dd991d4ba723da83be7c2f6100d",
+  "last": {
+   "pos": [
+    [
+     55,
+     56,
+     56,
+     56
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ],
+    [
+     32,
+     -1,
+     56,
+     50
+    ],
+    [
+     56,
+     56,
+     56,
+     38
+    ]
+   ],
+   "turn": 1,
+   "roll": 0,
+   "rolls": 386,
+   "lastRoll": 1,
+   "roller": 1,
+   "winner": 1,
+   "event": "home",
+   "victim": -1,
+   "by": 1,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 3 – 4 – 1 – 3",
+  "outcome": {
+   "over": true,
+   "winner": 1,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ },
+ {
+  "n": 4,
+  "seed": "fixture-4-4",
+  "moves": "r m:3 r m:0 r m:0 r r r m:2 r m:2 r m:2 r m:0 r r r m:2 r m:0 r m:1 r m:1 r r m:1 r m:1 r m:0 r m:1 r r m:2 r m:2 r m:2 r m:3 r m:1 r r m:1 r m:3 r m:1 r m:1 r m:1 r m:1 r m:0 r m:1 r m:1 r m:0 r m:0 r m:0 r r m:1 r m:3 r m:3 r m:1 r r m:1 r m:0 r m:1 r m:2 r r r m:1 r m:3 r m:3 r m:2 r x0 r m:1 r m:1 r r m:0 r m:0 r m:1 r r m:0 r m:1 r r m:2 r m:2 r m:2 r r m:0 r m:1 r m:1 r r m:0 r m:3 r m:0 r r m:1 r m:1 r m:3 r r m:1 r m:0 r m:2 r m:1 r m:0 r m:2 r r m:1 r m:1 r m:2 r m:1 r m:3 r m:3 r m:0 r m:0 r m:0 r m:0 r m:3 r m:0 r m:0 r m:0 r m:2 r m:3 r m:0 r m:0 r m:0 r m:0 r m:0 r m:2 r m:0 r m:0 r m:0 r m:0 r m:1 r m:3 r m:0 r m:1 r m:0 r m:0 r m:1 r m:0 r m:0 r m:0 r m:0 r m:3 r m:0 r m:1 r m:3 r m:0 r m:1 r m:3 r m:0 r m:3 r m:0 r m:0 r m:0 r m:0 r m:3 r m:1 r r m:0 r m:2 r m:2 r m:2 r m:2 r m:2 r m:3 r m:2 r m:2 r m:0 r m:2 r m:2 r m:0 r m:0 r m:2 r m:2 r m:2 r m:2 r m:2 r m:3 r m:2 r m:0 r m:2 r m:2 r m:3 r m:0 r m:1 r m:1 r m:3 r m:3 r m:2 r m:2 r m:1 r m:3 r m:2 r m:1 r m:3 r m:2 r m:1 r m:0 r m:3 r m:0 r m:1 r m:3 r m:3 r m:2 r m:1 r m:3 r m:0 r m:3 r m:0 r m:3 r m:1 r r m:3 r m:1 r r m:3 r m:1 r r m:3 r m:2 r m:2 r r m:2 r m:1 r r m:2 r m:1 r m:2 r m:1 r m:1 r r m:3 r m:3 r m:2 r r m:2 r m:2 r r m:2 r m:2 r r m:2 r m:2 r r m:2 r m:1 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:1 r m:3 r m:3 r m:3 r m:1 r m:2 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:2 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:3 r m:2 r m:3 r m:2 r m:3 r m:3 r m:3 r m:3 r r m:3 r m:3 r r m:3 r m:3 r r m:3 r m:3 r m:1 r r m:3 r m:3 r r m:3",
+  "positions": "8b3067a03b13185eac5e3b61d1ebdfe95cfb3d2fcdb5993e45925f542b25103e",
+  "last": {
+   "pos": [
+    [
+     -1,
+     -1,
+     -1,
+     -1
+    ],
+    [
+     56,
+     56,
+     56,
+     56
+    ],
+    [
+     56,
+     56,
+     35,
+     36
+    ],
+    [
+     56,
+     56,
+     -1,
+     56
+    ]
+   ],
+   "turn": 1,
+   "roll": 0,
+   "rolls": 285,
+   "lastRoll": 1,
+   "roller": 1,
+   "winner": 1,
+   "event": "home",
+   "victim": -1,
+   "by": 1,
+   "sixes": 0,
+   "again": false,
+   "out": [
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  "summary": "Tokens home: 0 – 4 – 2 – 3",
+  "outcome": {
+   "over": true,
+   "winner": 1,
+   "draw": false,
+   "reason": "all four tokens home"
+  }
+ }
+]

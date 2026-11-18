@@ -160,7 +160,7 @@ test("S2-10 a table is never invited beyond the game's places", async () => {
   const net = makeNet();
   const H = await net.boot("H");
   const many = ["G1", "G2", "G3", "G4", "G5", "G6"].map(peer);
-  for (const [game, places] of [["dots", 4], ["ludo", 4], ["bankroll", 6]]) {
+  for (const [game, places] of [["dots", 4], ["ludo", 6], ["bankroll", 6]]) {
     const { match, cards } = H.challengeMany(game, many);
     assert.equal(match.seats.length, Math.min(places, many.length + 1), `${game}: the host and ${places - 1} colleagues at most`);
     assert.equal(cards.length, match.seats.length - 1);

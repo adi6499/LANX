@@ -2,15 +2,17 @@
 // square, a die thrown into a tray beside the board (Rapier physics, landing
 // on the number the rules rolled), and knocked pawns flying back home.
 // Moves and rules are exactly the flat board's ("r", "m:<token>").
+// LANX 3.19.0: five and six players play on a six-sided board (lib/games/ludoHex.ts).
 
 import * as THREE from "three";
 import { useEffect, useMemo, useRef } from "react";
 import { seatFor, type BoardProps } from "../../boardProps";
-import { FINISH, SAFE, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, toAbsolute, type LudoState } from "../../../../lib/games/ludo.ts";
+import { ARM, ludo, ludoArms, ludoChoices, ludoCorner, ludoEventText, ludoFinish, ludoLast, ludoMovable, ludoPlayerAt, ludoSafe, toAbsolute, type LudoState } from "../../../../lib/games/ludo.ts";
+import { HEX_CORNER, HEX_HOME, HEX_LOOP, HEX_YARD_R, hexCorners, hexField, hexOutline, hexPlace, hexSpot, hexYard, hexYardGround } from "../../../../lib/games/ludoHex.ts";
 import { HOME, LOOP, SPOT, YARD, cornerColours, ludoColour, useLudoAutoMove } from "../../boards/LudoBoard";
 import { sfx } from "../../../../lib/gameSounds";
 import { TurnScene } from "../turnScene";
-import { FONT, boardSlab, canvasTexture, felt, hop, markerDot, markerRing, mesh, pawnGeometry, plastic, repaint, roundRect, slab, wood } from "../kit";
+import { FONT, boardSlab, canvasTexture, felt, hop, markerDot, markerRing, mesh, pawnGeometry, pictureMaterial, plastic, repaint, roundRect, slab, wood } from "../kit";
 import { makeDie, restOn, show, throwDice, topValue, type Die } from "../dice";
 import { SceneBox, useScene } from "../Board3D";
 import { BoardBar, HiddenActions, SeatDot, primary3, type Action } from "../ui";
@@ -20,10 +22,14 @@ const N = 15;
 const TOP = 0.42;
 const PX = 80; // texture pixels per square
 const TRAY_X = 9.75;
+/** The six-sided board: texture pixels per square, the wooden slab's corners, and its dice tray. */
+const PX6 = 64;
+const HEX_SLAB = HEX_CORNER + 0.4;
+const TRAY_X6 = HEX_SLAB * Math.cos(Math.PI / 6) + 0.5 + 1.65;
 
-/** Square (row, col; fractions allowed) → board-local position on the top. */
-const at = (r: number, c: number) => new THREE.Vector3(c + 0.5 - N / 2, TOP, r + 0.5 - N / 2);
-/** Finished pawns sit on their colour's triangle in the middle. */
+/** A place in squares from the board's middle (x to the right, z towards you) → on the board's top. */
+const on = (x: number, z: number) => new THREE.Vector3(x, TOP, z);
+/** Finished pawns sit on their colour's triangle in the middle (the four-sided board: row, column). */
 const FINISH_AT: [number, number][] = [
   [7, 6.25],
   [6.25, 7],
@@ -31,21 +37,25 @@ const FINISH_AT: [number, number][] = [
   [7.75, 7],
 ];
 
-/** A corner's square for a token (2.17.0: corners, not players — two players sit opposite). */
-function squareOf(corner: number, rel: number, token: number): [number, number] {
-  const player = corner;
+/** A corner's place for a token, in squares from the board's middle (2.17.0: corners, not players — two players sit opposite). */
+function spotOf(corner: number, rel: number, token: number, n: number): [number, number] {
+  if (ludoArms(n) === 6) {
+    const p = hexPlace(corner, rel, token);
+    return [p.x, p.y];
+  }
+  const cell = ([r, c]: readonly [number, number]): [number, number] => [c + 0.5 - N / 2, r + 0.5 - N / 2];
   if (rel === -1) {
-    const [yr, yc] = YARD[player];
+    const [yr, yc] = YARD[corner];
     const [dr, dc] = SPOT[token];
-    return [yr + dr, yc + dc];
+    return cell([yr + dr, yc + dc]);
   }
-  if (rel >= FINISH) {
-    const [r, c] = FINISH_AT[player];
+  if (rel >= ludoFinish(n)) {
+    const [r, c] = FINISH_AT[corner];
     const k = (token - 1.5) * 0.36;
-    return player % 2 === 0 ? [r + k, c] : [r, c + k];
+    return cell(corner % 2 === 0 ? [r + k, c] : [r, c + k]);
   }
-  if (rel >= 51) return HOME[player][rel - 51];
-  return LOOP[toAbsolute(player, rel)];
+  if (rel > ludoLast(n)) return cell(HOME[corner][rel - ludoLast(n) - 1]);
+  return cell(LOOP[toAbsolute(corner, rel, n)]);
 }
 
 function paintBoard(ctx: CanvasRenderingContext2D, colours: string[]) {
@@ -76,7 +86,7 @@ function paintBoard(ctx: CanvasRenderingContext2D, colours: string[]) {
     const start = [0, 13, 26, 39].indexOf(i);
     ctx.fillStyle = start >= 0 ? colours[start] : "#ffffff";
     ctx.fillRect(c * P, r * P, P, P);
-    if (SAFE.has(i) && start < 0) star(ctx, (c + 0.5) * P, (r + 0.5) * P, P * 0.3, "#94a3b8");
+    if (ludoSafe(i) && start < 0) star(ctx, (c + 0.5) * P, (r + 0.5) * P, P * 0.3, "#94a3b8");
     if (start >= 0) star(ctx, (c + 0.5) * P, (r + 0.5) * P, P * 0.3, "rgba(255,255,255,0.85)");
   });
   // Home columns.
@@ -115,6 +125,87 @@ function paintBoard(ctx: CanvasRenderingContext2D, colours: string[]) {
   ctx.font = `700 ${P * 0.32}px ${FONT}`;
 }
 
+/** LANX 3.19.0: the six-sided board's print. The canvas is a square round the board (the board's
+ *  corners touch its top and bottom); everything is drawn in squares from the board's middle. */
+function paintHexBoard(ctx: CanvasRenderingContext2D, colours: string[], size: number) {
+  const P = PX6;
+  const poly = (pts: [number, number][]) => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x * P, y * P) : ctx.moveTo(x * P, y * P)));
+    ctx.closePath();
+  };
+  ctx.save();
+  ctx.clearRect(0, 0, size, size);
+  ctx.translate(size / 2, size / 2);
+  poly(hexOutline());
+  ctx.fillStyle = "#fbfaf6";
+  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  // Yards: the colour's ground, a round court, four spots.
+  for (let c = 0; c < 6; c++) {
+    poly(hexYardGround(c));
+    ctx.fillStyle = colours[c];
+    ctx.fill();
+    const y = hexYard(c);
+    ctx.beginPath();
+    ctx.arc(y.x * P, y.y * P, HEX_YARD_R * P, 0, Math.PI * 2);
+    ctx.fillStyle = "#fbfaf6";
+    ctx.fill();
+    for (let t = 0; t < 4; t++) {
+      const s = hexSpot(c, t);
+      ctx.beginPath();
+      ctx.arc(s.x * P, s.y * P, P * 0.42, 0, Math.PI * 2);
+      ctx.fillStyle = colours[c];
+      ctx.globalAlpha = 0.28;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = colours[c];
+      ctx.stroke();
+    }
+  }
+  // The loop.
+  HEX_LOOP.forEach((sq, i) => {
+    const start = i % ARM === 0 ? i / ARM : -1;
+    poly(hexCorners(sq));
+    ctx.fillStyle = start >= 0 ? colours[start] : "#ffffff";
+    ctx.fill();
+    if (ludoSafe(i)) star(ctx, sq.x * P, sq.y * P, P * 0.3, start >= 0 ? "rgba(255,255,255,0.85)" : "#94a3b8");
+  });
+  // Home squares.
+  HEX_HOME.forEach((cells, c) =>
+    cells.forEach((sq) => {
+      poly(hexCorners(sq));
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.fillStyle = colours[c];
+      ctx.globalAlpha = 0.62;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }),
+  );
+  // Grid lines.
+  ctx.strokeStyle = "#cbd5e1";
+  ctx.lineWidth = 2;
+  for (const sq of [...HEX_LOOP, ...HEX_HOME.flat()]) {
+    poly(hexCorners(sq));
+    ctx.stroke();
+  }
+  // The middle: six fields.
+  for (let c = 0; c < 6; c++) {
+    poly(hexField(c));
+    ctx.fillStyle = colours[c];
+    ctx.fill();
+  }
+  ctx.restore();
+  poly(hexOutline());
+  ctx.strokeStyle = "rgba(15,23,42,0.25)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+}
+
 function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, colour: string) {
   ctx.beginPath();
   for (let k = 0; k < 10; k++) {
@@ -143,18 +234,42 @@ class LudoScene extends TurnScene<LudoState> {
   private die: Die;
   private tray: THREE.Group;
   private marks = new THREE.Group();
-  private colours: string[] = ["#f43f5e", "#0ea5e9", "#10b981", "#f59e0b"];
+  private colours: string[];
   private info: TurnInfo | null = null;
+  /** Four arms, or six (the six-sided board for five and six players). */
+  private arms: number;
+  private trayX: number;
 
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, arms = 4) {
     super(host, { fov: 26 });
     const s = this.stage;
-    this.top = canvasTexture(N * PX, N * PX, (ctx) => paintBoard(ctx, this.colours), s.renderer);
-    this.board = boardSlab(N + 0.7, N + 0.7, TOP, this.top, wood("walnut", 2));
+    this.arms = arms;
+    const six = arms === 6;
+    this.n = six ? 6 : 4;
+    this.trayX = six ? TRAY_X6 : TRAY_X;
+    this.colours = cornerColours(this.n).map((c) => c.colour);
+    if (six) {
+      // A six-sided slab of wood (its corners point away from you and towards you, where two of
+      // the yards are), and the print on top of it.
+      const size = Math.round(2 * HEX_CORNER * PX6);
+      this.top = canvasTexture(size, size, (ctx) => paintHexBoard(ctx, this.colours, size), s.renderer);
+      this.board = new THREE.Group();
+      const body = mesh(new THREE.CylinderGeometry(HEX_SLAB, HEX_SLAB, TOP, 6), wood("walnut", 2));
+      body.position.y = TOP / 2;
+      this.board.add(body);
+      const face = new THREE.Mesh(new THREE.CircleGeometry(HEX_CORNER, 6, Math.PI / 6), pictureMaterial(this.top, 0.55, { transparent: true }));
+      face.rotation.x = -Math.PI / 2;
+      face.position.y = TOP + 0.002;
+      face.receiveShadow = true;
+      this.board.add(face);
+    } else {
+      this.top = canvasTexture(N * PX, N * PX, (ctx) => paintBoard(ctx, this.colours), s.renderer);
+      this.board = boardSlab(N + 0.7, N + 0.7, TOP, this.top, wood("walnut", 2));
+    }
     s.scene.add(this.board);
     this.board.add(this.marks);
     // Pawns: four per colour.
-    for (let p = 0; p < 4; p++) {
+    for (let p = 0; p < arms; p++) {
       const row: THREE.Mesh[] = [];
       for (let t = 0; t < 4; t++) {
         const m = mesh(pawnGeometry(), plastic(this.colours[p]));
@@ -167,7 +282,7 @@ class LudoScene extends TurnScene<LudoState> {
     }
     // The dice tray beside the board.
     this.tray = new THREE.Group();
-    this.tray.position.set(TRAY_X, 0, 0);
+    this.tray.position.set(this.trayX, 0, 0);
     const floor = mesh(slab(2.9, 0.1, 4.6, 0.04), felt("#33415c"));
     this.tray.add(floor);
     const wallMat = wood("walnut", 1);
@@ -183,27 +298,36 @@ class LudoScene extends TurnScene<LudoState> {
     }
     s.scene.add(this.tray);
     this.die = makeDie(0.84);
-    restOn(this.die, TRAY_X, 0.1, 0);
+    restOn(this.die, this.trayX, 0.1, 0);
     s.scene.add(this.die.outer);
     s.pickable(this.die.outer, { enabled: () => !!this.info?.canPlay && !this.info.roll && this.settled, onClick: () => this.info?.onRoll() });
     s.pickable(floor, { enabled: () => !!this.info?.canPlay && !this.info.roll && this.settled, onClick: () => this.info?.onRoll() });
     // Seen from almost straight above, like a real board on the table (drag the table to tilt it).
-    s.allowViewDrag("ludo");
-    s.frame(new THREE.Box3(new THREE.Vector3(-N / 2 - 0.35, 0, -N / 2 - 0.35), new THREE.Vector3(TRAY_X + 1.65, 0.6, N / 2 + 0.35)), [0, 2.75, 1], 1.02);
+    s.allowViewDrag(six ? "ludo6" : "ludo");
+    const halfX = six ? HEX_SLAB * Math.cos(Math.PI / 6) : N / 2 + 0.35;
+    const halfZ = six ? HEX_SLAB : N / 2 + 0.35;
+    s.frame(new THREE.Box3(new THREE.Vector3(-halfX, 0, -halfZ), new THREE.Vector3(this.trayX + 1.65, 0.6, halfZ)), [0, 2.75, 1], 1.02);
+  }
+
+  /** A corner's token place on the board's top. */
+  private spot(corner: number, rel: number, token: number) {
+    return on(...spotOf(corner, rel, token, this.n));
   }
 
   /** Colours, how many play, and which way round the board faces (your yard nearest you). */
   setLook(n: number, colours: string[], me: number) {
+    if (ludoArms(n) !== this.arms) return; // (another board: the scene is made anew for it)
     this.colours = colours;
-    repaint(this.top, (ctx) => paintBoard(ctx, colours));
+    const size = (this.top.image as HTMLCanvasElement).width;
+    repaint(this.top, (ctx) => (this.arms === 6 ? paintHexBoard(ctx, colours, size) : paintBoard(ctx, colours)));
     this.tokens.forEach((row, c) =>
       row.forEach((m) => {
         m.material = plastic(colours[c]);
         m.visible = ludoPlayerAt(c, n) >= 0;
       }),
     );
-    // Turn the board so your yard is at the bottom left.
-    this.board.rotation.y = ((ludoCorner(me, n) + 1) % 4) * (Math.PI / 2);
+    // Turn the board so your yard is at the bottom left — on the six-sided board, at the bottom.
+    this.board.rotation.y = this.arms === 6 ? ((ludoCorner(me, n) + 2) % 6) * (Math.PI / 3) : ((ludoCorner(me, n) + 1) % 4) * (Math.PI / 2);
     this.stage.invalidate();
   }
 
@@ -218,29 +342,30 @@ class LudoScene extends TurnScene<LudoState> {
   }
 
   protected replay(moves: string[]) {
-    return ludo.replay(moves, this.n, this.seed);
+    return ludoArms(this.n) === this.arms ? ludo.replay(moves, this.n, this.seed) : null;
   }
 
   /** Where each pawn stands, spread out when several share a square. */
   private layout(s: LudoState): Map<THREE.Mesh, { pos: THREE.Vector3; scale: number }> {
     const out = new Map<THREE.Mesh, { pos: THREE.Vector3; scale: number }>();
+    const finish = ludoFinish(this.n);
     const shared = new Map<string, [number, number][]>();
+    const keyOf = ([x, z]: [number, number]) => `${x.toFixed(2)},${z.toFixed(2)}`;
     s.pos.forEach((row, p) =>
       row.forEach((rel, t) => {
-        if (rel < 0 || rel >= FINISH) return;
-        const [r, c] = squareOf(ludoCorner(p, this.n), rel, t);
-        const k = `${r},${c}`;
+        if (rel < 0 || rel >= finish) return;
+        const k = keyOf(spotOf(ludoCorner(p, this.n), rel, t, this.n));
         if (!shared.has(k)) shared.set(k, []);
         shared.get(k)!.push([p, t]);
       }),
     );
     s.pos.forEach((row, p) =>
       row.forEach((rel, t) => {
-        const [r, c] = squareOf(ludoCorner(p, this.n), rel, t);
-        const pos = at(r, c);
-        let scale = rel >= FINISH ? 0.52 : 0.82;
-        if (rel >= 0 && rel < FINISH) {
-          const here = shared.get(`${r},${c}`)!;
+        const xz = spotOf(ludoCorner(p, this.n), rel, t, this.n);
+        const pos = on(...xz);
+        let scale = rel >= finish ? 0.52 : 0.82;
+        if (rel >= 0 && rel < finish) {
+          const here = shared.get(keyOf(xz))!;
           if (here.length > 1) {
             const i = here.findIndex(([q, u]) => q === p && u === t);
             const offs = here.length === 2 ? [[-0.2, 0], [0.2, 0]] : [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]];
@@ -263,7 +388,7 @@ class LudoScene extends TurnScene<LudoState> {
     }
     // The die keeps the pose it landed in; it only jumps when the number on top is wrong (a snap).
     if (s.lastRoll && this.die.value !== s.lastRoll) {
-      restOn(this.die, TRAY_X, 0.1, 0);
+      restOn(this.die, this.trayX, 0.1, 0);
       show(this.die, s.lastRoll);
     }
     this.stage.invalidate();
@@ -272,7 +397,7 @@ class LudoScene extends TurnScene<LudoState> {
   protected async animateStep(before: LudoState, after: LudoState, move: string) {
     this.clearMarks();
     if (move === "r") {
-      await throwDice(this.stage, [this.die], [after.lastRoll], { cx: TRAY_X, cz: 0, w: 2.7, d: 4.4, y: 0.1, from: new THREE.Vector3(0.2, 0, 1) }, `${this.seed}#ludo${after.rolls}`, (k) => sfx("thud", 0.2 + k * 0.5));
+      await throwDice(this.stage, [this.die], [after.lastRoll], { cx: this.trayX, cz: 0, w: 2.7, d: 4.4, y: 0.1, from: new THREE.Vector3(0.2, 0, 1) }, `${this.seed}#ludo${after.rolls}`, (k) => sfx("thud", 0.2 + k * 0.5));
       return;
     }
     // LANX 3.18.0 (S3-05): a player left ("x<player>"). It was read as a token move of whoever's
@@ -286,7 +411,7 @@ class LudoScene extends TurnScene<LudoState> {
         const m = this.tokens[ludoCorner(q, this.n)]?.[k];
         if (!m) return;
         const start = m.position.clone();
-        const home = at(...squareOf(ludoCorner(q, this.n), -1, k));
+        const home = this.spot(ludoCorner(q, this.n), -1, k);
         flights.push(this.stage.animate(520, (u) => hop(start, home, 2, u, m.position)));
       });
       await Promise.all(flights);
@@ -299,8 +424,8 @@ class LudoScene extends TurnScene<LudoState> {
     const corner = ludoCorner(p, this.n);
     const pawn = this.tokens[corner][t];
     const steps: THREE.Vector3[] = [];
-    if (from === -1) steps.push(at(...squareOf(corner, 0, t)));
-    else for (let r = from + 1; r <= to; r++) steps.push(at(...squareOf(corner, r, t)));
+    if (from === -1) steps.push(this.spot(corner, 0, t));
+    else for (let r = from + 1; r <= to; r++) steps.push(this.spot(corner, r, t));
     for (const target of steps) {
       const start = pawn.position.clone();
       await this.stage.animate(165, (k) => hop(start, target, 0.5, k, pawn.position), easeOut);
@@ -314,7 +439,7 @@ class LudoScene extends TurnScene<LudoState> {
         if (before.pos[q][k] >= 0 && rel === -1) {
           const m = this.tokens[ludoCorner(q, this.n)][k];
           const start = m.position.clone();
-          const home = at(...squareOf(ludoCorner(q, this.n), -1, k));
+          const home = this.spot(ludoCorner(q, this.n), -1, k);
           sfx("capture");
           flights.push(this.stage.animate(650, (u) => hop(start, home, 3, u, m.position)));
         }
@@ -345,7 +470,7 @@ class LudoScene extends TurnScene<LudoState> {
       ring.position.set(pawn.position.x, TOP + 0.01, pawn.position.z);
       this.marks.add(ring);
       const rel = s.pos[info.turn][t];
-      const dest = at(...squareOf(corner, rel === -1 ? 0 : Math.min(FINISH, rel + info.roll), t));
+      const dest = this.spot(corner, rel === -1 ? 0 : Math.min(ludoFinish(this.n), rel + info.roll), t);
       this.stage.pickable(pawn, {
         onClick: () => {
           this.clearMarks();
@@ -372,16 +497,23 @@ class LudoScene extends TurnScene<LudoState> {
   }
 }
 
-/** Ludo, the 3D board. */
-export default function Ludo3D({ moves, canPlay, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
-  const n = Math.max(2, Math.min(4, seats?.length ?? 2));
+/** Ludo, the 3D board. (A table that grows from four to five players between two rounds gets the
+ *  six-sided board: the scene is made anew.) */
+export default function Ludo3D(props: BoardProps) {
+  const n = Math.max(2, Math.min(6, props.seats?.length ?? 2));
+  return <Ludo3DBoard key={ludoArms(n)} {...props} />;
+}
+
+function Ludo3DBoard({ moves, canPlay, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
+  const n = Math.max(2, Math.min(6, seats?.length ?? 2));
+  const arms = ludoArms(n);
   const state = useMemo(() => ludo.replay(moves, n, seed), [moves, n, seed]);
-  // Each corner's colour — Ludo King's four, every corner full (2.17.1).
+  // Each corner's colour — Ludo King's four, every corner full (2.17.1); six on the six-sided board.
   const colours = useMemo(() => cornerColours(n).map((c) => c.colour), [n]);
   const me = local ? 0 : Math.max(0, seat);
   const move = useRef(onMove);
   move.current = onMove;
-  const [hostRef, scene] = useScene((el) => new LudoScene(el));
+  const [hostRef, scene] = useScene((el) => new LudoScene(el, arms));
   useEffect(() => scene?.setLook(n, colours, me), [scene, n, colours, me]);
   useEffect(() => scene?.sync(n, seed, moves), [scene, n, seed, moves]);
   const movable = useMemo(() => (canPlay && state?.roll ? ludoMovable(state) : []), [canPlay, state]);
@@ -390,12 +522,13 @@ export default function Ludo3D({ moves, canPlay, seat, seats, starter = 0, seed 
   }, [scene, canPlay, state, movable]);
   useLudoAutoMove(state, canPlay, onMove, 900);
   if (!state) return null;
+  const finish = ludoFinish(n);
   const colour = (p: number) => ludoColour(p, n);
   const said = ludoEventText(state, (p) => seatFor(seats, starter, p, n).name);
   const choose = movable.length > 1 && ludoChoices(state).length > 1;
   const actions: Action[] = movable.map((t) => ({ key: `t${t}`, label: `Move token ${t + 1}`, run: () => onMove(`m:${t}`), attrs: { "data-ludo-token": `${state.turn}:${t}`, "data-ludo-can": "1" } }));
   return (
-    <div data-game-board="ludo" data-g3-board="ludo" className="flex w-full max-w-[760px] flex-col items-center gap-2">
+    <div data-game-board="ludo" data-g3-board="ludo" data-ludo-arms={arms} className="flex w-full max-w-[760px] flex-col items-center gap-2">
       <BoardBar>
         {state.lastRoll > 0 && (
           <span className="inline-flex items-center gap-1.5" data-ludo-last>
@@ -414,7 +547,7 @@ export default function Ludo3D({ moves, canPlay, seat, seats, starter = 0, seed 
       <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[11.5px] text-slate-500" data-ludo-home>
         {state.pos.map((row, p) => (
           <span key={p} className="inline-flex items-center gap-1.5">
-            <SeatDot color={colour(p)} size={10} /> {seatFor(seats, starter, p, n).name}: {row.filter((x) => x === FINISH).length}/4 home
+            <SeatDot color={colour(p)} size={10} /> {seatFor(seats, starter, p, n).name}: {row.filter((x) => x === finish).length}/4 home
           </span>
         ))}
       </div>

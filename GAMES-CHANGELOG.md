@@ -6,6 +6,32 @@ checklist with every status is the document "LANX Games repair plan and checklis
 
 Run the tests: `npm run test:games` (Node 24 runs the rule files as they are; nothing to build).
 
+## Ludo for five and six players (LANX 3.19.0)
+
+Asked for by the owner on 18 Nov 2026 ("can't 5 players play in Ludo"); not part of the repair
+sprints. Ludo took 2 to 4 players; it now takes 2 to 6.
+
+- **The board.** Five and six play on a six-sided board (`src/lib/games/ludoHex.ts`): six arms
+  instead of four, so a shared track of 78 squares instead of 52. Per arm everything is as on the
+  four-sided board: 13 squares of track, the colour's start on the arm's second square, a star
+  eight squares on, five home squares and a field in the middle. Six colours in an order in which
+  no two neighbours look alike (red, yellow, blue, orange, green, purple). Flat board and 3D
+  board; your colour is at the bottom.
+- **The rules** (`src/lib/games/ludo.ts`) are the same code for both boards; the numbers 52, 50
+  and 56 became `ludoTrack(n)`, `ludoLast(n)` and `ludoFinish(n)`. No rule changed.
+- **Two to four players are untouched.** Twelve whole games were recorded with the rules of LANX
+  3.18.0 before the change (`tests/games/ludo-3180.json`, made by `make-ludo-fixture.mjs`); the
+  rules of today replay them to the very same position after every single move.
+- **Older copies.** A LANX before 3.19.0 has no six-sided board, so a Ludo table of more than four
+  needs 3.19.0 on every PC (`LUDO_SIX` / `FEATURES_LUDO_SIX`): such a colleague gets the
+  invitation as text ("Update LANX to 3.19.0 to join it here"), and a step of such a table is not
+  sent to an older copy. Tables of two to four still work with any LANX from 2.17.1.
+
+Tests: `tests/games/ludo-six.test.mjs` (6): the 3.18.0 games replay unchanged; the board has a
+square for every step and no two in one place; whole games for five and six play to the end with
+knock-outs, tokens home and a leaver; the exact number home; six places at the table and the
+version a table needs. Rust: `game_min_version_for` and the invitation card (`cargo test`).
+
 ## Sprint 3 — the smaller defects, game by game (LANX 3.18.0)
 
 Tests: `tests/games/sprint3-rules.test.mjs` (9), `sprint3-solo.test.mjs` (11) and

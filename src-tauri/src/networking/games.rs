@@ -97,6 +97,20 @@ pub fn game_min_version(id: &str) -> &'static str {
     }
 }
 
+/// The oldest LANX that can sit at a table of this game with this many players (LANX 3.19.0:
+/// Ludo for more than four is played on a board that older copies do not have).
+pub fn game_min_version_for(id: &str, players: usize) -> &'static str {
+    if id == "ludo" && players > 4 {
+        return FEATURES_LUDO_SIX;
+    }
+    game_min_version(id)
+}
+
+/// How many sit at the table a step is about (the state carries the seats), or 0 when it does not say.
+fn seats_in(p: &GamePayload) -> usize {
+    p.data.get("seats").and_then(|s| s.as_array()).map_or(0, |s| s.len())
+}
+
 /// What the UI gets for every step a colleague sends.
 #[derive(Serialize, Clone, Debug)]
 pub struct GameEvent {
@@ -143,8 +157,8 @@ impl NetworkService {
         }
         let mut chan = self.connect_peer(&peer).await.map_err(|_| format!("Could not reach {}'s LANX.", peer.display_name))?;
         // A table of several players (the state carries the seats) needs 2.10.0 on their side.
-        let table = p.data.get("seats").and_then(|s| s.as_array()).is_some_and(|s| s.len() > 2);
-        let mut min = game_min_version(&p.game);
+        let table = seats_in(&p) > 2;
+        let mut min = game_min_version_for(&p.game, seats_in(&p));
         if table && version_at_least(FEATURES_MULTIPLAYER, min) {
             min = FEATURES_MULTIPLAYER;
         }
@@ -178,7 +192,7 @@ impl NetworkService {
             return no(&e);
         }
         // LANX 2.17.0: a copy with older rules for this game would see a different board.
-        let min = game_min_version(&p.game);
+        let min = game_min_version_for(&p.game, seats_in(&p));
         if !version_at_least(remote_version, min) {
             return no(&format!("{} has new rules in LANX {}. Update LANX (Settings → Updates) to keep playing.", game_name(&p.game), min));
         }
@@ -249,6 +263,11 @@ mod tests {
         assert!(RULES_3170_GAMES.iter().all(|g| GAME_IDS.contains(g)));
         assert!(RULES_3160_GAMES.iter().all(|g| GAME_IDS.contains(g)));
         assert_eq!(game_min_version("ludo"), FEATURES_RULES_2171);
+        // LANX 3.19.0: Ludo for five and six needs the six-sided board; two to four do not.
+        assert_eq!(game_min_version_for("ludo", 4), FEATURES_RULES_2171);
+        assert_eq!(game_min_version_for("ludo", 5), FEATURES_LUDO_SIX);
+        assert_eq!(game_min_version_for("ludo", 6), FEATURES_LUDO_SIX);
+        assert_eq!(game_min_version_for("bankroll", 6), game_min_version("bankroll"));
         assert_eq!(game_min_version("hearts"), FEATURES_RULES_2170);
         assert_eq!(game_min_version("chess"), FEATURES_GAMES);
         assert!(RULES_2170_GAMES.iter().all(|g| GAME_IDS.contains(g)));

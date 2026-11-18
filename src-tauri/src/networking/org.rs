@@ -61,7 +61,12 @@ pub fn card_min_version(content: &str) -> &'static str {
         Some("music") => FEATURES_MUSIC,
         Some("game") => {
             let c = parse_card(content).unwrap_or_default();
-            if c["players"].as_array().is_some_and(|p| p.len() > 2) {
+            // LANX 3.19.0: a Ludo table of five or six is played on the six-sided board.
+            let players = c["players"].as_array().map_or(0, |p| p.len());
+            if c["game"].as_str() == Some("ludo") && players > 4 {
+                return FEATURES_LUDO_SIX;
+            }
+            if players > 2 {
                 return FEATURES_MULTIPLAYER;
             }
             super::games::game_min_version(c["game"].as_str().unwrap_or(""))
@@ -363,7 +368,13 @@ pub fn card_fallback(content: &str) -> String {
         }
         "music" => format!("🎵 SONG: {} — {}{}\n(Update LANX to play it here.)", t("title"), t("artist"), if t("url").is_empty() { String::new() } else { format!("\n{}", t("url")) }),
         "game" => match v["players"].as_array().map(|p| p.len()).unwrap_or(0) {
-            n if n > 2 => format!("🎮 GAME: {} opens a {} table for {} players.\n(Update LANX to 2.10.0 to join it here.)", t("from_name"), super::games::game_name(&t("game")), n),
+            n if n > 2 => format!(
+                "🎮 GAME: {} opens a {} table for {} players.\n(Update LANX to {} to join it here.)",
+                t("from_name"),
+                super::games::game_name(&t("game")),
+                n,
+                if t("game") == "ludo" && n > 4 { FEATURES_LUDO_SIX } else { "2.10.0" }
+            ),
             _ => format!("🎮 GAME: {} challenges you to {}.\n(Update LANX to {} to play it here.)", t("from_name"), super::games::game_name(&t("game")), super::games::game_min_version(&t("game"))),
         },
         _ => content.to_string(),
@@ -687,6 +698,14 @@ mod game_card_tests {
         assert_eq!(card_min_version(&table.to_string()), FEATURES_MULTIPLAYER);
         assert!(card_preview(&table.to_string()).contains("3 players"));
         assert!(card_fallback(&table.to_string()).contains("2.10.0"));
+        // LANX 3.19.0: a Ludo table of five or six needs the six-sided board; a table of four does not.
+        let ids = ["peer-a", "peer-b", "peer-c", "peer-d", "peer-e", "peer-f"];
+        let ludo = |n: usize| clean_card(&json!({ "kind": "game", "id": "m5", "game": "ludo", "to": "peer-b", "from_name": "Asha", "players": ids[..n].to_vec() })).unwrap().to_string();
+        assert_eq!(card_min_version(&ludo(4)), FEATURES_MULTIPLAYER);
+        assert_eq!(card_min_version(&ludo(5)), FEATURES_LUDO_SIX);
+        assert_eq!(card_min_version(&ludo(6)), FEATURES_LUDO_SIX);
+        assert!(card_fallback(&ludo(6)).contains(FEATURES_LUDO_SIX));
+        assert!(card_fallback(&ludo(4)).contains("2.10.0"));
         // 2.17.0: a hosted table for two keeps its players (otherwise the guest takes it for a plain challenge),
         // and needs no more than the game itself does.
         let pair = clean_card(&json!({ "kind": "game", "id": "m4", "game": "trivia", "to": "peer-b", "players": ["peer-a", "peer-b"] })).unwrap();

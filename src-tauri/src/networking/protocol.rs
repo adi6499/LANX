@@ -120,6 +120,11 @@ pub const FEATURES_RULES_3170: &str = "3.17.0";
 /// Draw & Guess's words): every PC at the table needs 3.18.0 (mirrors RULES_3180 in src/lib/games.ts).
 pub const FEATURES_RULES_3180: &str = "3.18.0";
 pub const RULES_3180_GAMES: [&str; 5] = ["holdem", "mathrush", "trivia", "wordbox", "drawguess"];
+/// LANX 3.19.0: Ludo for five and six players, on a six-sided board with a track of 78 squares.
+/// An older copy would replay such a table on its four-sided board, so every PC at a Ludo table
+/// of more than four needs 3.19.0 (mirrors LUDO_SIX in src/lib/games.ts). Two to four players
+/// play as before, with any LANX from 2.17.1.
+pub const FEATURES_LUDO_SIX: &str = "3.19.0";
 pub const RULES_3170_GAMES: [&str; 7] = ["taproulette", "mathrush", "trivia", "wordbox", "drawguess", "paintfight", "werewolf"];
 pub const RULES_3160_GAMES: [&str; 9] = ["gofish", "dominoes", "bankroll", "holdem", "mahjong", "taproulette", "wordbox", "drawguess", "werewolf"];
 /// The games whose rules changed in 2.17.0 (mirrors RULES_2170 in src/lib/games.ts).

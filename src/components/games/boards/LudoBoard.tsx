@@ -1,7 +1,8 @@
 import { DIE_SHOW, Dice3D, DieFaces } from "./Dice3D";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { seatFor, type BoardProps } from "../boardProps";
-import { FINISH, TRACK, ludo, ludoChoices, ludoCorner, ludoEventText, ludoMovable, ludoPlayerAt, startOf, toAbsolute, SAFE, type LudoState } from "../../../lib/games/ludo.ts";
+import { ARM, ludo, ludoArms, ludoChoices, ludoCorner, ludoEventText, ludoFinish, ludoLast, ludoMovable, ludoPlayerAt, ludoSafe, toAbsolute, type LudoState } from "../../../lib/games/ludo.ts";
+import { HEX_CORNER, HEX_EDGE, HEX_HOME, HEX_LOOP, HEX_YARD_R, hexCorners, hexField, hexOutline, hexPlace, hexSpot, hexYard, hexYardGround, yardAngle } from "../../../lib/games/ludoHex.ts";
 import { sfx } from "../../../lib/gameSounds";
 import { paperTexture, woodTexture } from "../../../lib/games/texture";
 
@@ -9,6 +10,32 @@ const C = 30; // cell size
 const SIZE = 15 * C;
 /** LANX 3.12.0: the wooden frame round the printed board. */
 const FRAME = 14;
+/** LANX 3.19.0: the six-sided board for five and six players (lib/games/ludoHex.ts). Its squares
+ *  are as big as the four-sided board's; its box is a little wider and a good deal taller. */
+const HEX_ROUND = 1.5; // how far its corners are rounded, in squares
+const HEX_W = Math.round(2 * HEX_EDGE * C);
+const HEX_H = Math.round(2 * (HEX_CORNER - 0.1547 * HEX_ROUND) * C);
+/** A place on the six-sided board (in squares from its middle) → pixels, as [y, x]. */
+const hexPx = (p: { x: number; y: number }): Pt => [HEX_H / 2 + p.y * C, HEX_W / 2 + p.x * C];
+/** The same for a list of corners, as an SVG "points" text. */
+const hexPts = (pts: [number, number][]) => pts.map(([x, y]) => `${(HEX_W / 2 + x * C).toFixed(1)},${(HEX_H / 2 + y * C).toFixed(1)}`).join(" ");
+/** A six-sided outline with rounded corners (an SVG path), `grow` pixels bigger all round. */
+function hexFrame(grow: number): string {
+  const R = HEX_CORNER * C + grow / Math.cos(Math.PI / 6);
+  const cut = (HEX_ROUND * C + grow) / Math.tan(Math.PI / 3);
+  const pts = hexOutline(1).map(([x, y]): [number, number] => [HEX_W / 2 + x * R, HEX_H / 2 + y * R]);
+  let d = "";
+  pts.forEach((p, i) => {
+    const a = pts[(i + pts.length - 1) % pts.length];
+    const b = pts[(i + 1) % pts.length];
+    const towards = (q: [number, number]) => {
+      const l = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      return `${(p[0] + ((q[0] - p[0]) / l) * cut).toFixed(1)} ${(p[1] + ((q[1] - p[1]) / l) * cut).toFixed(1)}`;
+    };
+    d += `${i ? "L" : "M"} ${towards(a)} Q ${p[0].toFixed(1)} ${p[1].toFixed(1)} ${towards(b)} `;
+  });
+  return `${d}Z`;
+}
 
 /** A colour made lighter (amt > 0) or darker (amt < 0). */
 function shade(hex: string, amt: number): string {
@@ -51,12 +78,19 @@ type Pt = [number, number]; // [y, x] in pixels
  *  of the unturned board) — the same in the flat board, the 3D board and the seat list. */
 export const LUDO_COLOURS = ["#e53935", "#2e9e44", "#f9b800", "#1e88e5"];
 export const LUDO_DARK = ["#a91f1c", "#1d6b2d", "#b07f00", "#1259a8"];
+/** LANX 3.19.0: the six colours of the six-sided board, in an order in which no two neighbours
+ *  look alike (red, yellow, blue, orange, green, purple). */
+export const LUDO_COLOURS_6 = ["#e53935", "#f9b800", "#1e88e5", "#f4721e", "#2e9e44", "#8e44c8"];
+export const LUDO_DARK_6 = ["#a91f1c", "#b07f00", "#1259a8", "#b04c0c", "#1d6b2d", "#5f2a8c"];
+/** The colours of the board that `n` players play on, one per corner. */
+export const ludoPalette = (n: number) => (ludoArms(n) === 6 ? LUDO_COLOURS_6 : LUDO_COLOURS);
+const ludoDarks = (n: number) => (ludoArms(n) === 6 ? LUDO_DARK_6 : LUDO_DARK);
 /** A player's colour: the colour of the corner they sit at. */
-export const ludoColour = (player: number, n: number) => LUDO_COLOURS[ludoCorner(player, n)];
+export const ludoColour = (player: number, n: number) => ludoPalette(n)[ludoCorner(player, n)];
 
 /** Each corner's colour and who plays it (-1: nobody). Every corner keeps its full colour, as on a real board. */
 export function cornerColours(n: number): { colour: string; player: number }[] {
-  return [0, 1, 2, 3].map((c) => ({ colour: LUDO_COLOURS[c], player: ludoPlayerAt(c, n) }));
+  return ludoPalette(n).map((colour, c) => ({ colour, player: ludoPlayerAt(c, n) }));
 }
 
 /** LANX 2.17.0: when only one move is possible, the token moves by itself after a moment (as in Ludo King). */
@@ -157,6 +191,8 @@ export function useLudoPlayback(moves: string[], n: number, seed: string) {
 
 /** Where a throw starts, by the thrower's corner of the screen (0 top left, clockwise): x, y as shares of the board. */
 const THROW_FROM: [number, number][] = [[0.14, 0.1], [0.86, 0.1], [0.86, 0.9], [0.14, 0.9]];
+/** The same on the six-sided board (0 upper left, top, upper right, lower right, bottom, lower left). */
+const THROW_FROM_6: [number, number][] = [[0.14, 0.27], [0.5, 0.08], [0.86, 0.27], [0.86, 0.73], [0.5, 0.92], [0.14, 0.73]];
 /** The bounces of a throw: each one's share of the time, and how high it goes (the first is 1). */
 const BOUNCES: [number, number][] = [[0.4, 1], [0.26, 0.4], [0.17, 0.16], [0.1, 0.06]];
 
@@ -164,14 +200,14 @@ const BOUNCES: [number, number][] = [[0.4, 1], [0.26, 0.4], [0.17, 0.16], [0.1, 
  *  times, each bounce lower and shorter, tumbling ever more slowly, and comes to rest near the
  *  middle with its number up, where it stays to be read. Drawn frame by frame (no React in
  *  between); with "less motion" it simply lies there. */
-function ThrownDie({ value, from, side, nth, still }: { value: number; from: number; side: number; nth: number; still: boolean }) {
+function ThrownDie({ value, start, w, h: tall, nth, still }: { value: number; start: [number, number]; w: number; h: number; nth: number; still: boolean }) {
   const box = useRef<HTMLSpanElement>(null);
   const cube = useRef<HTMLSpanElement>(null);
   const shadow = useRef<HTMLSpanElement>(null);
   const v = Math.max(1, Math.min(6, Math.round(value) || 1));
+  const side = Math.min(w, tall);
   const D = Math.round(side * 0.125);
   useLayoutEffect(() => {
-    const start = THROW_FROM[from] ?? THROW_FROM[3];
     // (never twice the same spot, nor the same way up: a little chance from the number of the roll)
     const chance = (k: number) => ((nth * 9301 + k * 49297 + 233) % 1000) / 1000 - 0.5;
     const end = [0.5 + (start[0] - 0.5) * 0.2 + chance(1) * 0.16, 0.5 + (start[1] - 0.5) * 0.2 + chance(2) * 0.16];
@@ -179,8 +215,8 @@ function ThrownDie({ value, from, side, nth, still }: { value: number; from: num
     const restZ = chance(3) * 50;
     const draw = (u: number) => {
       const e = 1 - (1 - u) ** 3; // fast at first, slower and slower
-      const x = (start[0] + (end[0] - start[0]) * e) * side;
-      const y = (start[1] + (end[1] - start[1]) * e) * side;
+      const x = (start[0] + (end[0] - start[0]) * e) * w;
+      const y = (start[1] + (end[1] - start[1]) * e) * tall;
       let z = 0;
       let done = 0;
       for (const [share, height] of BOUNCES) {
@@ -227,28 +263,31 @@ function ThrownDie({ value, from, side, nth, still }: { value: number; from: num
   );
 }
 
-/** A corner's square for a token: its yard spot (-1), the track, its home column, or the centre. */
-function cellOf(corner: number, rel: number, token: number): Pt {
+/** A corner's square for a token: its yard spot (-1), the track, its home column, or the centre.
+ *  (`n` players: five and six play on the six-sided board.) */
+function cellOf(corner: number, rel: number, token: number, n: number): Pt {
+  if (ludoArms(n) === 6) return hexPx(hexPlace(corner, rel, token));
   if (rel === -1) {
     const [yr, yc] = YARD[corner];
     const [dr, dc] = SPOT[token];
     return [(yr + dr) * C + C / 2, (yc + dc) * C + C / 2];
   }
-  if (rel >= FINISH) return [7 * C + C / 2, 7 * C + C / 2];
-  if (rel >= 51) {
-    const [r, c] = HOME[corner][rel - 51];
+  if (rel >= ludoFinish(n)) return [7 * C + C / 2, 7 * C + C / 2];
+  if (rel > ludoLast(n)) {
+    const [r, c] = HOME[corner][rel - ludoLast(n) - 1];
     return [r * C + C / 2, c * C + C / 2];
   }
-  const [r, c] = LOOP[toAbsolute(corner, rel)];
+  const [r, c] = LOOP[toAbsolute(corner, rel, n)];
   return [r * C + C / 2, c * C + C / 2];
 }
 
-/** LANX 2.17.1: the board's side on screen — as big as the room allows (the plates and the status line
- *  always fit), up to its natural size. The room is the nearest real ancestor (the games window's board
- *  area, which otherwise scrolls). */
+/** LANX 2.17.1: the board's size on screen — as big as the room allows (the plates and the status line
+ *  always fit), up to twice its natural size. The room is the nearest real ancestor (the games window's
+ *  board area, which otherwise scrolls). LANX 3.19.0: `w0` × `h0` is the board's natural box (the
+ *  six-sided board is taller than wide); the answer is its width on screen. */
 const CHROME = 58 * 2 + 8 * 3 + 40 + 8; // two plate rows, three gaps, a two-line status, a little air
-function useFitSide(ref: RefObject<HTMLDivElement | null>): number {
-  const [side, setSide] = useState(SIZE);
+function useFitSide(ref: RefObject<HTMLDivElement | null>, w0 = SIZE, h0 = SIZE): number {
+  const [side, setSide] = useState(w0);
   useLayoutEffect(() => {
     let el = ref.current?.parentElement ?? null;
     while (el && getComputedStyle(el).display === "contents") el = el.parentElement;
@@ -258,13 +297,13 @@ function useFitSide(ref: RefObject<HTMLDivElement | null>): number {
       const cs = getComputedStyle(box);
       const pw = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
       const ph = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-      setSide(Math.max(240, Math.min(SIZE * 2, box.clientWidth - pw - 8, box.clientHeight - ph - CHROME)));
+      setSide(Math.max(240, Math.min(w0 * 2, box.clientWidth - pw - 8, ((box.clientHeight - ph - CHROME) * w0) / h0)));
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [ref]);
+  }, [ref, w0, h0]);
   return side;
 }
 
@@ -302,7 +341,7 @@ interface Motion {
 
 /** LANX 2.16.1: a moved token hops square by square along its way, and a knocked one flies home after. */
 function useLudoMotion(state: LudoState | null, moves: string[], n: number) {
-  const cellOfPlayer = (p: number, rel: number, t: number) => cellOf(ludoCorner(p, n), rel, t);
+  const cellOfPlayer = (p: number, rel: number, t: number) => cellOf(ludoCorner(p, n), rel, t, n);
   const prev = useRef<{ moves: string[]; state: LudoState | null }>({ moves, state });
   const [motion, setMotion] = useState<Motion | null>(null);
   const [, setFrame] = useState(0);
@@ -384,9 +423,18 @@ function useLudoMotion(state: LudoState | null, moves: string[], n: number) {
 }
 
 /** Ludo: Roll, then click the token to move. LANX 2.17.1: the look of Ludo King — four strong colours,
- *  pin tokens, your colour at the bottom left, a player plate at each corner with the die. */
+ *  pin tokens, your colour at the bottom left, a player plate at each corner with the die.
+ *  LANX 3.19.0: five and six players play on a six-sided board, your colour at the bottom. */
 export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "", local, onMove }: BoardProps) {
-  const n = Math.max(2, Math.min(4, seats?.length ?? 2));
+  const n = Math.max(2, Math.min(6, seats?.length ?? 2));
+  const arms = ludoArms(n);
+  const six = arms === 6;
+  const finish = ludoFinish(n);
+  const palette = ludoPalette(n);
+  const darks = ludoDarks(n);
+  /** The printed board's own box (the SVG's inner size), and the same with its frame. */
+  const BW = six ? HEX_W : SIZE;
+  const BH = six ? HEX_H : SIZE;
   // LANX 3.16.0: what is on show (see useLudoPlayback): the game up to the step being played out.
   const play = useLudoPlayback(moves, n, seed);
   const view = useMemo(() => (play.count >= moves.length ? moves : moves.slice(0, play.count)), [moves, play.count]);
@@ -397,7 +445,8 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
   const mayPlay = canPlay && play.live && play.phase !== "throw";
   useLudoAutoMove(state, mayPlay, onMove, HOLD_MS);
   const rootRef = useRef<HTMLDivElement>(null);
-  const side = useFitSide(rootRef);
+  const side = useFitSide(rootRef, BW + 2 * FRAME, BH + 2 * FRAME);
+  const tall = Math.round((side * (BH + 2 * FRAME)) / (BW + 2 * FRAME));
   if (!state) return null;
   const me = local ? -1 : Math.max(0, seat);
   const name = (p: number) => (p === me ? "You" : seatFor(seats, starter, p, n).name.split(" (")[0]);
@@ -405,23 +454,33 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
   const movable = mayPlay && state.roll ? ludoMovable(state) : [];
   // While a roll is thrown and read, the board stays with whoever rolled (the turn may have passed already).
   const turn = play.phase ? state.roller : state.turn;
-  const startCorner = (i: number) => [0, 1, 2, 3].find((c) => startOf(c) === i) ?? -1;
+  const corners = Array.from({ length: arms }, (_, c) => c);
+  const startCorner = (i: number) => (i % ARM === 0 ? i / ARM : -1);
   // (While the die flies nothing is said about it; while it lies there the status line says it all.)
   const said = play.phase ? "" : ludoEventText(state, name);
-  // Your colour sits at the bottom left (as in Ludo King); at one PC the board stays put.
-  const k = me < 0 ? 0 : (3 - ludoCorner(me, n) + 4) % 4;
+  // Your colour sits at the bottom left (as in Ludo King) — at the bottom on the six-sided board;
+  // at one PC the board stays put.
+  const mine = six ? 4 : 3;
+  const k = me < 0 ? 0 : (mine - ludoCorner(me, n) + arms) % arms;
   const spin = (p: Pt): Pt => {
     let [y, x] = p;
+    if (six) {
+      const a = (k * Math.PI) / 3;
+      const [dx, dy] = [x - HEX_W / 2, y - HEX_H / 2];
+      return [HEX_H / 2 + dx * Math.sin(a) + dy * Math.cos(a), HEX_W / 2 + dx * Math.cos(a) - dy * Math.sin(a)];
+    }
     for (let i = 0; i < k; i++) [x, y] = [SIZE - y, x];
     return [y, x];
   };
-  const screenCorner = (c: number) => (c + k) % 4; // 0 top left, 1 top right, 2 bottom right, 3 bottom left
-  const cornerAt = (s: number) => [0, 1, 2, 3].find((c) => screenCorner(c) === s) ?? 0;
+  // Places on screen, clockwise: 0 top left, 1 top right, 2 bottom right, 3 bottom left — on the
+  // six-sided board 0 upper left, 1 top, 2 upper right, 3 lower right, 4 bottom, 5 lower left.
+  const screenCorner = (c: number) => (c + k) % arms;
+  const cornerAt = (s: number) => corners.find((c) => screenCorner(c) === s) ?? 0;
 
   // Tokens: where each stands on screen; tokens sharing a square stand side by side, smaller.
   const placed = state.pos.flatMap((list, p) =>
     list.map((rel, t) => {
-      const at = place(`${p}-${t}`, cellOf(ludoCorner(p, n), rel, t));
+      const at = place(`${p}-${t}`, cellOf(ludoCorner(p, n), rel, t, n));
       const [y, x] = spin([at.y, at.x]);
       return { p, t, rel, x, y, lift: at.lift, moving: at.moving, can: p === state.turn && movable.includes(t) };
     }),
@@ -441,31 +500,38 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
       offsetOf.set(id, { dx: ox * C, dy: oy * C, s: ids.length === 2 ? 0.8 : 0.66 });
     });
   }
-  const tokens = placed.map((tk, i) => ({ ...tk, off: offsetOf.get(i) ?? { dx: 0, dy: 0, s: 1 } }));
+  // (On the six-sided board the tokens that are in stand side by side on their colour's field, smaller.)
+  const tokens = placed.map((tk, i) => ({ ...tk, off: offsetOf.get(i) ?? { dx: 0, dy: 0, s: six && tk.rel >= finish && !tk.moving ? 0.7 : 1 } }));
   // Moving tokens are drawn last, so they pass over the others; then by height, so lower pins overlap higher ones.
   tokens.sort((a, b) => Number(a.moving) - Number(b.moving) || a.y + a.off.dy - (b.y + b.off.dy));
 
-  const home = (p: number) => state.pos[p].filter((x) => x === FINISH).length;
+  const home = (p: number) => state.pos[p].filter((x) => x === finish).length;
   const canRoll = canPlay && play.live && !play.phase && !state.roll && state.winner === null;
   const plate = (s: number) => {
     const c = cornerAt(s);
     const p = ludoPlayerAt(c, n);
-    if (p < 0) return <div className="h-[58px] flex-1" />;
+    if (p < 0) return <div className="h-[58px] min-w-0 flex-1" />;
     const active = p === turn && state.winner === null;
     const out = state.out[p];
+    // (the plates on the right-hand side are mirrored, so the die is always on the board's side)
+    const mirrored = six ? s === 2 || s === 3 : s % 3 !== 0;
     return (
       <div
-        className={`flex h-[58px] flex-1 items-center gap-2.5 rounded-2xl px-3 transition-shadow ${s % 3 === 0 ? "" : "flex-row-reverse text-right"} ${active ? "bg-white shadow-md dark:bg-slate-800" : "bg-white/60 dark:bg-slate-800/50"}`}
-        style={active ? { boxShadow: `0 0 0 2.5px ${LUDO_COLOURS[c]}` } : undefined}
+        className={`flex h-[58px] min-w-0 flex-1 items-center rounded-2xl transition-shadow ${six ? "gap-2 px-2" : "gap-2.5 px-3"} ${mirrored ? "flex-row-reverse text-right" : ""} ${active ? "bg-white shadow-md dark:bg-slate-800" : "bg-white/60 dark:bg-slate-800/50"}`}
+        style={active ? { boxShadow: `0 0 0 2.5px ${palette[c]}` } : undefined}
         data-ludo-plate={p}
         data-ludo-active={active ? "1" : undefined}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[14px] font-bold text-white" style={{ backgroundColor: LUDO_COLOURS[c], opacity: out ? 0.4 : 1 }}>
-          {seatFor(seats, starter, p, n).name.slice(0, 1).toUpperCase()}
-        </span>
+        {/* (Three plates in a row on a narrow board — a phone: the plate with the die drops its
+            round initial, so that the name still fits. Its coloured ring says whose it is.) */}
+        {!(six && active && side < 470) && (
+          <span className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${six ? "h-8 w-8 text-[13px]" : "h-9 w-9 text-[14px]"}`} style={{ backgroundColor: palette[c], opacity: out ? 0.4 : 1 }}>
+            {seatFor(seats, starter, p, n).name.slice(0, 1).toUpperCase()}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <div className={`truncate text-[13px] font-semibold text-slate-900 dark:text-white ${out ? "line-through opacity-50" : ""}`}>{name(p)}</div>
-          <div className="text-[11px] text-slate-500">{out ? "left the game" : `${home(p)}/4 home`}</div>
+          <div className="truncate text-[11px] text-slate-500">{out ? "left the game" : `${home(p)}/4 home`}</div>
         </div>
         {active && (
           <div
@@ -478,7 +544,7 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
             onKeyDown={(e) => canRoll && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onMove("r"))}
             aria-label={canRoll ? "Roll the die" : "The die"}
             className={`flex shrink-0 select-none items-center justify-center rounded-xl p-1 ${canRoll ? "ludo-roll cursor-pointer active:scale-95" : "cursor-default"}`}
-            style={{ backgroundColor: `${LUDO_COLOURS[c]}22`, boxShadow: canRoll ? `0 0 0 2px ${LUDO_COLOURS[c]}` : undefined }}
+            style={{ backgroundColor: `${palette[c]}22`, boxShadow: canRoll ? `0 0 0 2px ${palette[c]}` : undefined }}
           >
             {state.lastRoll > 0 && state.roller === p ? (
               <span data-ludo-last>
@@ -521,20 +587,126 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
                 : "Your turn — tap your die to roll"
               : turnOf;
 
+  /** The four-sided board's print (2 to 4 players), unturned. */
+  const squarePrint = () => (
+    <>
+      {/* yards: a strong coloured corner, a white court, four coloured token spots */}
+      {YARD.map(([yr, yc], c) => {
+        const active = ludoPlayerAt(c, n) === turn && state.winner === null;
+        return (
+          <g key={c}>
+            <rect x={yc * C} y={yr * C} width={6 * C} height={6 * C} fill={`url(#ludo-yard-${c})`} />
+            <rect x={yc * C + C * 0.7} y={yr * C + C * 0.7} width={C * 4.6} height={C * 4.6} fill="#fffdf7" rx={C * 0.5} />
+            <rect x={yc * C + C * 0.7 + 1.5} y={yr * C + C * 0.7 + 1.5} width={C * 4.6 - 3} height={C * 4.6 - 3} fill="none" rx={C * 0.45} stroke="#000" strokeOpacity={0.08} strokeWidth={3} />
+            {active && <rect className="ludo-glow" x={yc * C + C * 0.45} y={yr * C + C * 0.45} width={C * 5.1} height={C * 5.1} rx={C * 0.65} fill="none" stroke="#fff" strokeWidth={C * 0.16} />}
+            {SPOT.map(([dr, dc], s) => {
+              const cx = (yc + dc) * C + C / 2;
+              const cy = (yr + dr) * C + C / 2;
+              return (
+                <g key={s}>
+                  <circle cx={cx} cy={cy} r={C * 0.62} fill={palette[c]} stroke={darks[c]} strokeWidth={1.5} />
+                  <circle cx={cx} cy={cy} r={C * 0.6} fill="url(#ludo-hole)" />
+                  <path d={`M ${cx - C * 0.42} ${cy + C * 0.36} A ${C * 0.56} ${C * 0.56} 0 0 0 ${cx + C * 0.42} ${cy + C * 0.36}`} fill="none" stroke="#fff" strokeOpacity={0.35} strokeWidth={1.4} />
+                </g>
+              );
+            })}
+          </g>
+        );
+      })}
+      {/* the track: cream squares; each start square in its colour with a star; grey stars on the safe squares */}
+      {LOOP.map(([rr, cc], i) => {
+        const sc = startCorner(i);
+        return (
+          <g key={i}>
+            <rect data-ludo-square={i} x={cc * C} y={rr * C} width={C} height={C} fill={sc >= 0 ? `url(#ludo-yard-${sc})` : "#fffdf8"} stroke="#d6cbb6" strokeWidth={1} />
+            {ludoSafe(i) && <polygon points={star(cc * C + C / 2, rr * C + C / 2, C * 0.36)} fill={sc >= 0 ? "#fff" : "none"} stroke={sc >= 0 ? "none" : "#a99c86"} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none" />}
+          </g>
+        );
+      })}
+      {/* home lanes in full colour, with an arrow where each colour turns in */}
+      {HOME.map((cells, c) => cells.slice(0, 5).map(([rr, cc], j) => <rect key={`${c}-${j}`} x={cc * C} y={rr * C} width={C} height={C} fill={`url(#ludo-yard-${c})`} stroke="#d6cbb6" />))}
+      {[0, 1, 2, 3].map((c) => {
+        const [er, ec] = LOOP[toAbsolute(c, ludoLast(n), n)];
+        const [hr, hc] = HOME[c][0];
+        const ang = (Math.atan2(hr - er, hc - ec) * 180) / Math.PI;
+        const cx = ec * C + C / 2;
+        const cy = er * C + C / 2;
+        return <polygon key={c} points={`${cx + C * 0.3},${cy} ${cx - C * 0.18},${cy - C * 0.26} ${cx - C * 0.18},${cy + C * 0.26}`} transform={`rotate(${ang} ${cx} ${cy})`} fill={palette[c]} pointerEvents="none" />;
+      })}
+      {/* the centre: four triangles pointing home */}
+      <polygon points={`${6 * C},${6 * C} ${9 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-1)`} />
+      <polygon points={`${9 * C},${6 * C} ${9 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-2)`} />
+      <polygon points={`${9 * C},${9 * C} ${6 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-3)`} />
+      <polygon points={`${6 * C},${9 * C} ${6 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-0)`} />
+      <path d={`M ${6 * C} ${6 * C} L ${9 * C} ${9 * C} M ${9 * C} ${6 * C} L ${6 * C} ${9 * C}`} stroke="#fff" strokeOpacity={0.35} strokeWidth={1.2} />
+    </>
+  );
+
+  /** LANX 3.19.0: the six-sided board's print (five and six players), unturned: six yards between
+   *  six arms, the same squares, stars and home lanes as on the four-sided board. */
+  const hexPrint = () => (
+    <>
+      {/* yards: each colour's ground between two arms, a round white court, four coloured token spots */}
+      {corners.map((c) => {
+        const active = ludoPlayerAt(c, n) === turn && state.winner === null;
+        const [cy, cx] = hexPx(hexYard(c));
+        return (
+          <g key={c} data-ludo-yard={c}>
+            <polygon points={hexPts(hexYardGround(c))} fill={`url(#ludo-yard-${c})`} />
+            <circle cx={cx} cy={cy} r={HEX_YARD_R * C} fill="#fffdf7" />
+            <circle cx={cx} cy={cy} r={HEX_YARD_R * C - 1.5} fill="none" stroke="#000" strokeOpacity={0.08} strokeWidth={3} />
+            {active && <circle className="ludo-glow" cx={cx} cy={cy} r={HEX_YARD_R * C + C * 0.2} fill="none" stroke="#fff" strokeWidth={C * 0.16} />}
+            {[0, 1, 2, 3].map((s) => {
+              const [sy, sx] = hexPx(hexSpot(c, s));
+              return (
+                <g key={s}>
+                  <circle cx={sx} cy={sy} r={C * 0.62} fill={palette[c]} stroke={darks[c]} strokeWidth={1.5} />
+                  <circle cx={sx} cy={sy} r={C * 0.6} fill="url(#ludo-hole)" />
+                </g>
+              );
+            })}
+          </g>
+        );
+      })}
+      {/* the track: cream squares, each turned with its arm; start squares in their colour; stars on the safe squares */}
+      {HEX_LOOP.map((sq, i) => {
+        const sc = startCorner(i);
+        const [cy, cx] = hexPx(sq);
+        return (
+          <g key={i}>
+            <polygon data-ludo-square={i} points={hexPts(hexCorners(sq))} fill={sc >= 0 ? `url(#ludo-yard-${sc})` : "#fffdf8"} stroke="#d6cbb6" strokeWidth={1} />
+            {ludoSafe(i) && <polygon points={star(cx, cy, C * 0.36)} transform={`rotate(${-k * 60} ${cx} ${cy})`} fill={sc >= 0 ? "#fff" : "none"} stroke={sc >= 0 ? "none" : "#a99c86"} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none" />}
+          </g>
+        );
+      })}
+      {/* home lanes in full colour, with an arrow where each colour turns in */}
+      {HEX_HOME.map((cells, c) => cells.map((sq, j) => <polygon key={`${c}-${j}`} points={hexPts(hexCorners(sq))} fill={`url(#ludo-yard-${c})`} stroke="#d6cbb6" />))}
+      {corners.map((c) => {
+        const [ey, ex] = hexPx(HEX_LOOP[toAbsolute(c, ludoLast(n), n)]);
+        const [hy, hx] = hexPx(HEX_HOME[c][0]);
+        const ang = (Math.atan2(hy - ey, hx - ex) * 180) / Math.PI;
+        return <polygon key={c} points={`${ex + C * 0.3},${ey} ${ex - C * 0.18},${ey - C * 0.26} ${ex - C * 0.18},${ey + C * 0.26}`} transform={`rotate(${ang} ${ex} ${ey})`} fill={palette[c]} pointerEvents="none" />;
+      })}
+      {/* the centre: six fields pointing home */}
+      {corners.map((c) => (
+        <polygon key={c} points={hexPts(hexField(c))} fill={`url(#ludo-yard-${c})`} />
+      ))}
+      <path d={corners.map((c) => `M ${HEX_W / 2} ${HEX_H / 2} L ${hexPts([[Math.cos(yardAngle(c)) * 3, Math.sin(yardAngle(c)) * 3]]).replace(",", " ")}`).join(" ")} stroke="#fff" strokeOpacity={0.35} strokeWidth={1.2} />
+    </>
+  );
+
+  const topRow = six ? [0, 1, 2] : [0, 1];
+  const bottomRow = six ? [5, 4, 3] : [3, 2];
+  const thrownFrom = (six ? THROW_FROM_6 : THROW_FROM)[screenCorner(ludoCorner(state.roller, n))] ?? [0.5, 0.9];
   return (
-    <div ref={rootRef} data-game-board="ludo" className="flex flex-col items-center gap-2" style={{ width: side }}>
-      <div className="flex w-full gap-3">
-        {plate(0)}
-        {plate(1)}
-      </div>
+    <div ref={rootRef} data-game-board="ludo" data-ludo-arms={arms} className="flex flex-col items-center gap-2" style={{ width: side }}>
+      <div className={`flex w-full ${six ? "gap-2" : "gap-3"}`}>{topRow.map((s) => <Fragment key={s}>{plate(s)}</Fragment>)}</div>
       {/* LANX 3.12.0: a printed cardboard board in a wooden frame, its colours a little shaded,
           the token spots pressed in, and glossy pins standing on a base. */}
-      <div className="relative" style={{ width: side, height: side }} data-ludo-roll-phase={play.phase ?? undefined}>
-      <svg width={side} height={side} viewBox={`${-FRAME} ${-FRAME} ${SIZE + 2 * FRAME} ${SIZE + 2 * FRAME}`} className="select-none" data-ludo-classic>
+      <div className="relative" style={{ width: side, height: tall }} data-ludo-roll-phase={play.phase ?? undefined}>
+      <svg width={side} height={tall} viewBox={`${-FRAME} ${-FRAME} ${BW + 2 * FRAME} ${BH + 2 * FRAME}`} className="select-none" data-ludo-classic>
         <defs>
-          <clipPath id="ludoRound">
-            <rect width={SIZE} height={SIZE} rx={6} />
-          </clipPath>
+          <clipPath id="ludoRound">{six ? <path d={hexFrame(0)} /> : <rect width={SIZE} height={SIZE} rx={6} />}</clipPath>
           <pattern id="ludo-wood" patternUnits="userSpaceOnUse" width={512} height={256}>
             <image href={woodTexture("walnut")} width={512} height={256} />
           </pattern>
@@ -546,7 +718,7 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
             <stop offset="0.7" stopColor="#000" stopOpacity="0.12" />
             <stop offset="1" stopColor="#000" stopOpacity="0" />
           </radialGradient>
-          {LUDO_COLOURS.map((col, c) => (
+          {palette.map((col, c) => (
             <g key={c}>
               <linearGradient id={`ludo-yard-${c}`} x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0" stopColor={shade(col, 0.16)} />
@@ -562,69 +734,29 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
           ))}
         </defs>
         {/* The frame, and the board's own little shadow inside it. */}
-        <rect x={-FRAME} y={-FRAME} width={SIZE + 2 * FRAME} height={SIZE + 2 * FRAME} rx={16} fill="url(#ludo-wood)" />
-        <rect x={-FRAME + 1} y={-FRAME + 1} width={SIZE + 2 * FRAME - 2} height={SIZE + 2 * FRAME - 2} rx={15} fill="none" stroke="#fff" strokeOpacity={0.18} strokeWidth={1.5} />
-        <rect x={-3} y={-2} width={SIZE + 6} height={SIZE + 6} rx={8} fill="#000" opacity={0.35} />
+        {six ? (
+          <>
+            <path d={hexFrame(FRAME)} fill="url(#ludo-wood)" />
+            <path d={hexFrame(FRAME - 1)} fill="none" stroke="#fff" strokeOpacity={0.18} strokeWidth={1.5} />
+            <path d={hexFrame(3)} fill="#000" opacity={0.35} transform="translate(0 1)" />
+          </>
+        ) : (
+          <>
+            <rect x={-FRAME} y={-FRAME} width={SIZE + 2 * FRAME} height={SIZE + 2 * FRAME} rx={16} fill="url(#ludo-wood)" />
+            <rect x={-FRAME + 1} y={-FRAME + 1} width={SIZE + 2 * FRAME - 2} height={SIZE + 2 * FRAME - 2} rx={15} fill="none" stroke="#fff" strokeOpacity={0.18} strokeWidth={1.5} />
+            <rect x={-3} y={-2} width={SIZE + 6} height={SIZE + 6} rx={8} fill="#000" opacity={0.35} />
+          </>
+        )}
         <g clipPath="url(#ludoRound)">
-          <rect width={SIZE} height={SIZE} fill="#fffaf0" />
-          <g transform={`rotate(${k * 90} ${SIZE / 2} ${SIZE / 2})`}>
-            {/* yards: a strong coloured corner, a white court, four coloured token spots */}
-            {YARD.map(([yr, yc], c) => {
-              const active = ludoPlayerAt(c, n) === turn && state.winner === null;
-              return (
-                <g key={c}>
-                  <rect x={yc * C} y={yr * C} width={6 * C} height={6 * C} fill={`url(#ludo-yard-${c})`} />
-                  <rect x={yc * C + C * 0.7} y={yr * C + C * 0.7} width={C * 4.6} height={C * 4.6} fill="#fffdf7" rx={C * 0.5} />
-                  <rect x={yc * C + C * 0.7 + 1.5} y={yr * C + C * 0.7 + 1.5} width={C * 4.6 - 3} height={C * 4.6 - 3} fill="none" rx={C * 0.45} stroke="#000" strokeOpacity={0.08} strokeWidth={3} />
-                  {active && <rect className="ludo-glow" x={yc * C + C * 0.45} y={yr * C + C * 0.45} width={C * 5.1} height={C * 5.1} rx={C * 0.65} fill="none" stroke="#fff" strokeWidth={C * 0.16} />}
-                  {SPOT.map(([dr, dc], s) => {
-                    const cx = (yc + dc) * C + C / 2;
-                    const cy = (yr + dr) * C + C / 2;
-                    return (
-                      <g key={s}>
-                        <circle cx={cx} cy={cy} r={C * 0.62} fill={LUDO_COLOURS[c]} stroke={LUDO_DARK[c]} strokeWidth={1.5} />
-                        <circle cx={cx} cy={cy} r={C * 0.6} fill="url(#ludo-hole)" />
-                        <path d={`M ${cx - C * 0.42} ${cy + C * 0.36} A ${C * 0.56} ${C * 0.56} 0 0 0 ${cx + C * 0.42} ${cy + C * 0.36}`} fill="none" stroke="#fff" strokeOpacity={0.35} strokeWidth={1.4} />
-                      </g>
-                    );
-                  })}
-                </g>
-              );
-            })}
-            {/* the track: cream squares; each start square in its colour with a star; grey stars on the safe squares */}
-            {LOOP.map(([rr, cc], i) => {
-              const sc = startCorner(i);
-              return (
-                <g key={i}>
-                  <rect data-ludo-square={i} x={cc * C} y={rr * C} width={C} height={C} fill={sc >= 0 ? `url(#ludo-yard-${sc})` : "#fffdf8"} stroke="#d6cbb6" strokeWidth={1} />
-                  {SAFE.has(i) && <polygon points={star(cc * C + C / 2, rr * C + C / 2, C * 0.36)} fill={sc >= 0 ? "#fff" : "none"} stroke={sc >= 0 ? "none" : "#a99c86"} strokeWidth={1.6} strokeLinejoin="round" pointerEvents="none" />}
-                </g>
-              );
-            })}
-            {/* home lanes in full colour, with an arrow where each colour turns in */}
-            {HOME.map((cells, c) => cells.slice(0, 5).map(([rr, cc], j) => <rect key={`${c}-${j}`} x={cc * C} y={rr * C} width={C} height={C} fill={`url(#ludo-yard-${c})`} stroke="#d6cbb6" />))}
-            {[0, 1, 2, 3].map((c) => {
-              const [er, ec] = LOOP[(startOf(c) + 50) % TRACK];
-              const [hr, hc] = HOME[c][0];
-              const ang = (Math.atan2(hr - er, hc - ec) * 180) / Math.PI;
-              const cx = ec * C + C / 2;
-              const cy = er * C + C / 2;
-              return <polygon key={c} points={`${cx + C * 0.3},${cy} ${cx - C * 0.18},${cy - C * 0.26} ${cx - C * 0.18},${cy + C * 0.26}`} transform={`rotate(${ang} ${cx} ${cy})`} fill={LUDO_COLOURS[c]} pointerEvents="none" />;
-            })}
-            {/* the centre: four triangles pointing home */}
-            <polygon points={`${6 * C},${6 * C} ${9 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-1)`} />
-            <polygon points={`${9 * C},${6 * C} ${9 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-2)`} />
-            <polygon points={`${9 * C},${9 * C} ${6 * C},${9 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-3)`} />
-            <polygon points={`${6 * C},${9 * C} ${6 * C},${6 * C} ${7.5 * C},${7.5 * C}`} fill={`url(#ludo-yard-0)`} />
-            <path d={`M ${6 * C} ${6 * C} L ${9 * C} ${9 * C} M ${9 * C} ${6 * C} L ${6 * C} ${9 * C}`} stroke="#fff" strokeOpacity={0.35} strokeWidth={1.2} />
-          </g>
+          <rect width={BW} height={BH} fill="#fffaf0" />
+          <g transform={`rotate(${k * (360 / arms)} ${BW / 2} ${BH / 2})`}>{six ? hexPrint() : squarePrint()}</g>
           {/* The print sits on cardboard: its grain over everything printed. */}
-          <rect width={SIZE} height={SIZE} fill="url(#ludo-paper)" pointerEvents="none" />
+          <rect width={BW} height={BH} fill="url(#ludo-paper)" pointerEvents="none" />
         </g>
         {/* tokens: pins that stand upright whichever way the board is turned */}
         {tokens.map(({ p, t, rel, x, y, lift, can, off }) => {
           const col = colour(p);
-          const dark = LUDO_DARK[ludoCorner(p, n)];
+          const dark = darks[ludoCorner(p, n)];
           const s = off.s * (1 + lift * 0.12);
           return (
             <g key={`${p}-${t}`} data-ludo-token={`${p}:${t}`} data-ludo-pos={rel} data-ludo-can={can ? "1" : undefined} className={can ? "cursor-pointer" : ""} onClick={() => can && onMove(`m:${t}`)}>
@@ -646,12 +778,9 @@ export function LudoBoard({ moves, canPlay, seat, seats, starter = 0, seed = "",
           );
         })}
       </svg>
-        {play.phase && state.lastRoll > 0 && <ThrownDie key={rolls} value={state.lastRoll} from={screenCorner(ludoCorner(state.roller, n))} side={side} nth={rolls} still={play.still} />}
+        {play.phase && state.lastRoll > 0 && <ThrownDie key={rolls} value={state.lastRoll} start={thrownFrom} w={side} h={tall} nth={rolls} still={play.still} />}
       </div>
-      <div className="flex w-full gap-3">
-        {plate(3)}
-        {plate(2)}
-      </div>
+      <div className={`flex w-full ${six ? "gap-2" : "gap-3"}`}>{bottomRow.map((s) => <Fragment key={s}>{plate(s)}</Fragment>)}</div>
       <div className="min-h-[20px] text-center text-[12.5px] font-semibold text-slate-700 dark:text-slate-200" data-ludo-status>
         {status}
         {said && <span className="font-normal text-slate-500" data-ludo-event={state.event || "six"}> · {said}</span>}

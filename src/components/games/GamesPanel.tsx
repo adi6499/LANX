@@ -465,7 +465,8 @@ function Lobby({
             </button>
             <span className="text-[11.5px] text-slate-500">
               Each gets a card in your chat; you start once they have pressed Play.{" "}
-              {game.sizes ? `${game.sizes.join(" or ")} players.` : game.minPlayers === game.maxPlayers ? `Exactly ${game.minPlayers} players.` : game.minPlayers > 2 ? `${game.minPlayers} to ${game.maxPlayers} players.` : `Up to ${game.maxPlayers} players.`} Their LANX needs {games.needsVersion(game.id)}.
+              {game.sizes ? `${game.sizes.join(" or ")} players.` : game.minPlayers === game.maxPlayers ? `Exactly ${game.minPlayers} players.` : game.minPlayers > 2 ? `${game.minPlayers} to ${game.maxPlayers} players.` : `Up to ${game.maxPlayers} players.`} Their LANX needs {games.needsVersionFor(game.id, chosenPeers.length + 1)}
+              {game.id === "ludo" && chosenPeers.length + 1 <= 4 ? ` (${games.LUDO_SIX} for five or six players)` : ""}.
             </span>
           </div>
 

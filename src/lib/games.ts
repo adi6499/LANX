@@ -73,7 +73,7 @@ export const GAMES: GameMeta[] = [
   g("mancala", "Mancala", "Sow seeds round the board; most in your store wins.", "🫘", "board", 2, 2),
   g("mahjong", "Mahjong Duels", "Take free matching tiles in turn; most pairs wins.", "🀄", "board", 2, 4),
   // dice
-  g("ludo", "Ludo", "Four tokens round the board; a six gets you out and rolls again.", "🎲", "dice", 2, 4),
+  g("ludo", "Ludo", "Four tokens round the board; a six gets you out and rolls again.", "🎲", "dice", 2, 6),
   g("snakes", "Snakes & Ladders", "Climb the ladders, dodge the snakes, hit 100 exactly — a six rolls again.", "🪜", "dice", 2, 8),
   g("bankroll", "Bankroll", "Fast property trading: buy streets, collect rent, don't go broke.", "🏦", "dice", 2, 6),
   g("backgammon", "Backgammon", "Race your checkers home on the dice; hit lone ones on the way.", "🎯", "dice", 2, 2),
@@ -144,6 +144,12 @@ export const RULES_3170 = new Set<string>(["taproulette", "mathrush", "trivia", 
 export const RULES_3180 = new Set<string>(["holdem", "mathrush", "trivia", "wordbox", "drawguess"]);
 /** The oldest LANX a colleague needs to play this game with you. */
 export const needsVersion = (id: string) => (RULES_3180.has(id) ? "3.18.0" : RULES_3170.has(id) ? "3.17.0" : RULES_3160.has(id) ? "3.16.0" : RULES_2171.has(id) ? "2.17.1" : RULES_2170.has(id) ? "2.17.0" : id === "chainreaction" ? "2.10.0" : ["dots", "minesvs", "memory", "mahjong"].includes(id) ? "2.11.0" : "2.12.0");
+/** LANX 3.19.0: Ludo for five and six players is played on a six-sided board that older copies do
+ *  not have, so every PC at a Ludo table of more than four needs 3.19.0 (src-tauri
+ *  FEATURES_LUDO_SIX). Two to four play as before, with any LANX from 2.17.1. */
+export const LUDO_SIX = "3.19.0";
+/** The oldest LANX a colleague needs to play this game at a table of this many players. */
+export const needsVersionFor = (id: string, players: number) => (id === "ludo" && players > 4 ? LUDO_SIX : needsVersion(id));
 /** Whether this many players can sit at the game. */
 export const sizeOk = (meta: GameMeta | undefined, n: number) => !!meta && n >= meta.minPlayers && n <= meta.maxPlayers && (!meta.sizes || meta.sizes.includes(n));
 
