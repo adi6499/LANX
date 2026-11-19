@@ -10,12 +10,12 @@
   "redirects": [
     {
       "source": "/download",
-      "destination": "/files/LANX-Setup-3.19.0.exe",
+      "destination": "/files/LANX-Setup-3.20.0.exe",
       "permanent": false
     },
     {
       "source": "/latest",
-      "destination": "/files/LANX-Setup-3.19.0.exe",
+      "destination": "/files/LANX-Setup-3.20.0.exe",
       "permanent": false
     }
   ],
