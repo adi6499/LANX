@@ -15,6 +15,7 @@
 
 pub mod api;
 pub mod http;
+mod pieces;
 pub mod push;
 pub mod tls;
 pub mod ws;
@@ -310,6 +311,11 @@ impl PhoneService {
     /// At start-up: listens if the setting is on, and watches for messages
     /// to push to phones whose page is closed.
     pub fn start(&self) {
+        // LANX 3.20.0: the "My phone" chat, once a phone has been paired; pieces left behind go.
+        if !self.devices.lock().is_empty() && self.network.ensure_self_chat().is_ok() {
+            self.network.events.state_changed();
+        }
+        pieces::tidy(self);
         if self.enabled() {
             self.listen();
         }
@@ -663,6 +669,9 @@ impl PhoneService {
             };
             self.devices.lock().push(device);
             r.state = PairState::Allowed(token);
+            if self.network.ensure_self_chat().is_ok() {
+                self.network.events.state_changed();
+            }
         } else {
             r.state = PairState::Denied;
         }

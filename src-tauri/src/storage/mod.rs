@@ -104,7 +104,7 @@ pub fn preview_text(content: &str) -> String {
 
 const PEER_COLS: &str =
     "id, display_name, hostname, last_ip, tcp_port, public_key, trust_state, status, last_seen, avatar_color";
-const CONV_SELECT: &str = "SELECT c.id, COALESCE(c.peer_id, ''), COALESCE(p.display_name, g.name, 'Unknown'),
+const CONV_SELECT: &str = "SELECT c.id, COALESCE(c.peer_id, ''), COALESCE(p.display_name, g.name, CASE WHEN c.kind = 'self' THEN 'My phone' END, 'Unknown'),
         CASE WHEN c.kind = 'group' THEN
             CASE WHEN EXISTS (SELECT 1 FROM group_members gm JOIN peers pp ON pp.id = gm.device_id
                               WHERE gm.group_id = c.id AND pp.status = 'online') THEN 'online' ELSE 'offline' END
@@ -719,6 +719,18 @@ impl Database {
             row_to_conversation,
         )
         .optional()
+    }
+
+    /// LANX 3.20.0: the "My phone" chat (no colleague; pinned), made once.
+    pub fn ensure_self_conversation(&self, id: &str) -> Result<Conversation> {
+        let conn = self.conn.lock();
+        let now = now_secs();
+        conn.execute(
+            "INSERT OR IGNORE INTO conversations (id, peer_id, kind, last_message_preview, last_message_time, unread_count, is_pinned, created_at)
+             VALUES (?1, NULL, 'self', NULL, ?2, 0, 1, ?2)",
+            params![id, now],
+        )?;
+        conn.query_row(&format!("{} WHERE c.id = ?1", CONV_SELECT), params![id], row_to_conversation)
     }
 
     pub fn get_or_create_conversation(&self, peer_id: &str) -> Result<Conversation> {

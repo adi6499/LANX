@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlarmClock, ArrowLeft, ArrowUp, ClipboardCheck, ClipboardList, FolderUp, Clock, Copy, CornerUpLeft, Forward, Image as ImageIcon, Info, Laugh, MessageCircle, Mic, MoreVertical, Music2, Paperclip, Pencil, Phone, Pin, Plus, Radio, Smile, Star, StickyNote, Timer, Trash2, Video, X, Zap } from "lucide-react";
 import type { Conversation, GroupInfo, Peer, Profile, ScheduledMessage } from "../types";
 import { Avatar } from "../components/Avatar";
+import { SelfAvatar, chatName } from "./parts";
 import { QUICK_REACTIONS, localInputValue, whenChoices, whenText, withoutForwardMark } from "../components/chat/chatUtils";
 import { statusLine } from "../lib/profile";
 import type { Me, PhoneClient, PhoneMessage, Progress, StickerInfo } from "./client";
@@ -20,6 +21,8 @@ export interface Upload {
   id: number;
   name: string;
   pct: number;
+  /** LANX 3.20.0: for a big file, how far it is ("1.2 GB of 5.0 GB"). */
+  note?: string;
 }
 
 interface Mention {
@@ -141,6 +144,7 @@ export function ChatView({
   const stick = useRef(true);
   const lastTyping = useRef(0);
   const isGroup = conv.kind === "group";
+  const isSelf = conv.kind === "self";
   const names = useMemo(() => peers.map((p) => p.display_name), [peers]);
   const nameOf = useCallback((id: string) => (id === me?.id ? me.name : peers.find((p) => p.id === id)?.display_name ?? "Someone"), [peers, me]);
 
@@ -343,7 +347,9 @@ export function ChatView({
   const pinned = [...messages].reverse().find((m) => m.pinned_at && !m.deleted);
   const subtitle = typing
     ? `${isGroup ? typing + " is " : ""}typing…`
-    : isGroup
+    : isSelf
+      ? "Only you · files go to Downloads › From my phone"
+      : isGroup
       ? `${conv.member_count} members`
       : conv.peer_status === "online"
         ? statusLine(profiles[conv.peer_id], { until: true })?.text ?? "Online"
@@ -357,17 +363,17 @@ export function ChatView({
           <ArrowLeft className="h-5 w-5" />
         </button>
         <button type="button" onClick={onInfo} className="flex min-w-0 flex-1 items-center gap-2 text-left" data-ph-chat-info>
-          <Avatar name={conv.peer_name} color={conv.peer_avatar_color} profile={isGroup ? null : profiles[conv.peer_id]} size={36} square={isGroup} />
+          {isSelf ? <SelfAvatar size={36} /> : <Avatar name={conv.peer_name} color={conv.peer_avatar_color} profile={isGroup ? null : profiles[conv.peer_id]} size={36} square={isGroup} />}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[15px] font-semibold text-slate-900 dark:text-white" data-ph-chat-title>
-              {conv.peer_name}
+              {chatName(conv)}
             </span>
             <span className={`block truncate text-[11px] ${typing ? "text-sky-600 dark:text-sky-400" : "text-slate-500 dark:text-slate-400"}`} data-ph-chat-subtitle>
               {subtitle}
             </span>
           </span>
         </button>
-        {isGroup ? (
+        {isSelf ? null : isGroup ? (
           <>
             {onMeeting && (
               <button type="button" data-ph-meeting-start onClick={onMeeting} className="lanx-tool p-2 text-sky-600 dark:text-sky-400" aria-label="Video meeting">
@@ -507,7 +513,8 @@ export function ChatView({
               <div className="mt-1.5 h-1.5 w-40 overflow-hidden rounded-full bg-white/30">
                 <div className="h-full rounded-full bg-white transition-all" style={{ width: `${u.pct}%` }} />
               </div>
-              <div className="mt-0.5 text-[10px] text-white/80">{u.pct < 100 ? `Sending to your PC · ${u.pct}%` : "Your PC is sending it…"}</div>
+              <div className="mt-0.5 text-[10px] text-white/80" data-ph-upload-note>{u.note ? `${u.note} · ${u.pct}%` : u.pct < 100 ? `Sending to your PC · ${u.pct}%` : "Your PC is sending it…"}</div>
+              {u.note && <div className="text-[10px] text-white/70">Keep LANX open on the phone until it is sent.</div>}
             </div>
           </div>
         ))}
@@ -763,7 +770,7 @@ export function ChatView({
               else onNotice("Voice notes need the secure connection — More → Secure connection.");
             }}
           />
-          {!isGroup && (
+          {!isGroup && !isSelf && (
             <SheetRow
               icon={<Radio className="h-4 w-4" />}
               label="Intercom"

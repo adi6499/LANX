@@ -18,6 +18,7 @@ pub mod transfer;
 pub mod update;
 pub mod games;
 pub mod music;
+pub mod selfchat;
 pub mod talk;
 #[cfg(test)]
 mod tests;
@@ -580,6 +581,10 @@ impl NetworkService {
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Conversation not found".to_string())?;
         let reply = self.reply_for(&conv.id, reply_to.as_deref());
+        // LANX 3.20.0: the "My phone" chat keeps it here and sends it to nobody.
+        if conv.kind == "self" {
+            return self.send_self_message(&conv, trimmed, message_type, reply, false);
+        }
         if conv.kind == "group" {
             let mentions = self.valid_mentions(&conv.id, &mentions);
             return self.send_group_message(&conv, trimmed, message_type, reply, mentions);

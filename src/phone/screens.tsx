@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowLeft, BellOff, Check, Contact, Download, Eye, EyeOff, FileText, Info, Lock, LogOut, Megaphone, MessageSquare, Pencil, Pin, Plus, Search, Share2, Star, Timer, UserPlus, Users, X } from "lucide-react";
 import type { ChatFolder, Conversation, GroupInfo, Peer, Profile } from "../types";
 import { Avatar } from "../components/Avatar";
+import { SelfAvatar, chatName } from "./parts";
 import { formatSize } from "../lib/format";
 import { statusLine } from "../lib/profile";
 import type { Hit, LockInfo, Me, PhoneClient, PhoneTransfer, Progress } from "./client";
@@ -127,17 +128,18 @@ export function ChatsScreen({
         )}
         {list.map((c) => {
           const group = c.kind === "group";
+          const self = c.kind === "self";
           const online = c.peer_status === "online";
           return (
             <button key={c.id} type="button" data-ph-chat={c.id} onClick={() => onOpen(c.id)} className="flex w-full items-center gap-3 rounded-[14px] px-2.5 py-2 text-left active:bg-[var(--lanx-fill)]">
               <span className="relative shrink-0">
-                <Avatar name={c.peer_name} color={c.peer_avatar_color} profile={group ? null : profiles[c.peer_id]} size={46} square={group} />
-                {!group && <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-white dark:ring-[#1c1e24] ${online ? "bg-emerald-500" : "bg-slate-400 dark:bg-slate-600"}`} />}
+                {self ? <SelfAvatar size={46} /> : <Avatar name={c.peer_name} color={c.peer_avatar_color} profile={group ? null : profiles[c.peer_id]} size={46} square={group} />}
+                {!group && !self && <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full ring-2 ring-white dark:ring-[#1c1e24] ${online ? "bg-emerald-500" : "bg-slate-400 dark:bg-slate-600"}`} />}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate text-[14.5px] font-semibold text-slate-900 dark:text-white">{c.peer_name}</span>
+                    <span className="truncate text-[14.5px] font-semibold text-slate-900 dark:text-white">{chatName(c)}</span>
                     {c.is_hidden && <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 text-[9.5px] font-bold uppercase text-violet-600 dark:text-violet-300" data-ph-chat-hidden>Hidden</span>}
                     {c.secret_ttl > 0 && <Timer className="h-3.5 w-3.5 shrink-0 text-violet-500" />}
                   </span>
@@ -148,7 +150,7 @@ export function ChatsScreen({
                   </span>
                 </span>
                 <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-[12.5px] text-slate-500 dark:text-slate-400">{c.last_message_preview || (group ? `${c.member_count} members` : "Say hello")}</span>
+                  <span className="truncate text-[12.5px] text-slate-500 dark:text-slate-400">{c.last_message_preview || (self ? "Send files and notes to your own PC" : group ? `${c.member_count} members` : "Say hello")}</span>
                   {c.unread_count > 0 && (
                     <span className="min-w-[18px] shrink-0 rounded-full bg-sky-500 px-1.5 py-[2px] text-center text-[10px] font-bold text-white" data-ph-chat-unread>
                       {c.unread_count}
@@ -782,8 +784,8 @@ export function ForwardPicker({
               }}
               className="flex w-full items-center gap-3 rounded-[14px] px-2 py-1.5 text-left active:bg-[var(--lanx-fill)]"
             >
-              <Avatar name={c.peer_name} color={c.peer_avatar_color} profile={c.kind === "group" ? null : profiles[c.peer_id]} size={36} square={c.kind === "group"} />
-              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-900 dark:text-white">{c.peer_name}</span>
+              {c.kind === "self" ? <SelfAvatar size={36} /> : <Avatar name={c.peer_name} color={c.peer_avatar_color} profile={c.kind === "group" ? null : profiles[c.peer_id]} size={36} square={c.kind === "group"} />}
+              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-900 dark:text-white">{chatName(c)}</span>
               <span className={`flex h-6 w-6 items-center justify-center rounded-full ${picked.has(c.id) ? "bg-sky-500 text-white" : "ring-1 ring-slate-300 dark:ring-slate-600"}`}>{picked.has(c.id) && <Check className="h-3.5 w-3.5" />}</span>
             </button>
           ))}

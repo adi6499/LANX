@@ -22,6 +22,17 @@ export interface Release {
  *  pops up after the update, and Settings → Updates → "What's new" shows the last entry there is). */
 export const RELEASES: Release[] = [
   {
+    version: "3.20.0",
+    title: "Big files from the phone, and a chat with your own PC",
+    items: [
+      { icon: "📦", title: "Files of any size from the phone", text: "LANX on your phone used to refuse files over 1 GB. Now there is no limit: a 5 GB zip goes like a photo. The only limit is the free space on your PC's disk, and LANX tells you before it starts if there is not enough." },
+      { icon: "📶", title: "It carries on after a Wi-Fi drop", text: "A big file goes a piece at a time. If the Wi-Fi drops or the phone loses the connection, LANX waits and then goes on from where it stopped — it does not start again. Keep LANX open on the phone until it is sent; the screen stays on by itself meanwhile." },
+      { icon: "💻", title: "“My PC” on your phone", text: "A new chat at the top of your phone's list. What you put in it comes only to your own PC — files and photos of any size, notes and links — and nobody else gets it. On the PC it is the chat “My phone”." },
+      { icon: "📁", title: "Ready to take on the PC", text: "Files from your phone are kept in Downloads › From my phone (a folder stays a folder). “Open folder” at the top of the chat takes you there." },
+      { icon: "📲", title: "And the other way round", text: "Drop a file into “My phone” on the PC and download it on your phone. The phone gets a notification: “From your PC”." },
+    ],
+  },
+  {
     version: "3.17.1",
     title: "No white window when LANX starts",
     items: [

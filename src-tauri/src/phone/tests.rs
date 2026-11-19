@@ -377,8 +377,10 @@ async fn a_phone_pairs_chats_and_sends_a_photo_through_the_pc() {
     let hello = ws_next(&mut ws).await;
     assert_eq!(hello["ok"], true, "{}", hello);
     assert_eq!(hello["me"]["name"], "Asha (Accounts)");
-    assert_eq!(hello["conversations"][0]["id"], conv_a);
-    assert_eq!(hello["conversations"][0]["peer_name"], "Bharat (Stores)");
+    // (LANX 3.20.0: the pinned "My PC" chat comes first; Bharat's chat is in the list too.)
+    assert_eq!(hello["conversations"][0]["id"], crate::networking::selfchat::SELF_CHAT_ID);
+    let with_bharat = hello["conversations"].as_array().unwrap().iter().find(|c| c["id"] == conv_a.as_str()).expect("Bharat's chat").clone();
+    assert_eq!(with_bharat["peer_name"], "Bharat (Stores)");
     assert_eq!(hello["peers"].as_array().unwrap().len(), 1);
 
     // A text from the phone reaches Bharat as a message from Asha.
@@ -1541,4 +1543,173 @@ async fn a_phone_records_updates_sends_folders_and_watches_a_screen() {
         assert!(r["call"]["help"].is_null(), "showing a screen is not offered from a phone: {}", r);
         ask(&mut ws, 11, json!({ "op": "call_hangup", "call_id": r["call"]["call_id"] })).await;
     }
+}
+
+// ------------------------------------------------------------ LANX 3.20.0
+
+/// A piece of a big file that is cut off on the way (the Wi-Fi dropped): the head says
+/// `claimed` bytes, only `sent` of them come, then the phone is gone.
+async fn cut_piece(port: u16, path: &str, auth: &str, claimed: usize, sent: &[u8]) -> Option<u16> {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let head = format!("POST {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nAuthorization: {}\r\nContent-Length: {}\r\n\r\n", path, auth, claimed);
+    s.write_all(head.as_bytes()).await.unwrap();
+    s.write_all(sent).await.unwrap();
+    s.shutdown().await.ok();
+    let mut raw = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(40), s.read_to_end(&mut raw)).await;
+    String::from_utf8_lossy(&raw).split(' ').nth(1).and_then(|c| c.parse().ok())
+}
+
+/// LANX 3.20.0: a file of any size from the phone, in pieces (with a piece cut off on the way
+/// and one sent twice), into the new "My PC" chat — kept in its folder, never sent to anyone —
+/// and to a colleague; a file of a folder in pieces; text both ways; a file the PC put in "My
+/// PC" downloaded by the phone; and no start without room on the disk.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_sends_files_of_any_size_and_has_a_chat_with_its_own_pc() {
+    let a = node("Asha (Accounts)").await;
+    let b = node("Bharat (Stores)").await;
+    let conv_a = link(&a, &b).await;
+    let (phone, mut ws, _cancel) = paired_phone(&a).await;
+    let token = {
+        let info = phone.start_pairing();
+        let request = phone.claim(&info.code, "Chrome on Android phone", "127.0.0.1").unwrap();
+        phone.answer(&request, true).unwrap();
+        phone.poll(&request).token.unwrap()
+    };
+    let auth = format!("Bearer {}", token);
+    let h = [("Authorization", auth.as_str())];
+    let hj = [("Authorization", auth.as_str()), ("Content-Type", "application/json")];
+    let port = phone.port();
+    let me = crate::networking::selfchat::SELF_CHAT_ID;
+
+    // The chat is there once a phone is paired: pinned, "My phone" on the PC, kind "self".
+    let r = ask(&mut ws, 1, json!({ "op": "conversations" })).await;
+    let list = r["conversations"].as_array().cloned().unwrap_or_default();
+    let mine = list.iter().find(|c| c["id"] == me).unwrap_or_else(|| panic!("no My PC chat in {}", r));
+    assert_eq!(mine["kind"], "self");
+    assert_eq!(mine["peer_name"], "My phone");
+    assert_eq!(mine["is_pinned"], true);
+
+    // Nothing without the token; no such upload; no room for something bigger than any disk.
+    assert_eq!(http(port, "POST", "/api/upload-start", &[("Content-Type", "application/json")], b"{}").await.status, 401);
+    assert_eq!(http(port, "GET", "/api/upload-status?id=0123456789abcdef0123", &h, b"").await.status, 404);
+    let huge = http(port, "POST", "/api/upload-start", &hj, json!({ "conv": me, "name": "huge.zip", "size": 1u64 << 60 }).to_string().as_bytes()).await;
+    assert_eq!(huge.status, 507, "{}", String::from_utf8_lossy(&huge.body));
+    assert!(huge.json()["error"].as_str().unwrap_or("").contains("not enough room"), "{}", huge.json());
+
+    // A "big" file (3 MB and a bit, in pieces of 1 MB) into My PC.
+    let data: Vec<u8> = (0..(3 * 1024 * 1024 + 4321)).map(|i: u32| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let started = http(port, "POST", "/api/upload-start", &hj, json!({ "conv": me, "name": "site backup.zip", "size": data.len() }).to_string().as_bytes()).await;
+    assert_eq!(started.status, 200, "{}", String::from_utf8_lossy(&started.body));
+    let id = started.json()["id"].as_str().unwrap().to_string();
+    let piece = |at: usize| data[at..(at + 1024 * 1024).min(data.len())].to_vec();
+    let up = http(port, "POST", &format!("/api/upload-piece?id={}&at=0", id), &h, &piece(0)).await;
+    assert_eq!((up.status, up.json()["have"].as_u64()), (200, Some(1024 * 1024)));
+    // The same piece again (its answer was lost): the PC says how much it has, and keeps one copy.
+    let again = http(port, "POST", &format!("/api/upload-piece?id={}&at=0", id), &h, &piece(0)).await;
+    assert_eq!((again.status, again.json()["have"].as_u64()), (409, Some(1024 * 1024)));
+    // A piece cut off on the way: nothing of it counts.
+    let cut = cut_piece(port, &format!("/api/upload-piece?id={}&at={}", id, 1024 * 1024), &auth, 1024 * 1024, &piece(1024 * 1024)[..5000]).await;
+    assert_ne!(cut, Some(200), "a cut-off piece is not taken");
+    let st = http(port, "GET", &format!("/api/upload-status?id={}", id), &h, b"").await;
+    assert_eq!(st.json()["have"].as_u64(), Some(1024 * 1024), "{}", st.json());
+    // Finishing early is refused; then the rest, from where the PC is.
+    assert_eq!(http(port, "POST", &format!("/api/upload-finish?id={}", id), &h, b"").await.status, 409);
+    let mut at = 1024 * 1024;
+    while at < data.len() {
+        let up = http(port, "POST", &format!("/api/upload-piece?id={}&at={}", id, at), &h, &piece(at)).await;
+        assert_eq!(up.status, 200, "{}", String::from_utf8_lossy(&up.body));
+        at = up.json()["have"].as_u64().unwrap() as usize;
+    }
+    let done = http(port, "POST", &format!("/api/upload-finish?id={}", id), &h, b"").await;
+    assert_eq!(done.status, 200, "{}", String::from_utf8_lossy(&done.body));
+    let msg = done.json()["message"].clone();
+    assert_eq!(msg["message_type"], "file");
+    assert_eq!(msg["receiver_id"], "phone", "marked as from the phone");
+    assert_eq!(msg["transfer"]["ready"], true, "{}", msg);
+    let kept = a.svc.self_chat_folder().join("site backup.zip");
+    assert_eq!(std::fs::read(&kept).unwrap(), data, "kept whole, byte for byte, in From my phone");
+    assert!(std::fs::read_dir(a.svc.app_data_dir().join("Phone uploads").join("pieces")).unwrap().next().is_none(), "no pieces left behind");
+    // The phone can take it back, and the PC's transfer list knows it as received.
+    let back = http(port, "GET", &format!("/api/file/{}", msg["transfer"]["id"].as_str().unwrap()), &h, b"").await;
+    assert_eq!(back.status, 200);
+    assert_eq!(back.body.len(), data.len());
+
+    // Text from the phone: kept, from the phone, read; Bharat gets nothing of any of this.
+    let r = ask(&mut ws, 2, json!({ "op": "send", "conv": me, "text": "Invoice no. 4417 — remember" })).await;
+    assert_eq!(r["ok"], true, "{}", r);
+    assert_eq!(r["message"]["receiver_id"], "phone");
+    assert_eq!(r["message"]["status"], "read");
+
+    // From the PC into My PC: it stays where it is, and the phone downloads it.
+    let note = a.svc.app_data_dir().join("price list.pdf");
+    std::fs::write(&note, b"%PDF-1.4 price list").unwrap();
+    let mut tap = a.svc.events.subscribe().expect("Asha's events");
+    let sent = a.svc.send_files(me, vec![note.to_string_lossy().to_string()]).await.unwrap();
+    assert_eq!(sent[0].message.receiver_id, "pc");
+    let told = tap_wait(&mut tap, "lanx://message-received", |v| v["message"]["id"] == sent[0].message.id.as_str(), 5).await.expect("the phones hear of it");
+    let notice = super::push::notice_for(&phone, "lanx://message-received", &told).expect("a notification for the phone");
+    assert_eq!(notice.title, "From your PC");
+    assert!(notice.body.contains("price list.pdf"), "{}", notice.body);
+    assert_eq!(sent[0].transfers[0].status, "completed");
+    assert_eq!(sent[0].transfers[0].local_path.as_deref(), Some(note.to_string_lossy().as_ref()));
+    let got = http(port, "GET", &format!("/api/file/{}", sent[0].transfers[0].id), &h, b"").await;
+    assert_eq!((got.status, got.body.as_slice()), (200, &b"%PDF-1.4 price list"[..]));
+    let msgs = a.svc.db.get_messages(me).unwrap();
+    assert_eq!(msgs.len(), 3);
+    assert!(msgs.iter().all(|m| m.status == "read" && m.is_outgoing));
+    let preview = a.svc.db.get_conversation(me).unwrap().unwrap().last_message_preview.unwrap_or_default();
+    assert!(preview.contains("price list.pdf"), "{}", preview);
+
+    // A big file to a colleague, in pieces: Bharat receives it whole.
+    let started = http(port, "POST", "/api/upload-start", &hj, json!({ "conv": conv_a, "name": "drawings.zip", "size": data.len() }).to_string().as_bytes()).await;
+    let id = started.json()["id"].as_str().unwrap().to_string();
+    let mut at = 0;
+    while at < data.len() {
+        at = http(port, "POST", &format!("/api/upload-piece?id={}&at={}", id, at), &h, &piece(at)).await.json()["have"].as_u64().unwrap() as usize;
+    }
+    let done = http(port, "POST", &format!("/api/upload-finish?id={}", id), &h, b"").await;
+    assert_eq!(done.status, 200, "{}", String::from_utf8_lossy(&done.body));
+    let b_db = b.svc.db.clone();
+    // (Bharat's LANX asks before taking a zip from an untrusted colleague: he accepts.)
+    assert!(wait_for(|| b_db.list_transfers(true).unwrap().iter().any(|t| t.file_name == "drawings.zip" && t.status == "pending"), 20).await, "the offer reached Bharat");
+    let offer = b_db.list_transfers(true).unwrap().into_iter().find(|t| t.file_name == "drawings.zip").unwrap();
+    b.svc.accept_transfer(&offer.id).await.unwrap();
+    let arrived = wait_for(|| b_db.list_transfers(true).unwrap().iter().any(|t| t.file_name == "drawings.zip" && t.status == "completed"), 30).await;
+    assert!(arrived, "Bharat has the file");
+    let t = b.svc.db.list_transfers(true).unwrap().into_iter().find(|t| t.file_name == "drawings.zip").unwrap();
+    assert_eq!(std::fs::read(t.local_path.unwrap()).unwrap(), data, "byte for byte at Bharat's");
+    assert!(!b.svc.db.get_conversations(true).unwrap().iter().any(|c| c.kind == "self" || c.peer_name.contains("phone")), "nothing of My PC at Bharat's");
+
+    // A folder with a big file in it, into My PC: the big one in pieces, a small one as before;
+    // it stays a folder (not a zip) in From my phone.
+    let started = http(port, "POST", "/api/upload-start", &hj, json!({ "batch": "feedc0ffee12", "path": "Site visit/video.mp4", "size": data.len() }).to_string().as_bytes()).await;
+    assert_eq!(started.status, 200, "{}", String::from_utf8_lossy(&started.body));
+    let id = started.json()["id"].as_str().unwrap().to_string();
+    let mut at = 0;
+    while at < data.len() {
+        at = http(port, "POST", &format!("/api/upload-piece?id={}&at={}", id, at), &h, &piece(at)).await.json()["have"].as_u64().unwrap() as usize;
+    }
+    assert_eq!(http(port, "POST", &format!("/api/upload-finish?id={}", id), &h, b"").await.json()["ok"], true);
+    let small = http(port, "POST", "/api/folder-file?batch=feedc0ffee12&path=Site%20visit%2Fnotes.txt", &h, b"gate 3").await;
+    assert_eq!(small.status, 200);
+    let sneaky = http(port, "POST", "/api/upload-start", &hj, json!({ "batch": "feedc0ffee12", "path": "../../evil.exe", "size": 5 }).to_string().as_bytes()).await;
+    let sid = sneaky.json()["id"].as_str().unwrap_or("").to_string();
+    if !sid.is_empty() {
+        let _ = http(port, "POST", &format!("/api/upload-piece?id={}&at=0", sid), &h, b"evil!").await;
+        assert_eq!(http(port, "POST", &format!("/api/upload-finish?id={}", sid), &h, b"").await.status, 400, "no way out of the folder");
+    }
+    let sent = http(port, "POST", &format!("/api/folder-send?conv={}&batch=feedc0ffee12&name=Site%20visit", me), &h, b"").await;
+    assert_eq!(sent.status, 200, "{}", String::from_utf8_lossy(&sent.body));
+    let folder = a.svc.self_chat_folder().join("Site visit");
+    assert_eq!(std::fs::read(folder.join("video.mp4")).unwrap(), data);
+    assert_eq!(std::fs::read(folder.join("notes.txt")).unwrap(), b"gate 3");
+    assert!(sent.json()["message"]["content"].as_str().unwrap_or("").contains("Site visit"), "{}", sent.json());
+
+    // An upload given up: its pieces go.
+    let started = http(port, "POST", "/api/upload-start", &hj, json!({ "conv": me, "name": "x.bin", "size": 10 }).to_string().as_bytes()).await;
+    let id = started.json()["id"].as_str().unwrap().to_string();
+    let _ = http(port, "POST", &format!("/api/upload-piece?id={}&at=0", id), &h, b"12345").await;
+    assert_eq!(http(port, "POST", &format!("/api/upload-cancel?id={}", id), &h, b"").await.status, 200);
+    assert_eq!(http(port, "GET", &format!("/api/upload-status?id={}", id), &h, b"").await.status, 404);
 }

@@ -110,7 +110,8 @@ export interface Conversation {
   unread_count: number;
   is_pinned: boolean;
   created_at: number;
-  kind: "direct" | "group";
+  /** LANX 3.20.0: "self" = the chat between your phone and this PC ("My phone" / "My PC"). */
+  kind: "direct" | "group" | "self";
   is_hidden: boolean;
   /** Secret messages: seconds after reading before they disappear (0 = off). */
   secret_ttl: number;

@@ -844,6 +844,7 @@ pub fn run() {
             commands::tools::open_default_apps,
             commands::docs::save_file_in_folder,
             commands::docs::open_folder,
+            commands::docs::open_self_chat_folder,
             commands::tools::pick_folder,
             commands::tools::share_folder,
             commands::tools::subscribe_folder,

@@ -5,7 +5,7 @@ import {
   UserSettings,
   NavTab,
 } from "../types";
-import { MonitorPlay, Radio, MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Hand, PartyPopper } from "lucide-react";
+import { MonitorPlay, Radio, MessageSquare, Users, ArrowUpDown, History, Settings, Search, SquarePen, Sun, Moon, Pin, UsersRound, Megaphone, Star, ClipboardList, Lock, EyeOff, Timer, BellOff, Archive, FolderPlus, Building2, BellRing, LifeBuoy, X as XIcon, StickyNote, CalendarDays, Wrench, FileText, Calculator, MessageCircle, Mic, Hand, PartyPopper, Smartphone } from "lucide-react";
 import { ChatMenu, type ChatTools } from "./tools/ChatMenu";
 import { AppsLauncher } from "./admin/AppsLauncher";
 import { ShieldCheck } from "lucide-react";
@@ -247,6 +247,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {/* Avatar with status dot */}
         <div className="relative shrink-0">
+          {conv.kind === "self" ? (
+            // LANX 3.20.0: the "My phone" chat: a phone on a plain sky-blue square.
+            <span data-self-avatar className={`flex h-10 w-10 items-center justify-center rounded-[12px] bg-sky-500 text-white ${isSelected ? "ring-2 ring-white/70" : ""}`}>
+              <Smartphone className="h-5 w-5" />
+            </span>
+          ) : (
           <Avatar
             name={conv.peer_name}
             color={conv.peer_avatar_color}
@@ -259,7 +265,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             {conv.kind === "group" ? <Users className="h-4 w-4" /> : undefined}
           </Avatar>
-          {hidden ? (
+          )}
+          {conv.kind === "self" ? null : hidden ? (
             <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-violet-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-[#1c1e24]">
               <EyeOff className="h-2 w-2" />
             </span>
@@ -291,7 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <div className="flex items-center justify-between">
             <p className={`text-[11.5px] truncate ${isSelected ? "text-white/80" : "text-slate-500 dark:text-slate-400"}`}>
-              {conv.last_message_preview || "No messages yet"}
+              {conv.last_message_preview || (conv.kind === "self" ? "Files and notes from your phone" : "No messages yet")}
             </p>
             {conv.unread_count > 0 && (
               <span

@@ -267,6 +267,17 @@ pub fn save_file_in_folder(state: State<AppState>, request: tauri::ipc::Request<
     Ok(path.to_string_lossy().to_string())
 }
 
+/// LANX 3.20.0: opens Downloads\From my phone (the "My phone" chat's folder), made if need be.
+#[tauri::command(async)]
+pub fn open_self_chat_folder(app: AppHandle, state: State<AppState>) -> Result<String, String> {
+    state.network.privacy.guard()?;
+    let dir = state.network.self_chat_folder();
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_path(dir.to_string_lossy().to_string(), None::<&str>).map_err(err)?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
 /// Opens a folder the user picked in File Explorer (2.14.0).
 #[tauri::command(async)]
 pub fn open_folder(app: AppHandle, state: State<AppState>, path: String) -> Result<(), String> {

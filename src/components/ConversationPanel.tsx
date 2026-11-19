@@ -45,6 +45,8 @@ import {
   Pin,
   Ban,
   Forward,
+  FolderOpen,
+  Smartphone,
 } from "lucide-react";
 import { FileCard, GroupFileCard } from "./FileCard";
 import { MeetingCard, RecordingCard } from "./MeetingCards";
@@ -319,7 +321,12 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const [more, setMore] = useState({ conv: "", n: 0 });
   const extra = conversation && more.conv === conversation.id ? more.n : 0;
   const loadingOther = !!conversation && messages.length > 0 && messages[0].conversation_id !== conversation.id;
-  const list = loadingOther ? NO_MESSAGES : messages;
+  // LANX 3.20.0: in "My phone" what came from the phone shows on the left (from the other side).
+  const selfChat = conversation?.kind === "self";
+  const list = React.useMemo(
+    () => (loadingOther ? NO_MESSAGES : selfChat ? messages.map((m) => (m.receiver_id === "phone" && m.is_outgoing ? { ...m, is_outgoing: false } : m)) : messages),
+    [loadingOther, selfChat, messages]
+  );
   const firstShown = Math.max(0, list.length - (SHOW_PAGE + extra));
   const listRef = useRef<HTMLDivElement>(null);
   const keepPlace = useRef<{ height: number; top: number } | null>(null);
@@ -507,6 +514,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   }
 
   const isGroup = conversation.kind === "group";
+  const isSelf = conversation.kind === "self";
   const blocked = !isGroup && peer?.trust_state === "blocked";
   const outOfGroup = isGroup && conversation.membership !== "member";
   const secret = !isGroup && conversation.secret_ttl > 0;
@@ -515,7 +523,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
   const peerName = (id: string) => peers.find((p) => p.id === id)?.display_name ?? "Someone";
 
   // ---- LANX 1.5.0: replies, edits, @mentions, quick replies, send later
-  const senderName = (m: Message) => (m.is_outgoing ? "You" : isGroup ? peerName(m.sender_id) : conversation.peer_name);
+  const senderName = (m: Message) => (isSelf ? (m.receiver_id === "phone" ? "Your phone" : "This PC") : m.is_outgoing ? "You" : isGroup ? peerName(m.sender_id) : conversation.peer_name);
   const previewOf = (m: Message) => (m.deleted ? "Deleted message" : m.ttl_secs ? "🔒 Secret message" : m.content);
   /** Group members whose "@Name" is in the text. */
   const mentionsIn = (text: string) => members.filter((m) => text.includes(`@${m.name}`)).map((m) => m.id);
@@ -1170,6 +1178,11 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           <header className="h-16 px-5 flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
               <div className="relative shrink-0">
+                {isSelf ? (
+                  <span data-self-avatar className="flex h-10 w-10 items-center justify-center rounded-[12px] bg-sky-500 text-white">
+                    <Smartphone className="h-5 w-5" />
+                  </span>
+                ) : (
                 <Avatar
                   name={conversation.peer_name}
                   color={conversation.peer_avatar_color}
@@ -1179,7 +1192,8 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 >
                   {isGroup ? <Users className="h-5 w-5" /> : undefined}
                 </Avatar>
-                {hidden ? (
+                )}
+                {isSelf ? null : hidden ? (
                   <span className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-violet-600 text-white flex items-center justify-center ring-2 ring-white dark:ring-[#1c1e24]">
                     <EyeOff className="h-2.5 w-2.5" />
                   </span>
@@ -1198,7 +1212,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-slate-900 dark:text-white truncate min-w-[5rem]" title={conversation.peer_name}>
                     {conversation.peer_name}
                   </h2>
-                  {isGroup ? (
+                  {isSelf ? null : isGroup ? (
                     <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[10px] font-semibold">
                       <Users className="h-3 w-3" /> {conversation.member_count} members
                     </span>
@@ -1238,7 +1252,9 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap min-w-0">
-                  {typingName ? (
+                  {isSelf ? (
+                    <span className="truncate" data-self-subtitle title="What your phone sends here is kept in Downloads › From my phone">Only you · kept in Downloads › From my phone</span>
+                  ) : typingName ? (
                     <span className="text-sky-600 dark:text-sky-400 font-medium inline-flex items-center gap-1">
                       {isGroup ? `${typingName} is typing` : "typing"}
                       <span className="lanx-typing"><i /><i /><i /></span>
@@ -1255,7 +1271,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                       Offline · messages will wait
                     </span>
                   )}
-                  {!isGroup && (
+                  {!isGroup && !isSelf && (
                     <>
                       <span>•</span>
                       <span className="font-mono text-[11px] text-slate-400">{conversation.peer_ip}</span>
@@ -1266,6 +1282,18 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
             </div>
 
             <div className="flex items-center gap-0.5 shrink-0">
+              {isSelf && (
+                <button
+                  type="button"
+                  data-self-folder
+                  onClick={() => api.openSelfChatFolder().catch((e) => onError?.(errorText(e)))}
+                  title="Open the folder where files from your phone are kept (Downloads › From my phone)"
+                  className={`${toolCls} hover:text-sky-600 inline-flex items-center gap-1`}
+                >
+                  <FolderOpen className="h-[17px] w-[17px]" />
+                  <span className="hidden lg:inline text-[12px] font-semibold">Open folder</span>
+                </button>
+              )}
               {isGroup && onMeeting && (
                 <button
                   type="button"
@@ -1279,7 +1307,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   <span className="hidden lg:inline text-[12px] font-semibold">Meet</span>
                 </button>
               )}
-              {!isGroup && (
+              {!isGroup && !isSelf && (
                 <>
                   <button
                     type="button"
@@ -1302,7 +1330,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 </>
               )}
               {/* LANX 1.8.0: intercom and remote help */}
-              {onIntercomSent && (
+              {onIntercomSent && !isSelf && (
                 <IntercomButton
                   conversationId={conversation.id}
                   name={isGroup ? "everyone online in the group" : conversation.peer_name.split(" ")[0]}
@@ -1311,7 +1339,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                   onSent={onIntercomSent}
                 />
               )}
-              {!isGroup && onRemoteHelp && (
+              {!isGroup && !isSelf && onRemoteHelp && (
                 <div className="relative">
                   <button
                     type="button"
@@ -1372,7 +1400,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 <Bell className="h-[17px] w-[17px]" />
               </button>
 
-              {!isGroup && (
+              {!isGroup && !isSelf && (
                 <div className="relative">
                   <button
                     type="button"
@@ -1485,12 +1513,14 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
               <span>
                 {secret
                   ? `Secret chat · new messages disappear ${secretLabel(conversation.secret_ttl)} after they're read · screenshots blocked`
-                  : isGroup
+                  : isSelf
+                    ? "Only between this PC and your phone, over the office Wi-Fi · sent to nobody else"
+                    : isGroup
                     ? "End-to-end encrypted · sent directly to each member's computer"
                     : "End-to-end encrypted · goes straight to their computer, never through the internet"}
               </span>
             </div>
-            {!isGroup && <span className="font-mono text-[10px] opacity-70">TCP :{peer?.tcp_port || 52926}</span>}
+            {!isGroup && !isSelf && <span className="font-mono text-[10px] opacity-70">TCP :{peer?.tcp_port || 52926}</span>}
           </div>
           <PinnedBar
             pinned={list.filter((m) => m.pinned_at && !m.deleted).sort((a, b) => (b.pinned_at ?? 0) - (a.pinned_at ?? 0))}

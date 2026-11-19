@@ -842,7 +842,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         const id = Date.now() + Math.random();
         setUploads((u) => [...u, { id, name: file.name || "photo", pct: 0 }]);
         client
-          .upload(conv, file, (pct) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, pct } : x))))
+          .upload(conv, file, (pct, note) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, pct, note } : x))))
           .then((m) => setMessages((all) => ({ ...all, [conv]: upsertMessage(all[conv] ?? [], m) })))
           .catch(fail)
           .finally(() => setUploads((u) => u.filter((x) => x.id !== id)));
@@ -1187,6 +1187,7 @@ function Main({ token, onForget }: { token: string; onForget: () => void }) {
         onTyping={() => client.typing(active)}
         onInfo={() => {
           if (activeConv.kind === "group") go({ chat: active, page: "group-info", gid: active });
+          else if (activeConv.kind === "self") return;
           else {
             const p = peers.find((x) => x.id === activeConv.peer_id);
             if (p) setPerson(p);

@@ -269,14 +269,14 @@ fn parse_head(head: &[u8]) -> Option<Request> {
 }
 
 /// Reads the request body (what the head left in `buf` first).
-struct BodyReader<'a, S> {
+pub(super) struct BodyReader<'a, S> {
     stream: &'a mut S,
     buf: &'a mut Vec<u8>,
-    remaining: u64,
+    pub(super) remaining: u64,
 }
 
 impl<S: AsyncRead + Unpin> BodyReader<'_, S> {
-    async fn next_chunk(&mut self, out: &mut Vec<u8>) -> std::io::Result<usize> {
+    pub(super) async fn next_chunk(&mut self, out: &mut Vec<u8>) -> std::io::Result<usize> {
         if self.remaining == 0 {
             return Ok(0);
         }
@@ -308,7 +308,7 @@ impl<S: AsyncRead + Unpin> BodyReader<'_, S> {
         Ok(out)
     }
 
-    async fn read_json(&mut self) -> Result<Value, Response> {
+    pub(super) async fn read_json(&mut self) -> Result<Value, Response> {
         if self.remaining > MAX_JSON_BODY {
             return Err(Response::error(413, "too large"));
         }
@@ -529,6 +529,19 @@ async fn route<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, body: &m
         ("POST", "/api/upload") => {
             let Some(device) = authenticated(svc, req) else { return Response::error(401, "unauthorized") };
             upload(svc, req, body, &device).await
+        }
+        // LANX 3.20.0: a file of any size, in pieces (pieces.rs).
+        ("POST", "/api/upload-start") | ("POST", "/api/upload-piece") | ("GET", "/api/upload-status") | ("POST", "/api/upload-finish") | ("POST", "/api/upload-cancel") => {
+            if authenticated(svc, req).is_none() {
+                return Response::error(401, "unauthorized");
+            }
+            match path {
+                "/api/upload-start" => super::pieces::start(svc, body).await,
+                "/api/upload-piece" => super::pieces::piece(svc, req, body).await,
+                "/api/upload-status" => super::pieces::status(svc, req),
+                "/api/upload-finish" => super::pieces::finish(svc, req).await,
+                _ => super::pieces::cancel(svc, req),
+            }
         }
         ("GET", p) | ("HEAD", p) if p.starts_with("/api/file/") => {
             if authenticated(svc, req).is_none() {
@@ -819,25 +832,11 @@ async fn folder_file<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, bo
     if req.body_len > MAX_UPLOAD {
         return Response::error(413, "too large");
     }
-    let rel = req.query_param("path").unwrap_or_default();
-    let parts: Vec<String> = rel
-        .split(['/', '\\'])
-        .map(|p| p.trim())
-        .filter(|p| !p.is_empty() && *p != "." && *p != "..")
-        .map(crate::networking::transfer::sanitize_file_name)
-        .collect();
-    if parts.len() < 2 || parts.len() > 16 {
-        return Response::error(400, "bad path");
-    }
-    let mut path = dir.clone();
-    for p in &parts {
-        path.push(p);
-    }
-    if let Some(parent) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            return Response::error(500, &format!("cannot create folder: {}", e));
-        }
-    }
+    drop(dir);
+    let path = match folder_target(svc, &req.query_param("batch").unwrap_or_default(), &req.query_param("path").unwrap_or_default()) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
     let mut file = match tokio::fs::File::create(&path).await {
         Ok(f) => f,
         Err(e) => return Response::error(500, &format!("cannot write: {}", e)),
@@ -849,6 +848,33 @@ async fn folder_file<S: AsyncRead + Unpin>(svc: &PhoneService, req: &Request, bo
         return Response::error(400, "upload cut short");
     }
     Response::json(200, json!({ "ok": true }))
+}
+
+/// Where one file of a folder from the phone goes (every part of the path tidied: no "..", no
+/// drive, nothing outside the batch); its folders are made.
+pub(super) fn folder_target(svc: &PhoneService, batch: &str, rel: &str) -> Result<PathBuf, Response> {
+    let Some(dir) = batch_dir(svc, batch) else {
+        return Err(Response::error(400, "bad batch"));
+    };
+    let parts: Vec<String> = rel
+        .split(['/', '\\'])
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty() && *p != "." && *p != "..")
+        .map(crate::networking::transfer::sanitize_file_name)
+        .collect();
+    if parts.len() < 2 || parts.len() > 16 {
+        return Err(Response::error(400, "bad path"));
+    }
+    let mut path = dir;
+    for p in &parts {
+        path.push(p);
+    }
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Err(Response::error(500, &format!("cannot create folder: {}", e)));
+        }
+    }
+    Ok(path)
 }
 
 /// The staged folder goes into the chat; the staging copy is removed after.
@@ -876,6 +902,10 @@ async fn folder_send(svc: &PhoneService, req: &Request) -> Response {
         Ok(sent) => announce(svc, sent),
         Err(e) => Response::error(400, &e),
     }
+}
+
+pub(super) fn announce_sent(svc: &PhoneService, sent: Vec<SentFile>) -> Response {
+    announce(svc, sent)
 }
 
 /// The message a file or recording from the phone became: the desktop

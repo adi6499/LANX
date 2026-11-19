@@ -2877,7 +2877,7 @@ dependencies = [
 
 [[package]]
 name = "lanx"
-version = "3.19.0"
+version = "3.20.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "argon2",

@@ -19,8 +19,7 @@ import {
   Timer,
   Gauge,
   Stethoscope,
-  MessageCircle,
-} from "lucide-react";
+  MessageCircle, Smartphone, FolderOpen } from "lucide-react";
 import { FileIcon } from "./FileCard";
 import { PeerPicker, groupPickReason } from "./NewGroupModal";
 import { api, errorText } from "../lib/api";
@@ -309,6 +308,41 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       )}
     </div>
   );
+
+  // LANX 3.20.0: the "My phone" chat: where things land, and the way to them.
+  if (conversation.kind === "self") {
+    return (
+      <aside data-self-panel className={`w-72 m-2 ml-0 rounded-[20px] lanx-glass flex flex-col overflow-y-auto select-none shrink-0 ${closing ? "lanx-panel-out" : "lanx-panel-in"}`}>
+        <div className="p-4 border-b lanx-line flex items-center justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Your phone</span>
+          <button type="button" onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-[var(--lanx-fill)] transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-6 text-center border-b lanx-line">
+          <span className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-[22px] bg-sky-500 text-white shadow-md">
+            <Smartphone className="h-9 w-9" />
+          </span>
+          <div className="text-[15px] font-semibold text-slate-900 dark:text-white">My phone</div>
+          <p className="mt-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400">
+            On your phone this chat is called “My PC”. What you put in it there comes only to this PC — files and photos of any size, notes and links. Files are kept in Downloads › From my phone.
+          </p>
+          <p className="mt-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400">Drop a file here to take it on your phone: it stays where it is on this PC, and the phone downloads it.</p>
+          <button
+            type="button"
+            data-self-panel-folder
+            onClick={() => api.openSelfChatFolder().catch(() => undefined)}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-sky-500 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-sky-600"
+          >
+            <FolderOpen className="h-4 w-4" /> Open the folder
+          </button>
+        </div>
+        <div className="p-4 text-[12px] text-slate-500 dark:text-slate-400" data-self-panel-files>
+          {chatTransfers.length === 0 ? "Nothing here yet." : `${chatTransfers.length} ${chatTransfers.length === 1 ? "file" : "files"} in this chat.`}
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className={`w-72 m-2 ml-0 rounded-[20px] lanx-glass flex flex-col overflow-y-auto select-none shrink-0 ${closing ? "lanx-panel-out" : "lanx-panel-in"}`}>

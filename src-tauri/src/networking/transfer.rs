@@ -102,7 +102,7 @@ pub fn format_size(bytes: u64) -> String {
 }
 
 /// Chat line for a file ("📎 report.pdf") or a folder ("📁 Q3 Accounts").
-fn file_label(file_name: &str, folder: bool) -> String {
+pub(super) fn file_label(file_name: &str, folder: bool) -> String {
     if folder {
         format!("📁 {}", file_name.strip_suffix(".zip").unwrap_or(file_name))
     } else {
@@ -257,6 +257,10 @@ impl NetworkService {
             .get_conversation(conversation_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Conversation not found".to_string())?;
+        // LANX 3.20.0: the "My phone" chat: files stay on this PC.
+        if conv.kind == "self" {
+            return self.send_self_files(&conv, paths).await;
+        }
 
         // Who receives a copy: the contact, or every other group member.
         let recipients: Vec<Peer> = if conv.kind == "group" {

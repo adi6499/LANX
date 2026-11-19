@@ -342,7 +342,9 @@ pub(crate) fn notice_for(svc: &PhoneService, name: &str, payload: &Value) -> Opt
     match name {
         "lanx://message-received" => {
             let m: Message = serde_json::from_value(payload["message"].clone()).ok()?;
-            if m.is_outgoing || !matches!(m.message_type.as_str(), "text" | "file" | "sticker" | "card") {
+            // LANX 3.20.0: what the PC puts into "My PC" is for the phone: it gets a notification.
+            let from_pc = m.is_outgoing && m.receiver_id == crate::networking::selfchat::FROM_PC && m.conversation_id == crate::networking::selfchat::SELF_CHAT_ID;
+            if (m.is_outgoing && !from_pc) || !matches!(m.message_type.as_str(), "text" | "file" | "sticker" | "card") {
                 return None;
             }
             let db = &svc.network.db;
@@ -367,6 +369,7 @@ pub(crate) fn notice_for(svc: &PhoneService, name: &str, payload: &Value) -> Opt
                         None => c.peer_name.clone(),
                     }
                 }
+                Some(c) if c.kind == "self" => "From your PC".to_string(),
                 Some(c) => c.peer_name.clone(),
                 None => "LANX".to_string(),
             };

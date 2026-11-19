@@ -1,7 +1,7 @@
 /** LANX 3.x phone page: the pieces screens share — bubbles, file cards,
  *  reaction chips, the bottom sheet, and small helpers. */
 import { useRef, type ReactNode } from "react";
-import { AlarmClock, Check, CheckCheck, Clock, Download, FileText, Pin, Star, Timer, X } from "lucide-react";
+import { AlarmClock, Check, CheckCheck, Clock, Download, FileText, Monitor, Pin, Star, Timer, X } from "lucide-react";
 import type { Profile } from "../types";
 import { MessageText, isForwarded, withoutForwardMark } from "../components/chat/chatUtils";
 import { CardView } from "../components/org/CardView";
@@ -223,6 +223,20 @@ export function FileBody({ m, isOut, client, progress, onAccept }: { m: PhoneMes
   );
 }
 
+/** LANX 3.20.0: the "My PC" chat (files and notes between this phone and your own PC). */
+export const SELF_CHAT_ID = "self-phone";
+export const isSelfChat = (c: { kind: string } | null | undefined) => c?.kind === "self";
+/** A chat's name on the phone ("My PC" for the chat with your own PC). */
+export const chatName = (c: { kind: string; peer_name: string }) => (c.kind === "self" ? "My PC" : c.peer_name);
+/** The picture of the "My PC" chat: a screen on a plain sky-blue square. */
+export function SelfAvatar({ size }: { size: number }) {
+  return (
+    <span className="flex shrink-0 items-center justify-center rounded-[12px] bg-sky-500 text-white" style={{ width: size, height: size }} data-ph-self-avatar>
+      <Monitor style={{ width: size * 0.5, height: size * 0.5 }} />
+    </span>
+  );
+}
+
 export function StickerBody({ id, stickers }: { id: string; stickers: StickerInfo[] }) {
   const s = stickers.find((x) => x.id === id);
   return (
@@ -323,7 +337,8 @@ export function Bubble({
   /** 3.4: "Join again" on a meeting card. */
   onRejoin?: (messageId: string) => void;
 }) {
-  const isOut = m.is_outgoing;
+  // LANX 3.20.0: in "My PC", what the PC put there comes from the other side.
+  const isOut = m.is_outgoing && m.receiver_id !== "pc";
   const press = useLongPress(() => onActions(m));
   if (m.message_type === "system" || m.message_type === "secret_setting") {
     return (

@@ -301,6 +301,7 @@ fn hidden_ok(svc: &PhoneService) -> bool {
 }
 
 fn conversations(svc: &PhoneService) -> Value {
+    let _ = svc.network.ensure_self_chat();
     serde_json::to_value(svc.network.db.get_conversations(hidden_ok(svc)).unwrap_or_default()).unwrap_or(Value::Array(vec![]))
 }
 
@@ -759,7 +760,13 @@ pub(super) async fn handle_op(svc: &PhoneService, client: &Client, text: &str) -
             let text = v["text"].as_str().unwrap_or("");
             let reply_to = v["reply_to"].as_str().map(|s| s.to_string());
             let mentions = strings(&v["mentions"]);
-            match svc.network.send_message_full(conv, text, reply_to, mentions).await {
+            // LANX 3.20.0: in "My PC" the text stays on this PC, marked as from the phone.
+            let sent = if conv == crate::networking::selfchat::SELF_CHAT_ID {
+                svc.network.send_self_text(conv, text, reply_to)
+            } else {
+                svc.network.send_message_full(conv, text, reply_to, mentions).await
+            };
+            match sent {
                 Ok(m) => {
                     let message = announce(svc, client, &m);
                     ok(&id, obj(json!({ "message": message })))

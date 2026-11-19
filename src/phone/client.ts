@@ -608,6 +608,95 @@ export class PhoneClient {
   checkConnection(peerId: string) {
     return this.request<{ check: ConnectionCheck }>("check_connection", { peer_id: peerId });
   }
+  /** LANX 3.20.0: one file, in pieces of 8 MB. When a piece does not get through (Wi-Fi dropped,
+   *  the phone went to sleep) it asks the PC how much arrived and goes on from there, for up to ten
+   *  minutes without any progress. Into a chat (`conv`: the message comes back) or into a folder
+   *  being put together (`batch` and `path`: null comes back). The screen is kept awake meanwhile. */
+  async uploadInPieces(target: { conv?: string; batch?: string; path?: string }, file: File, onProgress: (sent: number, total: number, note: string) => void): Promise<PhoneMessage | null> {
+    const auth = { Authorization: `Bearer ${this.token}` };
+    const size = file.size;
+    const start = await fetch("/api/upload-start", {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...target, name: file.name || `file-${Date.now()}`, size }),
+      credentials: "same-origin",
+    });
+    const s = (await start.json().catch(() => ({}))) as { id?: string; error?: string };
+    if (!start.ok || !s.id) throw new Error(s.error ?? `failed (${start.status})`);
+    const id = s.id;
+    const awake = new KeepAwake();
+    let have = 0;
+    let stuckSince = 0;
+    let wait = 1000;
+    try {
+      while (have < size) {
+        const end = Math.min(size, have + PIECE);
+        const at = have;
+        const r = await this.sendPiece(id, at, file.slice(at, end), (n) => onProgress(at + n, size, `${bytes(at + n)} of ${bytes(size)}`));
+        if (r.ok) {
+          have = r.have;
+          stuckSince = 0;
+          wait = 1000;
+          continue;
+        }
+        if (r.fatal) throw new Error(r.error);
+        // Not through: wait a moment, ask the PC how much it has, and go on from there.
+        stuckSince ||= Date.now();
+        if (Date.now() - stuckSince > STUCK_MS) throw new Error("The connection to your PC was lost for too long. Send the file again when the phone is back on the office Wi-Fi.");
+        onProgress(have, size, `${bytes(have)} of ${bytes(size)} · waiting for the connection to your PC…`);
+        await new Promise((ok) => setTimeout(ok, wait));
+        wait = Math.min(10_000, wait * 2);
+        const st = await fetch(`/api/upload-status?id=${id}`, { headers: auth, credentials: "same-origin" }).catch(() => null);
+        if (st?.ok) have = ((await st.json().catch(() => ({}))) as { have?: number }).have ?? have;
+        else if (st && st.status === 404) throw new Error("Your PC no longer has this file's pieces. Send it again.");
+      }
+      onProgress(size, size, "Your PC is putting it together…");
+      for (let i = 0; i < 6; i++) {
+        const f = await fetch(`/api/upload-finish?id=${id}`, { method: "POST", headers: auth, credentials: "same-origin" }).catch(() => null);
+        if (!f) {
+          await new Promise((ok) => setTimeout(ok, 2000));
+          continue;
+        }
+        const j = (await f.json().catch(() => ({}))) as { message?: PhoneMessage; ok?: boolean; error?: string };
+        if (f.ok) return j.message ?? null;
+        throw new Error(j.error ?? `failed (${f.status})`);
+      }
+      throw new Error("Your PC did not answer. Send the file again.");
+    } catch (e) {
+      void fetch(`/api/upload-cancel?id=${id}`, { method: "POST", headers: auth, credentials: "same-origin" }).catch(() => undefined);
+      throw e;
+    } finally {
+      awake.release();
+    }
+  }
+
+  /** One piece. ok: the PC has it (`have`: how much it has now); fatal: no point trying again. */
+  private sendPiece(id: string, at: number, piece: Blob, onSent: (n: number) => void): Promise<{ ok: true; have: number } | { ok: false; fatal: boolean; error: string }> {
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `/api/upload-piece?id=${id}&at=${at}`);
+      xhr.setRequestHeader("Authorization", `Bearer ${this.token}`);
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      xhr.timeout = 120_000;
+      xhr.upload.onprogress = (e) => onSent(e.loaded);
+      xhr.onload = () => {
+        let j: { have?: number; error?: string } = {};
+        try {
+          j = JSON.parse(xhr.responseText) as typeof j;
+        } catch {
+          /* keep */
+        }
+        if (xhr.status === 200 && typeof j.have === "number") resolve({ ok: true, have: j.have });
+        else if (xhr.status === 409 && typeof j.have === "number") resolve({ ok: true, have: j.have });
+        else if ([401, 403, 404, 423, 507].includes(xhr.status)) resolve({ ok: false, fatal: true, error: j.error ?? `failed (${xhr.status})` });
+        else resolve({ ok: false, fatal: false, error: j.error ?? `failed (${xhr.status})` });
+      };
+      xhr.onerror = () => resolve({ ok: false, fatal: false, error: "offline" });
+      xhr.ontimeout = () => resolve({ ok: false, fatal: false, error: "timeout" });
+      xhr.send(piece);
+    });
+  }
+
   /** A whole folder (Android): each file to the PC, then the folder into the chat. */
   async sendFolder(conv: string, files: File[], onProgress: (done: number, total: number) => void): Promise<PhoneMessage> {
     const batch = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -615,6 +704,12 @@ export class PhoneClient {
     let done = 0;
     for (const f of files) {
       const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || `${root}/${f.name}`;
+      // LANX 3.20.0: a big file of the folder goes in pieces too.
+      if (f.size > PIECES_FROM) {
+        await this.uploadInPieces({ batch, path: rel }, f, () => undefined);
+        onProgress(++done, files.length);
+        continue;
+      }
       const r = await fetch(`/api/folder-file?batch=${batch}&path=${encodeURIComponent(rel)}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" },
@@ -658,8 +753,15 @@ export class PhoneClient {
     return j.message;
   }
 
-  /** Sends a photo or file into a chat (with progress 0–100). */
-  upload(conv: string, file: File, onProgress: (pct: number) => void): Promise<PhoneMessage> {
+  /** Sends a photo or file into a chat (with progress 0–100, and for a big file a few words on how far it is).
+   *  LANX 3.20.0: a file over 32 MB goes in pieces, so there is no limit on its size (only the PC's free disk space). */
+  upload(conv: string, file: File, onProgress: (pct: number, note?: string) => void): Promise<PhoneMessage> {
+    if (file.size > PIECES_FROM) {
+      return this.uploadInPieces({ conv }, file, (sent, total, note) => onProgress(Math.min(99, Math.floor((sent / total) * 100)), note)).then((m) => {
+        if (!m) throw new Error("upload failed");
+        return m;
+      });
+    }
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       const name = file.name || `photo-${Date.now()}.jpg`;
@@ -689,5 +791,50 @@ export class PhoneClient {
       xhr.onerror = () => reject(new Error("offline"));
       xhr.send(file);
     });
+  }
+}
+
+// ---------------------------------------------------------------- big files (LANX 3.20.0)
+
+/** Files bigger than this go in pieces. */
+const PIECES_FROM = 32 * 1024 * 1024;
+/** One piece. */
+const PIECE = 8 * 1024 * 1024;
+/** Without any progress for this long, a big file gives up. */
+const STUCK_MS = 10 * 60 * 1000;
+
+/** "1.2 GB", "340 MB". */
+export function bytes(n: number): string {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (n >= 1024 ** 2) return `${Math.round(n / 1024 ** 2)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+/** Keeps the phone's screen on while a big file is sent (a phone that goes to sleep stops sending).
+ *  Where the browser cannot, nothing happens. */
+class KeepAwake {
+  private lock: { release(): Promise<void> } | null = null;
+  private done = false;
+  private readonly again = () => {
+    if (document.visibilityState === "visible") void this.take();
+  };
+  constructor() {
+    void this.take();
+    document.addEventListener("visibilitychange", this.again);
+  }
+  private async take() {
+    if (this.done) return;
+    try {
+      const wl = (navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> } }).wakeLock;
+      if (wl) this.lock = await wl.request("screen");
+    } catch {
+      /* not allowed here: fine */
+    }
+  }
+  release() {
+    this.done = true;
+    document.removeEventListener("visibilitychange", this.again);
+    void this.lock?.release().catch(() => undefined);
+    this.lock = null;
   }
 }

@@ -1789,6 +1789,11 @@ export const api = {
     if (isTauri) return invoke("save_file_in_folder", bytes, { headers: { "x-folder": encodeURIComponent(folder), "x-file-name": encodeURIComponent(fileName) } });
     return previewOnly();
   },
+  /** LANX 3.20.0: opens Downloads › From my phone (the "My phone" chat's folder). */
+  openSelfChatFolder: async (): Promise<string> => {
+    if (isTauri) return invoke("open_self_chat_folder");
+    return "";
+  },
   /** Opens a folder the user picked in File Explorer. */
   openFolder: async (path: string): Promise<void> => {
     if (isTauri) return invoke("open_folder", { path });
