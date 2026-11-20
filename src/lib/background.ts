@@ -3,6 +3,7 @@
  *  <html>, so every screen follows the same choice. */
 import { syncWindowTone } from "./windowTone";
 import { lensFilter } from "./glass";
+import { magnifierOn, syncMagnifier } from "./magnifier";
 import { WALLS, type WallLook, applyColorStyle, colorStyle } from "./storybook";
 import { IS_LINUX } from "./platform";
 
@@ -222,4 +223,8 @@ export function applyAppearance(a: AppearanceChoice) {
   // its web engine does them on the processor, behind every panel, every frame.
   style.setProperty("--lanx-filter", g.solid || IS_LINUX ? "none" : `${lensFilter()}blur(${g.blur}px) saturate(${g.saturate}%)`);
   root.classList.toggle("lanx-solid", g.solid);
+  // LANX 3.21.0: the magnifying glass (lib/magnifier.ts) — not on solid panels.
+  const mag = magnifierOn() && !g.solid;
+  root.classList.toggle("lanx-mag", mag);
+  syncMagnifier(mag);
 }

@@ -7,6 +7,8 @@
  *  the page; lib/background.ts prefixes the panels' filter with it.
  *  (2.15.1: the light that followed the mouse is gone — too busy.) */
 
+import { magnifierOn } from "./magnifier";
+
 const LENS_KEY = "lanx_glass_lens";
 let lens = true;
 try {
@@ -25,7 +27,7 @@ export function setGlassLens(v: boolean) {
   }
 }
 /** The part of `backdrop-filter` that bends the view: nothing when the lens is off. */
-export const lensFilter = () => (lens ? "url(#lanx-lens) " : "");
+export const lensFilter = () => (lens && !magnifierOn() ? "url(#lanx-lens) " : "");
 
 let mapUrl: string | null = null;
 /** The displacement map: neutral in the middle, bending outward towards the

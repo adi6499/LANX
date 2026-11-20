@@ -688,8 +688,11 @@
     transition: background-color 0.2s var(--ease-out-soft), box-shadow 0.2s var(--ease-out-soft), border-color 0.2s var(--ease-out-soft);
   }
 }
-/* The dimmed background behind a window fades in */
-.lanx-scrim { animation: lanx-fade 0.26s var(--ease-out-soft) both; }
+/* The dimmed background behind a window fades in — its colour, not its opacity
+   (LANX 3.21.0: an opacity animation, kept on by "both", switched off the glass of
+   every window on top of it: the window could only see the dimmed layer). */
+@keyframes lanx-scrim-in { from { background-color: transparent; } }
+.lanx-scrim { animation: lanx-scrim-in 0.26s var(--ease-out-soft) backwards; }
 /* A window on its way out (usePresence in lib/motion.ts marks it .lanx-closing) */
 @keyframes lanx-fade-out { to { opacity: 0; } }
 @keyframes lanx-sheet-out { to { opacity: 0; transform: translateY(10px) scale(0.98); } }
@@ -915,4 +918,43 @@
 :root:is(.lanx-linux, .lanx-lite) .lanx-wallscreen-drift { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .lanx-wallscreen-drift, .lanx-wallscreen-rise { animation: none !important; }
+}
+
+/* LANX 3.21.0: the magnifying glass (lib/magnifier.ts hands each glass element its
+   own lens in --lanx-lens). Clear glass, frosted only a touch so the text on it
+   reads, that shows what passes under it bigger and drawn out at its edges — on
+   everything: panels, bars, windows, menus, cards, the island and the cat's bubble.
+   Settings → Appearance → Glass → Magnifying glass turns it off. Not on Linux. */
+@property --lanx-lens {
+  syntax: "*";
+  inherits: false;
+}
+:root {
+  --lanx-mag-filter: blur(1.5px) saturate(150%) brightness(1.02);
+}
+:root.lanx-mag :is(.lanx-glass, .lanx-bar, .lanx-sheet, .lanx-menu, .lanx-card, .lanx-island, .lanx-cat-bubble) {
+  -webkit-backdrop-filter: var(--lanx-lens,) var(--lanx-mag-filter);
+  backdrop-filter: var(--lanx-lens,) var(--lanx-mag-filter);
+}
+/* How much of its own colour each kind keeps: bars and panels least; windows, menus
+   and cards a little more (they hold the most text). Over a wallpaper of the other
+   tone a little more again. */
+:root.lanx-mag .lanx-bar {
+  background-color: color-mix(in srgb, var(--lanx-surface-c) calc(max(0.3, var(--lanx-glass-floor, 0) * 0.6) * 100%), transparent);
+}
+:root.lanx-mag .lanx-glass {
+  background-color: color-mix(in srgb, var(--lanx-surface-c) calc(max(0.34, var(--lanx-glass-floor, 0) * 0.65) * 100%), transparent);
+}
+:root.lanx-mag :is(.lanx-sheet, .lanx-menu) {
+  background-color: color-mix(in srgb, var(--lanx-surface-c) calc(max(0.68, var(--lanx-glass-floor, 0) * 0.85) * 100%), transparent);
+}
+:root.lanx-mag .lanx-card {
+  background-color: color-mix(in srgb, var(--lanx-surface) calc(max(0.55, var(--lanx-glass-floor, 0) * 0.8) * 100%), transparent);
+}
+/* The island and the cat's bubble: dark glass for the island's white writing. */
+:root.lanx-mag .lanx-island {
+  background: rgb(0 0 0 / 0.56);
+}
+:root.lanx-mag .lanx-cat-bubble {
+  background: color-mix(in srgb, var(--lanx-surface) 62%, transparent);
 }

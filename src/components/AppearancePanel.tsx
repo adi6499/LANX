@@ -12,6 +12,7 @@ import {
   backgroundCss,
 } from "../lib/background";
 import { glassLensOn, setGlassLens } from "../lib/glass";
+import { canMagnify, magnifierWanted, setMagnifier } from "../lib/magnifier";
 import { colorStyle } from "../lib/storybook";
 import { IS_LINUX } from "../lib/platform";
 import { Origin, originOf, revealChange, setMotion } from "../lib/motion";
@@ -114,6 +115,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
   const [glass, setGlass] = useState(form.glass_level);
   const [frost, setFrost] = useState(form.frost_level);
   const [lensOn, setLensOn] = useState(glassLensOn());
+  const [magOn, setMagOn] = useState(canMagnify && magnifierWanted());
   const timer = useRef<number | undefined>(undefined);
   const dark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
 
@@ -318,6 +320,41 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
       </Section>
 
       <Section title="Glass" hint="How the panels let your background through">
+        {canMagnify && (
+          <div data-glass-mag className={magOn ? "" : "mb-5"}>
+            <span className="flex items-center justify-between gap-4">
+              <span>
+                <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200">Magnifying glass</span>
+                <span className="block text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                  Clear glass, like Apple&apos;s: what passes under a bar, a panel or a menu shows bigger and stretches at the edges. Turn it off for the frosted glass.
+                </span>
+              </span>
+              <span className="flex shrink-0 rounded-[10px] bg-[var(--lanx-fill)] p-[3px]" role="group" aria-label="Magnifying glass">
+                {([true, false] as const).map((v) => (
+                  <button
+                    key={String(v)}
+                    type="button"
+                    aria-pressed={magOn === v}
+                    data-mag={v ? "on" : "off"}
+                    onClick={() => {
+                      setMagnifier(v);
+                      setMagOn(v);
+                      applyAppearance({ ...form, glass_level: glass, frost_level: frost });
+                    }}
+                    className={`px-3.5 py-1.5 rounded-[8px] text-[11px] font-semibold transition-all ${
+                      magOn === v
+                        ? "bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    {v ? "On" : "Off"}
+                  </button>
+                ))}
+              </span>
+            </span>
+          </div>
+        )}
+        {!magOn && (<>
         <div className="flex rounded-[10px] bg-[var(--lanx-fill)] p-[3px] mb-4" data-glass-presets>
           {GLASS_PRESETS.map((p) => (
             <button
@@ -395,13 +432,16 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({ form, onTheme,
             className="mt-0.5 h-4 w-4 accent-sky-500"
           />
         </label>
+        </>)}
         {IS_LINUX && (
           <p data-linux-glass-note className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
             On Linux the glass is see-through but not frosted, and a little more solid, so LANX stays smooth.
           </p>
         )}
         <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-          {glass === 0
+          {magOn
+            ? "If LANX ever feels slow on an older computer, turn the magnifying glass off."
+            : glass === 0
             ? "Solid panels: no see-through effect. Easiest to read and lightest on older computers."
             : "Slide Transparency to the left for solid panels, or press Solid, if LANX ever feels slow on an older computer."}
         </p>

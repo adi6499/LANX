@@ -22,6 +22,16 @@ export interface Release {
  *  pops up after the update, and Settings → Updates → "What's new" shows the last entry there is). */
 export const RELEASES: Release[] = [
   {
+    version: "3.21.0",
+    title: "Magnifying glass",
+    items: [
+      { icon: "🔍", title: "Clear glass, like Apple's", text: "Every bar, panel, window, menu, card and pop-up in LANX is now clear glass. What passes under it shows bigger, and stretches out at the edges, like looking through a magnifying glass." },
+      { icon: "🪟", title: "Frosted just a touch", text: "Only a little frost, so the writing on the glass stays easy to read while you still see what is behind it." },
+      { icon: "🔘", title: "Its own On / Off button", text: "Settings → Appearance → Glass → Magnifying glass. Turn it off to go back to the frosted glass and its sliders, for example on an older PC. (On Linux the glass stays as it was.)" },
+      { icon: "✨", title: "Windows are glass again", text: "Settings and the other windows had quietly lost their glass. It is back." },
+    ],
+  },
+  {
     version: "3.20.0",
     title: "Big files from the phone, and a chat with your own PC",
     items: [
